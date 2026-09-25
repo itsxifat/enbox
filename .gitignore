@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.vite/
+# runtime data (embedded database, uploaded media)
+apps/server/data/
+data/
+uploads/
+# playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+# capacitor native projects are generated on demand
+apps/web/android/
+apps/web/ios/

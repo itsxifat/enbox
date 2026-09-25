@@ -1,0 +1,39 @@
+{
+  "name": "@enbox/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Enbox web / PWA client (React, Vite, Tailwind).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@enbox/shared": "0.1.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "emoji-picker-react": "^4.13.0",
+    "lucide-react": "^1.48.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router": "^7.9.0",
+    "react-virtuoso": "^4.14.0",
+    "socket.io-client": "^4.8.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^26.1.0",
+    "tailwindcss": "^4.1.0",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.7"
+  }
+}

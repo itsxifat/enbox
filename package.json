@@ -1,0 +1,38 @@
+{
+  "name": "enbox",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Enbox — a WhatsApp/WeChat-style messenger: chats, groups, communities, channels, status and voice/video calls.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @enbox/server\" \"npm run dev -w @enbox/web\"",
+    "build": "npm run build -w @enbox/web && npm run build -w @enbox/server",
+    "start": "npm run start -w @enbox/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "e2e": "playwright test",
+    "db:generate": "npm run db:generate -w @enbox/server"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.20.0",
+    "concurrently": "^9.2.0",
+    "eslint": "^10.0.0",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.6.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}
