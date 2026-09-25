@@ -12,7 +12,7 @@
  *   new messages arrive while visible; `installReadTracking()` also calls it for the open
  *   chat when the window regains focus.
  */
-import { type ID, type Message } from '@enbox/shared';
+import { type ChatSummary, type ID, type Message } from '@enbox/shared';
 import { api } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { isAppFocused } from '@/lib/notify';
@@ -44,6 +44,22 @@ export function markChatRead(chatId: ID, opts: { force?: boolean } = {}): boolea
     markedUnread: false,
   });
   return true;
+}
+
+/**
+ * Watermarks only move forward: events can arrive out of order (REST response vs socket,
+ * several devices), so keep the MAX of the cached and incoming values. The one legitimate
+ * decrease is `readWatermark: 0` in a direct chat (read receipts turned off on either side).
+ */
+export function mergeWatermarks(
+  current: Pick<ChatSummary, 'type' | 'readWatermark' | 'deliveredWatermark'>,
+  incoming: { readWatermark: number; deliveredWatermark: number },
+): { readWatermark: number; deliveredWatermark: number } {
+  const readOff = current.type === 'direct' && incoming.readWatermark === 0;
+  return {
+    readWatermark: readOff ? 0 : Math.max(current.readWatermark, incoming.readWatermark),
+    deliveredWatermark: Math.max(current.deliveredWatermark, incoming.deliveredWatermark),
+  };
 }
 
 export function registerChatHandlers(socket: AppSocket): void {
@@ -87,7 +103,9 @@ export function registerChatHandlers(socket: AppSocket): void {
   );
 
   socket.on('chat:watermarks', ({ chatId, readWatermark, deliveredWatermark }) => {
-    chats().patchChat(chatId, { readWatermark, deliveredWatermark });
+    const chat = chats().byId[chatId];
+    if (!chat) return;
+    chats().patchChat(chatId, mergeWatermarks(chat, { readWatermark, deliveredWatermark }));
   });
 
   socket.on('chat:typing', ({ chatId, userId, state }) => {
