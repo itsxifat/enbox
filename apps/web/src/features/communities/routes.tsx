@@ -8,6 +8,7 @@ import { lazyNamed } from '@/lib/lazy';
 
 const CommunitiesPane = lazyNamed(() => import('./CommunitiesPane'), 'CommunitiesPane');
 const CommunityPane = lazyNamed(() => import('./CommunityPane'), 'CommunityPane');
+const NewCommunityPane = lazyNamed(() => import('./NewCommunityPane'), 'NewCommunityPane');
 
 const detail: RouteHandle = { detail: true };
 
@@ -26,6 +27,9 @@ export const communitiesRoutes: RouteObject[] = [
         }
       />
     ),
-    children: [{ path: ':communityId', element: <CommunityPane />, handle: detail }],
+    children: [
+      { path: 'new', element: <NewCommunityPane />, handle: detail },
+      { path: ':communityId', element: <CommunityPane />, handle: detail },
+    ],
   },
 ];

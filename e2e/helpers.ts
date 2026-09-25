@@ -63,3 +63,30 @@ export async function makeContacts(a: E2EUser, b: E2EUser): Promise<void> {
   await apiAs(a, 'POST', '/api/contacts', { userId: b.user.id });
   await apiAs(b, 'POST', '/api/contacts', { userId: a.user.id });
 }
+
+// --- Groups, communities, channels, invites (agent 3) ---------------------------------
+
+/** Open the info panel of the conversation on screen by clicking its header title. */
+export async function openChatInfo(page: Page, title: string): Promise<void> {
+  await page.locator('header').getByText(title, { exact: true }).first().click();
+}
+
+/** Create a group via the API as `owner` (members are added directly). */
+export async function createGroupAs(
+  owner: E2EUser,
+  name: string,
+  members: E2EUser[] = [],
+  extra: Record<string, unknown> = {},
+): Promise<{ id: string; inviteCode: string | null }> {
+  const r = await apiAs<{ chat: { id: string; inviteCode: string | null } }>(
+    owner,
+    'POST',
+    '/api/groups',
+    {
+      name,
+      memberIds: members.map((m) => m.user.id),
+      ...extra,
+    },
+  );
+  return r.chat;
+}

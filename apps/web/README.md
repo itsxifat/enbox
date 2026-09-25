@@ -296,3 +296,29 @@ phone/desktop screenshots to `docs/screenshots/`:
 ```bash
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node apps/web/scripts/screenshots.mjs   # BASE, ONLY, OUT env
 ```
+
+---
+
+## Groups, communities, channels & invites (agent 3)
+
+Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/new`,
+`/communities/:communityId`; `/updates/channels/discover`, `/updates/channels/new`,
+`/updates/channels/:chatId` (follower feed, or a Follow preview for non-followers);
+`/join/:code` (invite landing). Screenshots: `docs/screenshots/b3-*.png`.
+
+- **Info panels**: `GroupInfoPanel` / `ChannelInfoPanel` keep the `{ chatId, onClose }`
+  contract and drill into their own pages (members, add members, invite link, settings,
+  media/links/docs, starred) inside the same `<Sheet>`.
+- **Reusable pieces** (`features/groups/shared/`): `UserPicker` (contacts + recent chats +
+  user search, chips), `EditableAvatar` + `AvatarCropModal` (crop → canvas JPEG ≤
+  AVATAR_MAX_DIMENSION → upload), `InviteLinkView`, `AddResultModal` (needsInvite / failed),
+  `MediaGalleryView`, `StarredView`, `UserProfileModal`, `InfoLayout` rows, mute /
+  disappearing / edit dialogs, and `chatActions.ts` (REST calls that update the stores).
+- **Communities store** (appended actions): `createCommunity`, `updateCommunity`,
+  `deactivateCommunity`, `leaveCommunity`, `createCommunityGroup`, `linkGroups`, `unlinkGroup`,
+  `joinGroup`, `fetchMembers`, `addMembers`, `removeMember`, `setRole`, `transferOwnership`,
+  `getInvite`, `resetInvite`; hooks `useCommunity(id)`, `isCommunityAdmin(c)`.
+- **Channel feed** (`ChannelPane`) is channel-specific rather than the chat
+  `ConversationPane`: posts carry the channel identity, reactions follow
+  `channelSettings.reactions` (quick / any emoji via the lazy picker / none), followers vote in
+  polls, admins get a composer (text, photos/videos, documents, polls) and post edit/delete.
