@@ -267,4 +267,37 @@ test.describe('settings', () => {
     );
     await context.close();
   });
+
+  test('delete account requires the password and signs out', async ({ browser }) => {
+    const user = await registerUser({ displayName: 'Leaving Soon' });
+    const { page, context } = await openAs(browser, user, '/settings/account');
+    await page.getByTestId('delete-account-row').click();
+    const submit = page.getByRole('button', { name: 'Delete my account' });
+    await expect(submit).toBeDisabled();
+    await page.getByLabel('Confirm with your password').fill('wrong-password');
+    await page.getByText("I understand this can't be undone").click();
+    await submit.click();
+    await page
+      .getByRole('dialog', { name: 'Delete your account permanently?' })
+      .getByRole('button', { name: 'Delete account' })
+      .click();
+    await expect(page.getByRole('alert')).toContainText(/incorrect password/i);
+
+    await page.getByLabel('Confirm with your password').fill(user.password);
+    await submit.click();
+    await page
+      .getByRole('dialog', { name: 'Delete your account permanently?' })
+      .getByRole('button', { name: 'Delete account' })
+      .click();
+    await expect(page).toHaveURL(/\/login/);
+
+    // The account can no longer log in.
+    const res = await pwRequest.newContext({ baseURL: API_URL });
+    const login = await res.post('/api/auth/login', {
+      data: { identifier: user.user.username, password: user.password },
+    });
+    expect(login.status()).toBe(401);
+    await res.dispose();
+    await context.close();
+  });
 });
