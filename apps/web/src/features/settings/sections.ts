@@ -1,7 +1,8 @@
 import {
   Bell,
+  CircleHelp,
   CircleUserRound,
-  Info,
+  HardDrive,
   KeyRound,
   Laptop,
   Lock,
@@ -27,7 +28,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'account',
     title: 'Account',
-    description: 'Password, phone number, delete account',
+    description: 'Password, security, delete account',
     icon: KeyRound,
   },
   {
@@ -45,14 +46,20 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'notifications',
     title: 'Notifications',
-    description: 'Messages, groups, calls',
+    description: 'Messages, groups and calls',
     icon: Bell,
   },
   {
     id: 'devices',
     title: 'Linked devices',
-    description: 'Sessions signed in to your account',
+    description: 'Manage where you’re logged in',
     icon: Laptop,
   },
-  { id: 'help', title: 'Help', description: 'About Enbox', icon: Info },
+  {
+    id: 'storage',
+    title: 'Storage and data',
+    description: 'Space used, upload limits',
+    icon: HardDrive,
+  },
+  { id: 'help', title: 'Help', description: 'Help center, version, shortcuts', icon: CircleHelp },
 ];
