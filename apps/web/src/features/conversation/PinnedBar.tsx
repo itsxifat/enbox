@@ -24,11 +24,14 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
   const [index, setIndex] = useState(0);
   const active = chat.membership === 'active';
 
-  // Seed on open and refetch whenever the pinned set changes to one we can't render.
+  // Seed on open (the reconnect resync and a clear forget cached pin ids) and refetch
+  // whenever the pinned set changes to one we can't render.
   const missing = ids.some((id) => !fetched.some((m) => m.id === id));
+  const idsKey = ids.join(',');
   useEffect(() => {
     if (!active || (known && !missing)) return;
     let cancelled = false;
+    const before = useChats.getState().pins[chat.id];
     api
       .get<Message[]>(`/api/chats/${chat.id}/pins`)
       .then((list) => {
@@ -38,7 +41,9 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
           .getState()
           .fetchUsers(list.map((m) => m.senderId).filter((x): x is string => !!x))
           .catch(() => undefined);
-        if (!known)
+        // The server's list replaces cached ids (they may be stale) — unless a `chat:pins`
+        // event updated them while this request was in flight.
+        if (useChats.getState().pins[chat.id] === before)
           useChats.getState().setPins(
             chat.id,
             list.map((m) => m.id),
@@ -48,7 +53,7 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
     return () => {
       cancelled = true;
     };
-  }, [chat.id, active, known, missing]);
+  }, [chat.id, active, known, missing, idsKey]);
 
   const pins = useMemo(
     () =>

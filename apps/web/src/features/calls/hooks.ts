@@ -9,6 +9,7 @@ import type { Call, ID } from '@enbox/shared';
 import { storage } from '@/lib/storage';
 import { useMe } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
+import { useChats } from '@/stores/chats';
 import { countMissedSince, isPendingStatus, joinedOthers, participantOf } from './logic';
 
 export interface ChatCallState {
@@ -30,6 +31,11 @@ export function useActiveCallForChat(chatId: ID | null | undefined): ChatCallSta
   const me = useMe()?.id;
   const call = useCalls((s) => (chatId ? (s.liveCalls[chatId] ?? null) : null));
   const active = useCalls((s) => s.active);
+  // Former members can't join (the server answers 403 not_member).
+  const formerMember = useChats((s) => {
+    const chat = chatId ? s.byId[chatId] : undefined;
+    return !!chat && chat.membership !== 'active';
+  });
   const inCallHere =
     !!active && active.phase !== 'ended' && !!chatId && active.call.chatId === chatId;
   const mine = call && me ? participantOf(call, me) : undefined;
@@ -43,7 +49,13 @@ export function useActiveCallForChat(chatId: ID | null | undefined): ChatCallSta
     inCallHere,
     inCallElsewhere,
     ringingMe,
-    canJoin: !!call && call.isGroup && !inCallHere && !inCallElsewhere && joinedCount > 0,
+    canJoin:
+      !!call &&
+      call.isGroup &&
+      !formerMember &&
+      !inCallHere &&
+      !inCallElsewhere &&
+      joinedCount > 0,
     joinedCount,
   };
 }

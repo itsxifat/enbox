@@ -71,8 +71,11 @@ export interface ChatRowProps {
   chat: ChatSummary;
   to: string;
   active?: boolean;
-  /** Called after the chat was deleted from the menu. */
-  onDeleted?: () => void;
+  /**
+   * Called with the chat id after the chat was deleted from the menu. Pass a stable function
+   * (not an inline closure per row) so unchanged rows skip re-rendering.
+   */
+  onDeleted?: (chatId: string) => void;
 }
 
 export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: ChatRowProps) {
@@ -113,7 +116,7 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
     setMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const items = chatMenuItems(chat, { onDeleted });
+  const items = chatMenuItems(chat, { onDeleted: onDeleted && (() => onDeleted(chat.id)) });
   const title = chatTitle(chat, me);
 
   return (

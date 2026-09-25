@@ -30,10 +30,14 @@ import {
   Textarea,
   toast,
 } from '@/components/ui';
-import { api } from '@/lib/api';
+import {
+  isVisualMedia,
+  prepareVisualMedia,
+  type PreparedMedia,
+} from '@/features/conversation/lib/mediaProcessing';
+import { enqueueMedia, type MediaSendInput } from '@/features/conversation/lib/sendMedia';
 import { validate } from '@/lib/forms';
-import { newClientId } from '@/lib/ids';
-import { createObjectUrl, mediaKindForFile, probeMedia } from '@/lib/media';
+import { mediaKindForFile, probeMedia } from '@/lib/media';
 import { useMessages } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
 
@@ -57,31 +61,47 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
     textRef.current?.focus();
   };
 
-  const sendFile = async (file: File, asDocument: boolean) => {
-    const kind = asDocument ? 'file' : mediaKindForFile(file);
+  /**
+   * Photos and videos go through the same processing as chat media (re-encoded ≤
+   * IMAGE_MAX_DIMENSION without EXIF/GPS, thumbnail / video poster), one file at a time;
+   * only "Document" uploads the original file. The caption goes with the first file.
+   */
+  const sendFiles = async (files: File[], asDocument: boolean) => {
     const caption = text.trim().slice(0, MAX_CAPTION_LENGTH) || undefined;
     if (caption) setText('');
-    const clientId = newClientId();
-    const localUrl = kind === 'image' || kind === 'video' ? createObjectUrl(file) : undefined;
-    const store = useMessages.getState();
-    store.addOptimistic(chat.id, {
-      clientId,
-      type: kind,
-      text: caption ?? null,
-      localUrl,
-      uploadProgress: 0,
-    });
-    try {
-      const media = await api.upload(file, await probeMedia(file, kind), (p) =>
-        useMessages.getState().patchOptimistic(chat.id, clientId, { uploadProgress: p }),
-      );
-      await useMessages
-        .getState()
-        .sendMessage(chat.id, { clientId, type: kind, mediaId: media.id, text: caption });
-    } catch (err) {
-      useMessages.getState().markFailed(chat.id, clientId);
-      toast.error(err);
+    let uploads = Promise.resolve();
+    let captionUsed = false;
+    const enqueue = (input: MediaSendInput) => {
+      const job = enqueueMedia(chat.id, { ...input, caption: captionUsed ? undefined : caption });
+      captionUsed = true;
+      // Uploads run in order, while the next file is being processed.
+      uploads = uploads.then(job).catch(() => undefined);
+    };
+    for (const file of files) {
+      if (!asDocument && isVisualMedia(file)) {
+        let prepared: PreparedMedia;
+        try {
+          prepared = await prepareVisualMedia(file);
+        } catch {
+          toast.error(`Couldn’t process “${file.name}”`);
+          continue;
+        }
+        enqueue(prepared);
+        continue;
+      }
+      const kind = asDocument ? 'file' : mediaKindForFile(file);
+      const meta = kind === 'file' ? { kind } : await probeMedia(file, kind);
+      enqueue({
+        kind,
+        blob: file,
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        width: meta.width,
+        height: meta.height,
+        durationMs: meta.durationMs,
+      });
     }
+    await uploads;
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -140,7 +160,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          for (const f of files) void sendFile(f, false);
+          if (files.length) void sendFiles(files, false);
         }}
       />
       <input
@@ -150,7 +170,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = '';
-          if (f) void sendFile(f, true);
+          if (f) void sendFiles([f], true);
         }}
       />
       <PollModal chat={chat} open={pollOpen} onClose={() => setPollOpen(false)} />

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -28,7 +30,12 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
-    plugins: [react(), tailwindcss(), contentSecurityPolicy(env.VITE_API_URL)],
+    plugins: [
+      react(),
+      tailwindcss(),
+      contentSecurityPolicy(env.VITE_API_URL),
+      serviceWorkerVersion(),
+    ],
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },
@@ -65,6 +72,37 @@ export default defineConfig(({ mode }) => {
     },
   };
 });
+
+/**
+ * Stamp the (static, public) service worker with a build id derived from the emitted file
+ * names: its bytes then change with every deploy, the browser installs the new worker and
+ * its activate step drops the previous builds' asset caches (see public/sw.js).
+ */
+function serviceWorkerVersion(): Plugin {
+  const placeholder = '__ENBOX_BUILD_ID__';
+  let outDir = 'dist';
+  let buildId = '';
+  return {
+    name: 'enbox-sw-version',
+    apply: 'build',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    generateBundle(_options, bundle) {
+      buildId = createHash('sha256')
+        .update(Object.keys(bundle).sort().join('\n'))
+        .digest('hex')
+        .slice(0, 12);
+    },
+    closeBundle() {
+      const file = path.join(outDir, 'sw.js');
+      if (!existsSync(file)) return;
+      const source = readFileSync(file, 'utf8');
+      if (source.includes(placeholder))
+        writeFileSync(file, source.replaceAll(placeholder, buildId || Date.now().toString(36)));
+    },
+  };
+}
 
 /**
  * Production-only CSP `<meta>` (the API server disables its CSP header for the SPA).

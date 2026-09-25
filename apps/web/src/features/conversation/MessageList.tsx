@@ -25,6 +25,7 @@ import {
   buildRows,
   nextExpiry,
   reuseRows,
+  rowKeys,
   shiftFirstIndex,
   visibleMessages,
   type Row,
@@ -115,6 +116,8 @@ interface HeaderContext {
 
 const COMPONENTS = { Header: ListHeader, Footer: ListFooter };
 
+const followWhenAtBottom = (atBottom: boolean) => (atBottom ? ('smooth' as const) : false);
+
 export const MessageList = memo(function MessageList({
   chat,
   unread,
@@ -166,7 +169,14 @@ export const MessageList = memo(function MessageList({
     prevRows.current = next;
     return next;
   }, [items, me, unread, msgs.hasMoreBefore]);
-  const keys = useMemo(() => rows.map((r) => r.key), [rows]);
+  // Same keys → same array: an update that only changes row contents (upload progress,
+  // reactions) doesn't re-run the firstItemIndex bookkeeping (and its second render).
+  const prevKeys = useRef<string[]>([]);
+  const keys = useMemo(() => {
+    const next = rowKeys(rows, prevKeys.current);
+    prevKeys.current = next;
+    return next;
+  }, [rows]);
 
   // firstItemIndex bookkeeping (derived state, updated during render).
   const [track, setTrack] = useState<Track>(() => ({
@@ -344,6 +354,14 @@ export const MessageList = memo(function MessageList({
   const setScroller = useCallback((el: HTMLElement | Window | null) => {
     scroller.current = el instanceof HTMLElement ? el : null;
   }, []);
+  // Follow new messages only when the newest page was already shown before this update: rows
+  // appended to an older window (`loadNewer` after a jump) must not drag the jump target away.
+  // (The ref holds the previous render's state; Virtuoso reads the prop with the new data.)
+  const showedLatest = useRef(!msgs.hasMoreAfter);
+  useEffect(() => {
+    showedLatest.current = !msgs.hasMoreAfter;
+  }, [msgs.hasMoreAfter, msgs.items]);
+
   const loaded = msgs.loaded;
   useEffect(() => {
     const el = wrapper.current;
@@ -450,7 +468,7 @@ export const MessageList = memo(function MessageList({
         initialTopMostItemIndex={track.initial}
         computeItemKey={(_, r) => r.key}
         itemContent={renderRow}
-        followOutput={(bottom) => (bottom ? 'smooth' : false)}
+        followOutput={showedLatest.current ? followWhenAtBottom : false}
         alignToBottom
         startReached={loadOlder}
         endReached={loadNewer}

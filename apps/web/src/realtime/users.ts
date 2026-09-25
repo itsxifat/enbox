@@ -24,9 +24,14 @@ export function registerUserHandlers(socket: AppSocket): void {
       .then(() => {
         const user = useUsers.getState().byId[userId];
         if (!user) return;
-        const { byId, patchChat } = useChats.getState();
+        const { byId, mutateChat } = useChats.getState();
+        // Patching the peer also recomputes the direct chat's permissions: a deleted (or
+        // blocked) peer can't be messaged or called — the server sends no chat:upsert for it.
         for (const chat of Object.values(byId)) {
-          if (chat.peer?.id === userId) patchChat(chat.id, { peer: { ...chat.peer, ...user } });
+          if (chat.peer?.id === userId)
+            mutateChat(chat.id, (c) =>
+              c.peer?.id === userId ? { peer: { ...c.peer, ...user } } : null,
+            );
         }
       });
     bus.emit('user:changed', { userId });

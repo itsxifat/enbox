@@ -11,7 +11,7 @@
  *   ChannelInfoPanel (channel), all `{ chatId, onClose }`, inside a <Sheet>
  * - calls start with `useCalls().startCall(chatId, 'audio' | 'video')`
  */
-import { Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { MessageCircleOff } from 'lucide-react';
 import type { ChatSummary } from '@enbox/shared';
@@ -114,11 +114,14 @@ function Conversation({
 }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const msgs = useMessages((s) => s.byChat[chat.id]);
+  // Only whether the window exists: subscribing to the window itself would re-render the
+  // whole conversation (composer, header, dialogs) on every message-store change.
+  const hasWindow = useMessages((s) => s.byChat[chat.id] !== undefined);
   const selecting = useConversationUi((s) => s.selecting[chat.id] !== undefined);
   const searching = useConversationUi((s) => typeof s.search[chat.id] === 'string');
   const viewer = useConversationUi((s) => s.viewer?.chatId === chat.id);
   const [infoOpen, setInfoOpen] = useState(false);
+  const openInfo = useCallback(() => setInfoOpen(true), []);
   // Captured before the chat is marked read (the effect in ConversationPane runs after this render).
   const [unread, setUnread] = useState<UnreadSnapshot | null>(() =>
     chat.unreadCount > 0 ? { afterSeq: chat.lastReadSeq, count: chat.unreadCount } : null,
@@ -191,12 +194,12 @@ function Conversation({
       ) : searching ? (
         <ChatSearchBar chat={chat} />
       ) : (
-        <ConversationHeader chat={chat} onOpenInfo={() => setInfoOpen(true)} />
+        <ConversationHeader chat={chat} onOpenInfo={openInfo} />
       )}
       <PinnedBar chat={chat} />
       <OngoingCallBanner chatId={chat.id} />
       <div className="chat-wallpaper relative min-h-0 flex-1">
-        {msgs === undefined ? (
+        {!hasWindow ? (
           <PageSpinner />
         ) : (
           <MessageList chat={chat} unread={unread} initialTarget={initialTarget} />

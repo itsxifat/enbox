@@ -1,4 +1,5 @@
 /** Archived chats (/archived): same rows and menus as the main list; unarchive from the menu. */
+import { useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { Virtuoso } from 'react-virtuoso';
 import { Archive } from 'lucide-react';
@@ -22,6 +23,16 @@ export function ArchivedPane() {
   const navigate = useNavigate();
   const loaded = useChats((s) => s.loaded);
   const chats = useSortedChats({ archived: true });
+  const openId = useRef(chatId);
+  useEffect(() => {
+    openId.current = chatId;
+  }, [chatId]);
+  const onDeleted = useCallback(
+    (id: string) => {
+      if (id === openId.current) navigate('/archived', { replace: true });
+    },
+    [navigate],
+  );
   return (
     <>
       <PaneHeader title="Archived" back="/chats" />
@@ -40,9 +51,7 @@ export function ArchivedPane() {
                 chat={c}
                 to={`/archived/${c.id}`}
                 active={c.id === chatId}
-                onDeleted={() => {
-                  if (c.id === chatId) navigate('/archived', { replace: true });
-                }}
+                onDeleted={onDeleted}
               />
             )}
           />

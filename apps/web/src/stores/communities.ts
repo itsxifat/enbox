@@ -34,7 +34,7 @@ import type {
   UpdateCommunityRequest,
 } from '@enbox/shared';
 import { ApiError, api } from '@/lib/api';
-import { registerSessionReset } from '@/lib/session';
+import { registerSessionReset, sessionEpoch } from '@/lib/session';
 import { useChats } from './chats';
 import { useUsers } from './users';
 
@@ -75,12 +75,16 @@ export const useCommunities = create<CommunitiesState>((set, get) => ({
   async loadCommunities() {
     if (loadingPromise) return loadingPromise;
     set({ loading: true });
+    // A response that lands after a logout belongs to the previous account: drop it.
+    const epoch = sessionEpoch();
     loadingPromise = api
       .get<Community[]>('/api/communities')
       .then((list) => {
+        if (epoch !== sessionEpoch()) return;
         set({ byId: Object.fromEntries(list.map((c) => [c.id, c])), loaded: true, loading: false });
       })
       .catch((e: unknown) => {
+        if (epoch !== sessionEpoch()) return;
         set({ loading: false });
         throw e;
       })
@@ -91,8 +95,10 @@ export const useCommunities = create<CommunitiesState>((set, get) => ({
   },
 
   async refreshCommunity(id) {
+    const epoch = sessionEpoch();
     try {
       const c = await api.get<Community>(`/api/communities/${id}`);
+      if (epoch !== sessionEpoch()) return null;
       get().upsertCommunity(c);
       return c;
     } catch (e) {

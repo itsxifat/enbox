@@ -12,7 +12,7 @@
  * `react`, `loadViewers`, `pruneExpired`.
  * Hooks: `useHasUnseenStatus()` (Updates tab dot), `useStatusLists()` (recent/viewed split).
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
 import type {
   CreateStatusRequest,
@@ -24,7 +24,7 @@ import type {
 } from '@enbox/shared';
 import { api, type ApiResponse, type UploadMeta } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
-import { registerSessionReset } from '@/lib/session';
+import { registerSessionReset, sessionEpoch } from '@/lib/session';
 import { useAuth } from './auth';
 
 export type StatusFeed = ApiResponse<'GET /api/status/feed'>;
@@ -126,8 +126,11 @@ export const useStatus = create<StatusState>((set, get) => {
     async loadFeed() {
       if (get().loading) return;
       set({ loading: true, error: null });
+      const epoch = sessionEpoch();
       try {
         const feed = await api.get<StatusFeed>('/api/status/feed');
+        // Logged out meanwhile: the previous account's feed must not reach the next one.
+        if (epoch !== sessionEpoch()) return;
         const now = Date.now();
         set({
           feed: {
@@ -144,6 +147,7 @@ export const useStatus = create<StatusState>((set, get) => {
           loading: false,
         });
       } catch (e) {
+        if (epoch !== sessionEpoch()) return;
         set({ loading: false, error: e instanceof Error ? e.message : 'Error' });
         throw e;
       }
@@ -388,8 +392,42 @@ registerSessionReset(() => {
 });
 
 /** Someone has status updates I haven't seen (Updates tab dot). */
+/** Earliest future expiry among unseen statuses (ms epoch), null when none. */
+export function nextUnseenExpiry(feed: StatusFeed | null, now: number): number | null {
+  let next: number | null = null;
+  for (const u of feed?.updates ?? [])
+    for (const s of u.statuses) {
+      if (s.viewed) continue;
+      const t = Date.parse(s.expiresAt);
+      if (t > now && (next === null || t < next)) next = t;
+    }
+  return next;
+}
+
+/**
+ * Updates tab dot: an unseen status that hasn't expired. Statuses expire without an event
+ * (the server just deletes them), so re-check — and prune the feed — at the next expiry even
+ * when the status list isn't mounted.
+ */
 export function useHasUnseenStatus(): boolean {
-  return useStatus((s) => !!s.feed?.updates.some((u) => !u.allViewed));
+  const [now, setNow] = useState(() => Date.now());
+  const has = useStatus(
+    (s) =>
+      !!s.feed?.updates.some((u) => u.statuses.some((st) => !st.viewed && isLive(st, now))),
+  );
+  const next = useStatus((s) => nextUnseenExpiry(s.feed, now));
+  useEffect(() => {
+    if (next === null) return;
+    const t = setTimeout(
+      () => {
+        useStatus.getState().pruneExpired();
+        setNow(Date.now());
+      },
+      Math.min(2 ** 31 - 1, Math.max(0, next - Date.now()) + 50),
+    );
+    return () => clearTimeout(t);
+  }, [next]);
+  return has;
 }
 
 /** Feed split for the Updates tab: recent (unseen) and viewed, each newest first. */

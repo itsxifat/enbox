@@ -307,12 +307,38 @@ export interface UploadOptions {
   fileName?: string;
 }
 
+/** Minimum time between two upload progress callbacks. */
+export const PROGRESS_INTERVAL_MS = 150;
+
+/**
+ * Throttle upload progress: XHR fires every ~50 ms and each callback usually re-renders a
+ * store window. Calls through at most every `intervalMs`, only when the whole percentage
+ * changed; the final `1` always goes through.
+ */
+export function throttleProgress(
+  fn: ((fraction: number) => void) | undefined,
+  intervalMs = PROGRESS_INTERVAL_MS,
+): ((fraction: number) => void) | undefined {
+  if (!fn) return undefined;
+  let lastPct = -1;
+  let lastAt = -Infinity;
+  return (fraction) => {
+    const pct = Math.round(fraction * 100);
+    const now = Date.now();
+    if (fraction < 1 && (pct === lastPct || now - lastAt < intervalMs)) return;
+    lastPct = pct;
+    lastAt = now;
+    fn(fraction);
+  };
+}
+
 function upload(
   file: Blob,
   meta: UploadMeta,
-  onProgress?: (fraction: number) => void,
+  progress?: (fraction: number) => void,
   opts: UploadOptions = {},
 ): Promise<MediaAttachment> {
+  const onProgress = throttleProgress(progress);
   return new Promise<MediaAttachment>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const path = '/api/media';

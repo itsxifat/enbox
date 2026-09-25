@@ -174,7 +174,10 @@ test.describe('contacts & new chat', () => {
     // Gallery → Links tab lists the shared link.
     await page.getByTestId('media-row').click();
     await page.getByRole('tab', { name: 'Links' }).click();
-    await expect(page.getByRole('link', { name: /example\.com/ })).toBeVisible();
+    // In the gallery (the message bubble behind the sheet has the same link).
+    await expect(
+      page.getByRole('dialog', { name: 'Chat info' }).getByRole('link', { name: /example\.com/ }),
+    ).toBeVisible();
     await context.close();
   });
 });

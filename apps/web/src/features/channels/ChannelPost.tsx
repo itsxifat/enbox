@@ -2,7 +2,7 @@
  * One channel post (channel identity, no sender names/ticks): text, media, polls, location,
  * contact cards, reactions (counts only) and admin actions.
  */
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   AlertCircle,
   Check,
@@ -32,6 +32,7 @@ import { Lightbox } from '@/features/groups/shared/MediaGallery';
 import { RichText } from '@/features/groups/shared/RichText';
 import { copyText } from '@/features/groups/shared/share';
 import { EditTextModal } from '@/features/groups/shared/dialogs';
+import { retryMediaSend } from '@/features/conversation/lib/sendMedia';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
@@ -59,7 +60,14 @@ export function SystemChip({ m }: { m: Message }) {
   );
 }
 
-export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) {
+/** Memoized: the feed re-renders on every window change; unchanged posts skip. */
+export const ChannelPost = memo(function ChannelPost({
+  m,
+  ctx,
+}: {
+  m: ClientMessage;
+  ctx: PostContext;
+}) {
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const [editing, setEditing] = useState(false);
@@ -152,12 +160,14 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
             {m.failed ? (
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  // Media posts re-upload if the upload itself failed.
+                  if (m.clientId && retryMediaSend(m.clientId)) return;
                   void useMessages
                     .getState()
                     .retryMessage(m.chatId, m.clientId!)
-                    .catch((e: unknown) => toast.error(e))
-                }
+                    .catch((e: unknown) => toast.error(e));
+                }}
                 className="flex items-center gap-1 font-medium text-danger"
               >
                 <AlertCircle size={12} aria-hidden /> Failed · Retry
@@ -230,7 +240,7 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
       <Lightbox message={lightbox ? m : null} onClose={() => setLightbox(false)} />
     </article>
   );
-}
+});
 
 function Reactions({
   m,
