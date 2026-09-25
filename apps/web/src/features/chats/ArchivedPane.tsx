@@ -1,27 +1,56 @@
-/** PLACEHOLDER (agent 2 owns this file): archived chats list (/archived). */
-import { useParams } from 'react-router';
+/** Archived chats (/archived): same rows and menus as the main list; unarchive from the menu. */
+import { useNavigate, useParams } from 'react-router';
+import { Virtuoso } from 'react-virtuoso';
 import { Archive } from 'lucide-react';
 import { PaneHeader } from '@/components/layout/PaneHeader';
-import { EmptyState } from '@/components/ui';
-import { useSortedChats } from '@/stores/chats';
+import { EmptyState, ListItemSkeleton } from '@/components/ui';
+import { useChats, useSortedChats } from '@/stores/chats';
 import { ChatRow } from './ChatRow';
+
+function Note() {
+  return (
+    <p className="px-6 py-3 text-center text-[13px] text-muted">
+      These chats stay archived when new messages are received.
+    </p>
+  );
+}
+
+const components = { Header: Note };
 
 export function ArchivedPane() {
   const { chatId } = useParams();
+  const navigate = useNavigate();
+  const loaded = useChats((s) => s.loaded);
   const chats = useSortedChats({ archived: true });
   return (
     <>
       <PaneHeader title="Archived" back="/chats" />
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-        {chats.length ? (
-          chats.map((c) => (
-            <ChatRow key={c.id} chat={c} to={`/archived/${c.id}`} active={c.id === chatId} />
-          ))
+      <div className="min-h-0 flex-1" data-testid="archived-list">
+        {!loaded ? (
+          <ListItemSkeleton count={4} />
+        ) : chats.length ? (
+          <Virtuoso
+            data={chats}
+            computeItemKey={(_, c) => c.id}
+            className="scrollbar-thin"
+            style={{ height: '100%' }}
+            components={components}
+            itemContent={(_, c) => (
+              <ChatRow
+                chat={c}
+                to={`/archived/${c.id}`}
+                active={c.id === chatId}
+                onDeleted={() => {
+                  if (c.id === chatId) navigate('/archived', { replace: true });
+                }}
+              />
+            )}
+          />
         ) : (
           <EmptyState
             icon={Archive}
             title="No archived chats"
-            description="Archived chats stay here until a new message arrives."
+            description="Archive a chat from its menu to tidy up your chat list without deleting it."
           />
         )}
       </div>

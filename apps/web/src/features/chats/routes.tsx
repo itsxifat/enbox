@@ -4,14 +4,22 @@
  * `conversationChildren` mounts the conversation in the main pane under any list that
  * opens chats (/chats/:chatId, /archived/:chatId, /starred/:chatId). On phones
  * `handle.detail` makes the conversation full screen and hides the bottom tabs.
+ * `?m=<seq>&mid=<id>` opens the chat at a message (see links.ts `messageLink`).
  */
 import type { RouteObject } from 'react-router';
 import { SplitView } from '@/components/layout/SplitView';
 import type { RouteHandle } from '@/app/routeHandle';
-import { ConversationPane } from '@/features/conversation/ConversationPane';
+import { lazyNamed } from '@/lib/lazy';
 import { ArchivedPane } from './ArchivedPane';
 import { ChatListPane } from './ChatListPane';
-import { StarredPane } from './StarredPane';
+
+// The conversation (bubbles, composer, media tooling) is the heaviest screen: code-split it
+// so the chat list paints first.
+const ConversationPane = lazyNamed(
+  () => import('@/features/conversation/ConversationPane'),
+  'ConversationPane',
+);
+const StarredPane = lazyNamed(() => import('./StarredPane'), 'StarredPane');
 
 const detail: RouteHandle = { detail: true };
 

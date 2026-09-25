@@ -90,6 +90,8 @@ export function handleNewMessage(message: Message): void {
   }
 
   useMessages.getState().upsertMessage(message);
+  // A message from someone ends their typing indicator right away (WhatsApp behaviour).
+  if (message.senderId && !mine) chats.setTyping(message.chatId, message.senderId, 'idle');
   void useUsers
     .getState()
     .fetchUsers(referencedUserIds(message))

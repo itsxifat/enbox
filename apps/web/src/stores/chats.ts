@@ -25,7 +25,7 @@
  * Selectors / hooks
  * - `selectSortedChats(byId, opts)` pure; `useSortedChats(opts)` memoized hook:
  *   pinned first, then `lastActivityAt` desc. opts: { archived?: boolean (default false),
- *   filter?: 'all'|'unread'|'groups', kind?: 'chats'|'channels'|'all' (default 'chats' =
+ *   filter?: 'all'|'unread'|'groups'|'favorites' (= pinned), kind?: 'chats'|'channels'|'all' (default 'chats' =
  *   excludes channels, which live in the Updates tab), query?: string }
  * - `useChat(id)`, `getChat(id)`, `useTypingUsers(chatId)`, `useUnreadChatsCount()`
  */
@@ -242,7 +242,8 @@ registerSessionReset(() => {
 // Selectors
 // ---------------------------------------------------------------------------
 
-export type ChatListFilter = 'all' | 'unread' | 'groups';
+/** `favorites` = pinned chats. */
+export type ChatListFilter = 'all' | 'unread' | 'groups' | 'favorites';
 
 export interface ChatListOptions {
   /** Show the archive (true) or the main list (false, default). */
@@ -280,6 +281,7 @@ export function selectSortedChats(
     if (kind !== 'channels' && chat.isArchived !== archived) continue;
     if (filter === 'unread' && !isChatUnread(chat)) continue;
     if (filter === 'groups' && chat.type !== 'group') continue;
+    if (filter === 'favorites' && !chat.isPinned) continue;
     if (q && !chatTitle(chat).toLowerCase().includes(q)) continue;
     out.push(chat);
   }
