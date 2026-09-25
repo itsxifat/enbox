@@ -11,7 +11,8 @@ publicRouter.get('/health', (_req, res) => {
 
 publicRouter.get('/config', (_req, res) => {
   res.json({
-    vapidPublicKey: config.vapid.publicKey && config.vapid.privateKey ? config.vapid.publicKey : null,
+    vapidPublicKey:
+      config.vapid.publicKey && config.vapid.privateKey ? config.vapid.publicKey : null,
     maxUploadBytes: MAX_UPLOAD_BYTES,
     version: config.version,
   });

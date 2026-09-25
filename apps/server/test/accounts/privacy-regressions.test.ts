@@ -16,8 +16,14 @@ describe('privacy regressions', () => {
   afterAll(() => t.close());
 
   async function community(owner: TestUser, members: TestUser[]) {
-    const c = (await t.api(owner).post('/api/communities').send({ name: 'Comm' }).expect(201)).body as { id: string; announcementChatId: string };
-    if (members.length) await t.api(owner).post(`/api/communities/${c.id}/members`).send({ userIds: members.map((m) => m.id) }).expect(200);
+    const c = (await t.api(owner).post('/api/communities').send({ name: 'Comm' }).expect(201))
+      .body as { id: string; announcementChatId: string };
+    if (members.length)
+      await t
+        .api(owner)
+        .post(`/api/communities/${c.id}/members`)
+        .send({ userIds: members.map((m) => m.id) })
+        .expect(200);
     return c;
   }
 
@@ -29,7 +35,11 @@ describe('privacy regressions', () => {
       const so = await t.connect(owner);
       const [ry, ro] = [recordEvents(sy), recordEvents(so)];
       await t.api(x).patch('/api/me').send({ displayName: 'X renamed' }).expect(200);
-      await t.api(x).patch('/api/me/settings').send({ profilePhotoVisibility: 'nobody' }).expect(200);
+      await t
+        .api(x)
+        .patch('/api/me/settings')
+        .send({ profilePhotoVisibility: 'nobody' })
+        .expect(200);
       await settle(300);
       expect(ry.of('user:changed').map((p) => p.userId)).not.toContain(x.id);
       // Not even the admins learn it through the room (they may list members on demand).
@@ -52,7 +62,11 @@ describe('privacy regressions', () => {
     it('members sharing a regular (linked) group still hear about each other', async () => {
       const [owner, x, y] = [await t.createUser(), await t.createUser(), await t.createUser()];
       const c = await community(owner, []);
-      await t.api(owner).post(`/api/communities/${c.id}/groups`).send({ name: 'Linked', memberIds: [x.id, y.id] }).expect(201);
+      await t
+        .api(owner)
+        .post(`/api/communities/${c.id}/groups`)
+        .send({ name: 'Linked', memberIds: [x.id, y.id] })
+        .expect(201);
       const sy = await t.connect(y);
       const ry = recordEvents(sy);
       await t.api(x).patch('/api/me').send({ displayName: 'X again' }).expect(200);
@@ -68,11 +82,22 @@ describe('privacy regressions', () => {
       const blocked = await t.createUser();
       await block(blocker, blocked);
       await t.api(blocked).get(`/api/users/by-username/${blocker.username}`).expect(404);
-      expect((await t.api(blocked).get(`/api/users/search?q=${blocker.username}`).expect(200)).body).toEqual([]);
-      const byUsername = await t.api(blocked).post('/api/contacts').send({ username: blocker.username });
-      expect({ status: byUsername.status, code: byUsername.body.error?.code }).toEqual({ status: 404, code: 'not_found' });
+      expect(
+        (await t.api(blocked).get(`/api/users/search?q=${blocker.username}`).expect(200)).body,
+      ).toEqual([]);
+      const byUsername = await t
+        .api(blocked)
+        .post('/api/contacts')
+        .send({ username: blocker.username });
+      expect({ status: byUsername.status, code: byUsername.body.error?.code }).toEqual({
+        status: 404,
+        code: 'not_found',
+      });
       const byPhone = await t.api(blocked).post('/api/contacts').send({ phone: '+14155550142' });
-      expect({ status: byPhone.status, code: byPhone.body.error?.code }).toEqual({ status: 404, code: 'not_found' });
+      expect({ status: byPhone.status, code: byPhone.body.error?.code }).toEqual({
+        status: 404,
+        code: 'not_found',
+      });
     });
 
     it('the blocker can still save the blocked user, and lookups by others are unaffected', async () => {

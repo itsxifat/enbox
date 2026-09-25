@@ -50,12 +50,7 @@ export function useActiveCallForChat(chatId: ID | null | undefined): ChatCallSta
     inCallElsewhere,
     ringingMe,
     canJoin:
-      !!call &&
-      call.isGroup &&
-      !formerMember &&
-      !inCallHere &&
-      !inCallElsewhere &&
-      joinedCount > 0,
+      !!call && call.isGroup && !formerMember && !inCallHere && !inCallElsewhere && joinedCount > 0,
     joinedCount,
   };
 }

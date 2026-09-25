@@ -12,7 +12,10 @@ import { lockCommunityScope, removeCommunityMember } from '../../services/commun
 import { registerAccountDeletionHook } from '../../services/hooks.js';
 
 registerAccountDeletionHook('communities', async (tx, fx, userId) => {
-  const rows = await tx.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq(communityMembers.userId, userId));
+  const rows = await tx
+    .select({ communityId: communityMembers.communityId })
+    .from(communityMembers)
+    .where(eq(communityMembers.userId, userId));
   for (const { communityId } of rows.sort((a, b) => a.communityId.localeCompare(b.communityId))) {
     const scope = await lockCommunityScope(tx, communityId, { groups: true });
     await removeCommunityMember(tx, fx, scope, userId, { reason: 'left', actorId: userId });

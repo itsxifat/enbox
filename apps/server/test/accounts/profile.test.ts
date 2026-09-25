@@ -1,16 +1,39 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_ABOUT, DEFAULT_USER_SETTINGS, type UserSelf, type UserSettings } from '@enbox/shared';
+import {
+  DEFAULT_ABOUT,
+  DEFAULT_USER_SETTINGS,
+  type UserSelf,
+  type UserSettings,
+} from '@enbox/shared';
 import { db } from '../../src/db/index.js';
 import { users } from '../../src/db/schema.js';
 import { transact } from '../../src/services/effects.js';
 import { toChatSummary } from '../../src/services/summaries.js';
 import { advanceRead } from '../../src/services/watermarks.js';
-import { expectNoEvent, startTestServer, waitForEvent, type TestServer, type TestSocket, type TestUser } from '../helpers.js';
-import { createChannel, createDirect, createGroup, recordEvents, saveContact, send, settle } from '../services/fixtures.js';
+import {
+  expectNoEvent,
+  startTestServer,
+  waitForEvent,
+  type TestServer,
+  type TestSocket,
+  type TestUser,
+} from '../helpers.js';
+import {
+  createChannel,
+  createDirect,
+  createGroup,
+  recordEvents,
+  saveContact,
+  send,
+  settle,
+} from '../services/fixtures.js';
 import { newDevice, uniquePhone } from './util.js';
 
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
   let t: TestServer;
@@ -21,7 +44,12 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
   afterAll(() => t.close());
 
   async function uploadImage(user: TestUser, kind: 'image' | 'file' = 'image'): Promise<string> {
-    const res = await t.api(user).post('/api/media').field('kind', kind).attach('file', PNG, { filename: 'a.png', contentType: 'image/png' }).expect(201);
+    const res = await t
+      .api(user)
+      .post('/api/media')
+      .field('kind', kind)
+      .attach('file', PNG, { filename: 'a.png', contentType: 'image/png' })
+      .expect(201);
     return res.body.id as string;
   }
 
@@ -29,7 +57,14 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
     it('returns my own profile with complete settings', async () => {
       const u = await t.createUser({ displayName: 'Me Myself', phone: uniquePhone() });
       const me = (await t.api(u).get('/api/me').expect(200)).body as UserSelf;
-      expect(me).toMatchObject({ id: u.id, username: u.username, displayName: 'Me Myself', about: DEFAULT_ABOUT, avatarUrl: null, settings: DEFAULT_USER_SETTINGS });
+      expect(me).toMatchObject({
+        id: u.id,
+        username: u.username,
+        displayName: 'Me Myself',
+        about: DEFAULT_ABOUT,
+        avatarUrl: null,
+        settings: DEFAULT_USER_SETTINGS,
+      });
       expect(me.phone).toMatch(/^\+1555/);
     });
 
@@ -40,15 +75,35 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       const res = await t
         .api(u)
         .patch('/api/me')
-        .send({ displayName: '  After ', about: 'Busy', username: 'New_Name1', phone: phone.replace('+1', '+1 '), avatarMediaId: mediaId })
+        .send({
+          displayName: '  After ',
+          about: 'Busy',
+          username: 'New_Name1',
+          phone: phone.replace('+1', '+1 '),
+          avatarMediaId: mediaId,
+        })
         .expect(200);
       const me = res.body as UserSelf;
-      expect(me).toMatchObject({ displayName: 'After', about: 'Busy', username: 'new_name1', phone });
+      expect(me).toMatchObject({
+        displayName: 'After',
+        about: 'Busy',
+        username: 'new_name1',
+        phone,
+      });
       expect(me.avatarUrl).toMatch(/^\/uploads\/.+\.png$/);
-      const again = (await t.api(u).patch('/api/me').send({ about: '' }).expect(200)).body as UserSelf;
-      expect(again).toMatchObject({ displayName: 'After', about: '', username: 'new_name1', phone, avatarUrl: me.avatarUrl });
+      const again = (await t.api(u).patch('/api/me').send({ about: '' }).expect(200))
+        .body as UserSelf;
+      expect(again).toMatchObject({
+        displayName: 'After',
+        about: '',
+        username: 'new_name1',
+        phone,
+        avatarUrl: me.avatarUrl,
+      });
       // null / '' remove the phone and the avatar
-      const cleared = (await t.api(u).patch('/api/me').send({ phone: '', avatarMediaId: null }).expect(200)).body as UserSelf;
+      const cleared = (
+        await t.api(u).patch('/api/me').send({ phone: '', avatarMediaId: null }).expect(200)
+      ).body as UserSelf;
       expect(cleared).toMatchObject({ phone: null, avatarUrl: null });
       const [row] = await db.select().from(users).where(eq(users.id, u.id));
       expect(row!.avatarMediaId).toBeNull();
@@ -58,12 +113,22 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       const taken = await t.createUser({ username: 'taken_name', phone: uniquePhone() });
       const [takenRow] = await db.select().from(users).where(eq(users.id, taken.id));
       const u = await t.createUser();
-      expect((await t.api(u).patch('/api/me').send({ username: 'TAKEN_NAME' }).expect(409)).body.error.code).toBe('conflict');
-      expect((await t.api(u).patch('/api/me').send({ phone: takenRow!.phone }).expect(409)).body.error.code).toBe('conflict');
+      expect(
+        (await t.api(u).patch('/api/me').send({ username: 'TAKEN_NAME' }).expect(409)).body.error
+          .code,
+      ).toBe('conflict');
+      expect(
+        (await t.api(u).patch('/api/me').send({ phone: takenRow!.phone }).expect(409)).body.error
+          .code,
+      ).toBe('conflict');
       await t.api(u).patch('/api/me').send({ username: 'deleted_me' }).expect(400);
       await t.api(u).patch('/api/me').send({ username: '1234' }).expect(400);
       await t.api(u).patch('/api/me').send({ displayName: '' }).expect(400);
-      await t.api(u).patch('/api/me').send({ about: 'x'.repeat(141) }).expect(400);
+      await t
+        .api(u)
+        .patch('/api/me')
+        .send({ about: 'x'.repeat(141) })
+        .expect(400);
       await t.api(u).patch('/api/me').send({ phone: 'call me' }).expect(400);
       await t.api(u).patch('/api/me').send({ avatarMediaId: 'nope' }).expect(400);
       const foreign = await uploadImage(taken);
@@ -71,7 +136,11 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       const doc = await uploadImage(u, 'file');
       await t.api(u).patch('/api/me').send({ avatarMediaId: doc }).expect(400);
       // Keeping my own username/phone is not a conflict.
-      await t.api(taken).patch('/api/me').send({ username: 'taken_name', phone: takenRow!.phone }).expect(200);
+      await t
+        .api(taken)
+        .patch('/api/me')
+        .send({ username: 'taken_name', phone: takenRow!.phone })
+        .expect(200);
     });
 
     it('emits me:updated → my devices and user:changed once per socket to my direct/group chats and to users who saved me (not channels)', async () => {
@@ -98,14 +167,24 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       const logs = new Map<TestSocket, ReturnType<typeof recordEvents>>(
         [sA, sA2, sBob, sCarol, sDave, sErin, sFrank, sGina].map((s) => [s, recordEvents(s)]),
       );
-      const res = await t.api(alice).patch('/api/me').send({ displayName: 'Alice Cooper' }).expect(200);
+      const res = await t
+        .api(alice)
+        .patch('/api/me')
+        .send({ displayName: 'Alice Cooper' })
+        .expect(200);
       await settle(250);
-      for (const s of [sA, sA2]) expect(logs.get(s)!.of('me:updated')).toEqual([{ user: res.body }]);
-      for (const s of [sBob, sCarol, sDave, sGina]) expect(logs.get(s)!.of('user:changed')).toEqual([{ userId: alice.id }]);
+      for (const s of [sA, sA2])
+        expect(logs.get(s)!.of('me:updated')).toEqual([{ user: res.body }]);
+      for (const s of [sBob, sCarol, sDave, sGina])
+        expect(logs.get(s)!.of('user:changed')).toEqual([{ userId: alice.id }]);
       for (const s of [sErin, sFrank]) expect(logs.get(s)!.names()).not.toContain('user:changed');
       for (const s of [sBob, sFrank]) expect(logs.get(s)!.names()).not.toContain('me:updated');
       // What they refetch reflects the change.
-      const seen = await t.api(bob).post('/api/users/batch').send({ userIds: [alice.id] }).expect(200);
+      const seen = await t
+        .api(bob)
+        .post('/api/users/batch')
+        .send({ userIds: [alice.id] })
+        .expect(200);
       expect(seen.body[0].displayName).toBe('Alice Cooper');
     });
 
@@ -121,14 +200,41 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
   describe('PATCH /me/settings', () => {
     it('merges partial updates and returns the complete settings', async () => {
       const u = await t.createUser();
-      const first = (await t.api(u).patch('/api/me/settings').send({ lastSeenVisibility: 'contacts', readReceipts: false }).expect(200)).body as UserSettings;
-      expect(first).toEqual({ ...DEFAULT_USER_SETTINGS, lastSeenVisibility: 'contacts', readReceipts: false });
-      const second = (await t.api(u).patch('/api/me/settings').send({ defaultDisappearingSeconds: 86_400, notificationPreviews: false }).expect(200)).body as UserSettings;
-      expect(second).toEqual({ ...first, defaultDisappearingSeconds: 86_400, notificationPreviews: false });
-      expect(((await t.api(u).get('/api/me').expect(200)).body as UserSelf).settings).toEqual(second);
+      const first = (
+        await t
+          .api(u)
+          .patch('/api/me/settings')
+          .send({ lastSeenVisibility: 'contacts', readReceipts: false })
+          .expect(200)
+      ).body as UserSettings;
+      expect(first).toEqual({
+        ...DEFAULT_USER_SETTINGS,
+        lastSeenVisibility: 'contacts',
+        readReceipts: false,
+      });
+      const second = (
+        await t
+          .api(u)
+          .patch('/api/me/settings')
+          .send({ defaultDisappearingSeconds: 86_400, notificationPreviews: false })
+          .expect(200)
+      ).body as UserSettings;
+      expect(second).toEqual({
+        ...first,
+        defaultDisappearingSeconds: 86_400,
+        notificationPreviews: false,
+      });
+      expect(((await t.api(u).get('/api/me').expect(200)).body as UserSelf).settings).toEqual(
+        second,
+      );
       // Stored as overrides only.
       const [row] = await db.select().from(users).where(eq(users.id, u.id));
-      expect(row!.settings).toEqual({ lastSeenVisibility: 'contacts', readReceipts: false, defaultDisappearingSeconds: 86_400, notificationPreviews: false });
+      expect(row!.settings).toEqual({
+        lastSeenVisibility: 'contacts',
+        readReceipts: false,
+        defaultDisappearingSeconds: 86_400,
+        notificationPreviews: false,
+      });
     });
 
     it.each([
@@ -139,7 +245,9 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       [{ statusExcludeUserIds: ['not-a-uuid'] }],
     ])('rejects %j with 400', async (body) => {
       const u = await t.createUser();
-      expect((await t.api(u).patch('/api/me/settings').send(body).expect(400)).body.error.code).toBe('validation_error');
+      expect(
+        (await t.api(u).patch('/api/me/settings').send(body).expect(400)).body.error.code,
+      ).toBe('validation_error');
     });
 
     it('keeps only my contacts in the status privacy lists (deduplicated)', async () => {
@@ -150,9 +258,17 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       const res = await t
         .api(u)
         .patch('/api/me/settings')
-        .send({ statusPrivacy: 'contacts_except', statusExcludeUserIds: [friend.id, stranger.id, friend.id.toUpperCase()], statusOnlyShareWithUserIds: [stranger.id] })
+        .send({
+          statusPrivacy: 'contacts_except',
+          statusExcludeUserIds: [friend.id, stranger.id, friend.id.toUpperCase()],
+          statusOnlyShareWithUserIds: [stranger.id],
+        })
         .expect(200);
-      expect(res.body).toMatchObject({ statusPrivacy: 'contacts_except', statusExcludeUserIds: [friend.id], statusOnlyShareWithUserIds: [] });
+      expect(res.body).toMatchObject({
+        statusPrivacy: 'contacts_except',
+        statusExcludeUserIds: [friend.id],
+        statusOnlyShareWithUserIds: [],
+      });
     });
 
     it('emits me:updated to all my devices only on a real change', async () => {
@@ -162,10 +278,18 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       const s2 = await t.connect(other);
       const e1 = waitForEvent(s1, 'me:updated');
       const e2 = waitForEvent(s2, 'me:updated');
-      await t.api(u).patch('/api/me/settings').send({ groupsAddPermission: 'contacts' }).expect(200);
+      await t
+        .api(u)
+        .patch('/api/me/settings')
+        .send({ groupsAddPermission: 'contacts' })
+        .expect(200);
       expect((await e1).user.settings.groupsAddPermission).toBe('contacts');
       expect((await e2).user.settings.groupsAddPermission).toBe('contacts');
-      await t.api(u).patch('/api/me/settings').send({ groupsAddPermission: 'contacts' }).expect(200);
+      await t
+        .api(u)
+        .patch('/api/me/settings')
+        .send({ groupsAddPermission: 'contacts' })
+        .expect(200);
       await expectNoEvent(s2, 'me:updated');
     });
 
@@ -192,7 +316,11 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       expect(await wa2).toEqual({ chatId, readWatermark: 2, deliveredWatermark: 2 });
       expect(await wb2).toEqual({ chatId, readWatermark: 2, deliveredWatermark: 2 });
       // Other settings leave watermarks alone.
-      await t.api(alice).patch('/api/me/settings').send({ aboutVisibility: 'contacts' }).expect(200);
+      await t
+        .api(alice)
+        .patch('/api/me/settings')
+        .send({ aboutVisibility: 'contacts' })
+        .expect(200);
       await expectNoEvent(sB, 'chat:watermarks');
     });
 
@@ -202,9 +330,17 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
       await send(alice, await createDirect(alice, bob));
       const sB = await t.connect(bob);
       const changed = waitForEvent(sB, 'user:changed');
-      await t.api(alice).patch('/api/me/settings').send({ profilePhotoVisibility: 'nobody' }).expect(200);
+      await t
+        .api(alice)
+        .patch('/api/me/settings')
+        .send({ profilePhotoVisibility: 'nobody' })
+        .expect(200);
       expect(await changed).toEqual({ userId: alice.id });
-      await t.api(alice).patch('/api/me/settings').send({ messageNotifications: false }).expect(200);
+      await t
+        .api(alice)
+        .patch('/api/me/settings')
+        .send({ messageNotifications: false })
+        .expect(200);
       await expectNoEvent(sB, 'user:changed');
     });
   });

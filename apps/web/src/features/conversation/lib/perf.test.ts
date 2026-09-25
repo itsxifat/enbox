@@ -46,7 +46,13 @@ describe('prepareEach', () => {
       await new Promise((r) => setTimeout(r, 5));
       running--;
       if (file.name === 'bad.jpg') throw new Error('decode failed');
-      return { kind: 'image', blob: file, fileName: file.name, mimeType: 'image/jpeg', thumbnail: null };
+      return {
+        kind: 'image',
+        blob: file,
+        fileName: file.name,
+        mimeType: 'image/jpeg',
+        thumbnail: null,
+      };
     };
     const files = ['a.jpg', 'bad.jpg', 'c.jpg'].map((n) => ({
       file: new File(['x'], n, { type: 'image/jpeg' }),

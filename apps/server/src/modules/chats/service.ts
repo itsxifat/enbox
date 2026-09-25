@@ -19,7 +19,15 @@ import {
   type updateChatPrefsSchema,
 } from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../../db/index.js';
-import { chatMembers, chatPins, chats, media, messages, starredMessages, type MessageRow } from '../../db/schema.js';
+import {
+  chatMembers,
+  chatPins,
+  chats,
+  media,
+  messages,
+  starredMessages,
+  type MessageRow,
+} from '../../db/schema.js';
 import { badRequest, conflict, limitReached, notFound } from '../../lib/errors.js';
 import { storableDate } from '../../lib/validate.js';
 import {
@@ -93,12 +101,21 @@ export async function openDirectChat(me: string, peerId: string): Promise<ChatSu
       ? []
       : await tx
           .insert(chats)
-          .values({ type: 'direct', directKey: key, createdBy: me, disappearingSeconds: settingsOf(meRow).defaultDisappearingSeconds })
+          .values({
+            type: 'direct',
+            directKey: key,
+            createdBy: me,
+            disappearingSeconds: settingsOf(meRow).defaultDisappearingSeconds,
+          })
           .onConflictDoNothing({ target: chats.directKey })
           .returning({ id: chats.id });
     let id = inserted?.id;
     if (!id) {
-      const [existing] = await tx.select({ id: chats.id }).from(chats).where(eq(chats.directKey, key)).limit(1);
+      const [existing] = await tx
+        .select({ id: chats.id })
+        .from(chats)
+        .where(eq(chats.directKey, key))
+        .limit(1);
       if (!existing) throw notFound('User'); // deleted account without shared history
       id = existing.id;
     }
@@ -107,7 +124,10 @@ export async function openDirectChat(me: string, peerId: string): Promise<ChatSu
     if (inserted) {
       await tx
         .insert(chatMembers)
-        .values([{ chatId: id, userId: me }, ...(self ? [] : [{ chatId: id, userId: peerId, hidden: true }])])
+        .values([
+          { chatId: id, userId: me },
+          ...(self ? [] : [{ chatId: id, userId: peerId, hidden: true }]),
+        ])
         .onConflictDoNothing();
       fx.join(me, id);
       return id;
@@ -139,7 +159,9 @@ export async function openDirectChat(me: string, peerId: string): Promise<ChatSu
  * on the `users` row, which profile/account transactions also write).
  */
 async function lockPinnedChats(tx: Tx, userId: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`enbox:pinned-chats:${userId}`}, 0))`);
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`enbox:pinned-chats:${userId}`}, 0))`,
+  );
 }
 
 /**
@@ -147,7 +169,11 @@ async function lockPinnedChats(tx: Tx, userId: string): Promise<void> {
  * until (MUTE_FOREVER_ISO = always, null = unmute), mark unread (never moves the read
  * position). Works for former members too. Events: `chat:upsert` → me.
  */
-export async function updatePrefs(me: string, chatId: string, patch: ChatPrefsPatch): Promise<ChatSummary> {
+export async function updatePrefs(
+  me: string,
+  chatId: string,
+  patch: ChatPrefsPatch,
+): Promise<ChatSummary> {
   await transact(async (tx, fx) => {
     const access = await getChatAccess(tx, me, chatId, { lock: true });
     const set: Partial<typeof chatMembers.$inferInsert> = {};
@@ -157,8 +183,15 @@ export async function updatePrefs(me: string, chatId: string, patch: ChatPrefsPa
         const [row] = await tx
           .select({ n: count() })
           .from(chatMembers)
-          .where(and(eq(chatMembers.userId, me), eq(chatMembers.isPinned, true), ne(chatMembers.chatId, chatId)));
-        if ((row?.n ?? 0) >= MAX_PINNED_CHATS) throw limitReached(`You can only pin up to ${MAX_PINNED_CHATS} chats`);
+          .where(
+            and(
+              eq(chatMembers.userId, me),
+              eq(chatMembers.isPinned, true),
+              ne(chatMembers.chatId, chatId),
+            ),
+          );
+        if ((row?.n ?? 0) >= MAX_PINNED_CHATS)
+          throw limitReached(`You can only pin up to ${MAX_PINNED_CHATS} chats`);
         set.isPinned = true;
         set.pinnedAt = new Date();
       } else {
@@ -167,7 +200,9 @@ export async function updatePrefs(me: string, chatId: string, patch: ChatPrefsPa
       }
     }
     if (patch.isArchived !== undefined) set.isArchived = patch.isArchived;
-    if (patch.mutedUntil !== undefined) set.mutedUntil = patch.mutedUntil === null ? null : storableDate(patch.mutedUntil, 'mutedUntil');
+    if (patch.mutedUntil !== undefined)
+      set.mutedUntil =
+        patch.mutedUntil === null ? null : storableDate(patch.mutedUntil, 'mutedUntil');
     if (patch.markedUnread !== undefined) set.markedUnread = patch.markedUnread;
     if (Object.keys(set).length) {
       await tx
@@ -181,30 +216,39 @@ export async function updatePrefs(me: string, chatId: string, patch: ChatPrefsPa
 }
 
 /** Remove my stars on messages of the chat with seq ≤ upToSeq (clear / delete chat). */
-async function removeStarsUpTo(tx: Tx, userId: string, chatId: string, upToSeq: number): Promise<void> {
-  await tx
-    .delete(starredMessages)
-    .where(
-      and(
-        eq(starredMessages.userId, userId),
-        inArray(
-          starredMessages.messageId,
-          tx
-            .select({ id: messages.id })
-            .from(messages)
-            .where(and(eq(messages.chatId, chatId), sql`${messages.seq} <= ${upToSeq}`)),
-        ),
+async function removeStarsUpTo(
+  tx: Tx,
+  userId: string,
+  chatId: string,
+  upToSeq: number,
+): Promise<void> {
+  await tx.delete(starredMessages).where(
+    and(
+      eq(starredMessages.userId, userId),
+      inArray(
+        starredMessages.messageId,
+        tx
+          .select({ id: messages.id })
+          .from(messages)
+          .where(and(eq(messages.chatId, chatId), sql`${messages.seq} <= ${upToSeq}`)),
       ),
-    );
+    ),
+  );
 }
 
 /** `cleared_seq = chats.last_seq` (monotonic) and my stars in that range removed. */
-async function clearHistory(tx: Tx, access: ChatAccess, extra: Partial<typeof chatMembers.$inferInsert> = {}): Promise<number> {
+async function clearHistory(
+  tx: Tx,
+  access: ChatAccess,
+  extra: Partial<typeof chatMembers.$inferInsert> = {},
+): Promise<number> {
   const clearedSeq = Math.max(Number(access.member.clearedSeq), Number(access.chat.lastSeq));
   await tx
     .update(chatMembers)
     .set({ clearedSeq, ...extra })
-    .where(and(eq(chatMembers.chatId, access.chat.id), eq(chatMembers.userId, access.member.userId)));
+    .where(
+      and(eq(chatMembers.chatId, access.chat.id), eq(chatMembers.userId, access.member.userId)),
+    );
   await removeStarsUpTo(tx, access.member.userId, access.chat.id, clearedSeq);
   return clearedSeq;
 }
@@ -229,9 +273,18 @@ export async function deleteChatForMe(me: string, chatId: string): Promise<void>
     const access = await getChatAccess(tx, me, chatId, { lock: true });
     if (access.chat.type === 'channel') throw conflict('Unfollow the channel instead');
     if (access.chat.type === 'group' && access.membership === 'active') {
-      throw conflict(access.chat.isAnnouncement ? 'Leave the community before deleting this chat' : 'Leave the group before deleting it');
+      throw conflict(
+        access.chat.isAnnouncement
+          ? 'Leave the community before deleting this chat'
+          : 'Leave the group before deleting it',
+      );
     }
-    await clearHistory(tx, access, { hidden: true, isPinned: false, pinnedAt: null, markedUnread: false });
+    await clearHistory(tx, access, {
+      hidden: true,
+      isPinned: false,
+      pinnedAt: null,
+      markedUnread: false,
+    });
     fx.removeChat(me, chatId);
   });
 }
@@ -247,16 +300,32 @@ export async function deleteChatForMe(me: string, chatId: string): Promise<void>
  * Direct chat whose peer blocked me: the change applies, but the system message is withheld
  * from the peer and `chat:updated` skips them (docs "Blocking").
  */
-export async function setDisappearing(me: string, chatId: string, seconds: number | null): Promise<ChatSummary> {
+export async function setDisappearing(
+  me: string,
+  chatId: string,
+  seconds: number | null,
+): Promise<ChatSummary> {
   await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
     if (access.chat.type === 'direct') assertCanSend(access);
-    else requirePermission(access, 'canEditInfo', 'Only admins can change the disappearing messages timer');
+    else
+      requirePermission(
+        access,
+        'canEditInfo',
+        'Only admins can change the disappearing messages timer',
+      );
     if ((access.chat.disappearingSeconds ?? null) === seconds) return;
     const blockers = await peersWhoBlockedMe(tx, access);
-    await tx.update(chats).set({ disappearingSeconds: seconds, updatedAt: new Date() }).where(eq(chats.id, chatId));
+    await tx
+      .update(chats)
+      .set({ disappearingSeconds: seconds, updatedAt: new Date() })
+      .where(eq(chats.id, chatId));
     if (systemMessageAllowed(access.chat, 'disappearing_changed')) {
-      await postSystemMessage(tx, fx, access.chat, { kind: 'disappearing_changed', actorId: me, seconds });
+      await postSystemMessage(tx, fx, access.chat, {
+        kind: 'disappearing_changed',
+        actorId: me,
+        seconds,
+      });
     }
     fx.chatUpdated(chatId, { disappearingSeconds: seconds }, { exceptUserIds: blockers });
   });
@@ -308,7 +377,10 @@ function mediaKindCondition(kind: ChatMediaKind): SQL {
     case 'voice':
       return and(eq(messages.type, 'voice'), sql`${messages.mediaId} is not null`)!;
     case 'links':
-      return and(sql`${messages.type} not in ('system', 'call')`, sql`${messages.text} ~* ${LINK_PATTERN}`)!;
+      return and(
+        sql`${messages.type} not in ('system', 'call')`,
+        sql`${messages.text} ~* ${LINK_PATTERN}`,
+      )!;
   }
 }
 
@@ -317,7 +389,12 @@ function mediaKindCondition(kind: ChatMediaKind): SQL {
  * (former members: their window), not deleted, of `kind`.
  */
 function chatMediaWhere(access: ChatAccess, kind: SQL): SQL {
-  return and(eq(messages.chatId, access.chat.id), visibleTo(access.window), isNull(messages.deletedAt), kind)!;
+  return and(
+    eq(messages.chatId, access.chat.id),
+    visibleTo(access.window),
+    isNull(messages.deletedAt),
+    kind,
+  )!;
 }
 
 /**
@@ -326,12 +403,21 @@ function chatMediaWhere(access: ChatAccess, kind: SQL): SQL {
  * files and audio files, `voice` = voice notes, `links` = messages whose text/caption has a
  * link. Only messages visible to the viewer (former members: their window), not deleted.
  */
-export async function listChatMedia(me: string, chatId: string, query: ChatMediaQuery): Promise<Message[]> {
+export async function listChatMedia(
+  me: string,
+  chatId: string,
+  query: ChatMediaQuery,
+): Promise<Message[]> {
   const access = await getChatAccess(db, me, chatId);
   const rows = await db
     .select()
     .from(messages)
-    .where(and(chatMediaWhere(access, mediaKindCondition(query.kind)), query.before !== undefined ? lt(messages.seq, query.before) : undefined))
+    .where(
+      and(
+        chatMediaWhere(access, mediaKindCondition(query.kind)),
+        query.before !== undefined ? lt(messages.seq, query.before) : undefined,
+      ),
+    )
     .orderBy(desc(messages.seq))
     .limit(query.limit);
   return toMessages(db, me, rows, { chatTypes: new Map([[chatId, access.chat.type]]) });
@@ -344,12 +430,23 @@ export async function listChatMedia(me: string, chatId: string, query: ChatMedia
  */
 export async function chatMediaCounts(me: string, chatId: string): Promise<ChatMediaCounts> {
   const access = await getChatAccess(db, me, chatId);
-  const countOf = (kind: ChatMediaKind) => sql<number>`(count(*) filter (where ${mediaKindCondition(kind)}))::int`.mapWith(Number);
+  const countOf = (kind: ChatMediaKind) =>
+    sql<number>`(count(*) filter (where ${mediaKindCondition(kind)}))::int`.mapWith(Number);
   const [row] = await db
-    .select({ media: countOf('media'), docs: countOf('docs'), links: countOf('links'), voice: countOf('voice') })
+    .select({
+      media: countOf('media'),
+      docs: countOf('docs'),
+      links: countOf('links'),
+      voice: countOf('voice'),
+    })
     .from(messages)
     .where(chatMediaWhere(access, or(...MEDIA_KINDS.map(mediaKindCondition))!));
-  return { media: row?.media ?? 0, docs: row?.docs ?? 0, links: row?.links ?? 0, voice: row?.voice ?? 0 };
+  return {
+    media: row?.media ?? 0,
+    docs: row?.docs ?? 0,
+    links: row?.links ?? 0,
+    voice: row?.voice ?? 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -390,12 +487,17 @@ export async function listPins(me: string, chatId: string): Promise<Message[]> {
  * Already pinned → no-op. Events: sys `message_pinned` (not channels) → room, `chat:pins` → room.
  * Direct chat whose peer blocked me: both skip the peer (docs "Blocking").
  */
-export async function pinMessage(me: string, chatId: string, messageId: string): Promise<Message[]> {
+export async function pinMessage(
+  me: string,
+  chatId: string,
+  messageId: string,
+): Promise<Message[]> {
   await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
     requirePermission(access, 'canPin', 'Only admins can pin messages');
     const { message } = await loadVisibleMessage(tx, me, messageId, { chatId });
-    if (message.deletedAt || message.type === 'system' || message.type === 'call') throw badRequest('This message cannot be pinned');
+    if (message.deletedAt || message.type === 'system' || message.type === 'call')
+      throw badRequest('This message cannot be pinned');
     const pins = await tx
       .select({ messageId: chatPins.messageId, createdAt: chatPins.createdAt })
       .from(chatPins)
@@ -416,9 +518,18 @@ export async function pinMessage(me: string, chatId: string, messageId: string):
     }
     // Strictly after the newest pin so "oldest pin" is well defined even within one millisecond.
     const newest = pins.at(-1)?.createdAt.getTime() ?? 0;
-    await tx.insert(chatPins).values({ chatId, messageId, pinnedBy: me, createdAt: new Date(Math.max(Date.now(), newest + 1)) });
+    await tx.insert(chatPins).values({
+      chatId,
+      messageId,
+      pinnedBy: me,
+      createdAt: new Date(Math.max(Date.now(), newest + 1)),
+    });
     if (systemMessageAllowed(access.chat, 'message_pinned')) {
-      await postSystemMessage(tx, fx, access.chat, { kind: 'message_pinned', actorId: me, messageId });
+      await postSystemMessage(tx, fx, access.chat, {
+        kind: 'message_pinned',
+        actorId: me,
+        messageId,
+      });
     }
     fx.chatPins(chatId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
   });
@@ -429,7 +540,11 @@ export async function pinMessage(me: string, chatId: string, messageId: string):
  * `DELETE /chats/:chatId/pins/:messageId`: `canPin`; not pinned → no-op. Events: `chat:pins` →
  * room (direct chat whose peer blocked me: not to the peer).
  */
-export async function unpinMessage(me: string, chatId: string, messageId: string): Promise<Message[]> {
+export async function unpinMessage(
+  me: string,
+  chatId: string,
+  messageId: string,
+): Promise<Message[]> {
   await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
     requirePermission(access, 'canPin', 'Only admins can unpin messages');
@@ -450,7 +565,11 @@ export async function unpinMessage(me: string, chatId: string, messageId: string
  * `Pick<ChatSummary, 'id' | 'type' | 'name' | 'avatarUrl' | 'peer'>` for many chats as seen by
  * the viewer, in a fixed number of queries (chats, direct members, peer users).
  */
-export async function chatPreviews(dbx: DbOrTx, viewerId: string, chatIds: Iterable<string>): Promise<Map<string, ChatPreview>> {
+export async function chatPreviews(
+  dbx: DbOrTx,
+  viewerId: string,
+  chatIds: Iterable<string>,
+): Promise<Map<string, ChatPreview>> {
   const ids = uniq(chatIds);
   const out = new Map<string, ChatPreview>();
   if (ids.length === 0) return out;
@@ -467,7 +586,10 @@ export async function chatPreviews(dbx: DbOrTx, viewerId: string, chatIds: Itera
       .from(chatMembers)
       .where(inArray(chatMembers.chatId, directIds));
     for (const id of directIds) {
-      peerOf.set(id, members.find((m) => m.chatId === id && m.userId !== viewerId)?.userId ?? viewerId);
+      peerOf.set(
+        id,
+        members.find((m) => m.chatId === id && m.userId !== viewerId)?.userId ?? viewerId,
+      );
     }
   }
   const peers = await toUserPublicMap(dbx, viewerId, peerOf.values());
@@ -485,7 +607,11 @@ export async function chatPreviews(dbx: DbOrTx, viewerId: string, chatIds: Itera
 }
 
 /** Serialize rows as `MessageSearchResult[]` (viewer-specific messages + chat previews), input order. */
-export async function toSearchResults(dbx: DbOrTx, viewerId: string, rows: MessageRow[]): Promise<MessageSearchResult[]> {
+export async function toSearchResults(
+  dbx: DbOrTx,
+  viewerId: string,
+  rows: MessageRow[],
+): Promise<MessageSearchResult[]> {
   if (rows.length === 0) return [];
   const previews = await chatPreviews(
     dbx,
@@ -494,5 +620,7 @@ export async function toSearchResults(dbx: DbOrTx, viewerId: string, rows: Messa
   );
   const chatTypes = new Map([...previews.values()].map((p) => [p.id, p.type]));
   const serialized = await toMessages(dbx, viewerId, rows, { chatTypes });
-  return serialized.filter((m) => previews.has(m.chatId)).map((message) => ({ message, chat: previews.get(message.chatId)! }));
+  return serialized
+    .filter((m) => previews.has(m.chatId))
+    .map((message) => ({ message, chat: previews.get(message.chatId)! }));
 }

@@ -12,14 +12,22 @@ import { resetUserLimits } from '../../src/lib/userLimit.js';
 import { isOnline } from '../../src/realtime/presence.js';
 import { createSession } from '../../src/services/sessions.js';
 import { rawAck, until } from '../calls/helpers.js';
-import { sleep, startTestServer, type TestServer, type TestSocket, type TestUser } from '../helpers.js';
+import {
+  sleep,
+  startTestServer,
+  type TestServer,
+  type TestSocket,
+  type TestUser,
+} from '../helpers.js';
 import { leaveGroup, memberOf, sendOk } from '../messaging/support.js';
 import { createGroup, memberRow, recordEvents, settle } from '../services/fixtures.js';
 import { afterNextResult, delayNextResult } from '../support/db-hooks.js';
 
 /** The connect handler's "load my active non-hidden memberships" query for `userId`. */
 const membershipsQueryOf = (userId: string) => (text: string, params: unknown[]) =>
-  /^select "chat_id" from "chat_members"/.test(text) && text.includes('"hidden"') && params[0] === userId;
+  /^select "chat_id" from "chat_members"/.test(text) &&
+  text.includes('"hidden"') &&
+  params[0] === userId;
 
 describe('socket connect', () => {
   let t: TestServer;
@@ -29,13 +37,16 @@ describe('socket connect', () => {
   });
   afterAll(() => t.close());
 
-  const mentioning = (log: { event: string; payload: unknown }[], id: string) => log.filter((e) => JSON.stringify(e.payload ?? null).includes(id));
+  const mentioning = (log: { event: string; payload: unknown }[], id: string) =>
+    log.filter((e) => JSON.stringify(e.payload ?? null).includes(id));
 
   describe('a leave racing the connect leaves no stale chat room', () => {
     it('removal committed (and flushed) between the membership SELECT and socket.join', async () => {
       const [alice, carol] = [await t.createUser(), await t.createUser()];
       const g = await createGroup(alice, [carol]);
-      const hook = afterNextResult(membershipsQueryOf(carol.id), () => leaveGroup(g, carol, alice).then(() => undefined));
+      const hook = afterNextResult(membershipsQueryOf(carol.id), () =>
+        leaveGroup(g, carol, alice).then(() => undefined),
+      );
       let sc: TestSocket;
       try {
         sc = await t.connect(carol);
@@ -67,7 +78,10 @@ describe('socket connect', () => {
       await settle(300);
       expect({
         inRoom: t.io.of('/').adapter.rooms.get(rooms.chat(g))?.has(s.id!) ?? false,
-        leaked: rec.of('message:new').filter((p: { message: Message }) => p.message.chatId === g).map((p) => p.message.text),
+        leaked: rec
+          .of('message:new')
+          .filter((p: { message: Message }) => p.message.chatId === g)
+          .map((p) => p.message.text),
       }).toEqual({ inRoom: false, leaked: [] });
       s.disconnect();
     });
@@ -90,7 +104,12 @@ describe('socket connect', () => {
 
       const laptopSession = await createSession({ userId: u.id, deviceName: 'laptop' });
       const d = delayNextResult(membershipsQueryOf(u.id));
-      const laptop = ioClient(t.url, { auth: { token: laptopSession.token }, transports: ['websocket'], forceNew: true, reconnection: false });
+      const laptop = ioClient(t.url, {
+        auth: { token: laptopSession.token },
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      });
       await d.hit;
       if (!laptop.connected) await new Promise((r) => laptop.once('connect', () => r(undefined)));
       const deadId = laptop.id!;
@@ -113,9 +132,16 @@ describe('socket connect', () => {
       const adapter = t.io.of('/').adapter;
       const orig = adapter.addAll.bind(adapter);
       adapter.addAll = ((id: string, set: Set<string>) =>
-        new Promise<void>((resolve) => setTimeout(() => resolve(orig(id, set) as void), 150))) as typeof adapter.addAll;
+        new Promise<void>((resolve) =>
+          setTimeout(() => resolve(orig(id, set) as void), 150),
+        )) as typeof adapter.addAll;
       try {
-        const flaky = ioClient(t.url, { auth: { token: u.token }, transports: ['websocket'], forceNew: true, reconnection: false });
+        const flaky = ioClient(t.url, {
+          auth: { token: u.token },
+          transports: ['websocket'],
+          forceNew: true,
+          reconnection: false,
+        });
         await new Promise<void>((resolve) => flaky.once('connect', () => resolve()));
         flaky.disconnect();
         await sleep(400);
@@ -130,7 +156,12 @@ describe('socket connect', () => {
 
   it('a non-string handshake token is rejected as unauthorized (not internal_error)', async () => {
     for (const token of [12345, { nested: true }, ['x']]) {
-      const socket = ioClient(t.url, { auth: { token }, transports: ['websocket'], forceNew: true, reconnection: false });
+      const socket = ioClient(t.url, {
+        auth: { token },
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      });
       const msg = await new Promise<string>((resolve) => {
         socket.once('connect_error', (err) => resolve(err.message));
         socket.once('connect', () => resolve('connected'));
@@ -147,7 +178,9 @@ describe('socket connect', () => {
     config.rateLimit = true;
     resetUserLimits();
     try {
-      const acks = await Promise.all(Array.from({ length: 110 }, () => rawAck(s, 'chat:read', { chatId: g, seq: 1 })));
+      const acks = await Promise.all(
+        Array.from({ length: 110 }, () => rawAck(s, 'chat:read', { chatId: g, seq: 1 })),
+      );
       const limited = acks.filter((a) => !a.ok && a.error.code === 'rate_limited').length;
       expect(limited).toBe(10);
       expect(s.connected).toBe(true);

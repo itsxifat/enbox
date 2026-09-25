@@ -4,13 +4,7 @@ import { api } from '@/lib/api';
 import { resetSessionState } from '@/lib/session';
 import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
 import { useAuth } from './auth';
-import {
-  compareChats,
-  filterChats,
-  mergeChatUpsert,
-  selectSortedChats,
-  useChats,
-} from './chats';
+import { compareChats, filterChats, mergeChatUpsert, selectSortedChats, useChats } from './chats';
 import { useUsers } from './users';
 
 const t = (h: number) => `2025-03-12T${String(h).padStart(2, '0')}:00:00.000Z`;

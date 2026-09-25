@@ -23,12 +23,17 @@ describe('calls: jobs and hooks', () => {
   });
 
   const messageOf = async (callId: string) => {
-    const [m] = await db.select().from(messages).where(eq(messages.id, (await callRow(callId)).messageId!));
+    const [m] = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, (await callRow(callId)).messageId!));
     return m!;
   };
 
   it('crash recovery (first run of the calls job): ongoing → ended, ringing → missed, messages fixed; later runs only sweep', async () => {
-    const [alice, bob, carol, dave] = await Promise.all(['A', 'B', 'C', 'D'].map((n) => t.createUser({ displayName: n })));
+    const [alice, bob, carol, dave] = await Promise.all(
+      ['A', 'B', 'C', 'D'].map((n) => t.createUser({ displayName: n })),
+    );
     const ab = await createDirect(alice!, bob!);
     const cd = await createDirect(carol!, dave!);
     const [a, b, c] = await Promise.all([alice!, bob!, carol!].map((u) => t.connect(u)));
@@ -45,14 +50,24 @@ describe('calls: jobs and hooks', () => {
     expect(o.status).toBe('ended');
     expect(o.endedAt).not.toBeNull();
     expect((await partRows(ongoing.id)).map((p) => p.status)).toEqual(['left', 'left']);
-    expect((await messageOf(ongoing.id)).metadata.call).toMatchObject({ status: 'ended', durationSec: expect.any(Number) });
+    expect((await messageOf(ongoing.id)).metadata.call).toMatchObject({
+      status: 'ended',
+      durationSec: expect.any(Number),
+    });
     const r = await callRow(ringing.id);
     expect(r.status).toBe('missed');
     expect((await partOf(ringing.id, dave!.id)).status).toBe('missed');
     expect((await partOf(ringing.id, carol!.id)).status).toBe('left');
-    expect((await messageOf(ringing.id)).metadata.call).toMatchObject({ status: 'missed', durationSec: null });
+    expect((await messageOf(ringing.id)).metadata.call).toMatchObject({
+      status: 'missed',
+      durationSec: null,
+    });
     await until(() => rb.of('call:ended').length === 1, 3000, 'call:ended');
-    await until(() => rb.of('message:updated').some((m) => m.message.call?.status === 'ended'), 3000, 'message:updated');
+    await until(
+      () => rb.of('message:updated').some((m) => m.message.call?.status === 'ended'),
+      3000,
+      'message:updated',
+    );
 
     // Later runs don't touch healthy live calls.
     const live = await ackCall(a!, 'call:start', { chatId: ab, type: 'audio' });
@@ -82,7 +97,11 @@ describe('calls: jobs and hooks', () => {
     const ongoing = await ackCall(a, 'call:start', { chatId: ab, type: 'audio' });
     await ackCall(b, 'call:accept', { callId: ongoing.id });
     b.disconnect();
-    await until(async () => (await partOf(ongoing.id, bob!.id)).disconnectedAt !== null, 3000, 'disconnected');
+    await until(
+      async () => (await partOf(ongoing.id, bob!.id)).disconnectedAt !== null,
+      3000,
+      'disconnected',
+    );
     resetCallState();
     await sweepCalls();
     expect((await callRow(ongoing.id)).status).toBe('ongoing'); // still within the grace
@@ -96,7 +115,9 @@ describe('calls: jobs and hooks', () => {
   });
 
   it('account deletion hooks: forced leave of every live call, statuses removed for their audience', async () => {
-    const [alice, bob, carol, dave] = await Promise.all(['A', 'B', 'C', 'D'].map((n) => t.createUser({ displayName: n })));
+    const [alice, bob, carol, dave] = await Promise.all(
+      ['A', 'B', 'C', 'D'].map((n) => t.createUser({ displayName: n })),
+    );
     const ab = await createDirect(alice!, bob!);
     const group = await createGroup(carol!, [alice!, dave!]);
     const [a, b, c, d] = await Promise.all([alice!, bob!, carol!, dave!].map((u) => t.connect(u)));
@@ -107,7 +128,9 @@ describe('calls: jobs and hooks', () => {
     const direct = await ackCall(a!, 'call:start', { chatId: ab, type: 'audio' });
     await ackCall(b!, 'call:accept', { callId: direct.id });
     await saveContact(alice!, bob!);
-    const status = (await t.api(alice!).post('/api/status').send({ type: 'text', text: 'bye' }).expect(201)).body;
+    const status = (
+      await t.api(alice!).post('/api/status').send({ type: 'text', text: 'bye' }).expect(201)
+    ).body;
     await until(() => rb!.of('status:new').length === 1, 3000, 'status:new');
 
     await transact((tx, fx) => runAccountDeletionHooks(tx, fx, alice!.id));
@@ -116,7 +139,16 @@ describe('calls: jobs and hooks', () => {
     expect(rb!.of('call:ended')[0]).toMatchObject({ callId: direct.id, status: 'ended' });
     expect((await partOf(grp.id, alice!.id)).status).toBe('missed');
     expect((await callRow(grp.id)).status).toBe('ringing'); // Dave still rings
-    await until(() => rc!.of('call:updated').some((p) => p.call.participants.find((x) => x.userId === alice!.id)?.status === 'missed'), 3000, 'group update');
+    await until(
+      () =>
+        rc!
+          .of('call:updated')
+          .some(
+            (p) => p.call.participants.find((x) => x.userId === alice!.id)?.status === 'missed',
+          ),
+      3000,
+      'group update',
+    );
     expect(ra!.of('call:ring-stop')).toContainEqual({ callId: grp.id, reason: 'ended' });
     await until(() => rb!.of('status:deleted').length === 1, 3000, 'status:deleted');
     expect(rb!.of('status:deleted')[0]).toEqual({ statusId: status.id, userId: alice!.id });

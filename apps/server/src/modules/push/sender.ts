@@ -34,7 +34,11 @@ export interface PushOptions {
  * Sends one push message. Rejects on failure; an error with `statusCode` 404 or 410 means the
  * subscription is gone (it is then deleted).
  */
-export type PushSender = (target: PushTarget, payload: PushPayload, opts: PushOptions) => Promise<void>;
+export type PushSender = (
+  target: PushTarget,
+  payload: PushPayload,
+  opts: PushOptions,
+) => Promise<void>;
 
 const PUSH_TIMEOUT_MS = 10_000;
 
@@ -98,10 +102,16 @@ export async function deliverPush(entries: PushEntry[]): Promise<void> {
   const byUser = new Map<string, typeof subs>();
   for (const s of subs) byUser.set(s.userId, [...(byUser.get(s.userId) ?? []), s]);
 
-  const jobs = entries.flatMap((entry) => (byUser.get(entry.userId) ?? []).map((sub) => ({ entry, sub })));
+  const jobs = entries.flatMap((entry) =>
+    (byUser.get(entry.userId) ?? []).map((sub) => ({ entry, sub })),
+  );
   const sendOne = async ({ entry, sub }: (typeof jobs)[number]) => {
     try {
-      await sender({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, entry.payload, entry.opts);
+      await sender(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        entry.payload,
+        entry.opts,
+      );
       failures.delete(sub.id);
     } catch (err) {
       if (isGone(err)) return dropSubscription(sub);

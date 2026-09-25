@@ -15,7 +15,9 @@ registerAccountDeletionHook('channels', async (tx, fx, userId) => {
     .select({ chatId: chatMembers.chatId, role: chatMembers.role })
     .from(chatMembers)
     .innerJoin(chats, eq(chats.id, chatMembers.chatId))
-    .where(and(eq(chatMembers.userId, userId), eq(chats.type, 'channel'), isNull(chatMembers.leftAt)));
+    .where(
+      and(eq(chatMembers.userId, userId), eq(chats.type, 'channel'), isNull(chatMembers.leftAt)),
+    );
   if (rows.length === 0) return;
   const locked = await lockChats(
     tx,
@@ -29,7 +31,9 @@ registerAccountDeletionHook('channels', async (tx, fx, userId) => {
       continue;
     }
     // The owner row goes first (ensureOwner only promotes when no owner exists).
-    await tx.delete(chatMembers).where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, userId)));
+    await tx
+      .delete(chatMembers)
+      .where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, userId)));
     fx.removeChat(userId, chat.id);
     fx.domain('member.left', { chatId: chat.id, userId, reason: 'unfollowed' });
     const newOwner = await ensureOwner(tx, fx, chat.id);

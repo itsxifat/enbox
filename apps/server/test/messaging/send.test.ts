@@ -1,13 +1,41 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { USER_RATE_LIMITS, mentionToken, type ChatSummary, type Message, type MessagePage } from '@enbox/shared';
+import {
+  USER_RATE_LIMITS,
+  mentionToken,
+  type ChatSummary,
+  type Message,
+  type MessagePage,
+} from '@enbox/shared';
 import { config } from '../../src/config.js';
 import { db } from '../../src/db/index.js';
 import { chats, messageHidden, messages, statuses, users } from '../../src/db/schema.js';
 import { resetUserLimits } from '../../src/lib/userLimit.js';
 import { startTestServer, type TestServer, type TestUser } from '../helpers.js';
-import { block, createChannel, createCommunity, createGroup, recordEvents, saveContact, setSettings, settle } from '../services/fixtures.js';
-import { activeDirect, addToGroup, follow, historyOf, leaveGroup, memberOf, mkMedia, mkStatus, openDirect, sendOk, sendReq, summaryOf } from './support.js';
+import {
+  block,
+  createChannel,
+  createCommunity,
+  createGroup,
+  recordEvents,
+  saveContact,
+  setSettings,
+  settle,
+} from '../services/fixtures.js';
+import {
+  activeDirect,
+  addToGroup,
+  follow,
+  historyOf,
+  leaveGroup,
+  memberOf,
+  mkMedia,
+  mkStatus,
+  openDirect,
+  sendOk,
+  sendReq,
+  summaryOf,
+} from './support.js';
 
 describe('POST /chats/:chatId/messages (send)', () => {
   let t: TestServer;
@@ -34,7 +62,9 @@ describe('POST /chats/:chatId/messages (send)', () => {
       const la1 = recordEvents(a1);
       const la2 = recordEvents(a2);
       const lb = recordEvents(b1);
-      const res = await sendReq(t, alice, g, { text: 'hello group', clientId: 'first-1' }).expect(201);
+      const res = await sendReq(t, alice, g, { text: 'hello group', clientId: 'first-1' }).expect(
+        201,
+      );
       const m = res.body as Message;
       expect(m).toMatchObject({
         chatId: g,
@@ -56,9 +86,20 @@ describe('POST /chats/:chatId/messages (send)', () => {
       await settle();
       for (const log of [la1, la2]) {
         expect(log.of('message:new').map((p) => p.message.id)).toEqual([m.id]);
-        expect(log.of('chat:read')).toEqual([{ chatId: g, lastReadSeq: m.seq, unreadCount: 0, unreadMentionCount: 0, markedUnread: false }]);
+        expect(log.of('chat:read')).toEqual([
+          {
+            chatId: g,
+            lastReadSeq: m.seq,
+            unreadCount: 0,
+            unreadMentionCount: 0,
+            markedUnread: false,
+          },
+        ]);
         // bob is online → delivered advanced in the send transaction → alice's ticks changed
-        expect(log.of('chat:watermarks').at(-1)).toMatchObject({ chatId: g, deliveredWatermark: m.seq });
+        expect(log.of('chat:watermarks').at(-1)).toMatchObject({
+          chatId: g,
+          deliveredWatermark: m.seq,
+        });
       }
       const bobNew = lb.of('message:new');
       expect(bobNew).toHaveLength(1);
@@ -93,7 +134,9 @@ describe('POST /chats/:chatId/messages (send)', () => {
 
     it('concurrent duplicates of one clientId create a single message (one 201, the rest 200)', async () => {
       const g = await createGroup(alice, [bob]);
-      const results = await Promise.all([1, 2, 3].map(() => sendReq(t, alice, g, { text: 'dup', clientId: 'concurrent' })));
+      const results = await Promise.all(
+        [1, 2, 3].map(() => sendReq(t, alice, g, { text: 'dup', clientId: 'concurrent' })),
+      );
       expect(results.map((r) => r.status).sort()).toEqual([200, 200, 201]);
       expect(new Set(results.map((r) => r.body.id)).size).toBe(1);
       const rows = await db.select().from(messages).where(eq(messages.chatId, g));
@@ -103,13 +146,28 @@ describe('POST /chats/:chatId/messages (send)', () => {
     it('validates bodies strictly', async () => {
       const g = await createGroup(alice, [bob]);
       await sendReq(t, alice, g, { text: '   ' }).expect(400);
-      await sendReq(t, alice, g, { type: 'text', text: 'x', mediaId: crypto.randomUUID() }).expect(400);
+      await sendReq(t, alice, g, { type: 'text', text: 'x', mediaId: crypto.randomUUID() }).expect(
+        400,
+      );
       await sendReq(t, alice, g, { type: 'sticker' }).expect(400);
       await sendReq(t, alice, g, { clientId: '' }).expect(400);
-      await sendReq(t, alice, g, { replyToId: crypto.randomUUID(), statusReplyToId: crypto.randomUUID() }).expect(400);
-      await sendReq(t, alice, g, { type: 'poll', poll: { question: 'q', options: ['a', 'A'] } }).expect(400);
-      await sendReq(t, alice, g, { type: 'location', location: { latitude: 91, longitude: 0 } }).expect(400);
-      await t.api(alice).post('/api/chats/nope/messages').send({ type: 'text', text: 'x', clientId: 'c' }).expect(400);
+      await sendReq(t, alice, g, {
+        replyToId: crypto.randomUUID(),
+        statusReplyToId: crypto.randomUUID(),
+      }).expect(400);
+      await sendReq(t, alice, g, {
+        type: 'poll',
+        poll: { question: 'q', options: ['a', 'A'] },
+      }).expect(400);
+      await sendReq(t, alice, g, {
+        type: 'location',
+        location: { latitude: 91, longitude: 0 },
+      }).expect(400);
+      await t
+        .api(alice)
+        .post('/api/chats/nope/messages')
+        .send({ type: 'text', text: 'x', clientId: 'c' })
+        .expect(400);
       const unknown = await sendReq(t, alice, crypto.randomUUID()).expect(404);
       expect(unknown.body.error.code).toBe('not_found');
     });
@@ -119,26 +177,44 @@ describe('POST /chats/:chatId/messages (send)', () => {
       config.rateLimit = true;
       resetUserLimits();
       try {
-        for (let i = 0; i < USER_RATE_LIMITS.sendMessage.limit; i++) await sendReq(t, dave, g, { text: `m${i}` }).expect(201);
+        for (let i = 0; i < USER_RATE_LIMITS.sendMessage.limit; i++)
+          await sendReq(t, dave, g, { text: `m${i}` }).expect(201);
         const res = await sendReq(t, dave, g, { text: 'one too many' }).expect(429);
         expect(res.body.error.code).toBe('rate_limited');
         // Forwards count per copy.
         resetUserLimits();
         const src = (await historyOf(t, dave, g)).at(-1)!;
-        const fwd = await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl', messageIds: [src.id], chatIds: [g] }).expect(201);
+        const fwd = await t
+          .api(dave)
+          .post('/api/messages/forward')
+          .send({ clientId: 'rl', messageIds: [src.id], chatIds: [g] })
+          .expect(201);
         expect(fwd.body).toHaveLength(1);
-        for (let i = 0; i < USER_RATE_LIMITS.sendMessage.limit - 1; i++) await sendReq(t, dave, g).expect(201);
-        await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl2', messageIds: [src.id], chatIds: [g] }).expect(429);
+        for (let i = 0; i < USER_RATE_LIMITS.sendMessage.limit - 1; i++)
+          await sendReq(t, dave, g).expect(201);
+        await t
+          .api(dave)
+          .post('/api/messages/forward')
+          .send({ clientId: 'rl2', messageIds: [src.id], chatIds: [g] })
+          .expect(429);
         // A forward is charged its real copy count: more copies than one window allows can
         // never pass (400, nothing created or charged); a full window's worth passes on a
         // fresh window and uses it up.
         resetUserLimits();
         const many = (await historyOf(t, dave, g, '?limit=13')).map((m) => m.id);
         const targets = [g, ...(await Promise.all([1, 2, 3, 4].map(() => createGroup(dave, []))))];
-        const tooBig = await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl3', messageIds: many, chatIds: targets }).expect(400);
+        const tooBig = await t
+          .api(dave)
+          .post('/api/messages/forward')
+          .send({ clientId: 'rl3', messageIds: many, chatIds: targets })
+          .expect(400);
         expect(tooBig.body.error.code).toBe('validation_error');
         const twelve = many.slice(0, 12);
-        const big = await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl4', messageIds: twelve, chatIds: targets }).expect(201);
+        const big = await t
+          .api(dave)
+          .post('/api/messages/forward')
+          .send({ clientId: 'rl4', messageIds: twelve, chatIds: targets })
+          .expect(201);
         expect(big.body).toHaveLength(USER_RATE_LIMITS.sendMessage.limit);
         await sendReq(t, dave, g).expect(429);
       } finally {
@@ -153,7 +229,11 @@ describe('POST /chats/:chatId/messages (send)', () => {
       const g = await createGroup(alice, [bob]);
       const img = await mkMedia(alice.id, 'image', { width: 10, height: 20 });
       const m = await sendOk(t, alice, g, { type: 'image', mediaId: img.id, text: 'caption' });
-      expect(m).toMatchObject({ type: 'image', text: 'caption', media: { id: img.id, kind: 'image', mimeType: 'image/png', width: 10, height: 20 } });
+      expect(m).toMatchObject({
+        type: 'image',
+        text: 'caption',
+        media: { id: img.id, kind: 'image', mimeType: 'image/png', width: 10, height: 20 },
+      });
       const noCaption = await sendOk(t, alice, g, { type: 'image', mediaId: img.id, text: '  ' });
       expect(noCaption.text).toBeNull();
       const bobs = await mkMedia(bob.id, 'image');
@@ -168,11 +248,27 @@ describe('POST /chats/:chatId/messages (send)', () => {
 
     it('location, poll (stable option ids) and plain contact cards', async () => {
       const g = await createGroup(alice, [bob]);
-      const loc = await sendOk(t, alice, g, { type: 'location', location: { latitude: 52.37, longitude: 4.89, name: 'Dam' } });
-      expect(loc.location).toEqual({ latitude: 52.37, longitude: 4.89, name: 'Dam', address: null });
+      const loc = await sendOk(t, alice, g, {
+        type: 'location',
+        location: { latitude: 52.37, longitude: 4.89, name: 'Dam' },
+      });
+      expect(loc.location).toEqual({
+        latitude: 52.37,
+        longitude: 4.89,
+        name: 'Dam',
+        address: null,
+      });
       expect(loc.text).toBeNull();
-      const poll = await sendOk(t, alice, g, { type: 'poll', poll: { question: 'Lunch?', options: ['Pizza', 'Sushi', 'Salad'], allowMultiple: true } });
-      expect(poll.poll).toMatchObject({ question: 'Lunch?', allowMultiple: true, totalVoters: 0, myOptionIds: [] });
+      const poll = await sendOk(t, alice, g, {
+        type: 'poll',
+        poll: { question: 'Lunch?', options: ['Pizza', 'Sushi', 'Salad'], allowMultiple: true },
+      });
+      expect(poll.poll).toMatchObject({
+        question: 'Lunch?',
+        allowMultiple: true,
+        totalVoters: 0,
+        myOptionIds: [],
+      });
       const ids = poll.poll!.options.map((o) => o.id);
       expect(new Set(ids).size).toBe(3);
       expect(poll.poll!.options.map((o) => [o.text, o.voteCount, o.voterIds])).toEqual([
@@ -180,22 +276,49 @@ describe('POST /chats/:chatId/messages (send)', () => {
         ['Sushi', 0, []],
         ['Salad', 0, []],
       ]);
-      const page = (await t.api(bob).get(`/api/chats/${g}/messages`).expect(200)).body as MessagePage;
-      expect(page.messages.find((m) => m.id === poll.id)!.poll!.options.map((o) => o.id)).toEqual(ids);
-      const plain = await sendOk(t, alice, g, { type: 'contact', contact: { name: 'Plumber', phone: '+1 555 123 4567' } });
-      expect(plain.contact).toEqual({ userId: null, name: 'Plumber', username: null, phone: '+15551234567' });
-      await sendReq(t, alice, g, { type: 'contact', contact: { phone: '+15551234567' } }).expect(400);
+      const page = (await t.api(bob).get(`/api/chats/${g}/messages`).expect(200))
+        .body as MessagePage;
+      expect(page.messages.find((m) => m.id === poll.id)!.poll!.options.map((o) => o.id)).toEqual(
+        ids,
+      );
+      const plain = await sendOk(t, alice, g, {
+        type: 'contact',
+        contact: { name: 'Plumber', phone: '+1 555 123 4567' },
+      });
+      expect(plain.contact).toEqual({
+        userId: null,
+        name: 'Plumber',
+        username: null,
+        phone: '+15551234567',
+      });
+      await sendReq(t, alice, g, { type: 'contact', contact: { phone: '+15551234567' } }).expect(
+        400,
+      );
     });
 
     it('contact cards with userId are filled server-side (phone only if the sender may see it); unknown/deleted → 400', async () => {
       const g = await createGroup(alice, [bob]);
       const subject = await t.createUser({ displayName: 'Subject', phone: '+4915112345678' });
-      const card = await sendOk(t, alice, g, { type: 'contact', contact: { userId: subject.id, name: 'Spoofed', phone: '+10000000000' } });
-      expect(card.contact).toEqual({ userId: subject.id, name: 'Subject', username: subject.username, phone: null });
+      const card = await sendOk(t, alice, g, {
+        type: 'contact',
+        contact: { userId: subject.id, name: 'Spoofed', phone: '+10000000000' },
+      });
+      expect(card.contact).toEqual({
+        userId: subject.id,
+        name: 'Subject',
+        username: subject.username,
+        phone: null,
+      });
       await saveContact(subject, alice);
-      const visible = await sendOk(t, alice, g, { type: 'contact', contact: { userId: subject.id } });
+      const visible = await sendOk(t, alice, g, {
+        type: 'contact',
+        contact: { userId: subject.id },
+      });
       expect(visible.contact!.phone).toBe('+4915112345678');
-      await sendReq(t, alice, g, { type: 'contact', contact: { userId: crypto.randomUUID() } }).expect(400);
+      await sendReq(t, alice, g, {
+        type: 'contact',
+        contact: { userId: crypto.randomUUID() },
+      }).expect(400);
       const gone = await t.createUser();
       await db.update(users).set({ deletedAt: new Date() }).where(eq(users.id, gone.id));
       await sendReq(t, alice, g, { type: 'contact', contact: { userId: gone.id } }).expect(400);
@@ -211,7 +334,11 @@ describe('POST /chats/:chatId/messages (send)', () => {
       expect(m.mentions).toEqual([bob.id]);
       expect(m.text).toBe(text);
       await sendOk(t, alice, g, 'no mention');
-      const cap = await sendOk(t, carol, g, { type: 'image', mediaId: (await mkMedia(carol.id)).id, text: `look ${mentionToken(bob.id)}` });
+      const cap = await sendOk(t, carol, g, {
+        type: 'image',
+        mediaId: (await mkMedia(carol.id)).id,
+        text: `look ${mentionToken(bob.id)}`,
+      });
       expect(cap.mentions).toEqual([bob.id]);
       expect(await summaryOf(t, bob, g)).toMatchObject({ unreadCount: 3, unreadMentionCount: 2 });
       // Sending reads the chat: carol's own caption moved her read position past the others.
@@ -257,7 +384,13 @@ describe('POST /chats/:chatId/messages (send)', () => {
       const fromCarol = await sendOk(t, carol, g, 'group message by carol');
       const d = await openDirect(t, alice, bob);
       const priv = await sendOk(t, alice, d.id, { text: 'about that…', replyToId: fromBob.id });
-      expect(priv.replyTo).toMatchObject({ id: fromBob.id, chatId: g, seq: fromBob.seq, senderId: bob.id, text: 'group message by bob' });
+      expect(priv.replyTo).toMatchObject({
+        id: fromBob.id,
+        chatId: g,
+        seq: fromBob.seq,
+        senderId: bob.id,
+        text: 'group message by bob',
+      });
       // Bob sees the quote in the direct chat too.
       const bobView = (await historyOf(t, bob, d.id)).find((m) => m.id === priv.id)!;
       expect(bobView.replyTo).toMatchObject({ id: fromBob.id, chatId: g });
@@ -302,7 +435,11 @@ describe('POST /chats/:chatId/messages (send)', () => {
       await sendReq(t, bob, bd.id, { statusReplyToId: old.id }).expect(404);
       await db.delete(statuses).where(eq(statuses.id, status.id));
       const later = (await historyOf(t, alice, d.id)).find((m) => m.id === reply.id)!;
-      expect(later.statusReply).toMatchObject({ statusId: status.id, available: false, text: null });
+      expect(later.statusReply).toMatchObject({
+        statusId: status.id,
+        available: false,
+        text: null,
+      });
     });
   });
 
@@ -394,10 +531,17 @@ describe('POST /chats/:chatId/messages (send)', () => {
       for (let i = 1; i <= 10; i++) {
         await sendOk(t, i % 2 ? owner : member, g, `p${i}`);
         // Gaps in alice's view: a message hidden for her and an expired one.
-        if (i === 3) await t.api(alice).delete(`/api/messages/${(await sendOk(t, owner, g, 'hidden')).id}?for=me`).expect(204);
+        if (i === 3)
+          await t
+            .api(alice)
+            .delete(`/api/messages/${(await sendOk(t, owner, g, 'hidden')).id}?for=me`)
+            .expect(204);
         if (i === 6) {
           const x = await sendOk(t, owner, g, 'expired');
-          await db.update(messages).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(messages.id, x.id));
+          await db
+            .update(messages)
+            .set({ expiresAt: new Date(Date.now() - 1000) })
+            .where(eq(messages.id, x.id));
         }
       }
       const all = await historyOf(t, alice, g, '?limit=200');
@@ -406,12 +550,14 @@ describe('POST /chats/:chatId/messages (send)', () => {
     });
 
     it('latest page ascending with hasMoreBefore/hasMoreAfter and side-loaded users', async () => {
-      const page = (await t.api(alice).get(`/api/chats/${g}/messages?limit=4`).expect(200)).body as MessagePage;
+      const page = (await t.api(alice).get(`/api/chats/${g}/messages?limit=4`).expect(200))
+        .body as MessagePage;
       expect(page.messages.map((m) => m.text)).toEqual(['p7', 'p8', 'p9', 'p10']);
       expect(page).toMatchObject({ hasMoreBefore: true, hasMoreAfter: false });
       const userIds = page.users.map((u) => u.id);
       for (const m of page.messages) expect(userIds).toContain(m.senderId);
-      const full = (await t.api(alice).get(`/api/chats/${g}/messages?limit=200`).expect(200)).body as MessagePage;
+      const full = (await t.api(alice).get(`/api/chats/${g}/messages?limit=200`).expect(200))
+        .body as MessagePage;
       expect(full).toMatchObject({ hasMoreBefore: false, hasMoreAfter: false });
       // system messages reference actors/targets → side-loaded
       expect(full.users.map((u) => u.id)).toContain(alice.id);
@@ -420,24 +566,36 @@ describe('POST /chats/:chatId/messages (send)', () => {
     it('before / after / around cursors are exclusive; at most one cursor', async () => {
       const p10 = seqs.at(-1)!;
       expect(seqs.at(-1)! - seqs[0]!).toBeGreaterThan(seqs.length - 1); // gaps
-      const before = (await t.api(alice).get(`/api/chats/${g}/messages?before=${p10}&limit=3`).expect(200)).body as MessagePage;
+      const before = (
+        await t.api(alice).get(`/api/chats/${g}/messages?before=${p10}&limit=3`).expect(200)
+      ).body as MessagePage;
       expect(before.messages.map((m) => m.text)).toEqual(['p7', 'p8', 'p9']);
       expect(before).toMatchObject({ hasMoreBefore: true, hasMoreAfter: true });
-      const after = (await t.api(alice).get(`/api/chats/${g}/messages?after=${seqs[0]}&limit=2`).expect(200)).body as MessagePage;
+      const after = (
+        await t.api(alice).get(`/api/chats/${g}/messages?after=${seqs[0]}&limit=2`).expect(200)
+      ).body as MessagePage;
       expect(after.messages.map((m) => m.seq)).toEqual([seqs[1], seqs[2]]);
       expect(after).toMatchObject({ hasMoreBefore: true, hasMoreAfter: true });
-      const tail = (await t.api(alice).get(`/api/chats/${g}/messages?after=${seqs.at(-3)}`).expect(200)).body as MessagePage;
+      const tail = (
+        await t
+          .api(alice)
+          .get(`/api/chats/${g}/messages?after=${seqs.at(-3)}`)
+          .expect(200)
+      ).body as MessagePage;
       expect(tail.messages.map((m) => m.text)).toEqual(['p9', 'p10']);
       expect(tail.hasMoreAfter).toBe(false);
       const mid = seqs[5]!;
-      const around = (await t.api(alice).get(`/api/chats/${g}/messages?around=${mid}&limit=4`).expect(200)).body as MessagePage;
+      const around = (
+        await t.api(alice).get(`/api/chats/${g}/messages?around=${mid}&limit=4`).expect(200)
+      ).body as MessagePage;
       expect(around.messages.map((m) => m.seq)).toEqual([seqs[4], seqs[5], seqs[6], seqs[7]]);
       expect(around).toMatchObject({ hasMoreBefore: true, hasMoreAfter: true });
       await t.api(alice).get(`/api/chats/${g}/messages?before=5&after=2`).expect(400);
       await t.api(alice).get(`/api/chats/${g}/messages?limit=0`).expect(400);
       await t.api(alice).get(`/api/chats/${g}/messages?limit=201`).expect(400);
       // Blank cursors are treated as absent.
-      const blank = (await t.api(alice).get(`/api/chats/${g}/messages?before=&limit=1`).expect(200)).body as MessagePage;
+      const blank = (await t.api(alice).get(`/api/chats/${g}/messages?before=&limit=1`).expect(200))
+        .body as MessagePage;
       expect(blank.messages.map((m) => m.text)).toEqual(['p10']);
     });
 
@@ -481,7 +639,11 @@ describe('POST /chats/:chatId/messages (send)', () => {
       const m = await sendOk(t, u1, d.id, 'hello');
       await settle();
       expect(log.names().slice(0, 2)).toEqual(['chat:upsert', 'message:new']);
-      expect(log.of('chat:upsert')[0]!.chat).toMatchObject({ id: d.id, disappearingSeconds: 86_400, unreadCount: 1 });
+      expect(log.of('chat:upsert')[0]!.chat).toMatchObject({
+        id: d.id,
+        disappearingSeconds: 86_400,
+        unreadCount: 1,
+      });
       expect(m.expiresAt).not.toBeNull();
       const [row] = await db.select().from(messages).where(eq(messages.id, m.id));
       expect(row!.expiresAt).not.toBeNull();

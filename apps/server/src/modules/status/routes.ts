@@ -5,7 +5,15 @@ import { authUserId } from '../../http/auth.js';
 import { SERVER_RATE_LIMITS, assertUserLimit } from '../../lib/userLimit.js';
 import { parse } from '../../lib/validate.js';
 import { registerAccountDeletionHook } from '../../services/hooks.js';
-import { createStatus, deleteStatus, deleteUserStatusesTx, loadStatusFeed, loadStatusViewers, reactToStatus, viewStatus } from './service.js';
+import {
+  createStatus,
+  deleteStatus,
+  deleteUserStatusesTx,
+  loadStatusFeed,
+  loadStatusViewers,
+  reactToStatus,
+  viewStatus,
+} from './service.js';
 
 /**
  * Status module — owns: /status/* (service.ts has the rules).

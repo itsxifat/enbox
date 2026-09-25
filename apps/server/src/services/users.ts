@@ -22,7 +22,16 @@ import {
   type UserSettings,
 } from '@enbox/shared';
 import type { DbOrTx, Tx } from '../db/index.js';
-import { blocks, contacts, media, pushSubscriptions, sessions, statuses, users, type UserRow } from '../db/schema.js';
+import {
+  blocks,
+  contacts,
+  media,
+  pushSubscriptions,
+  sessions,
+  statuses,
+  users,
+  type UserRow,
+} from '../db/schema.js';
 import { notFound } from '../lib/errors.js';
 import { isOnline } from '../realtime/presence.js';
 import { mediaUrl } from './media.js';
@@ -68,7 +77,10 @@ export async function lockLiveUsers(tx: DbOrTx, ids: Iterable<string>): Promise<
   return new Set(rows.map((r) => r.id));
 }
 
-export async function getUserRows(dbx: DbOrTx, ids: Iterable<string>): Promise<Map<string, UserWithAvatar>> {
+export async function getUserRows(
+  dbx: DbOrTx,
+  ids: Iterable<string>,
+): Promise<Map<string, UserWithAvatar>> {
   const list = uniq(ids);
   const out = new Map<string, UserWithAvatar>();
   if (list.length === 0) return out;
@@ -86,7 +98,11 @@ export async function getUserRow(dbx: DbOrTx, id: string): Promise<UserWithAvata
 }
 
 /** The user row, or 404 when unknown (or deleted, unless `allowDeleted`). */
-export async function requireUser(dbx: DbOrTx, id: string, opts: { allowDeleted?: boolean } = {}): Promise<UserWithAvatar> {
+export async function requireUser(
+  dbx: DbOrTx,
+  id: string,
+  opts: { allowDeleted?: boolean } = {},
+): Promise<UserWithAvatar> {
   const row = await getUserRow(dbx, id);
   if (!row || (row.deletedAt && !opts.allowDeleted)) throw notFound('User');
   return row;
@@ -128,7 +144,10 @@ export interface UserPair {
  * matching both directions. Result keyed by `pairKey(viewerId, subjectId)`; pairs without
  * any row are absent (use NO_RELATIONSHIP).
  */
-export async function loadRelationships(dbx: DbOrTx, pairs: UserPair[]): Promise<Map<string, Relationship>> {
+export async function loadRelationships(
+  dbx: DbOrTx,
+  pairs: UserPair[],
+): Promise<Map<string, Relationship>> {
   const out = new Map<string, Relationship>();
   const real = pairs.filter((p) => p.viewerId !== p.subjectId);
   if (real.length === 0) return out;
@@ -169,18 +188,36 @@ export async function loadRelationships(dbx: DbOrTx, pairs: UserPair[]): Promise
       viewerBlockedSubject: blocked.has(vs),
       subjectBlockedViewer: blocked.has(sv),
     };
-    if (rel.viewerSavedSubject || rel.subjectSavedViewer || rel.viewerBlockedSubject || rel.subjectBlockedViewer) out.set(vs, rel);
+    if (
+      rel.viewerSavedSubject ||
+      rel.subjectSavedViewer ||
+      rel.viewerBlockedSubject ||
+      rel.subjectBlockedViewer
+    )
+      out.set(vs, rel);
   }
   return out;
 }
 
 /** Relationship between one viewer and one subject. */
-export async function loadRelationship(dbx: DbOrTx, viewerId: string, subjectId: string): Promise<Relationship> {
-  return (await loadRelationships(dbx, [{ viewerId, subjectId }])).get(pairKey(viewerId, subjectId)) ?? { ...NO_RELATIONSHIP };
+export async function loadRelationship(
+  dbx: DbOrTx,
+  viewerId: string,
+  subjectId: string,
+): Promise<Relationship> {
+  return (
+    (await loadRelationships(dbx, [{ viewerId, subjectId }])).get(pairKey(viewerId, subjectId)) ?? {
+      ...NO_RELATIONSHIP,
+    }
+  );
 }
 
 /** `blockerId` has blocked `blockedId`. */
-export async function isBlocked(dbx: DbOrTx, blockerId: string, blockedId: string): Promise<boolean> {
+export async function isBlocked(
+  dbx: DbOrTx,
+  blockerId: string,
+  blockedId: string,
+): Promise<boolean> {
   const [row] = await dbx
     .select({ x: sql<number>`1` })
     .from(blocks)
@@ -195,13 +232,22 @@ export async function blockedEitherWay(dbx: DbOrTx, a: string, b: string): Promi
   const [row] = await dbx
     .select({ x: sql<number>`1` })
     .from(blocks)
-    .where(or(and(eq(blocks.blockerId, a), eq(blocks.blockedId, b)), and(eq(blocks.blockerId, b), eq(blocks.blockedId, a))))
+    .where(
+      or(
+        and(eq(blocks.blockerId, a), eq(blocks.blockedId, b)),
+        and(eq(blocks.blockerId, b), eq(blocks.blockedId, a)),
+      ),
+    )
     .limit(1);
   return !!row;
 }
 
 /** Those of `otherIds` with a block between them and `userId` in either direction. */
-export async function blockedEitherWayIds(dbx: DbOrTx, userId: string, otherIds: Iterable<string>): Promise<Set<string>> {
+export async function blockedEitherWayIds(
+  dbx: DbOrTx,
+  userId: string,
+  otherIds: Iterable<string>,
+): Promise<Set<string>> {
   const others = uniq(otherIds).filter((id) => id !== userId);
   if (others.length === 0) return new Set();
   const rows = await dbx
@@ -217,7 +263,11 @@ export async function blockedEitherWayIds(dbx: DbOrTx, userId: string, otherIds:
 }
 
 /** Those of `blockerIds` who blocked `userId` (e.g. direct-chat recipients who withhold my messages). */
-export async function blockersOf(dbx: DbOrTx, userId: string, blockerIds: Iterable<string>): Promise<Set<string>> {
+export async function blockersOf(
+  dbx: DbOrTx,
+  userId: string,
+  blockerIds: Iterable<string>,
+): Promise<Set<string>> {
   const list = uniq(blockerIds).filter((id) => id !== userId);
   if (list.length === 0) return new Set();
   const rows = await dbx
@@ -238,7 +288,11 @@ export async function isContactOf(dbx: DbOrTx, ownerId: string, userId: string):
 }
 
 /** Those of `ownerIds` who saved `userId` as a contact. */
-export async function ownersWhoSaved(dbx: DbOrTx, userId: string, ownerIds: Iterable<string>): Promise<Set<string>> {
+export async function ownersWhoSaved(
+  dbx: DbOrTx,
+  userId: string,
+  ownerIds: Iterable<string>,
+): Promise<Set<string>> {
   const list = uniq(ownerIds);
   if (list.length === 0) return new Set();
   const rows = await dbx
@@ -250,7 +304,10 @@ export async function ownersWhoSaved(dbx: DbOrTx, userId: string, ownerIds: Iter
 
 /** Ids of every user who saved `userId` as a contact (e.g. `user:changed` fan-out after PATCH /me). */
 export async function usersWhoSaved(dbx: DbOrTx, userId: string): Promise<string[]> {
-  const rows = await dbx.select({ id: contacts.ownerId }).from(contacts).where(eq(contacts.contactId, userId));
+  const rows = await dbx
+    .select({ id: contacts.ownerId })
+    .from(contacts)
+    .where(eq(contacts.contactId, userId));
   return rows.map((r) => r.id);
 }
 
@@ -275,7 +332,8 @@ export function canSeePresence(
 ): { canSeeOnline: boolean; canSeeLastSeen: boolean } {
   if (subject.deletedAt) return { canSeeOnline: false, canSeeLastSeen: false };
   if (viewerId === subject.id) return { canSeeOnline: true, canSeeLastSeen: true };
-  if (rel.viewerBlockedSubject || rel.subjectBlockedViewer) return { canSeeOnline: false, canSeeLastSeen: false };
+  if (rel.viewerBlockedSubject || rel.subjectBlockedViewer)
+    return { canSeeOnline: false, canSeeLastSeen: false };
   const s = settingsOf(subject);
   const canSeeLastSeen = levelAllows(s.lastSeenVisibility, rel);
   const canSeeOnline = s.onlineVisibility === 'everyone' || canSeeLastSeen;
@@ -283,18 +341,27 @@ export function canSeePresence(
 }
 
 /** Per-viewer presence (hidden = `{ online: null, lastSeenAt: null }`). Online = ≥ 1 socket on this instance. */
-export function buildPresence(viewerId: string, subject: Pick<UserRow, 'id' | 'settings' | 'deletedAt' | 'lastSeenAt'>, rel: Relationship): Presence {
+export function buildPresence(
+  viewerId: string,
+  subject: Pick<UserRow, 'id' | 'settings' | 'deletedAt' | 'lastSeenAt'>,
+  rel: Relationship,
+): Presence {
   const { canSeeOnline, canSeeLastSeen } = canSeePresence(viewerId, subject, rel);
   const online = isOnline(subject.id);
   return {
     userId: subject.id,
     online: canSeeOnline ? online : null,
-    lastSeenAt: canSeeLastSeen && !online && subject.lastSeenAt ? subject.lastSeenAt.toISOString() : null,
+    lastSeenAt:
+      canSeeLastSeen && !online && subject.lastSeenAt ? subject.lastSeenAt.toISOString() : null,
   };
 }
 
 /** Pure: a subject row + relationship → the viewer's UserPublic (all privacy rules). */
-export function buildUserPublic(viewerId: string, subject: UserWithAvatar, rel: Relationship = NO_RELATIONSHIP): UserPublic {
+export function buildUserPublic(
+  viewerId: string,
+  subject: UserWithAvatar,
+  rel: Relationship = NO_RELATIONSHIP,
+): UserPublic {
   if (subject.deletedAt) {
     return {
       id: subject.id,
@@ -314,8 +381,12 @@ export function buildUserPublic(viewerId: string, subject: UserWithAvatar, rel: 
   const self = viewerId === subject.id;
   const s = settingsOf(subject);
   const hiddenByBlock = !self && rel.subjectBlockedViewer;
-  const avatarUrl = subject.avatarKey && (self || (!hiddenByBlock && levelAllows(s.profilePhotoVisibility, rel))) ? mediaUrl(subject.avatarKey) : null;
-  const about = self || (!hiddenByBlock && levelAllows(s.aboutVisibility, rel)) ? subject.about : null;
+  const avatarUrl =
+    subject.avatarKey && (self || (!hiddenByBlock && levelAllows(s.profilePhotoVisibility, rel)))
+      ? mediaUrl(subject.avatarKey)
+      : null;
+  const about =
+    self || (!hiddenByBlock && levelAllows(s.aboutVisibility, rel)) ? subject.about : null;
   const phone = self || (!hiddenByBlock && rel.subjectSavedViewer) ? subject.phone : null;
   const presence = buildPresence(viewerId, subject, rel);
   return {
@@ -347,19 +418,28 @@ export async function toUserPublicsForPairs(
   const out = new Map<string, UserPublic>();
   if (pairs.length === 0) return out;
   const missing = uniq(pairs.map((p) => p.subjectId)).filter((id) => !rows?.has(id));
-  const loaded = missing.length ? await getUserRows(dbx, missing) : new Map<string, UserWithAvatar>();
+  const loaded = missing.length
+    ? await getUserRows(dbx, missing)
+    : new Map<string, UserWithAvatar>();
   const rowOf = (id: string) => rows?.get(id) ?? loaded.get(id);
   const known = pairs.filter((p) => rowOf(p.subjectId));
   const rels = await loadRelationships(dbx, known);
   for (const p of known) {
     const key = pairKey(p.viewerId, p.subjectId);
-    out.set(key, buildUserPublic(p.viewerId, rowOf(p.subjectId)!, rels.get(key) ?? NO_RELATIONSHIP));
+    out.set(
+      key,
+      buildUserPublic(p.viewerId, rowOf(p.subjectId)!, rels.get(key) ?? NO_RELATIONSHIP),
+    );
   }
   return out;
 }
 
 /** Viewer-specific UserPublic map for `ids` (unknown ids absent, deleted users included). */
-export async function toUserPublicMap(dbx: DbOrTx, viewerId: string, ids: Iterable<string>): Promise<Map<string, UserPublic>> {
+export async function toUserPublicMap(
+  dbx: DbOrTx,
+  viewerId: string,
+  ids: Iterable<string>,
+): Promise<Map<string, UserPublic>> {
   const list = uniq(ids);
   const byPair = await toUserPublicsForPairs(
     dbx,
@@ -374,17 +454,29 @@ export async function toUserPublicMap(dbx: DbOrTx, viewerId: string, ids: Iterab
 }
 
 /** `toUserPublics(dbx, viewerId, userIds)` (docs): UserPublic[] in input order, unknown ids omitted. */
-export async function toUserPublics(dbx: DbOrTx, viewerId: string, ids: Iterable<string>): Promise<UserPublic[]> {
+export async function toUserPublics(
+  dbx: DbOrTx,
+  viewerId: string,
+  ids: Iterable<string>,
+): Promise<UserPublic[]> {
   const map = await toUserPublicMap(dbx, viewerId, ids);
   return [...map.values()];
 }
 
-export async function toUserPublic(dbx: DbOrTx, viewerId: string, id: string): Promise<UserPublic | null> {
+export async function toUserPublic(
+  dbx: DbOrTx,
+  viewerId: string,
+  id: string,
+): Promise<UserPublic | null> {
   return (await toUserPublicMap(dbx, viewerId, [id])).get(id) ?? null;
 }
 
 /** Per-viewer presence for `ids` (unknown ids omitted) — `POST /users/presence`, `presence:subscribe` acks and emits. */
-export async function loadPresences(dbx: DbOrTx, viewerId: string, ids: Iterable<string>): Promise<Presence[]> {
+export async function loadPresences(
+  dbx: DbOrTx,
+  viewerId: string,
+  ids: Iterable<string>,
+): Promise<Presence[]> {
   const list = uniq(ids);
   const rows = await getUserRows(dbx, list);
   const known = list.filter((id) => rows.has(id));
@@ -392,7 +484,9 @@ export async function loadPresences(dbx: DbOrTx, viewerId: string, ids: Iterable
     dbx,
     known.map((subjectId) => ({ viewerId, subjectId })),
   );
-  return known.map((id) => buildPresence(viewerId, rows.get(id)!, rels.get(pairKey(viewerId, id)) ?? NO_RELATIONSHIP));
+  return known.map((id) =>
+    buildPresence(viewerId, rows.get(id)!, rels.get(pairKey(viewerId, id)) ?? NO_RELATIONSHIP),
+  );
 }
 
 /** The signed-in user's own profile. */
@@ -426,8 +520,15 @@ export async function loadUserSelf(dbx: DbOrTx, userId: string): Promise<UserSel
  * statuses for the account-deletion hooks (the status module fans out `status:deleted`);
  * the caller deletes the rest afterwards.
  */
-export async function scrubDeletedUser(tx: Tx, userId: string, opts: { keepStatuses?: boolean } = {}): Promise<{ sessionIds: string[] }> {
-  const revoked = await tx.delete(sessions).where(eq(sessions.userId, userId)).returning({ id: sessions.id });
+export async function scrubDeletedUser(
+  tx: Tx,
+  userId: string,
+  opts: { keepStatuses?: boolean } = {},
+): Promise<{ sessionIds: string[] }> {
+  const revoked = await tx
+    .delete(sessions)
+    .where(eq(sessions.userId, userId))
+    .returning({ id: sessions.id });
   await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await tx.delete(contacts).where(or(eq(contacts.ownerId, userId), eq(contacts.contactId, userId)));
   await tx.delete(blocks).where(or(eq(blocks.blockerId, userId), eq(blocks.blockedId, userId)));

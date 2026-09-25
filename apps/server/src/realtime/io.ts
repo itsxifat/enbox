@@ -19,7 +19,13 @@ async function visibleChatIds(userId: string): Promise<string[]> {
   const rows = await db
     .select({ chatId: chatMembers.chatId })
     .from(chatMembers)
-    .where(and(eq(chatMembers.userId, userId), isNull(chatMembers.leftAt), eq(chatMembers.hidden, false)));
+    .where(
+      and(
+        eq(chatMembers.userId, userId),
+        isNull(chatMembers.leftAt),
+        eq(chatMembers.hidden, false),
+      ),
+    );
   return rows.map((r) => r.chatId);
 }
 
@@ -66,7 +72,8 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
       // Handshakes bypass the HTTP limiters; each one costs a few queries (memberships,
       // delivered advance, late-device rings), so reconnect loops are capped per user.
       const { limit, windowMs } = SERVER_RATE_LIMITS.connect;
-      if (!limitUser(ctx.userId, 'socket:connect', limit, windowMs)) return next(new Error('rate_limited'));
+      if (!limitUser(ctx.userId, 'socket:connect', limit, windowMs))
+        return next(new Error('rate_limited'));
       socket.data.userId = ctx.userId;
       socket.data.sessionId = ctx.sessionId;
       next();
@@ -116,7 +123,8 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
         // and leave what is no longer visible. A leave committing after the re-read flushes
         // after the join, so it reaches this socket itself.
         const current = new Set(await visibleChatIds(userId));
-        for (const chatId of joined) if (!current.has(chatId)) await socket.leave(rooms.chat(chatId));
+        for (const chatId of joined)
+          if (!current.has(chatId)) await socket.leave(rooms.chat(chatId));
       }
     } catch (err) {
       logger.error({ err }, 'failed to join rooms');

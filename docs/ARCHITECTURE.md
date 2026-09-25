@@ -10,20 +10,20 @@ counterpart; where a shared helper encodes a rule (`computeChatPermissions`, `ca
 
 ## Stack
 
-| Layer | Choice |
-| --- | --- |
-| Monorepo | npm workspaces: `packages/shared`, `apps/server`, `apps/web` |
-| Language | TypeScript (strict, ESM) everywhere |
-| Contracts | `@enbox/shared`: wire models, zod request schemas, REST route catalogue, Socket.IO event maps, pure helpers |
-| Server | Node 22, Express 5, Socket.IO 4, Drizzle ORM |
-| Database | PostgreSQL (production, `DATABASE_URL`) or embedded **PGlite** (zero-config dev when `DATABASE_URL` is unset; in-memory for tests) |
-| Realtime scale-out | Optional Redis adapter for Socket.IO (`REDIS_URL`); presence counts, presence subscriptions and rate limits are per process in v1 |
-| Media | Local disk (`UPLOAD_DIR`), served at `/uploads/<key>` with unguessable keys |
-| Calls | WebRTC, full-mesh (≤ 8 participants), signaling over Socket.IO, STUN/TURN from env |
-| Push | Web Push (VAPID) when keys are configured |
-| Web client | React 19, Vite, Tailwind CSS 4, React Router 7, Zustand, socket.io-client; installable PWA |
-| Mobile | The web client is mobile-first and PWA-installable; Capacitor can wrap it for store builds |
-| Tests | Vitest (+ supertest/socket.io-client) for the server, Playwright for end-to-end |
+| Layer              | Choice                                                                                                                             |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Monorepo           | npm workspaces: `packages/shared`, `apps/server`, `apps/web`                                                                       |
+| Language           | TypeScript (strict, ESM) everywhere                                                                                                |
+| Contracts          | `@enbox/shared`: wire models, zod request schemas, REST route catalogue, Socket.IO event maps, pure helpers                        |
+| Server             | Node 22, Express 5, Socket.IO 4, Drizzle ORM                                                                                       |
+| Database           | PostgreSQL (production, `DATABASE_URL`) or embedded **PGlite** (zero-config dev when `DATABASE_URL` is unset; in-memory for tests) |
+| Realtime scale-out | Optional Redis adapter for Socket.IO (`REDIS_URL`); presence counts, presence subscriptions and rate limits are per process in v1  |
+| Media              | Local disk (`UPLOAD_DIR`), served at `/uploads/<key>` with unguessable keys                                                        |
+| Calls              | WebRTC, full-mesh (≤ 8 participants), signaling over Socket.IO, STUN/TURN from env                                                 |
+| Push               | Web Push (VAPID) when keys are configured                                                                                          |
+| Web client         | React 19, Vite, Tailwind CSS 4, React Router 7, Zustand, socket.io-client; installable PWA                                         |
+| Mobile             | The web client is mobile-first and PWA-installable; Capacitor can wrap it for store builds                                         |
+| Tests              | Vitest (+ supertest/socket.io-client) for the server, Playwright for end-to-end                                                    |
 
 ## Repository layout
 
@@ -148,6 +148,7 @@ apps/web/src/
 ## Visibility, receipts and counts
 
 ### Message visibility
+
 Message m (seq s) is **visible** to member M when all hold:
 `s > M.joined_seq`, `s > M.cleared_seq`, `M.left_seq is null or s <= M.left_seq`,
 no `message_hidden` row for (M, m), and `expires_at is null or expires_at > now()`.
@@ -164,6 +165,7 @@ membership (react, vote, reply, pin) or sender/admin rights (edit, delete for ev
 blocked the sender (see Blocking).
 
 ### Former members
+
 For `membership !== 'active'` the viewer's window ends at `left_seq`: `lastSeq = left_seq`,
 `lastMessage` = last visible message, `lastActivityAt` = its time (else `left_at`), unread
 counts only inside the window, `inviteCode = null`, all permissions false. Members, invite,
@@ -174,6 +176,7 @@ following when they left the room (no `chat:pins` after leaving), so even pins o
 inside their window are not shown — they would reveal pin changes made after they left.
 
 ### Watermarks (read/delivered)
+
 - `last_read_seq` / `last_delivered_seq` are **monotonic** (`GREATEST`) and **clamped** to
   the member's highest visible seq (so withheld/expired/pre-join messages never count as
   delivered/read). Reading also raises delivered to the same value.
@@ -200,7 +203,7 @@ inside their window are not shown — they would reveal pin changes made after t
 - **Read**: `chat:read { chatId, seq }` (socket) or `POST /api/chats/:chatId/read { seq }`
   (REST) — identical semantics: clamp, `GREATEST`, set `last_read_at`, clear
   `marked_unread`, then emit `chat:read { chatId, lastReadSeq, unreadCount,
-  unreadMentionCount, markedUnread }` to `user:<me>`, `chat:watermarks` to affected members,
+unreadMentionCount, markedUnread }` to `user:<me>`, `chat:watermarks` to affected members,
   and a `dismiss` push (tag `chat:<chatId>`) to my push subscriptions if unread messages
   were cleared. `PATCH prefs { markedUnread: true }` never moves `last_read_seq`.
 - `MessageInfo` (`GET /messages/:id/info`, sender only, 404 in channels; like the member
@@ -214,6 +217,7 @@ inside their window are not shown — they would reveal pin changes made after t
   their own pin) moves their marks past earlier withheld messages.
 
 ### Unread and mentions
+
 `unreadCount` = visible messages with `seq > last_read_seq`, `sender_id IS DISTINCT FROM
 viewer`, `type <> 'system'` (call messages count for everyone but the initiator).
 `unreadMentionCount` = those whose `mentions` contain the viewer. `markedUnread` forces a badge.
@@ -221,6 +225,7 @@ viewer`, `type <> 'system'` (call messages count for everyone but the initiator)
 ## Realtime
 
 ### Rooms and connection
+
 - Rooms (`rooms` helper): `user:<id>` (all devices), `session:<id>` (one device),
   `chat:<id>` (active, non-hidden members/followers), `call:<id>` and `call:<id>:<userId>`
   (call sockets of joined participants). **Presence is not room-based.**
@@ -238,6 +243,7 @@ viewer`, `type <> 'system'` (call messages count for everyone but the initiator)
   `removeUserFromChat`), which reach sockets on every node.
 
 ### Fan-out rules
+
 1. Emit only after commit. Viewer-specific payloads (`ChatSummary`, `UserPublic`,
    `Community`, `Call` with hidden participants) go to `user:<id>`; rooms get only
    viewer-neutral payloads (`Message`, `chat:updated`, `chat:pins`, ids).
@@ -265,71 +271,73 @@ viewer`, `type <> 'system'` (call messages count for everyone but the initiator)
 7. Never for channels: `chat:typing`, `chat:watermarks`, join/leave system messages.
 
 ### Mutation → event matrix
+
 Notation: `→ R` = room `chat:<c>`, `→ U(x)` = `user:<x>`, `→ S(x)` = `session:<x>`,
 `JOIN(u)` = rule 2 prefix (socketsJoin + `chat:upsert` → U(u)), `LEAVE(u)` = rule 3 suffix,
 `sys` = `message:new` of the system message(s) created, in creation order. Unless noted, the
 acting device also receives the events (clients dedupe).
 
-| Mutation | Events after commit (in order) |
-| --- | --- |
-| `POST /auth/logout` | `disconnectSession(me.session)` (push subscriptions cascade) |
-| `DELETE /auth/sessions[/:id]`, `POST /auth/change-password` | per revoked session s: `invalidateSessions` → `session:revoked {sessionId:s}` → S(s) → `disconnectSession(s)` |
-| `PATCH /me` | `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels; announcement groups only where I'm an admin — their member lists are admin-only) and → U(x) for users who saved me as a contact |
-| `PATCH /me/settings` | `me:updated` → U(me); presence-visibility change → re-evaluate my presence subscribers (per-socket `presence:update`); `readReceipts` change → recompute read watermarks of my direct chats → `chat:watermarks` → U(me), U(peer) where changed |
-| `DELETE /me` | see "Account deletion" |
-| `POST/PATCH/DELETE /contacts…` | `contacts:changed` → U(me); `user:changed {userId: me}` → U(contact) (their view of me changed); re-evaluate my presence subscribers |
-| `PUT/DELETE /blocks/:u` | (the direct chat with u is locked first: serializes with `call:start`) `blocks:changed` → U(me); `chat:upsert` (direct chat with u, if any) → U(me); `user:changed {me}` → U(u); presence re-evaluated both ways; a live call between us → forced leave |
-| `POST /chats/direct` (new) | JOIN(me) only (peer row is hidden until the first message; nothing to the peer) |
-| `PATCH /chats/:c/prefs` | `chat:upsert` → U(me) |
-| `POST /chats/:c/read`, `chat:read` | `chat:read {…}` → U(me); `chat:watermarks` → U(x) changed; `dismiss` push → me |
-| `POST /chats/:c/clear` | `chat:cleared {clearedSeq}` → U(me) (my stars in range are removed) |
-| `DELETE /chats/:c` | `removeUserFromChat(me, c)` → `chat:removed` → U(me) |
-| `PUT /chats/:c/disappearing` | sys `disappearing_changed` (not channels) → R; `chat:updated {disappearingSeconds}` → R (direct: both skip a peer who blocked me) |
-| `POST /chats/:c/pins` | sys `message_pinned` (not channels) → R; `chat:pins` → R (direct: both skip a peer who blocked me) |
-| `DELETE /chats/:c/pins/:m` | `chat:pins` → R (direct: not to a peer who blocked me) |
-| `POST /chats/:c/messages` | for each member u unhidden by it: JOIN(u); `message:new` → R (except withheld recipients); `chat:read` → U(sender); `chat:watermarks` → U(sender) if delivered advanced; pushes. Idempotent retry (same `clientId`): 200 with the existing message, no events |
-| `POST /messages/forward` | per created copy: as a send in its target chat |
-| `PATCH /messages/:m` (edit) | `message:updated` → R (visible members; direct: not to a peer who blocked me) |
-| `DELETE /messages/:m?for=me` | `message:removed {chatId, [m]}` → U(me) |
-| `DELETE /messages/:m?for=everyone` | `message:updated` (tombstone) → R (visible); `chat:pins` → R if it was pinned |
-| `PUT/DELETE /messages/:m/reaction`, `PUT …/vote` | `message:updated` → R (visible; direct: not to a peer who blocked me) |
-| `PUT/DELETE /messages/:m/star` | none (stars are private; the Starred screen fetches on open) |
-| `POST /groups` | JOIN(creator), JOIN(each added); sys `group_created`, `members_added` → R |
-| `PATCH /groups/:c` | per changed field: sys `name_changed`/`description_changed`/`avatar_changed` → R; then `chat:updated {changed fields}` → R |
-| `PATCH /groups/:c/settings` | per changed key: sys `settings_changed` → R; then `chat:updated {groupSettings}` → R |
-| `POST /groups/:c/members` | JOIN(each added); sys `members_added` → R; `chat:updated {memberCount}` → R; `chat:members-changed` → R; community cascade (see Communities) |
-| `DELETE /groups/:c/members/:u` | sys `member_removed` → R; LEAVE(u); `chat:updated {memberCount}` → R; `chat:members-changed` → R |
-| `PUT /groups/:c/members/:u/role` | sys `admin_promoted`/`admin_demoted` → R; `chat:upsert` → U(u); `chat:members-changed` → R |
-| `POST /groups/:c/transfer-ownership` | sys `owner_transferred` → R; `chat:upsert` → U(old owner), U(new owner); `chat:members-changed` → R |
-| `POST /groups/:c/leave` | sys `member_left` (+ `owner_changed` if succession) → R; LEAVE(me); `chat:upsert` → U(new owner); `chat:updated {memberCount}` → R; `chat:members-changed` → R |
-| `POST /groups/:c/invite/reset` | sys `invite_link_reset` → R; `chat:upsert` → U(x) for each active member with `canInvite` |
-| `POST /invites/:code/join` | group: JOIN(me); sys `member_joined_via_link` → R; `chat:updated {memberCount}`; `chat:members-changed`; community cascade. Channel: as follow. Community: as community join |
-| `POST /communities` | JOIN(creator) into the announcement group; sys `community_created` → R(ann); `community:upsert` → U(creator); per linked group: as link |
-| `PATCH /communities/:id` | announcement group: per changed field sys (`name_changed`… in community wording) → R(ann), `chat:updated` → R(ann); `community:upsert` → U(each member) |
-| `DELETE /communities/:id` | per linked group: sys `removed_from_community` → R(g), `chat:updated {communityId: null}` → R(g); a live call in the announcement group ends (ring-stops, `call:ended`, see Calls); `chat:removed` → R(ann), `clearChatRoom(ann)`; `community:removed` → U(each former member) |
-| `POST /communities/:id/groups` | as `POST /groups` (group created linked) + community cascade for its members; `community:upsert` → U(each community member) |
-| `POST /communities/:id/groups/link` | per group: sys `added_to_community` → R(g); `chat:updated {communityId}` → R(g); community cascade for its members; `community:upsert` → U(each community member) |
-| `DELETE /communities/:id/groups/:c` (unlink) | sys `removed_from_community` → R(g); `chat:updated {communityId: null}` → R(g); `community:upsert` → U(each community member) |
-| `POST /communities/:id/groups/:c/join` | JOIN(me) into c; sys `member_joined` → R(c); `chat:updated {memberCount}`; `chat:members-changed`; `community:upsert` → U(me) |
-| `POST /communities/:id/members` | per added u: JOIN(u) into ann (no sys message); `community:upsert` → U(u); then `chat:updated {memberCount}` → R(ann); `chat:members-changed` → ann admins |
-| `DELETE /communities/:id/members/:u`, `POST …/leave` | per linked group where u is active: sys `member_removed`/`member_left` → R(g), LEAVE(u), `chat:updated {memberCount}`, `chat:members-changed`; ann: hide u's row, `removeUserFromChat(u, ann)` → `chat:removed` → U(u); `chat:updated {memberCount}` → R(ann); `community:removed` → U(u); succession: `community:upsert` + `chat:upsert(ann)` → U(new owner) |
-| `PUT /communities/:id/members/:u/role`, `POST …/transfer-ownership` | `community:upsert` + `chat:upsert(ann)` → U(each changed user); `chat:members-changed` → ann admins |
-| `POST /communities/:id/invite/reset` | `community:upsert` → U(each owner/admin) |
-| `POST /channels` | JOIN(owner); sys `channel_created` → R |
-| `PATCH /channels/:c` | name/description/avatar: sys per field → R; then `chat:updated {changed fields incl. channelSettings}` → R |
-| `DELETE /channels/:c` | `chat:removed` → R; `clearChatRoom(c)`; then delete (cascade) |
-| `PUT /channels/:c/follow` | JOIN(me); `chat:updated {memberCount}` → R; `chat:members-changed` → admins |
-| `DELETE /channels/:c/follow` | row deleted; `removeUserFromChat(me, c)`; `chat:removed` → U(me); `chat:updated {memberCount}` → R; `chat:members-changed` → admins |
-| `PUT/DELETE /channels/:c/admins/:u`, `POST …/transfer-ownership` | `chat:upsert` → U(each changed user); `chat:members-changed` → admins |
-| `POST /channels/:c/invite/reset` | `chat:upsert` → U(each admin) |
-| `POST /status` | `status:new` → U(each audience member), U(me) (≤ 30 posts/h per user) |
-| `DELETE /status/:s` | `status:deleted` → U(audience), U(me) |
-| `POST /status/:s/view`, `PUT …/reaction` | `status:viewed { statusId, viewer, firstView, viewCount }` → U(author) (not when the viewer has read receipts off; a repeated plain view emits nothing) |
-| `chat:typing` | `chat:typing` → R except my sockets (see Typing) |
-| `presence:subscribe` | ack with per-viewer presence; later `presence:update` per socket (see Presence) |
-| call events | see "Calls" |
+| Mutation                                                            | Events after commit (in order)                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/logout`                                                 | `disconnectSession(me.session)` (push subscriptions cascade)                                                                                                                                                                                                                                                                                                  |
+| `DELETE /auth/sessions[/:id]`, `POST /auth/change-password`         | per revoked session s: `invalidateSessions` → `session:revoked {sessionId:s}` → S(s) → `disconnectSession(s)`                                                                                                                                                                                                                                                 |
+| `PATCH /me`                                                         | `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels; announcement groups only where I'm an admin — their member lists are admin-only) and → U(x) for users who saved me as a contact                                                                                                                                       |
+| `PATCH /me/settings`                                                | `me:updated` → U(me); presence-visibility change → re-evaluate my presence subscribers (per-socket `presence:update`); `readReceipts` change → recompute read watermarks of my direct chats → `chat:watermarks` → U(me), U(peer) where changed                                                                                                                |
+| `DELETE /me`                                                        | see "Account deletion"                                                                                                                                                                                                                                                                                                                                        |
+| `POST/PATCH/DELETE /contacts…`                                      | `contacts:changed` → U(me); `user:changed {userId: me}` → U(contact) (their view of me changed); re-evaluate my presence subscribers                                                                                                                                                                                                                          |
+| `PUT/DELETE /blocks/:u`                                             | (the direct chat with u is locked first: serializes with `call:start`) `blocks:changed` → U(me); `chat:upsert` (direct chat with u, if any) → U(me); `user:changed {me}` → U(u); presence re-evaluated both ways; a live call between us → forced leave                                                                                                       |
+| `POST /chats/direct` (new)                                          | JOIN(me) only (peer row is hidden until the first message; nothing to the peer)                                                                                                                                                                                                                                                                               |
+| `PATCH /chats/:c/prefs`                                             | `chat:upsert` → U(me)                                                                                                                                                                                                                                                                                                                                         |
+| `POST /chats/:c/read`, `chat:read`                                  | `chat:read {…}` → U(me); `chat:watermarks` → U(x) changed; `dismiss` push → me                                                                                                                                                                                                                                                                                |
+| `POST /chats/:c/clear`                                              | `chat:cleared {clearedSeq}` → U(me) (my stars in range are removed)                                                                                                                                                                                                                                                                                           |
+| `DELETE /chats/:c`                                                  | `removeUserFromChat(me, c)` → `chat:removed` → U(me)                                                                                                                                                                                                                                                                                                          |
+| `PUT /chats/:c/disappearing`                                        | sys `disappearing_changed` (not channels) → R; `chat:updated {disappearingSeconds}` → R (direct: both skip a peer who blocked me)                                                                                                                                                                                                                             |
+| `POST /chats/:c/pins`                                               | sys `message_pinned` (not channels) → R; `chat:pins` → R (direct: both skip a peer who blocked me)                                                                                                                                                                                                                                                            |
+| `DELETE /chats/:c/pins/:m`                                          | `chat:pins` → R (direct: not to a peer who blocked me)                                                                                                                                                                                                                                                                                                        |
+| `POST /chats/:c/messages`                                           | for each member u unhidden by it: JOIN(u); `message:new` → R (except withheld recipients); `chat:read` → U(sender); `chat:watermarks` → U(sender) if delivered advanced; pushes. Idempotent retry (same `clientId`): 200 with the existing message, no events                                                                                                 |
+| `POST /messages/forward`                                            | per created copy: as a send in its target chat                                                                                                                                                                                                                                                                                                                |
+| `PATCH /messages/:m` (edit)                                         | `message:updated` → R (visible members; direct: not to a peer who blocked me)                                                                                                                                                                                                                                                                                 |
+| `DELETE /messages/:m?for=me`                                        | `message:removed {chatId, [m]}` → U(me)                                                                                                                                                                                                                                                                                                                       |
+| `DELETE /messages/:m?for=everyone`                                  | `message:updated` (tombstone) → R (visible); `chat:pins` → R if it was pinned                                                                                                                                                                                                                                                                                 |
+| `PUT/DELETE /messages/:m/reaction`, `PUT …/vote`                    | `message:updated` → R (visible; direct: not to a peer who blocked me)                                                                                                                                                                                                                                                                                         |
+| `PUT/DELETE /messages/:m/star`                                      | none (stars are private; the Starred screen fetches on open)                                                                                                                                                                                                                                                                                                  |
+| `POST /groups`                                                      | JOIN(creator), JOIN(each added); sys `group_created`, `members_added` → R                                                                                                                                                                                                                                                                                     |
+| `PATCH /groups/:c`                                                  | per changed field: sys `name_changed`/`description_changed`/`avatar_changed` → R; then `chat:updated {changed fields}` → R                                                                                                                                                                                                                                    |
+| `PATCH /groups/:c/settings`                                         | per changed key: sys `settings_changed` → R; then `chat:updated {groupSettings}` → R                                                                                                                                                                                                                                                                          |
+| `POST /groups/:c/members`                                           | JOIN(each added); sys `members_added` → R; `chat:updated {memberCount}` → R; `chat:members-changed` → R; community cascade (see Communities)                                                                                                                                                                                                                  |
+| `DELETE /groups/:c/members/:u`                                      | sys `member_removed` → R; LEAVE(u); `chat:updated {memberCount}` → R; `chat:members-changed` → R                                                                                                                                                                                                                                                              |
+| `PUT /groups/:c/members/:u/role`                                    | sys `admin_promoted`/`admin_demoted` → R; `chat:upsert` → U(u); `chat:members-changed` → R                                                                                                                                                                                                                                                                    |
+| `POST /groups/:c/transfer-ownership`                                | sys `owner_transferred` → R; `chat:upsert` → U(old owner), U(new owner); `chat:members-changed` → R                                                                                                                                                                                                                                                           |
+| `POST /groups/:c/leave`                                             | sys `member_left` (+ `owner_changed` if succession) → R; LEAVE(me); `chat:upsert` → U(new owner); `chat:updated {memberCount}` → R; `chat:members-changed` → R                                                                                                                                                                                                |
+| `POST /groups/:c/invite/reset`                                      | sys `invite_link_reset` → R; `chat:upsert` → U(x) for each active member with `canInvite`                                                                                                                                                                                                                                                                     |
+| `POST /invites/:code/join`                                          | group: JOIN(me); sys `member_joined_via_link` → R; `chat:updated {memberCount}`; `chat:members-changed`; community cascade. Channel: as follow. Community: as community join                                                                                                                                                                                  |
+| `POST /communities`                                                 | JOIN(creator) into the announcement group; sys `community_created` → R(ann); `community:upsert` → U(creator); per linked group: as link                                                                                                                                                                                                                       |
+| `PATCH /communities/:id`                                            | announcement group: per changed field sys (`name_changed`… in community wording) → R(ann), `chat:updated` → R(ann); `community:upsert` → U(each member)                                                                                                                                                                                                       |
+| `DELETE /communities/:id`                                           | per linked group: sys `removed_from_community` → R(g), `chat:updated {communityId: null}` → R(g); a live call in the announcement group ends (ring-stops, `call:ended`, see Calls); `chat:removed` → R(ann), `clearChatRoom(ann)`; `community:removed` → U(each former member)                                                                                |
+| `POST /communities/:id/groups`                                      | as `POST /groups` (group created linked) + community cascade for its members; `community:upsert` → U(each community member)                                                                                                                                                                                                                                   |
+| `POST /communities/:id/groups/link`                                 | per group: sys `added_to_community` → R(g); `chat:updated {communityId}` → R(g); community cascade for its members; `community:upsert` → U(each community member)                                                                                                                                                                                             |
+| `DELETE /communities/:id/groups/:c` (unlink)                        | sys `removed_from_community` → R(g); `chat:updated {communityId: null}` → R(g); `community:upsert` → U(each community member)                                                                                                                                                                                                                                 |
+| `POST /communities/:id/groups/:c/join`                              | JOIN(me) into c; sys `member_joined` → R(c); `chat:updated {memberCount}`; `chat:members-changed`; `community:upsert` → U(me)                                                                                                                                                                                                                                 |
+| `POST /communities/:id/members`                                     | per added u: JOIN(u) into ann (no sys message); `community:upsert` → U(u); then `chat:updated {memberCount}` → R(ann); `chat:members-changed` → ann admins                                                                                                                                                                                                    |
+| `DELETE /communities/:id/members/:u`, `POST …/leave`                | per linked group where u is active: sys `member_removed`/`member_left` → R(g), LEAVE(u), `chat:updated {memberCount}`, `chat:members-changed`; ann: hide u's row, `removeUserFromChat(u, ann)` → `chat:removed` → U(u); `chat:updated {memberCount}` → R(ann); `community:removed` → U(u); succession: `community:upsert` + `chat:upsert(ann)` → U(new owner) |
+| `PUT /communities/:id/members/:u/role`, `POST …/transfer-ownership` | `community:upsert` + `chat:upsert(ann)` → U(each changed user); `chat:members-changed` → ann admins                                                                                                                                                                                                                                                           |
+| `POST /communities/:id/invite/reset`                                | `community:upsert` → U(each owner/admin)                                                                                                                                                                                                                                                                                                                      |
+| `POST /channels`                                                    | JOIN(owner); sys `channel_created` → R                                                                                                                                                                                                                                                                                                                        |
+| `PATCH /channels/:c`                                                | name/description/avatar: sys per field → R; then `chat:updated {changed fields incl. channelSettings}` → R                                                                                                                                                                                                                                                    |
+| `DELETE /channels/:c`                                               | `chat:removed` → R; `clearChatRoom(c)`; then delete (cascade)                                                                                                                                                                                                                                                                                                 |
+| `PUT /channels/:c/follow`                                           | JOIN(me); `chat:updated {memberCount}` → R; `chat:members-changed` → admins                                                                                                                                                                                                                                                                                   |
+| `DELETE /channels/:c/follow`                                        | row deleted; `removeUserFromChat(me, c)`; `chat:removed` → U(me); `chat:updated {memberCount}` → R; `chat:members-changed` → admins                                                                                                                                                                                                                           |
+| `PUT/DELETE /channels/:c/admins/:u`, `POST …/transfer-ownership`    | `chat:upsert` → U(each changed user); `chat:members-changed` → admins                                                                                                                                                                                                                                                                                         |
+| `POST /channels/:c/invite/reset`                                    | `chat:upsert` → U(each admin)                                                                                                                                                                                                                                                                                                                                 |
+| `POST /status`                                                      | `status:new` → U(each audience member), U(me) (≤ 30 posts/h per user)                                                                                                                                                                                                                                                                                         |
+| `DELETE /status/:s`                                                 | `status:deleted` → U(audience), U(me)                                                                                                                                                                                                                                                                                                                         |
+| `POST /status/:s/view`, `PUT …/reaction`                            | `status:viewed { statusId, viewer, firstView, viewCount }` → U(author) (not when the viewer has read receipts off; a repeated plain view emits nothing)                                                                                                                                                                                                       |
+| `chat:typing`                                                       | `chat:typing` → R except my sockets (see Typing)                                                                                                                                                                                                                                                                                                              |
+| `presence:subscribe`                                                | ack with per-viewer presence; later `presence:update` per socket (see Presence)                                                                                                                                                                                                                                                                               |
+| call events                                                         | see "Calls"                                                                                                                                                                                                                                                                                                                                                   |
 
 ### Reconnect procedure (clients)
+
 The socket never replays. On every `ready` (not `connect`): (1) refetch `GET /api/chats`
 and replace the list; (2) discard all cached message pages, refetch the open chat's latest
 page (no cursor) and `GET /api/chats/:id/pins` — never catch up with `after=<seq>` (misses
@@ -339,6 +347,7 @@ edits, deletes, reactions, votes, call-status changes); other chats reload when 
 indicators. Delivered receipts need no client action (server-driven on connect).
 
 ### Typing
+
 `chat:typing` is relayed with `emitToChat(c, …, { exceptUserIds: [me] })` only if: the chat
 is not a channel, I am an active member with `canSend`, and in direct chats no block exists
 in either direction. Server throttle: `limitUser(socket.id, 'typing:'+chatId,
@@ -356,7 +365,7 @@ All membership writes go through one helper, `upsertMembership(tx, …)` in
   system message S first (`members_added`,
   `member_joined_via_link`, `member_joined`), then upsert the member with
   `joined_seq = S.seq − 1`, `joined_at = now()`, `last_read_seq = last_delivered_seq =
-  joined_seq`, `role = 'member'`, `added_by`, `left_at/left_seq/left_reason = null`,
+joined_seq`, `role = 'member'`, `added_by`, `left_at/left_seq/left_reason = null`,
   `hidden = false`, `marked_unread = false` (pin/archive/mute prefs are kept). The member
   sees "X added you". Rejoining starts a new window: history from the previous membership
   is not visible (documented v1 behaviour).
@@ -390,19 +399,19 @@ All membership writes go through one helper, `upsertMembership(tx, …)` in
 summary's own fields; server route guards must agree with it. Former members: all false.
 "admin" = owner or admin.
 
-| Permission | Direct | Group | Announcement group | Channel |
-| --- | --- | --- | --- | --- |
-| canSend | I haven't blocked the peer, peer not deleted | `!onlyAdminsCanSend` or admin | admin | admin |
-| canEditInfo (name/desc/avatar/timer) | = canSend (timer only) | `!onlyAdminsCanEditInfo` or admin | no (edit the community) | admin |
-| canAddMembers | no | `!onlyAdminsCanAddMembers` or admin | no (community add) | no |
-| canRemoveMembers | no | admin (never the owner) | no (community) | no |
-| canManageAdmins | no | admin (owner can't be demoted) | no (community roles) | owner |
-| canPin | yes | = canEditInfo | admin | admin |
-| canCall | = canSend, not self chat | = canSend | = canSend (admins) | no |
-| canInvite (see/share link) | no | = canAddMembers | no (community link) | admin |
-| canDeleteForEveryoneAsAdmin | no | admin | admin | admin |
-| canLeave | no (delete chat instead) | yes | no (leave the community) | not the owner |
-| canViewMembers | yes | yes | admin | admin |
+| Permission                           | Direct                                       | Group                               | Announcement group       | Channel       |
+| ------------------------------------ | -------------------------------------------- | ----------------------------------- | ------------------------ | ------------- |
+| canSend                              | I haven't blocked the peer, peer not deleted | `!onlyAdminsCanSend` or admin       | admin                    | admin         |
+| canEditInfo (name/desc/avatar/timer) | = canSend (timer only)                       | `!onlyAdminsCanEditInfo` or admin   | no (edit the community)  | admin         |
+| canAddMembers                        | no                                           | `!onlyAdminsCanAddMembers` or admin | no (community add)       | no            |
+| canRemoveMembers                     | no                                           | admin (never the owner)             | no (community)           | no            |
+| canManageAdmins                      | no                                           | admin (owner can't be demoted)      | no (community roles)     | owner         |
+| canPin                               | yes                                          | = canEditInfo                       | admin                    | admin         |
+| canCall                              | = canSend, not self chat                     | = canSend                           | = canSend (admins)       | no            |
+| canInvite (see/share link)           | no                                           | = canAddMembers                     | no (community link)      | admin         |
+| canDeleteForEveryoneAsAdmin          | no                                           | admin                               | admin                    | admin         |
+| canLeave                             | no (delete chat instead)                     | yes                                 | no (leave the community) | not the owner |
+| canViewMembers                       | yes                                          | yes                                 | admin                    | admin         |
 
 Also: only the owner transfers ownership, deletes a channel or deactivates a community.
 Community owner/admins create/link/unlink groups, add/remove community members, manage
@@ -414,6 +423,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 ## Chats
 
 ### Direct chats
+
 - One per user pair (`direct_key = directChatKey(a, b)`, lowercase). `POST /chats/direct` is
   idempotent (`insert … on conflict (direct_key) do nothing`, then select): it creates the
   chat with the caller's row visible and the **peer's row `hidden = true`** (no system
@@ -424,6 +434,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 - Deleted peers: `peer.isDeleted`; sending/calling → `403 forbidden`.
 
 ### Chat info
+
 - `ChatSummary.createdBy` = `chats.created_by` for groups (announcement groups: the
   community's creator) and channels, viewer-neutral (former members too); always `null` for
   direct chats. A deleted creator keeps their id (`UserPublic.isDeleted`). It never changes,
@@ -436,6 +447,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   its caption counts in `media` and `links`, as it is listed in both).
 
 ### Delete / clear / prefs
+
 - Clear chat: `cleared_seq = chats.last_seq`; my starred rows in that range are removed.
 - Delete chat (for me; groups only after leaving — `409 conflict` otherwise; channels are
   unfollowed instead): clear + `hidden = true`,
@@ -445,6 +457,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   (MUTE_FOREVER_ISO = always); archive; mark unread.
 
 ### Blocking
+
 - I blocked the peer: my sends → `403 blocked` ("Unblock to send"); `canSend`/`canCall` false.
 - The peer blocked me: my sends **succeed** but are inserted into `message_hidden` for the
   peer, never emitted or pushed to them and never unhide their chat; clamping keeps my
@@ -464,6 +477,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   `by-username`, `POST /contacts` → 404). Group messages are unaffected.
 
 ### Pins and disappearing messages
+
 - Pins: ≤ MAX_PINNED_MESSAGES per chat; pinning another replaces the oldest pin. The message
   must belong to the chat, be visible to the actor, not deleted, not system/call.
 - Disappearing: `expires_at = created_at + chats.disappearing_seconds` at send time (system
@@ -474,6 +488,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 ## Messages
 
 ### Send
+
 - Body `sendMessageSchema`: discriminated by `type`, strict (foreign fields → 400).
   Media: `mediaId` uploaded by the caller with `media.kind === type`.
 - Idempotent send (`createMessage(tx, …)`): (1) `lockChats(tx, [chatId])`; (2) if a row with
@@ -497,6 +512,7 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   deleted or expired ("Status unavailable").
 
 ### Replies
+
 - `replyToId` must reference a message visible to the sender in the same chat — except
   **reply privately**: in a direct chat with P, the target may be P's message in a group
   both are active members of.
@@ -506,23 +522,26 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   shown to every reader of the reply regardless of their own window (like WhatsApp).
 
 ### Forward
+
 - Sources: visible to the forwarder, not deleted, not system/call (else 404/400). Targets:
   `canSend`. One transaction locking all target chats (sorted); each copy is created with
   `client_id = <clientId>:<sourceIndex>` (retries idempotent). Rate limit: one `sendMessage`
   unit per copy; `messageIds × chatIds` above `USER_RATE_LIMITS.sendMessage.limit` → `400
-  validation_error` (it could never pass).
+validation_error` (it could never pass).
 - Copies ONLY `type`, `text` (verbatim; mentions re-derived for the target chat), `media_id`
   (server-side reuse is allowed), and location/contact/poll definition (fresh, no votes).
   Never reply links, status replies, reactions or expiry (the target's timer applies).
   `forward_count = source + 1`; ≥ FORWARDED_MANY_TIMES_THRESHOLD shows "Forwarded many times".
 
 ### Edit
+
 Sender only (channel posts: any channel admin), within EDIT_WINDOW_MS, not deleted, only
 text and media captions (`canEditMessage`). Text messages need non-empty text
 (≤ MAX_MESSAGE_LENGTH); captions may be emptied (stored null) and are ≤ MAX_CAPTION_LENGTH.
 Mentions are re-derived; `edited_at` set; `message:updated`.
 
 ### Delete
+
 - For me: `message_hidden` row; `message:removed` → my devices.
 - For everyone (`canDeleteForEveryone`): the sender within DELETE_FOR_EVERYONE_WINDOW_MS;
   group admins and channel admins at any time (never in direct chats); never system/call
@@ -531,6 +550,7 @@ Mentions are re-derived; `edited_at` set; `message:updated`.
   Quotes of it become `deleted: true` at read time; clients also mark loaded quotes.
 
 ### Reactions, polls, stars
+
 - One reaction per user per message (`emojiSchema`: one emoji grapheme); replace/remove. Not
   on system or deleted messages. Channels: `reactions[].userIds = []` for everyone.
 - Polls: option ids are stable; votes replace the user's previous votes (single-choice → at
@@ -541,6 +561,7 @@ Mentions are re-derived; `edited_at` set; `message:updated`.
   (models.ts header). Stars: private, no events.
 
 ### History paging
+
 `GET /chats/:c/messages` → `MessagePage { messages (ascending), hasMoreBefore, hasMoreAfter,
 users }`. At most one cursor (exclusive seqs): none = latest page; `before`; `after`;
 `around=N` = ⌈limit/2⌉ at or below N plus the rest above. `users` side-loads every user
@@ -669,7 +690,7 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   community (community pipeline); delete follower rows of channels; owned channels pass to
   the oldest admin or are deleted; (3) delete sessions, push subscriptions, contacts and
   blocks (both directions) and statuses; (4) scrub the row: `username =
-  'deleted_' || <first 12 hex chars of the id without dashes>`, `display_name = 'Deleted account'`, `phone = null`,
+'deleted_' || <first 12 hex chars of the id without dashes>`, `display_name = 'Deleted account'`, `phone = null`,
   `about = ''`, `avatar_media_id = null`, `password_hash = '!'`, `settings = '{}'`,
   `deleted_at = now()`. Direct-chat memberships and messages stay (sender shown as Deleted
   account). After commit: membership events as in the matrix, `user:changed` → rooms of the
@@ -702,7 +723,7 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   and groups (`canCall` = `canSend`); never channels. Invitees = `userIds` (or all other
   active members) ∩ active members, ≤ MAX_CALL_PARTICIPANTS − 1; if `userIds` is omitted
   and the chat has more than MAX_CALL_PARTICIPANTS − 1 other members → `400
-  validation_error`. `call:invite`: group calls only, by joined participants with `canCall`
+validation_error`. `call:invite`: group calls only, by joined participants with `canCall`
   (announcement / admins-only groups: admins), same limits;
   re-inviting a declined/missed/busy/left participant resets `invited_at`. The joined count
   is checked at accept/join/rejoin (`limit_reached`). Rate limit: `USER_RATE_LIMITS.callStart`.
@@ -793,7 +814,7 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   never used in headers. Key `UPLOAD_DIR/<yyyy>/<mm>/<uuid>.<ext>`; thumbnail (JPEG/WebP ≤
   MAX_THUMBNAIL_BYTES) → `media.thumbnail_key`, `MediaAttachment.thumbnailUrl`.
 - Files are served immutable with `nosniff`, a sandbox CSP and `Content-Disposition:
-  attachment` unless the extension is inline-safe.
+attachment` unless the extension is inline-safe.
 - A failure after a file was moved into the store (the thumbnail move, the row insert)
   removes what was stored; the GC job (also at boot) deletes `UPLOAD_DIR/.tmp` files older
   than an hour (uploads interrupted by a crash).
@@ -827,7 +848,7 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   announcement). Title: direct → sender as the recipient knows them; group → group name
   with body `Sender: preview`. Preview = `truncate(messagePreviewText(…, { viewerId }), 120)`
   (mentions rendered) or "New message" when `notificationPreviews` is off. `tag =
-  chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
+chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
 - `dismiss` (tag `chat:<chatId>`) when a read clears the chat's unread messages.
 - Calls: `call` push (urgency high, TTL = CALL_RING_TIMEOUT_MS / 1000, tag `call:<callId>`)
   unless silent or `callNotifications` is off; `call_cancel` when the ring stops (body
@@ -837,19 +858,20 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
 
 ## Rate limits
 
-| Scope | Limit |
-| --- | --- |
-| Per IP (lib/rateLimit.ts) | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
-| Per user (`USER_RATE_LIMITS`) | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact) |
-| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h |
-| Per socket | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min; server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`) |
+| Scope                                   | Limit                                                                                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per IP (lib/rateLimit.ts)               | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
+| Per user (`USER_RATE_LIMITS`)           | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact)         |
+| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                   |
+| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min; server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)               |
 
 ## Jobs
 
 Registered in `jobs/register.ts`; idempotent, safe on every instance.
+
 - **Disappearing purge** (every minute): `DELETE FROM messages WHERE id IN (SELECT id … WHERE
-  expires_at <= now() ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED) RETURNING id,
-  chat_id`, looping while full; `message:removed` → room per chat.
+expires_at <= now() ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED) RETURNING id,
+chat_id`, looping while full; `message:removed` → room per chat.
 - **Status expiry**: delete expired statuses (clients drop them at `expiresAt`).
 - **Calls** (every ~5 s, `runOnStart` for crash recovery, retried until it succeeds): ring
   timeouts, reconnect-grace expiry, lost call sockets, end rules.
@@ -857,6 +879,7 @@ Registered in `jobs/register.ts`; idempotent, safe on every instance.
   (expired sessions).
 
 ## Web client conventions
+
 - Mobile-first responsive layout: phone = single pane with bottom tabs
   (Chats, Updates, Communities, Calls, Settings); desktop ≥ 1024px = WhatsApp-Web-like
   nav rail + list pane + conversation pane.

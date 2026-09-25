@@ -18,7 +18,13 @@ import { chats } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
 import { badRequest, forbidden, notFound } from '../../lib/errors.js';
 import { parse } from '../../lib/validate.js';
-import { PUBLIC_WINDOW, adminIds, getMembership, lockChat, requirePermission } from '../../services/chats.js';
+import {
+  PUBLIC_WINDOW,
+  adminIds,
+  getMembership,
+  lockChat,
+  requirePermission,
+} from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
 import { generateUniqueInviteCode } from '../../services/invites.js';
 import { mediaUrl, requireAvatarMedia } from '../../services/media.js';
@@ -62,7 +68,11 @@ router.post('/channels', async (req, res) => {
   const body = parse(createChannelSchema, req.body ?? {});
   const chatId = await transact(async (tx, fx) => {
     if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);
-    const channelSettings: ChannelSettings = { ...DEFAULT_CHANNEL_SETTINGS, isPublic: body.isPublic, reactions: body.reactions };
+    const channelSettings: ChannelSettings = {
+      ...DEFAULT_CHANNEL_SETTINGS,
+      isPublic: body.isPublic,
+      reactions: body.reactions,
+    };
     const [chat] = await tx
       .insert(chats)
       .values({
@@ -75,8 +85,18 @@ router.post('/channels', async (req, res) => {
         inviteCode: await generateUniqueInviteCode(tx),
       })
       .returning();
-    await upsertMembership(tx, fx, { kind: 'activate', chatId: chat!.id, userIds: [me], role: 'owner', addedBy: me });
-    await postSystemMessage(tx, fx, chat!, { kind: 'channel_created', actorId: me, name: body.name });
+    await upsertMembership(tx, fx, {
+      kind: 'activate',
+      chatId: chat!.id,
+      userIds: [me],
+      role: 'owner',
+      addedBy: me,
+    });
+    await postSystemMessage(tx, fx, chat!, {
+      kind: 'channel_created',
+      actorId: me,
+      name: body.name,
+    });
     return chat!.id;
   });
   res.status(201).json(await summaryOf(me, chatId));
@@ -86,7 +106,9 @@ router.post('/channels', async (req, res) => {
 router.get('/channels/discover', async (req, res) => {
   const me = authUserId(req);
   const { q, limit } = parse(channelDiscoverQuerySchema, req.query);
-  res.json(await channelEntries(db, me, and(isPublicChannel, q ? channelMatches(q) : undefined), limit));
+  res.json(
+    await channelEntries(db, me, and(isPublicChannel, q ? channelMatches(q) : undefined), limit),
+  );
 });
 
 // GET /channels/:chatId → ChannelPreview (public channels, or channels I follow; else 404);
@@ -100,7 +122,13 @@ router.get('/channels/:chatId', async (req, res) => {
   if (!following && !chat.channelSettings?.isPublic) throw notFound('Channel');
   const channel = await channelEntry(db, me, chatId);
   if (!channel) throw notFound('Channel');
-  const page = await loadMessagePage(db, me, chatId, { limit: MESSAGES_PAGE_SIZE }, following ? {} : { window: PUBLIC_WINDOW, chatType: 'channel' });
+  const page = await loadMessagePage(
+    db,
+    me,
+    chatId,
+    { limit: MESSAGES_PAGE_SIZE },
+    following ? {} : { window: PUBLIC_WINDOW, chatType: 'channel' },
+  );
   const out: ChannelPreview = { channel, messages: page.messages, users: page.users };
   res.json(out);
 });
@@ -129,14 +157,23 @@ router.patch('/channels/:chatId', async (req, res) => {
       events.push({ kind: 'description_changed', actorId: me });
     }
     if (body.avatarMediaId !== undefined && body.avatarMediaId !== chat.avatarMediaId) {
-      const avatar = body.avatarMediaId ? await requireAvatarMedia(tx, body.avatarMediaId, me) : null;
+      const avatar = body.avatarMediaId
+        ? await requireAvatarMedia(tx, body.avatarMediaId, me)
+        : null;
       set.avatarMediaId = avatar?.id ?? null;
       changes.avatarUrl = avatar ? mediaUrl(avatar.storageKey) : null;
       events.push({ kind: 'avatar_changed', actorId: me });
     }
     const current = chat.channelSettings ?? DEFAULT_CHANNEL_SETTINGS;
-    const nextSettings: ChannelSettings = { ...current, ...(body.isPublic !== undefined ? { isPublic: body.isPublic } : {}), ...(body.reactions !== undefined ? { reactions: body.reactions } : {}) };
-    if (nextSettings.isPublic !== current.isPublic || nextSettings.reactions !== current.reactions) {
+    const nextSettings: ChannelSettings = {
+      ...current,
+      ...(body.isPublic !== undefined ? { isPublic: body.isPublic } : {}),
+      ...(body.reactions !== undefined ? { reactions: body.reactions } : {}),
+    };
+    if (
+      nextSettings.isPublic !== current.isPublic ||
+      nextSettings.reactions !== current.reactions
+    ) {
       set.channelSettings = nextSettings;
       changes.channelSettings = nextSettings;
     }
@@ -193,7 +230,12 @@ router.delete('/channels/:chatId/follow', async (req, res) => {
 });
 
 /** Owner-only admin management; the target must follow the channel (404 otherwise). */
-async function setChannelAdmin(me: string, chatId: string, userId: string, role: 'admin' | 'member') {
+async function setChannelAdmin(
+  me: string,
+  chatId: string,
+  userId: string,
+  role: 'admin' | 'member',
+) {
   await transact(async (tx, fx) => {
     const access = await requireChannelAccess(tx, me, chatId, { lock: true });
     requirePermission(access, 'canManageAdmins', 'Only the channel owner can manage admins');
@@ -238,7 +280,10 @@ router.post('/channels/:chatId/invite/reset', async (req, res) => {
     const access = await requireChannelAccess(tx, me, chatId, { lock: true });
     requirePermission(access, 'canInvite', 'Only channel admins can reset the invite link');
     const next = await generateUniqueInviteCode(tx);
-    await tx.update(chats).set({ inviteCode: next, updatedAt: new Date() }).where(eq(chats.id, chatId));
+    await tx
+      .update(chats)
+      .set({ inviteCode: next, updatedAt: new Date() })
+      .where(eq(chats.id, chatId));
     fx.chatUpsert(await adminIds(tx, chatId), chatId);
     return next;
   });

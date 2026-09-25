@@ -27,9 +27,7 @@ test('the first message of a new direct chat is counted once', async ({ browser 
   await context.close();
 });
 
-test('deleting an unread @mention for everyone clears the mention badge', async ({
-  browser,
-}) => {
+test('deleting an unread @mention for everyone clears the mention badge', async ({ browser }) => {
   const alice = await registerUser({ displayName: 'Alice Badge' });
   const carol = await registerUser({ displayName: 'Carol Badge' });
   await makeContacts(alice, carol);

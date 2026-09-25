@@ -30,7 +30,15 @@ import { transact, type Effects } from '../../services/effects.js';
 import { loadMediaMap, requireOwnedMedia, toMediaAttachment } from '../../services/media.js';
 import { pairKey, rawRows, uniq, uuidArray } from '../../services/sql.js';
 import { requireVisibleStatus } from '../../services/statuses.js';
-import { blockedEitherWayIds, getUserRow, requireUser, settingsOf, toUserPublic, toUserPublicMap, toUserPublicsForPairs } from '../../services/users.js';
+import {
+  blockedEitherWayIds,
+  getUserRow,
+  requireUser,
+  settingsOf,
+  toUserPublic,
+  toUserPublicMap,
+  toUserPublicsForPairs,
+} from '../../services/users.js';
 
 /** Viewers whose (current) read-receipt setting lets the author see their view. */
 const receiptsOnSql = (settingsCol: unknown) =>
@@ -82,7 +90,11 @@ async function viewCounts(dbx: DbOrTx, statusIds: string[]): Promise<Map<string,
 }
 
 /** Viewer-specific `Status` models (input order; a fixed number of queries). */
-export async function toStatuses(dbx: DbOrTx, viewerId: string, rows: StatusRow[]): Promise<Status[]> {
+export async function toStatuses(
+  dbx: DbOrTx,
+  viewerId: string,
+  rows: StatusRow[],
+): Promise<Status[]> {
   if (rows.length === 0) return [];
   const mediaMap = await loadMediaMap(
     dbx,
@@ -173,18 +185,35 @@ export async function loadStatusFeed(dbx: DbOrTx, me: string): Promise<StatusFee
   for (const [userId, list] of byAuthor) {
     const user = authors.get(userId);
     if (!user) continue;
-    updates.push({ user, statuses: list, allViewed: list.every((s) => s.viewed), lastUpdatedAt: list[list.length - 1]!.createdAt });
+    updates.push({
+      user,
+      statuses: list,
+      allViewed: list.every((s) => s.viewed),
+      lastUpdatedAt: list[list.length - 1]!.createdAt,
+    });
   }
-  updates.sort((a, b) => Number(a.allViewed) - Number(b.allViewed) || b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
+  updates.sort(
+    (a, b) =>
+      Number(a.allViewed) - Number(b.allViewed) || b.lastUpdatedAt.localeCompare(a.lastUpdatedAt),
+  );
   return { mine, updates };
 }
 
 /** `GET /status/:id/viewers` (author only): non-deleted viewers with read receipts on, most recent first. */
-export async function loadStatusViewers(dbx: DbOrTx, me: string, statusId: string): Promise<StatusViewer[]> {
+export async function loadStatusViewers(
+  dbx: DbOrTx,
+  me: string,
+  statusId: string,
+): Promise<StatusViewer[]> {
   const status = await requireVisibleStatus(dbx, me, statusId);
   if (status.userId !== me) throw forbidden('Only the author can see who viewed a status');
   const rows = await dbx
-    .select({ viewerId: statusViews.viewerId, viewedAt: statusViews.viewedAt, reaction: statusViews.reaction, settings: users.settings })
+    .select({
+      viewerId: statusViews.viewerId,
+      viewedAt: statusViews.viewedAt,
+      reaction: statusViews.reaction,
+      settings: users.settings,
+    })
     .from(statusViews)
     .innerJoin(users, eq(users.id, statusViews.viewerId))
     .where(and(eq(statusViews.statusId, statusId), isNull(users.deletedAt)))
@@ -263,7 +292,12 @@ export async function createStatus(me: string, input: CreateStatusInput): Promis
 /** `DELETE /status/:id` (author): `status:deleted` → the audience and me. Others: 404 unless visible, then 403. */
 export async function deleteStatus(me: string, statusId: string): Promise<void> {
   await transact(async (tx, fx) => {
-    const [row] = await tx.select().from(statuses).where(eq(statuses.id, statusId)).limit(1).for('update');
+    const [row] = await tx
+      .select()
+      .from(statuses)
+      .where(eq(statuses.id, statusId))
+      .limit(1)
+      .for('update');
     if (!row) throw notFound('Status');
     if (row.userId !== me) {
       await requireVisibleStatus(tx, me, statusId);
@@ -313,7 +347,11 @@ export async function viewStatus(me: string, statusId: string): Promise<void> {
   await transact(async (tx, fx) => {
     const status = await requireVisibleStatus(tx, me, statusId, { lock: true });
     if (status.userId === me) return;
-    const [view] = await tx.insert(statusViews).values({ statusId, viewerId: me, viewedAt: new Date() }).onConflictDoNothing().returning();
+    const [view] = await tx
+      .insert(statusViews)
+      .values({ statusId, viewerId: me, viewedAt: new Date() })
+      .onConflictDoNothing()
+      .returning();
     if (view) await notifyAuthor(tx, fx, status.userId, me, view, true);
   });
 }
@@ -347,7 +385,10 @@ export async function reactToStatus(me: string, statusId: string, emoji: string)
 
 /** Account deletion: delete my statuses (`status:deleted` → their audiences) and my views. */
 export async function deleteUserStatusesTx(tx: Tx, fx: Effects, userId: string): Promise<void> {
-  const rows = await tx.delete(statuses).where(eq(statuses.userId, userId)).returning({ id: statuses.id, audience: statuses.audience });
+  const rows = await tx
+    .delete(statuses)
+    .where(eq(statuses.userId, userId))
+    .returning({ id: statuses.id, audience: statuses.audience });
   for (const r of rows) fx.toUsers(r.audience, 'status:deleted', { statusId: r.id, userId });
   await tx.delete(statusViews).where(eq(statusViews.viewerId, userId));
 }

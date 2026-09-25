@@ -3,8 +3,22 @@ import type { ChatSummary } from '@enbox/shared';
 import { config } from '../../src/config.js';
 import { resetUserLimits } from '../../src/lib/userLimit.js';
 import { domainEvents, type DomainEventMap } from '../../src/services/events.js';
-import { emitAck, startTestServer, type TestServer, type TestSocket, type TestUser } from '../helpers.js';
-import { block, createChannel, createGroup, goOffline, recordEvents, setSettings, settle } from '../services/fixtures.js';
+import {
+  emitAck,
+  startTestServer,
+  type TestServer,
+  type TestSocket,
+  type TestUser,
+} from '../helpers.js';
+import {
+  block,
+  createChannel,
+  createGroup,
+  goOffline,
+  recordEvents,
+  setSettings,
+  settle,
+} from '../services/fixtures.js';
 import { activeDirect, follow, leaveGroup, openDirect, sendOk, summaryOf } from './support.js';
 
 describe('chats realtime (typing, chat:read, ticks)', () => {
@@ -21,7 +35,11 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
   });
   afterAll(() => t.close());
 
-  const typing = (s: TestSocket, chatId: string, state: 'typing' | 'recording' | 'idle' = 'typing') => s.emit('chat:typing', { chatId, state });
+  const typing = (
+    s: TestSocket,
+    chatId: string,
+    state: 'typing' | 'recording' | 'idle' = 'typing',
+  ) => s.emit('chat:typing', { chatId, state });
   const disconnectAll = (...sockets: TestSocket[]) => sockets.forEach((s) => s.disconnect());
   /** The typing relay does a few async permission queries before emitting. */
   const relaySettle = () => settle(400);
@@ -29,7 +47,12 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
   describe('chat:typing', () => {
     it('is relayed to the room except all of the typist’s sockets', async () => {
       const g = await createGroup(alice, [bob, carol]);
-      const [a1, a2, b1, c1] = [await t.connect(alice), await t.connect(alice), await t.connect(bob), await t.connect(carol)];
+      const [a1, a2, b1, c1] = [
+        await t.connect(alice),
+        await t.connect(alice),
+        await t.connect(bob),
+        await t.connect(carol),
+      ];
       const [la2, lb, lc] = [recordEvents(a2), recordEvents(b1), recordEvents(c1)];
       const la1 = recordEvents(a1);
       typing(a1, g, 'recording');
@@ -49,7 +72,9 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
     it('never for channels, members who cannot send, former members, or direct chats with a block either way', async () => {
       const ch = await createChannel(alice);
       await follow(ch, [bob]);
-      const adminsOnly = await createGroup(alice, [bob, carol], { settings: { onlyAdminsCanSend: true } });
+      const adminsOnly = await createGroup(alice, [bob, carol], {
+        settings: { onlyAdminsCanSend: true },
+      });
       const leftGroup = await createGroup(alice, [bob, carol]);
       await leaveGroup(leftGroup, carol);
       const u1 = await t.createUser();
@@ -57,17 +82,27 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
       const d = await activeDirect(t, u1, u2);
       await sendOk(t, u2, d, 'hi');
 
-      const [a, b, c, s1, s2] = [await t.connect(alice), await t.connect(bob), await t.connect(carol), await t.connect(u1), await t.connect(u2)];
+      const [a, b, c, s1, s2] = [
+        await t.connect(alice),
+        await t.connect(bob),
+        await t.connect(carol),
+        await t.connect(u1),
+        await t.connect(u2),
+      ];
       const [la, lb, lc, l1, l2] = [a, b, c, s1, s2].map(recordEvents);
       typing(a, ch); // channel admin
       typing(b, adminsOnly); // cannot send
       typing(c, leftGroup); // former member
       await relaySettle();
-      expect([...la.of('chat:typing'), ...lb.of('chat:typing'), ...lc.of('chat:typing')]).toEqual([]);
+      expect([...la.of('chat:typing'), ...lb.of('chat:typing'), ...lc.of('chat:typing')]).toEqual(
+        [],
+      );
       // Admin in the admins-only group is relayed.
       typing(a, adminsOnly);
       await relaySettle();
-      expect(lb.of('chat:typing')).toEqual([{ chatId: adminsOnly, userId: alice.id, state: 'typing' }]);
+      expect(lb.of('chat:typing')).toEqual([
+        { chatId: adminsOnly, userId: alice.id, state: 'typing' },
+      ]);
 
       // Direct: works without blocks...
       typing(s1, d);
@@ -98,7 +133,12 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
         typing(a, g);
         typing(a, g, 'idle');
         await relaySettle();
-        expect(lb.of('chat:typing').map((p) => p.state).sort()).toEqual(['idle', 'typing']);
+        expect(
+          lb
+            .of('chat:typing')
+            .map((p) => p.state)
+            .sort(),
+        ).toEqual(['idle', 'typing']);
         // A second socket of the same user has its own budget.
         const a2 = await t.connect(alice);
         typing(a2, g);
@@ -130,10 +170,25 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
         await emitAck(b1, 'chat:read', { chatId: g, seq: m1.seq });
         await settle();
         for (const l of [lb1, lb2]) {
-          expect(l.of('chat:read')).toEqual([{ chatId: g, lastReadSeq: m1.seq, unreadCount: 1, unreadMentionCount: 0, markedUnread: false }]);
+          expect(l.of('chat:read')).toEqual([
+            {
+              chatId: g,
+              lastReadSeq: m1.seq,
+              unreadCount: 1,
+              unreadMentionCount: 0,
+              markedUnread: false,
+            },
+          ]);
         }
-        expect(la.of('chat:watermarks')).toEqual([{ chatId: g, readWatermark: m1.seq, deliveredWatermark: m2.seq }]);
-        expect(reads.at(-1)).toMatchObject({ userId: bob.id, chatId: g, lastReadSeq: m1.seq, clearedUnread: true });
+        expect(la.of('chat:watermarks')).toEqual([
+          { chatId: g, readWatermark: m1.seq, deliveredWatermark: m2.seq },
+        ]);
+        expect(reads.at(-1)).toMatchObject({
+          userId: bob.id,
+          chatId: g,
+          lastReadSeq: m1.seq,
+          clearedUnread: true,
+        });
 
         // Clamped to the latest visible seq; reading backwards never regresses.
         await emitAck(b2, 'chat:read', { chatId: g, seq: 10_000 });
@@ -155,9 +210,13 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
         off();
       }
       // Errors are acked.
-      await expect(emitAck(b1, 'chat:read', { chatId: g, seq: 'x' })).rejects.toMatchObject({ ack: { ok: false, error: { code: 'validation_error' } } });
+      await expect(emitAck(b1, 'chat:read', { chatId: g, seq: 'x' })).rejects.toMatchObject({
+        ack: { ok: false, error: { code: 'validation_error' } },
+      });
       const c = await t.connect(carol);
-      await expect(emitAck(c, 'chat:read', { chatId: g, seq: 1 })).rejects.toMatchObject({ ack: { ok: false, error: { code: 'not_found' } } });
+      await expect(emitAck(c, 'chat:read', { chatId: g, seq: 1 })).rejects.toMatchObject({
+        ack: { ok: false, error: { code: 'not_found' } },
+      });
       disconnectAll(a, b1, b2, c);
     });
   });
@@ -179,19 +238,27 @@ describe('chats realtime (typing, chat:read, ticks)', () => {
       l1.clear();
       const s2 = await t.connect(u2);
       await settle();
-      expect(l1.of('chat:watermarks')).toEqual([{ chatId: d.id, readWatermark: 0, deliveredWatermark: m1.seq }]);
+      expect(l1.of('chat:watermarks')).toEqual([
+        { chatId: d.id, readWatermark: 0, deliveredWatermark: m1.seq },
+      ]);
 
       // Recipient online: delivered in the send transaction.
       l1.clear();
       const m2 = await sendOk(t, u1, d.id, 'hello?');
       await settle();
-      expect(l1.of('chat:watermarks').at(-1)).toEqual({ chatId: d.id, readWatermark: 0, deliveredWatermark: m2.seq });
+      expect(l1.of('chat:watermarks').at(-1)).toEqual({
+        chatId: d.id,
+        readWatermark: 0,
+        deliveredWatermark: m2.seq,
+      });
 
       // Read → blue ticks.
       l1.clear();
       await emitAck(s2, 'chat:read', { chatId: d.id, seq: m2.seq });
       await settle();
-      expect(l1.of('chat:watermarks')).toEqual([{ chatId: d.id, readWatermark: m2.seq, deliveredWatermark: m2.seq }]);
+      expect(l1.of('chat:watermarks')).toEqual([
+        { chatId: d.id, readWatermark: m2.seq, deliveredWatermark: m2.seq },
+      ]);
 
       // Recipient turns read receipts off: reads are no longer reported (delivery still is).
       await setSettings(u2.id, { readReceipts: false });

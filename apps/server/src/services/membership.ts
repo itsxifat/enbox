@@ -29,7 +29,13 @@ import { activeMemberIds, getMembership, lockChat, ownerId } from './chats.js';
 import type { Effects } from './effects.js';
 import { uniq } from './sql.js';
 import { insertSystemMessage, postSystemMessage, systemMessageAllowed } from './system.js';
-import { blockedEitherWayIds, getUserRows, lockLiveUsers, ownersWhoSaved, settingsOf } from './users.js';
+import {
+  blockedEitherWayIds,
+  getUserRows,
+  lockLiveUsers,
+  ownersWhoSaved,
+  settingsOf,
+} from './users.js';
 
 export type MembershipChange =
   | {
@@ -74,7 +80,11 @@ export interface MembershipResult {
 }
 
 /** The single membership write path (see module doc). Call inside `transact`. */
-export async function upsertMembership(tx: Tx, fx: Effects, change: MembershipChange): Promise<MembershipResult> {
+export async function upsertMembership(
+  tx: Tx,
+  fx: Effects,
+  change: MembershipChange,
+): Promise<MembershipResult> {
   switch (change.kind) {
     case 'activate':
       return activate(tx, fx, change);
@@ -85,7 +95,11 @@ export async function upsertMembership(tx: Tx, fx: Effects, change: MembershipCh
   }
 }
 
-async function activate(tx: Tx, fx: Effects, change: Extract<MembershipChange, { kind: 'activate' }>): Promise<MembershipResult> {
+async function activate(
+  tx: Tx,
+  fx: Effects,
+  change: Extract<MembershipChange, { kind: 'activate' }>,
+): Promise<MembershipResult> {
   let chat = await lockChat(tx, change.chatId);
   if (chat.type === 'direct') throw new Error('upsertMembership: direct chats have fixed members');
   // Accounts deleted meanwhile (the caller's checks ran before the deletion committed) are
@@ -94,7 +108,8 @@ async function activate(tx: Tx, fx: Effects, change: Extract<MembershipChange, {
   const ids = uniq(change.userIds).filter((id) => live.has(id));
   if (ids.length === 0) return { chat, userIds: [], systemMessage: null, newOwnerId: null };
   let systemEvent = change.systemEvent ?? null;
-  if (systemEvent?.kind === 'members_added') systemEvent = { ...systemEvent, userIds: systemEvent.userIds.filter((id) => live.has(id)) };
+  if (systemEvent?.kind === 'members_added')
+    systemEvent = { ...systemEvent, userIds: systemEvent.userIds.filter((id) => live.has(id)) };
 
   const existing = await tx
     .select({ userId: chatMembers.userId, leftAt: chatMembers.leftAt })
@@ -104,7 +119,12 @@ async function activate(tx: Tx, fx: Effects, change: Extract<MembershipChange, {
 
   const sys = systemEvent ? await insertSystemMessage(tx, chat, systemEvent) : null;
   if (sys) chat = sys.chat;
-  const joinedSeq = change.initial || chat.type === 'channel' ? 0 : sys ? Number(sys.message.seq) - 1 : Number(chat.lastSeq);
+  const joinedSeq =
+    change.initial || chat.type === 'channel'
+      ? 0
+      : sys
+        ? Number(sys.message.seq) - 1
+        : Number(chat.lastSeq);
   const marks = chat.type === 'channel' ? Number(chat.lastSeq) : joinedSeq;
   const now = new Date();
 
@@ -148,9 +168,14 @@ async function activate(tx: Tx, fx: Effects, change: Extract<MembershipChange, {
   return { chat, userIds: ids, systemMessage: sys?.message ?? null, newOwnerId: null };
 }
 
-async function deactivate(tx: Tx, fx: Effects, change: Extract<MembershipChange, { kind: 'deactivate' }>): Promise<MembershipResult> {
+async function deactivate(
+  tx: Tx,
+  fx: Effects,
+  change: Extract<MembershipChange, { kind: 'deactivate' }>,
+): Promise<MembershipResult> {
   let chat = await lockChat(tx, change.chatId);
-  if (chat.type !== 'group') throw new Error('upsertMembership: deactivate is for groups (channels: unfollow)');
+  if (chat.type !== 'group')
+    throw new Error('upsertMembership: deactivate is for groups (channels: unfollow)');
   const member = await getMembership(tx, chat.id, change.userId);
   if (!member || member.leftAt) throw notFound('Member');
 
@@ -164,7 +189,13 @@ async function deactivate(tx: Tx, fx: Effects, change: Extract<MembershipChange,
   const leftSeq = sys ? Number(sys.seq) : Number(chat.lastSeq);
   await tx
     .update(chatMembers)
-    .set({ leftAt: new Date(), leftSeq, leftReason: change.reason, role: 'member', ...(change.hide ? { hidden: true } : {}) })
+    .set({
+      leftAt: new Date(),
+      leftSeq,
+      leftReason: change.reason,
+      role: 'member',
+      ...(change.hide ? { hidden: true } : {}),
+    })
     .where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, change.userId)));
 
   let newOwnerId: string | null = null;
@@ -180,18 +211,30 @@ async function deactivate(tx: Tx, fx: Effects, change: Extract<MembershipChange,
   if (newOwnerId) fx.chatUpsert(newOwnerId, chat.id);
   fx.watermarks({
     chatId: chat.id,
-    members: [{ userId: change.userId, prev: { read: Number(member.lastReadSeq), delivered: Number(member.lastDeliveredSeq) } }],
+    members: [
+      {
+        userId: change.userId,
+        prev: { read: Number(member.lastReadSeq), delivered: Number(member.lastDeliveredSeq) },
+      },
+    ],
   });
   return { chat, userIds: [change.userId], systemMessage: sys, newOwnerId };
 }
 
-async function unfollow(tx: Tx, fx: Effects, change: Extract<MembershipChange, { kind: 'unfollow' }>): Promise<MembershipResult> {
+async function unfollow(
+  tx: Tx,
+  fx: Effects,
+  change: Extract<MembershipChange, { kind: 'unfollow' }>,
+): Promise<MembershipResult> {
   const chat = await lockChat(tx, change.chatId);
   if (chat.type !== 'channel') throw new Error('upsertMembership: unfollow is for channels');
   const member = await getMembership(tx, chat.id, change.userId);
   if (!member || member.leftAt) throw notFound('Channel');
-  if (member.role === 'owner') throw conflict('Transfer ownership or delete the channel before unfollowing');
-  await tx.delete(chatMembers).where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, change.userId)));
+  if (member.role === 'owner')
+    throw conflict('Transfer ownership or delete the channel before unfollowing');
+  await tx
+    .delete(chatMembers)
+    .where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, change.userId)));
   fx.removeChat(change.userId, chat.id);
   fx.domain('member.left', { chatId: chat.id, userId: change.userId, reason: 'unfollowed' });
   return { chat, userIds: [change.userId], systemMessage: null, newOwnerId: null };
@@ -224,7 +267,11 @@ export async function ensureOwner(
         chat.type === 'channel' ? eq(chatMembers.role, 'admin') : undefined,
       ),
     )
-    .orderBy(desc(sql`${chatMembers.role} = 'admin'`), asc(chatMembers.joinedAt), asc(chatMembers.userId))
+    .orderBy(
+      desc(sql`${chatMembers.role} = 'admin'`),
+      asc(chatMembers.joinedAt),
+      asc(chatMembers.userId),
+    )
     .limit(1);
   if (!candidate) return null;
   await tx
@@ -233,7 +280,13 @@ export async function ensureOwner(
     .where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, candidate.userId)));
   const withMessage = opts.systemMessage ?? systemMessageAllowed(chat, 'owner_changed');
   if (withMessage) {
-    await postSystemMessage(tx, fx, chat, { kind: 'owner_changed', userId: candidate.userId }, { exceptUserIds: opts.exceptUserIds });
+    await postSystemMessage(
+      tx,
+      fx,
+      chat,
+      { kind: 'owner_changed', userId: candidate.userId },
+      { exceptUserIds: opts.exceptUserIds },
+    );
   }
   return candidate.userId;
 }
@@ -247,14 +300,20 @@ export async function ensureOwner(
 export async function changeRole(
   tx: Tx,
   fx: Effects,
-  input: { chatId: string; userId: string; role: 'admin' | 'member'; systemEvent?: SystemEvent | null },
+  input: {
+    chatId: string;
+    userId: string;
+    role: 'admin' | 'member';
+    systemEvent?: SystemEvent | null;
+  },
 ): Promise<boolean> {
   const chat = await lockChat(tx, input.chatId);
   const member = await getMembership(tx, chat.id, input.userId);
   if (!member || member.leftAt) throw notFound('Member');
   if (member.role === 'owner') throw forbidden('The owner cannot be demoted');
   if (member.role === input.role) return false;
-  if (input.systemEvent && systemMessageAllowed(chat, input.systemEvent.kind)) await postSystemMessage(tx, fx, chat, input.systemEvent);
+  if (input.systemEvent && systemMessageAllowed(chat, input.systemEvent.kind))
+    await postSystemMessage(tx, fx, chat, input.systemEvent);
   await tx
     .update(chatMembers)
     .set({ role: input.role })
@@ -276,11 +335,13 @@ export async function transferOwnership(
 ): Promise<void> {
   const chat = await lockChat(tx, input.chatId);
   const from = await getMembership(tx, chat.id, input.fromUserId);
-  if (!from || from.leftAt || from.role !== 'owner') throw forbidden('Only the owner can transfer ownership');
+  if (!from || from.leftAt || from.role !== 'owner')
+    throw forbidden('Only the owner can transfer ownership');
   const to = await getMembership(tx, chat.id, input.toUserId);
   if (!to || to.leftAt) throw notFound('Member');
   if (input.fromUserId === input.toUserId) return;
-  if (input.systemEvent && systemMessageAllowed(chat, input.systemEvent.kind)) await postSystemMessage(tx, fx, chat, input.systemEvent);
+  if (input.systemEvent && systemMessageAllowed(chat, input.systemEvent.kind))
+    await postSystemMessage(tx, fx, chat, input.systemEvent);
   await tx
     .update(chatMembers)
     .set({ role: 'admin' })
@@ -328,7 +389,9 @@ export async function evaluateAddTargets(
     else candidates.push(id);
   }
   const blocked = await blockedEitherWayIds(dbx, input.adderId, candidates);
-  const contactsOnly = candidates.filter((id) => id !== input.adderId && settingsOf(rows.get(id)!).groupsAddPermission === 'contacts');
+  const contactsOnly = candidates.filter(
+    (id) => id !== input.adderId && settingsOf(rows.get(id)!).groupsAddPermission === 'contacts',
+  );
   const savedAdder = await ownersWhoSaved(dbx, input.adderId, contactsOnly);
   for (const id of candidates) {
     if (id === input.adderId) {
@@ -344,8 +407,15 @@ export async function evaluateAddTargets(
 }
 
 /** Convenience: evaluateAddTargets against the chat's current active members. */
-export async function evaluateGroupAdd(dbx: DbOrTx, input: { adderId: string; chatId: string; userIds: string[] }): Promise<AddTargets> {
-  return evaluateAddTargets(dbx, { adderId: input.adderId, userIds: input.userIds, activeIds: await activeMemberIds(dbx, input.chatId) });
+export async function evaluateGroupAdd(
+  dbx: DbOrTx,
+  input: { adderId: string; chatId: string; userIds: string[] },
+): Promise<AddTargets> {
+  return evaluateAddTargets(dbx, {
+    adderId: input.adderId,
+    userIds: input.userIds,
+    activeIds: await activeMemberIds(dbx, input.chatId),
+  });
 }
 
 /**
@@ -353,7 +423,11 @@ export async function evaluateGroupAdd(dbx: DbOrTx, input: { adderId: string; ch
  * has left_reason 'removed', or — for a group linked to a community — their announcement-group
  * row does. Invite joins and community-page joins → 403 when true.
  */
-export async function wasRemovedByAdmin(dbx: DbOrTx, chat: Pick<ChatRow, 'id' | 'communityId'>, userId: string): Promise<boolean> {
+export async function wasRemovedByAdmin(
+  dbx: DbOrTx,
+  chat: Pick<ChatRow, 'id' | 'communityId'>,
+  userId: string,
+): Promise<boolean> {
   const own = await getMembership(dbx, chat.id, userId);
   if (own?.leftAt && own.leftReason === 'removed') return true;
   if (chat.communityId) return wasRemovedFromCommunity(dbx, chat.communityId, userId);
@@ -361,8 +435,16 @@ export async function wasRemovedByAdmin(dbx: DbOrTx, chat: Pick<ChatRow, 'id' | 
 }
 
 /** The user's announcement-group row of this community has left_reason 'removed'. */
-export async function wasRemovedFromCommunity(dbx: DbOrTx, communityId: string, userId: string): Promise<boolean> {
-  const [c] = await dbx.select({ ann: communities.announcementChatId }).from(communities).where(eq(communities.id, communityId)).limit(1);
+export async function wasRemovedFromCommunity(
+  dbx: DbOrTx,
+  communityId: string,
+  userId: string,
+): Promise<boolean> {
+  const [c] = await dbx
+    .select({ ann: communities.announcementChatId })
+    .from(communities)
+    .where(eq(communities.id, communityId))
+    .limit(1);
   if (!c?.ann) return false;
   const row = await getMembership(dbx, c.ann, userId);
   return !!row?.leftAt && row.leftReason === 'removed';

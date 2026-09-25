@@ -74,15 +74,24 @@ export const inviteParamsSchema = z.object({ code: inviteCodeSchema });
 const blankToUndefined = (v: unknown) => (v === '' || v === null ? undefined : v);
 /** Optional integer query/multipart field: accepts numbers or numeric strings; blank = absent. */
 function optionalInt(inner: z.ZodNumber) {
-  return z.preprocess((v: number | string | null | undefined) => blankToUndefined(v), z.coerce.number<number | string | undefined>().pipe(inner).optional());
+  return z.preprocess(
+    (v: number | string | null | undefined) => blankToUndefined(v),
+    z.coerce.number<number | string | undefined>().pipe(inner).optional(),
+  );
 }
 /** Integer query field with a default. */
 function intWithDefault(inner: z.ZodNumber, fallback: number) {
-  return z.preprocess((v: number | string | null | undefined) => blankToUndefined(v), z.coerce.number<number | string | undefined>().pipe(inner).default(fallback));
+  return z.preprocess(
+    (v: number | string | null | undefined) => blankToUndefined(v),
+    z.coerce.number<number | string | undefined>().pipe(inner).default(fallback),
+  );
 }
 /** Optional trimmed string query field; blank = absent. */
 function optionalQueryString(max: number) {
-  return z.preprocess((v: string | null | undefined) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().max(max).optional());
+  return z.preprocess(
+    (v: string | null | undefined) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().trim().max(max).optional(),
+  );
 }
 
 /** Username shape only (trimmed, lowercased, USERNAME_REGEX) — `usernameSchema` adds the reserved-prefix rule. */
@@ -90,9 +99,15 @@ export const usernameFormatSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(USERNAME_REGEX, 'Use 3–32 lowercase letters, numbers, dots or underscores, with at least one letter');
+  .regex(
+    USERNAME_REGEX,
+    'Use 3–32 lowercase letters, numbers, dots or underscores, with at least one letter',
+  );
 /** A username a user may take: the format, and not the reserved `deleted_` prefix (scrubbed accounts). */
-export const usernameSchema = usernameFormatSchema.refine((s) => !s.startsWith(DELETED_USERNAME_PREFIX), 'This username is reserved');
+export const usernameSchema = usernameFormatSchema.refine(
+  (s) => !s.startsWith(DELETED_USERNAME_PREFIX),
+  'This username is reserved',
+);
 export const passwordSchema = z
   .string()
   .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
@@ -117,13 +132,17 @@ export const emojiSchema = z
   .string()
   .min(1)
   .max(MAX_EMOJI_LENGTH)
-  .regex(/^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Component}|‍|️|⃣)+$/u, 'Must be an emoji')
+  .regex(
+    /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Component}|‍|️|⃣)+$/u,
+    'Must be an emoji',
+  )
   .refine((s) => /\p{Extended_Pictographic}|\p{Regional_Indicator}|⃣/u.test(s), 'Must be an emoji')
   .refine((s) => {
     const Segmenter = (Intl as { Segmenter?: typeof Intl.Segmenter }).Segmenter;
     if (!Segmenter) return true;
     let n = 0;
-    for (const _ of new Segmenter(undefined, { granularity: 'grapheme' }).segment(s)) if (++n > 1) return false;
+    for (const _ of new Segmenter(undefined, { granularity: 'grapheme' }).segment(s))
+      if (++n > 1) return false;
     return true;
   }, 'Must be a single emoji');
 
@@ -157,7 +176,9 @@ export const loginSchema = z.object({
  * Login identifier rule: starts with '+' or consists only of digits/spaces/dashes/dots/
  * parentheses → phone (canonicalised); otherwise a (lowercased) username.
  */
-export function parseLoginIdentifier(identifier: string): { kind: 'phone'; phone: string } | { kind: 'username'; username: string } | null {
+export function parseLoginIdentifier(
+  identifier: string,
+): { kind: 'phone'; phone: string } | { kind: 'username'; username: string } | null {
   const s = identifier.trim();
   if (/^\+/.test(s) || /^[\d\s\-().]+$/.test(s)) {
     const r = phoneSchema.safeParse(s);
@@ -226,7 +247,9 @@ export const userSearchQuerySchema = z.object({
     .pipe(z.string().min(1).max(64)),
 });
 
-export const usernameParamsSchema = z.object({ username: z.string().trim().toLowerCase().min(1).max(64) });
+export const usernameParamsSchema = z.object({
+  username: z.string().trim().toLowerCase().min(1).max(64),
+});
 
 /** `POST /api/users/batch` and `POST /api/users/presence`. Unknown ids are omitted from the response. */
 export const usersBatchSchema = z.object({
@@ -297,7 +320,10 @@ export const contactCardSchema = z
     username: usernameSchema.nullable().default(null),
     phone: phoneSchema.nullable().default(null),
   })
-  .refine((v) => v.userId !== null || !!v.name, { message: 'Contact cards need a name', path: ['name'] });
+  .refine((v) => v.userId !== null || !!v.name, {
+    message: 'Contact cards need a name',
+    path: ['name'],
+  });
 
 export const pollInputSchema = z.object({
   question: z.string().trim().min(1).max(POLL_QUESTION_MAX_LENGTH),
@@ -305,7 +331,10 @@ export const pollInputSchema = z.object({
     .array(z.string().trim().min(1).max(POLL_OPTION_MAX_LENGTH))
     .min(2)
     .max(POLL_MAX_OPTIONS)
-    .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, 'Options must be different'),
+    .refine(
+      (o) => new Set(o.map((s) => s.toLowerCase())).size === o.length,
+      'Options must be different',
+    ),
   allowMultiple: z.boolean().default(false),
 });
 
@@ -329,7 +358,10 @@ export const sendMessageSchema = z
     z.strictObject({
       ...sendBase,
       type: z.literal('text'),
-      text: z.string().max(MAX_MESSAGE_LENGTH).refine((s) => s.trim().length > 0, 'Text messages need text'),
+      text: z
+        .string()
+        .max(MAX_MESSAGE_LENGTH)
+        .refine((s) => s.trim().length > 0, 'Text messages need text'),
     }),
     z.strictObject({
       ...sendBase,
@@ -343,7 +375,10 @@ export const sendMessageSchema = z
     z.strictObject({ ...sendBase, type: z.literal('contact'), contact: contactCardSchema }),
     z.strictObject({ ...sendBase, type: z.literal('poll'), poll: pollInputSchema }),
   ])
-  .refine((v) => !(v.replyToId && v.statusReplyToId), { message: 'Reply to a message or a status, not both', path: ['statusReplyToId'] });
+  .refine((v) => !(v.replyToId && v.statusReplyToId), {
+    message: 'Reply to a message or a status, not both',
+    path: ['statusReplyToId'],
+  });
 
 /**
  * Edit text or a caption (sender only, within EDIT_WINDOW_MS; channel admins: any post).
@@ -441,7 +476,12 @@ export const uploadMediaMetaSchema = z.object({
       if (s === undefined || s === '') return undefined;
       try {
         const arr: unknown = JSON.parse(s);
-        if (!Array.isArray(arr) || arr.length > WAVEFORM_MAX_SAMPLES || arr.some((n) => typeof n !== 'number' || !Number.isFinite(n))) throw 0;
+        if (
+          !Array.isArray(arr) ||
+          arr.length > WAVEFORM_MAX_SAMPLES ||
+          arr.some((n) => typeof n !== 'number' || !Number.isFinite(n))
+        )
+          throw 0;
         return (arr as number[]).map((n) => Math.max(0, Math.min(1, n)));
       } catch {
         ctx.addIssue({ code: 'custom', message: 'Invalid waveform' });
@@ -587,7 +627,10 @@ function isAllowedPushHost(url: string): boolean {
   const m = /^https:\/\/([a-z0-9.-]+)(?::\d{1,5})?(?:[/?#]|$)/i.exec(url);
   if (!m) return false;
   const host = m[1]!.toLowerCase();
-  return (PUSH_SERVICE_HOSTS as readonly string[]).includes(host) || PUSH_SERVICE_HOST_SUFFIXES.some((s) => host.endsWith(s));
+  return (
+    (PUSH_SERVICE_HOSTS as readonly string[]).includes(host) ||
+    PUSH_SERVICE_HOST_SUFFIXES.some((s) => host.endsWith(s))
+  );
 }
 
 /** Push endpoint: https on an allow-listed push service host (anti-SSRF). */

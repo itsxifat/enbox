@@ -25,6 +25,23 @@ import { registerCallsSocket } from './calls/socket.js';
 export const publicRouters: Router[] = [systemPublic, authPublic];
 
 /** Mounted under /api behind requireAuth. */
-export const authedRouters: Router[] = [auth, users, media, chats, messages, groups, invites, communities, channels, status, calls, push];
+export const authedRouters: Router[] = [
+  auth,
+  users,
+  media,
+  chats,
+  messages,
+  groups,
+  invites,
+  communities,
+  channels,
+  status,
+  calls,
+  push,
+];
 
-export const socketRegistrars: SocketRegistrar[] = [registerUsersSocket, registerChatsSocket, registerCallsSocket];
+export const socketRegistrars: SocketRegistrar[] = [
+  registerUsersSocket,
+  registerChatsSocket,
+  registerCallsSocket,
+];

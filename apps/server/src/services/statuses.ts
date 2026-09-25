@@ -6,7 +6,14 @@ import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { StatusReplyPayload } from '@enbox/shared';
 import type { DbOrTx } from '../db/index.js';
 import type { StoredStatusReply } from '../db/types.js';
-import { chatMembers, media, statuses, type ChatRow, type MediaRow, type StatusRow } from '../db/schema.js';
+import {
+  chatMembers,
+  media,
+  statuses,
+  type ChatRow,
+  type MediaRow,
+  type StatusRow,
+} from '../db/schema.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { blockedEitherWay } from './users.js';
 import { mediaUrl } from './media.js';
@@ -18,7 +25,12 @@ import { uniq } from './sql.js';
  * reference the status, e.g. a view) takes `FOR KEY SHARE`: a concurrent delete (author or
  * expiry purge) is waited for and then yields 404 instead of a foreign-key error.
  */
-export async function requireVisibleStatus(dbx: DbOrTx, viewerId: string, statusId: string, opts: { lock?: boolean } = {}): Promise<StatusRow> {
+export async function requireVisibleStatus(
+  dbx: DbOrTx,
+  viewerId: string,
+  statusId: string,
+  opts: { lock?: boolean } = {},
+): Promise<StatusRow> {
   let q = dbx
     .select()
     .from(statuses)
@@ -29,7 +41,8 @@ export async function requireVisibleStatus(dbx: DbOrTx, viewerId: string, status
   const [row] = await q;
   if (!row) throw notFound('Status');
   if (row.userId === viewerId) return row;
-  if (!row.audience.includes(viewerId) || (await blockedEitherWay(dbx, viewerId, row.userId))) throw notFound('Status');
+  if (!row.audience.includes(viewerId) || (await blockedEitherWay(dbx, viewerId, row.userId)))
+    throw notFound('Status');
   return row;
 }
 
@@ -44,7 +57,8 @@ export async function resolveStatusReply(
 ): Promise<StoredStatusReply> {
   const status = await requireVisibleStatus(dbx, input.senderId, input.statusId);
   if (status.userId === input.senderId) throw badRequest('You cannot reply to your own status');
-  if (input.chat.type !== 'direct') throw badRequest('Reply to a status in the direct chat with its author');
+  if (input.chat.type !== 'direct')
+    throw badRequest('Reply to a status in the direct chat with its author');
   const [author] = await dbx
     .select({ userId: chatMembers.userId })
     .from(chatMembers)
@@ -55,11 +69,18 @@ export async function resolveStatusReply(
 }
 
 /** Statuses (with media) referenced by status replies, keyed by id; deleted ones are absent. */
-export async function loadStatusesForReplies(dbx: DbOrTx, ids: Iterable<string>): Promise<Map<string, { status: StatusRow; media: MediaRow | null }>> {
+export async function loadStatusesForReplies(
+  dbx: DbOrTx,
+  ids: Iterable<string>,
+): Promise<Map<string, { status: StatusRow; media: MediaRow | null }>> {
   const list = uniq(ids);
   const out = new Map<string, { status: StatusRow; media: MediaRow | null }>();
   if (list.length === 0) return out;
-  const rows = await dbx.select({ status: statuses, media }).from(statuses).leftJoin(media, eq(media.id, statuses.mediaId)).where(inArray(statuses.id, list));
+  const rows = await dbx
+    .select({ status: statuses, media })
+    .from(statuses)
+    .leftJoin(media, eq(media.id, statuses.mediaId))
+    .where(inArray(statuses.id, list));
   for (const r of rows) out.set(r.status.id, { status: r.status, media: r.media });
   return out;
 }
@@ -71,7 +92,14 @@ export function toStatusReplyPayload(
   now: number = Date.now(),
 ): StatusReplyPayload {
   if (!found || found.status.expiresAt.getTime() <= now) {
-    return { ...stored, available: false, text: null, backgroundColor: null, font: null, mediaUrl: null };
+    return {
+      ...stored,
+      available: false,
+      text: null,
+      backgroundColor: null,
+      font: null,
+      mediaUrl: null,
+    };
   }
   const m = found.media;
   return {

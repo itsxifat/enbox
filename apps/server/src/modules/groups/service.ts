@@ -4,18 +4,41 @@
  * matrix order (docs "Mutation → event matrix", "Membership transitions", "Groups").
  */
 import { eq } from 'drizzle-orm';
-import { DEFAULT_GROUP_SETTINGS, MAX_GROUP_MEMBERS, USER_RATE_LIMITS, type AddMemberFailure, type createGroupSchema } from '@enbox/shared';
+import {
+  DEFAULT_GROUP_SETTINGS,
+  MAX_GROUP_MEMBERS,
+  USER_RATE_LIMITS,
+  type AddMemberFailure,
+  type createGroupSchema,
+} from '@enbox/shared';
 import type { z } from 'zod';
 import type { DbOrTx, Tx } from '../../db/index.js';
 import { chats, type ChatRow } from '../../db/schema.js';
 import { conflict, forbidden, limitReached, notFound, notMember } from '../../lib/errors.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
-import { activeMemberCount, activeMemberIds, getChatAccess, getMembership, lockChat, type ChatAccess, type ChatAccessOptions } from '../../services/chats.js';
-import { addCommunityMembers, communityUpsert, type CommunityScope } from '../../services/communities.js';
+import {
+  activeMemberCount,
+  activeMemberIds,
+  getChatAccess,
+  getMembership,
+  lockChat,
+  type ChatAccess,
+  type ChatAccessOptions,
+} from '../../services/chats.js';
+import {
+  addCommunityMembers,
+  communityUpsert,
+  type CommunityScope,
+} from '../../services/communities.js';
 import type { Effects } from '../../services/effects.js';
 import { generateUniqueInviteCode } from '../../services/invites.js';
 import { requireAvatarMedia } from '../../services/media.js';
-import { ensureOwner, evaluateAddTargets, upsertMembership, wasRemovedByAdmin } from '../../services/membership.js';
+import {
+  ensureOwner,
+  evaluateAddTargets,
+  upsertMembership,
+  wasRemovedByAdmin,
+} from '../../services/membership.js';
 import { postSystemMessage } from '../../services/system.js';
 import { requireUser, settingsOf } from '../../services/users.js';
 
@@ -33,11 +56,16 @@ export interface AddPlan {
  * already_member; block either way or groupsAddPermission → needsInvite (indistinguishable);
  * beyond MAX_GROUP_MEMBERS (counting `activeIds`) → limit_reached. Order preserved.
  */
-export async function planAdds(dbx: DbOrTx, input: { adderId: string; userIds: string[]; activeIds: string[] }): Promise<AddPlan> {
+export async function planAdds(
+  dbx: DbOrTx,
+  input: { adderId: string; userIds: string[]; activeIds: string[] },
+): Promise<AddPlan> {
   const t = await evaluateAddTargets(dbx, input);
   const room = Math.max(0, MAX_GROUP_MEMBERS - new Set(input.activeIds).size);
   const toAdd = t.eligible.slice(0, room);
-  const overflow = t.eligible.slice(room).map((userId) => ({ userId, reason: 'limit_reached' as const }));
+  const overflow = t.eligible
+    .slice(room)
+    .map((userId) => ({ userId, reason: 'limit_reached' as const }));
   return { toAdd, needsInvite: t.needsInvite, failed: [...t.failed, ...overflow] };
 }
 
@@ -70,7 +98,10 @@ export function normDescription(d: string | null | undefined): string | null {
 }
 
 /** The chat's invite code, generated on first use (codes are unique across chats and communities). */
-export async function ensureInviteCode(tx: Tx, chat: Pick<ChatRow, 'id' | 'inviteCode'>): Promise<string> {
+export async function ensureInviteCode(
+  tx: Tx,
+  chat: Pick<ChatRow, 'id' | 'inviteCode'>,
+): Promise<string> {
   if (chat.inviteCode) return chat.inviteCode;
   const locked = await lockChat(tx, chat.id);
   if (locked.inviteCode) return locked.inviteCode;
@@ -93,10 +124,17 @@ export async function createGroupTx(
   const { creatorId, body, scope } = input;
   const creator = await requireUser(tx, creatorId);
   if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, creatorId);
-  const plan = await planAdds(tx, { adderId: creatorId, userIds: body.memberIds, activeIds: [creatorId] });
+  const plan = await planAdds(tx, {
+    adderId: creatorId,
+    userIds: body.memberIds,
+    activeIds: [creatorId],
+  });
   assertAddLimit(creatorId, plan.toAdd.length);
 
-  const disappearingSeconds = body.disappearingSeconds !== undefined ? body.disappearingSeconds : settingsOf(creator).defaultDisappearingSeconds;
+  const disappearingSeconds =
+    body.disappearingSeconds !== undefined
+      ? body.disappearingSeconds
+      : settingsOf(creator).defaultDisappearingSeconds;
   const [chat] = await tx
     .insert(chats)
     .values({
@@ -120,11 +158,23 @@ export async function createGroupTx(
     addedBy: creatorId,
     initial: true,
   });
-  await postSystemMessage(tx, fx, group, { kind: 'group_created', actorId: creatorId, name: body.name });
-  if (plan.toAdd.length) await postSystemMessage(tx, fx, group, { kind: 'members_added', actorId: creatorId, userIds: plan.toAdd });
+  await postSystemMessage(tx, fx, group, {
+    kind: 'group_created',
+    actorId: creatorId,
+    name: body.name,
+  });
+  if (plan.toAdd.length)
+    await postSystemMessage(tx, fx, group, {
+      kind: 'members_added',
+      actorId: creatorId,
+      userIds: plan.toAdd,
+    });
   if (scope) {
     scope.groups.push(group);
-    await addCommunityMembers(tx, fx, scope, [creatorId, ...plan.toAdd], { addedBy: creatorId, upsert: false });
+    await addCommunityMembers(tx, fx, scope, [creatorId, ...plan.toAdd], {
+      addedBy: creatorId,
+      upsert: false,
+    });
   }
   return { chat: group, ...plan };
 }
@@ -140,7 +190,11 @@ export async function addGroupMembersTx(
   input: { chat: ChatRow; scope: CommunityScope | null; actorId: string; userIds: string[] },
 ): Promise<AddPlan> {
   const { chat, scope, actorId } = input;
-  const plan = await planAdds(tx, { adderId: actorId, userIds: input.userIds, activeIds: await activeMemberIds(tx, chat.id) });
+  const plan = await planAdds(tx, {
+    adderId: actorId,
+    userIds: input.userIds,
+    activeIds: await activeMemberIds(tx, chat.id),
+  });
   assertAddLimit(actorId, plan.toAdd.length);
   if (plan.toAdd.length === 0) return plan;
   const { userIds: activated } = await upsertMembership(tx, fx, {
@@ -175,14 +229,26 @@ export async function addGroupMembersTx(
 export async function joinGroupTx(
   tx: Tx,
   fx: Effects,
-  input: { chat: ChatRow; scope: CommunityScope | null; userId: string; via: 'member_joined_via_link' | 'member_joined' },
+  input: {
+    chat: ChatRow;
+    scope: CommunityScope | null;
+    userId: string;
+    via: 'member_joined_via_link' | 'member_joined';
+  },
 ): Promise<void> {
   const { chat, scope, userId } = input;
   const row = await getMembership(tx, chat.id, userId);
   if (row && !row.leftAt) throw conflict('You are already a member of this group');
   if (await wasRemovedByAdmin(tx, chat, userId)) throw forbidden('You were removed by an admin');
-  if ((await activeMemberCount(tx, chat.id)) >= MAX_GROUP_MEMBERS) throw limitReached('This group is full');
-  await upsertMembership(tx, fx, { kind: 'activate', chatId: chat.id, userIds: [userId], addedBy: null, systemEvent: { kind: input.via, actorId: userId } });
+  if ((await activeMemberCount(tx, chat.id)) >= MAX_GROUP_MEMBERS)
+    throw limitReached('This group is full');
+  await upsertMembership(tx, fx, {
+    kind: 'activate',
+    chatId: chat.id,
+    userIds: [userId],
+    addedBy: null,
+    systemEvent: { kind: input.via, actorId: userId },
+  });
   const promoted = await ensureOwner(tx, fx, chat.id);
   if (promoted) fx.chatUpsert(promoted, chat.id);
   fx.memberCountChanged(chat.id).membersChanged(chat);

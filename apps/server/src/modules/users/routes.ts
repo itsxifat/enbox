@@ -90,11 +90,19 @@ function presenceEffect(fx: Effects, ...subjectIds: string[]): Effects {
 }
 
 async function directChatId(dbx: DbOrTx, a: string, b: string): Promise<string | null> {
-  const [row] = await dbx.select({ id: chats.id }).from(chats).where(eq(chats.directKey, directChatKey(a, b))).limit(1);
+  const [row] = await dbx
+    .select({ id: chats.id })
+    .from(chats)
+    .where(eq(chats.directKey, directChatKey(a, b)))
+    .limit(1);
   return row?.id ?? null;
 }
 
-async function toContacts(dbx: DbOrTx, ownerId: string, rows: { contactId: string; name: string | null; createdAt: Date }[]): Promise<Contact[]> {
+async function toContacts(
+  dbx: DbOrTx,
+  ownerId: string,
+  rows: { contactId: string; name: string | null; createdAt: Date }[],
+): Promise<Contact[]> {
   const publics = await toUserPublicMap(
     dbx,
     ownerId,
@@ -129,20 +137,29 @@ router.patch('/me', async (req, res) => {
   const user = await transact(async (tx, fx) => {
     const row = await lockMe(tx, me);
     const patch: Partial<typeof users.$inferInsert> = {};
-    if (body.displayName !== undefined && body.displayName !== row.displayName) patch.displayName = body.displayName;
+    if (body.displayName !== undefined && body.displayName !== row.displayName)
+      patch.displayName = body.displayName;
     if (body.about !== undefined && body.about !== row.about) patch.about = body.about;
     if (body.avatarMediaId !== undefined && body.avatarMediaId !== row.avatarMediaId) {
       if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);
       patch.avatarMediaId = body.avatarMediaId;
     }
     if (body.username !== undefined && body.username !== row.username) {
-      const [taken] = await tx.select({ id: users.id }).from(users).where(eq(users.username, body.username)).limit(1);
+      const [taken] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, body.username))
+        .limit(1);
       if (taken) throw conflict('This username is taken');
       patch.username = body.username;
     }
     if (body.phone !== undefined && body.phone !== row.phone) {
       if (body.phone) {
-        const [used] = await tx.select({ id: users.id }).from(users).where(eq(users.phone, body.phone)).limit(1);
+        const [used] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.phone, body.phone))
+          .limit(1);
         if (used) throw conflict('This phone number is already registered');
       }
       patch.phone = body.phone;
@@ -158,7 +175,8 @@ router.patch('/me', async (req, res) => {
     return loadUserSelf(tx, me);
   }).catch((err: unknown) => {
     if (isUniqueViolation(err, 'users_username_uq')) throw conflict('This username is taken');
-    if (isUniqueViolation(err, 'users_phone_uq')) throw conflict('This phone number is already registered');
+    if (isUniqueViolation(err, 'users_phone_uq'))
+      throw conflict('This phone number is already registered');
     throw err;
   });
   res.json(user);
@@ -178,7 +196,10 @@ router.patch('/me/settings', async (req, res) => {
     const row = await lockMe(tx, me);
     const prev = settingsOf(row);
     const patch: Partial<UserSettings> = { ...body };
-    const listed = uniq([...(patch.statusExcludeUserIds ?? []), ...(patch.statusOnlyShareWithUserIds ?? [])]);
+    const listed = uniq([
+      ...(patch.statusExcludeUserIds ?? []),
+      ...(patch.statusOnlyShareWithUserIds ?? []),
+    ]);
     if (listed.length) {
       const saved = new Set(
         (
@@ -188,22 +209,31 @@ router.patch('/me/settings', async (req, res) => {
             .where(and(eq(contacts.ownerId, me), inArray(contacts.contactId, listed)))
         ).map((r) => r.id),
       );
-      const keep = (ids: string[] | undefined) => (ids ? uniq(ids).filter((id) => saved.has(id)) : undefined);
+      const keep = (ids: string[] | undefined) =>
+        ids ? uniq(ids).filter((id) => saved.has(id)) : undefined;
       if (patch.statusExcludeUserIds) patch.statusExcludeUserIds = keep(patch.statusExcludeUserIds);
-      if (patch.statusOnlyShareWithUserIds) patch.statusOnlyShareWithUserIds = keep(patch.statusOnlyShareWithUserIds);
+      if (patch.statusOnlyShareWithUserIds)
+        patch.statusOnlyShareWithUserIds = keep(patch.statusOnlyShareWithUserIds);
     }
     const next: UserSettings = { ...prev, ...patch };
-    const changed = (Object.keys(patch) as (keyof UserSettings)[]).filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]));
+    const changed = (Object.keys(patch) as (keyof UserSettings)[]).filter(
+      (k) => JSON.stringify(prev[k]) !== JSON.stringify(next[k]),
+    );
     if (changed.length === 0) return next;
 
     await tx
       .update(users)
-      .set({ settings: sql`${users.settings} || ${JSON.stringify(patch)}::jsonb`, updatedAt: new Date() })
+      .set({
+        settings: sql`${users.settings} || ${JSON.stringify(patch)}::jsonb`,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, me));
     meUpdatedEffect(fx, me);
-    if (changed.includes('lastSeenVisibility') || changed.includes('onlineVisibility')) presenceEffect(fx, me);
+    if (changed.includes('lastSeenVisibility') || changed.includes('onlineVisibility'))
+      presenceEffect(fx, me);
     if (changed.includes('readReceipts')) await readReceiptsChanged(tx, fx, me, prev.readReceipts);
-    if (changed.includes('profilePhotoVisibility') || changed.includes('aboutVisibility')) userChangedEffect(fx, me);
+    if (changed.includes('profilePhotoVisibility') || changed.includes('aboutVisibility'))
+      userChangedEffect(fx, me);
     return next;
   });
   res.json(settings);
@@ -288,7 +318,9 @@ router.get('/users/:userId/common-groups', async (req, res) => {
     me,
     rows.map((r) => r.id),
   );
-  list.sort((x, y) => (x.lastActivityAt < y.lastActivityAt ? 1 : x.lastActivityAt > y.lastActivityAt ? -1 : 0));
+  list.sort((x, y) =>
+    x.lastActivityAt < y.lastActivityAt ? 1 : x.lastActivityAt > y.lastActivityAt ? -1 : 0,
+  );
   res.json(list);
 });
 
@@ -303,7 +335,11 @@ router.get('/contacts', async (req, res) => {
     .from(contacts)
     .where(eq(contacts.ownerId, me));
   const list = await toContacts(db, me, rows);
-  list.sort((a, b) => collator.compare(a.name ?? a.user.displayName, b.name ?? b.user.displayName) || collator.compare(a.user.username, b.user.username));
+  list.sort(
+    (a, b) =>
+      collator.compare(a.name ?? a.user.displayName, b.name ?? b.user.displayName) ||
+      collator.compare(a.user.username, b.user.username),
+  );
   res.json(list);
 });
 
@@ -320,7 +356,11 @@ router.post('/contacts', async (req, res) => {
   const me = authUserId(req);
   const body = parse(addContactSchema, req.body ?? {});
   assertUserLimit(me, 'userSearch', USER_RATE_LIMITS.userSearch);
-  const where = body.userId ? eq(users.id, body.userId) : body.username ? eq(users.username, body.username) : eq(users.phone, body.phone!);
+  const where = body.userId
+    ? eq(users.id, body.userId)
+    : body.username
+      ? eq(users.username, body.username)
+      : eq(users.phone, body.phone!);
   const [target] = await db
     .select({ id: users.id })
     .from(users)
@@ -334,7 +374,8 @@ router.post('/contacts', async (req, res) => {
     const mine = and(eq(contacts.ownerId, me), eq(contacts.contactId, target.id));
     /** Existing contact: 200, with the saved name updated when given. */
     const keep = async (existing: typeof contacts.$inferSelect) => {
-      if (body.name === undefined || body.name === existing.name) return { row: existing, created: false };
+      if (body.name === undefined || body.name === existing.name)
+        return { row: existing, created: false };
       const [row] = await tx.update(contacts).set({ name: body.name }).where(mine).returning();
       fx.toUser(me, 'contacts:changed', {});
       return { row: row!, created: false };
@@ -469,7 +510,12 @@ router.delete('/blocks/:userId', async (req, res) => {
   res.status(204).end();
 });
 
-async function blockChangedEffects(tx: DbOrTx, fx: Effects, me: string, other: string): Promise<void> {
+async function blockChangedEffects(
+  tx: DbOrTx,
+  fx: Effects,
+  me: string,
+  other: string,
+): Promise<void> {
   fx.toUser(me, 'blocks:changed', {});
   const chatId = await directChatId(tx, me, other);
   if (chatId) fx.chatUpsert(me, chatId);

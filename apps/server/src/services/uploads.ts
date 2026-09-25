@@ -93,7 +93,11 @@ export function sanitizeFileName(name: string | null | undefined): string | null
     const dot = s.lastIndexOf('.');
     const ext = dot > 0 ? Array.from(s.slice(dot)) : [];
     if (ext.length > 0 && ext.length <= 16) {
-      s = chars.slice(0, MAX_FILE_NAME_LENGTH - ext.length).join('').trimEnd() + ext.join('');
+      s =
+        chars
+          .slice(0, MAX_FILE_NAME_LENGTH - ext.length)
+          .join('')
+          .trimEnd() + ext.join('');
     } else {
       s = chars.slice(0, MAX_FILE_NAME_LENGTH).join('').trimEnd();
     }
@@ -141,7 +145,8 @@ export async function removeFiles(paths: Iterable<string | null | undefined>): P
     try {
       await fs.unlink(p);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logger.warn({ err, path: p }, 'failed to remove file');
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT')
+        logger.warn({ err, path: p }, 'failed to remove file');
     }
   }
 }

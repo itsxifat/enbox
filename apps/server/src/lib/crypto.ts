@@ -2,7 +2,12 @@ import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'no
 import { promisify } from 'node:util';
 import { INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH } from '@enbox/shared';
 
-const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number, opts: object) => Promise<Buffer>;
+const scrypt = promisify(scryptCb) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+  opts: object,
+) => Promise<Buffer>;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const KEYLEN = 64;
 
@@ -44,6 +49,7 @@ export function sha256(input: string): string {
 export function generateInviteCode(length = INVITE_CODE_LENGTH): string {
   const bytes = randomBytes(length);
   let out = '';
-  for (let i = 0; i < length; i++) out += INVITE_CODE_ALPHABET[bytes[i]! % INVITE_CODE_ALPHABET.length];
+  for (let i = 0; i < length; i++)
+    out += INVITE_CODE_ALPHABET[bytes[i]! % INVITE_CODE_ALPHABET.length];
   return out;
 }

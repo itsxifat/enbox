@@ -6,7 +6,11 @@ import { HttpError } from './errors.js';
 const UNSTORABLE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /** Path of the first string (value or object key) in `value` that PostgreSQL cannot store, or null. */
-function findUnstorable(value: unknown, path: (string | number)[] = [], depth = 0): (string | number)[] | null {
+function findUnstorable(
+  value: unknown,
+  path: (string | number)[] = [],
+  depth = 0,
+): (string | number)[] | null {
   if (typeof value === 'string') return UNSTORABLE.test(value) ? path : null;
   if (value === null || typeof value !== 'object' || depth > 32) return null;
   if (Array.isArray(value)) {
@@ -36,12 +40,19 @@ export function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<
   if (!result.success) {
     const first = result.error.issues[0];
     const where = first?.path?.length ? `${first.path.join('.')}: ` : '';
-    throw new HttpError(400, 'validation_error', `${where}${first?.message ?? 'Invalid input'}`, result.error.issues);
+    throw new HttpError(
+      400,
+      'validation_error',
+      `${where}${first?.message ?? 'Invalid input'}`,
+      result.error.issues,
+    );
   }
   const bad = findUnstorable(result.data);
   if (bad) {
     const where = bad.length ? `${bad.join('.')}: ` : '';
-    throw new HttpError(400, 'validation_error', `${where}Invalid characters`, [{ code: 'custom', path: bad, message: 'Invalid characters' }]);
+    throw new HttpError(400, 'validation_error', `${where}Invalid characters`, [
+      { code: 'custom', path: bad, message: 'Invalid characters' },
+    ]);
   }
   return result.data;
 }
@@ -57,7 +68,9 @@ const MAX_STORABLE_MS = Date.parse('9999-12-31T23:59:59.999Z');
 export function storableDate(iso: string, field: string): Date {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms) || ms < MIN_STORABLE_MS || ms > MAX_STORABLE_MS) {
-    throw new HttpError(400, 'validation_error', `${field}: Date out of range`, [{ code: 'custom', path: [field], message: 'Date out of range' }]);
+    throw new HttpError(400, 'validation_error', `${field}: Date out of range`, [
+      { code: 'custom', path: [field], message: 'Date out of range' },
+    ]);
   }
   return new Date(ms);
 }

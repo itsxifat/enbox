@@ -10,7 +10,15 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ChatInfoChanges, ChatSummary, Message, UserPublic } from '@enbox/shared';
 import { db, type DbOrTx } from '../db/index.js';
-import { chatMembers, chats, media, messages, type ChatMemberRow, type ChatRow, type MessageRow } from '../db/schema.js';
+import {
+  chatMembers,
+  chats,
+  media,
+  messages,
+  type ChatMemberRow,
+  type ChatRow,
+  type MessageRow,
+} from '../db/schema.js';
 import { emitToChat, emitToUser } from '../realtime/emit.js';
 import { computePermissions, memberVisibleSql, membershipOf, type PeerInfo } from './chats.js';
 import { mediaUrl } from './media.js';
@@ -82,11 +90,18 @@ export async function toChatSummaries(
     const byId = new Map(summaries.map((s) => [s.id, s]));
     return chatIds.map((id) => byId.get(id)).filter((s): s is ChatSummary => !!s);
   }
-  return summaries.sort((a, b) => (a.lastActivityAt < b.lastActivityAt ? 1 : a.lastActivityAt > b.lastActivityAt ? -1 : 0));
+  return summaries.sort((a, b) =>
+    a.lastActivityAt < b.lastActivityAt ? 1 : a.lastActivityAt > b.lastActivityAt ? -1 : 0,
+  );
 }
 
 /** One chat for one viewer (null when the viewer has no non-hidden membership row). */
-export async function toChatSummary(dbx: DbOrTx, viewerId: string, chatId: string, opts: { includeHidden?: boolean } = {}): Promise<ChatSummary | null> {
+export async function toChatSummary(
+  dbx: DbOrTx,
+  viewerId: string,
+  chatId: string,
+  opts: { includeHidden?: boolean } = {},
+): Promise<ChatSummary | null> {
   return (await toChatSummaries(dbx, viewerId, [chatId], opts))[0] ?? null;
 }
 
@@ -118,12 +133,17 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       .select({ chatId: chatMembers.chatId, userId: chatMembers.userId })
       .from(chatMembers)
       .where(inArray(chatMembers.chatId, directIds));
-    for (const r of rows) directMembers.set(r.chatId, [...(directMembers.get(r.chatId) ?? []), r.userId]);
+    for (const r of rows)
+      directMembers.set(r.chatId, [...(directMembers.get(r.chatId) ?? []), r.userId]);
   }
-  const peerIdOf = (e: Entry) => (directMembers.get(e.chat.id) ?? []).find((id) => id !== e.member.userId) ?? e.member.userId;
+  const peerIdOf = (e: Entry) =>
+    (directMembers.get(e.chat.id) ?? []).find((id) => id !== e.member.userId) ?? e.member.userId;
   const directEntries = entries.filter((e) => e.chat.type === 'direct');
   const userRows: Map<string, UserWithAvatar> = directEntries.length
-    ? await getUserRows(dbx, [...directEntries.map((e) => e.member.userId), ...directEntries.map(peerIdOf)])
+    ? await getUserRows(dbx, [
+        ...directEntries.map((e) => e.member.userId),
+        ...directEntries.map(peerIdOf),
+      ])
     : new Map();
   const peers = await toUserPublicsForPairs(
     dbx,
@@ -144,8 +164,12 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
   );
   const lastIdOf = new Map(lastRows.map((r) => [pairKey(r.chat_id, r.user_id), r.id]));
   const lastIds = uniq(lastRows.map((r) => r.id));
-  const msgRows: MessageRow[] = lastIds.length ? await dbx.select().from(messages).where(inArray(messages.id, lastIds)) : [];
-  const serialized = await toMessages(dbx, null, msgRows, { chatTypes: new Map(entries.map((e) => [e.chat.id, e.chat.type])) });
+  const msgRows: MessageRow[] = lastIds.length
+    ? await dbx.select().from(messages).where(inArray(messages.id, lastIds))
+    : [];
+  const serialized = await toMessages(dbx, null, msgRows, {
+    chatTypes: new Map(entries.map((e) => [e.chat.id, e.chat.type])),
+  });
   const messageById = new Map<string, Message>(serialized.map((m) => [m.id, m]));
   const unread = await unreadCounts(
     dbx,
@@ -166,19 +190,34 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
     if (chat.type === 'direct') {
       const peerId = peerIdOf(e);
       peer = peers.get(pairKey(viewerId, peerId)) ?? null;
-      peerInfo = { id: peerId, isBlocked: peer?.isBlocked ?? false, isDeleted: peer?.isDeleted ?? false };
+      peerInfo = {
+        id: peerId,
+        isBlocked: peer?.isBlocked ?? false,
+        isDeleted: peer?.isDeleted ?? false,
+      };
       if (peerId !== viewerId) {
         const me = userRows.get(viewerId);
         const them = userRows.get(peerId);
-        readReceiptsOff = (!!me && !settingsOf(me).readReceipts) || (!!them && !them.deletedAt && !settingsOf(them).readReceipts);
+        readReceiptsOff =
+          (!!me && !settingsOf(me).readReceipts) ||
+          (!!them && !them.deletedAt && !settingsOf(them).readReceipts);
       }
     }
     const permissions = computePermissions(chat, member, peerInfo, viewerId);
-    const w = viewerWatermarks(aggregates.get(chat.id), { chatType: chat.type, viewerId, viewerActive: active, lastSeq, readReceiptsOff });
+    const w = viewerWatermarks(aggregates.get(chat.id), {
+      chatType: chat.type,
+      viewerId,
+      viewerActive: active,
+      lastSeq,
+      readReceiptsOff,
+    });
     const lastId = lastIdOf.get(key);
     const lastMessage = lastId ? (messageById.get(lastId) ?? null) : null;
     const counts = unread.get(key);
-    const memberCount = chat.type === 'channel' ? (channelCounts.get(chat.id) ?? 0) : (aggregates.get(chat.id)?.n ?? 0);
+    const memberCount =
+      chat.type === 'channel'
+        ? (channelCounts.get(chat.id) ?? 0)
+        : (aggregates.get(chat.id)?.n ?? 0);
     const lastRead = Number(member.lastReadSeq);
 
     const summary: ChatSummary = {
@@ -211,7 +250,9 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       markedUnread: member.markedUnread,
       createdAt: chat.createdAt.toISOString(),
       createdBy: chat.type === 'direct' ? null : chat.createdBy,
-      lastActivityAt: lastMessage?.createdAt ?? (active ? member.joinedAt : (member.leftAt ?? member.joinedAt)).toISOString(),
+      lastActivityAt:
+        lastMessage?.createdAt ??
+        (active ? member.joinedAt : (member.leftAt ?? member.joinedAt)).toISOString(),
     };
     return summary;
   });

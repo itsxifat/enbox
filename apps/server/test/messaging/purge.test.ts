@@ -2,14 +2,24 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import type { Message } from '@enbox/shared';
 import { db } from '../../src/db/index.js';
-import { chatPins, media, messageReactions, messages, starredMessages } from '../../src/db/schema.js';
+import {
+  chatPins,
+  media,
+  messageReactions,
+  messages,
+  starredMessages,
+} from '../../src/db/schema.js';
 import { runDisappearingPurge } from '../../src/jobs/disappearingPurge.js';
 import { runMediaGc } from '../../src/jobs/mediaGc.js';
 import { startTestServer, type TestServer, type TestUser } from '../helpers.js';
 import { createGroup, recordEvents, settle } from '../services/fixtures.js';
 import { historyOf, mkMedia, sendOk } from './support.js';
 
-const expire = (ids: string[]) => db.update(messages).set({ expiresAt: new Date(Date.now() - 1000) }).where(inArray(messages.id, ids));
+const expire = (ids: string[]) =>
+  db
+    .update(messages)
+    .set({ expiresAt: new Date(Date.now() - 1000) })
+    .where(inArray(messages.id, ids));
 
 describe('disappearing-messages purge job', () => {
   let t: TestServer;
@@ -26,7 +36,9 @@ describe('disappearing-messages purge job', () => {
   it('hard-deletes expired messages (cascades), emits message:removed per chat and chat:pins when a pin went away', async () => {
     const g1 = await createGroup(alice, [bob], { disappearingSeconds: 86_400 });
     const g2 = await createGroup(alice, [bob], { disappearingSeconds: 86_400 });
-    const file = await mkMedia(alice.id, 'image', { createdAt: new Date(Date.now() - 2 * 86_400_000) });
+    const file = await mkMedia(alice.id, 'image', {
+      createdAt: new Date(Date.now() - 2 * 86_400_000),
+    });
     const a = await sendOk(t, alice, g1, { type: 'image', mediaId: file.id, text: 'photo' });
     const b = await sendOk(t, bob, g1, 'text');
     const keep = await sendOk(t, bob, g1, 'not yet');
@@ -54,10 +66,21 @@ describe('disappearing-messages purge job', () => {
     const names = log.names().filter((n) => n === 'message:removed' || n === 'chat:pins');
     expect(names.indexOf('message:removed')).toBeLessThan(names.indexOf('chat:pins'));
 
-    expect(await db.select().from(messages).where(inArray(messages.id, [a.id, b.id, c.id]))).toEqual([]);
-    expect(await db.select().from(messageReactions).where(eq(messageReactions.messageId, a.id))).toEqual([]);
-    expect(await db.select().from(starredMessages).where(eq(starredMessages.messageId, b.id))).toEqual([]);
-    expect((await db.select().from(chatPins).where(eq(chatPins.chatId, g1))).map((p) => p.messageId)).toEqual([keep.id]);
+    expect(
+      await db
+        .select()
+        .from(messages)
+        .where(inArray(messages.id, [a.id, b.id, c.id])),
+    ).toEqual([]);
+    expect(
+      await db.select().from(messageReactions).where(eq(messageReactions.messageId, a.id)),
+    ).toEqual([]);
+    expect(
+      await db.select().from(starredMessages).where(eq(starredMessages.messageId, b.id)),
+    ).toEqual([]);
+    expect(
+      (await db.select().from(chatPins).where(eq(chatPins.chatId, g1))).map((p) => p.messageId),
+    ).toEqual([keep.id]);
     // Replies to a purged message lose their quote.
     const history = await historyOf(t, bob, g1);
     expect(history.find((m: Message) => m.id === reply.id)!.replyTo).toBeNull();
@@ -81,7 +104,12 @@ describe('disappearing-messages purge job', () => {
     const log = recordEvents(bs);
     expect(await runDisappearingPurge({ batchSize: 3 })).toBe(7);
     await settle();
-    expect(log.of('message:removed').flatMap((r) => r.messageIds).sort()).toEqual([...ids].sort());
+    expect(
+      log
+        .of('message:removed')
+        .flatMap((r) => r.messageIds)
+        .sort(),
+    ).toEqual([...ids].sort());
     expect(log.of('message:removed')).toHaveLength(3);
     bs.disconnect();
   });
@@ -91,7 +119,9 @@ describe('disappearing-messages purge job', () => {
     const m = await sendOk(t, alice, g, 'tomorrow');
     const before = await db.select().from(messages).where(eq(messages.chatId, g));
     expect(await runDisappearingPurge()).toBe(0);
-    expect(await db.select().from(messages).where(eq(messages.chatId, g))).toHaveLength(before.length);
+    expect(await db.select().from(messages).where(eq(messages.chatId, g))).toHaveLength(
+      before.length,
+    );
     expect((await historyOf(t, bob, g)).map((x) => x.id)).toContain(m.id);
   });
 });

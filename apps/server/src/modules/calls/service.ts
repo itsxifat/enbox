@@ -31,18 +31,49 @@ import {
   type RingStopReason,
 } from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../../db/index.js';
-import { callParticipants, calls, chats, messages, type CallParticipantRow, type CallRow, type ChatRow } from '../../db/schema.js';
-import { HttpError, badRequest, blocked, conflict, expired, forbidden, limitReached, notFound, notMember } from '../../lib/errors.js';
+import {
+  callParticipants,
+  calls,
+  chats,
+  messages,
+  type CallParticipantRow,
+  type CallRow,
+  type ChatRow,
+} from '../../db/schema.js';
+import {
+  HttpError,
+  badRequest,
+  blocked,
+  conflict,
+  expired,
+  forbidden,
+  limitReached,
+  notFound,
+  notMember,
+} from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { SERVER_RATE_LIMITS, assertUserLimit } from '../../lib/userLimit.js';
 import { emitToUser } from '../../realtime/emit.js';
 import type { AppSocket } from '../../realtime/types.js';
-import { activeMemberCount, activeMemberIds, getChatAccess, lockChat, requireActiveMember } from '../../services/chats.js';
+import {
+  activeMemberCount,
+  activeMemberIds,
+  getChatAccess,
+  lockChat,
+  requireActiveMember,
+} from '../../services/chats.js';
 import { transact, type Effects } from '../../services/effects.js';
 import { loadMediaMap, mediaUrl } from '../../services/media.js';
 import { createMessage } from '../../services/messages.js';
 import { pairKey, uniq } from '../../services/sql.js';
-import { blockedEitherWayIds, blockersOf, getUserRows, ownersWhoSaved, settingsOf, toUserPublicsForPairs } from '../../services/users.js';
+import {
+  blockedEitherWayIds,
+  blockersOf,
+  getUserRows,
+  ownersWhoSaved,
+  settingsOf,
+  toUserPublicsForPairs,
+} from '../../services/users.js';
 import {
   bindCallSocket,
   boundSocketId,
@@ -82,7 +113,15 @@ function durationSecOf(call: Pick<CallRow, 'status' | 'answeredAt' | 'endedAt'>)
  */
 export function toCall(call: CallRow, parts: CallParticipantRow[]): Call {
   const ordered = [...parts].sort((a, b) =>
-    a.userId === call.initiatorId ? -1 : b.userId === call.initiatorId ? 1 : a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0,
+    a.userId === call.initiatorId
+      ? -1
+      : b.userId === call.initiatorId
+        ? 1
+        : a.userId < b.userId
+          ? -1
+          : a.userId > b.userId
+            ? 1
+            : 0,
   );
   return {
     id: call.id,
@@ -120,21 +159,34 @@ export function callMessagePayload(call: CallRow): CallMessagePayload {
 }
 
 /** Calls with their participants (2 queries), keyed by id. */
-export async function loadCallRows(dbx: DbOrTx, callIds: Iterable<string>): Promise<Map<string, { call: CallRow; parts: CallParticipantRow[] }>> {
+export async function loadCallRows(
+  dbx: DbOrTx,
+  callIds: Iterable<string>,
+): Promise<Map<string, { call: CallRow; parts: CallParticipantRow[] }>> {
   const ids = uniq(callIds);
   const out = new Map<string, { call: CallRow; parts: CallParticipantRow[] }>();
   if (ids.length === 0) return out;
   const rows = await dbx.select().from(calls).where(inArray(calls.id, ids));
   for (const call of rows) out.set(call.id, { call, parts: [] });
-  const parts = await dbx.select().from(callParticipants).where(inArray(callParticipants.callId, ids));
+  const parts = await dbx
+    .select()
+    .from(callParticipants)
+    .where(inArray(callParticipants.callId, ids));
   for (const p of parts) out.get(p.callId)?.parts.push(p);
   return out;
 }
 
 /** Callees who ring silently: they silence unknown callers and did not save the caller. */
-async function silentUserIds(dbx: DbOrTx, calleeIds: string[], callerId: string): Promise<Set<string>> {
+async function silentUserIds(
+  dbx: DbOrTx,
+  calleeIds: string[],
+  callerId: string,
+): Promise<Set<string>> {
   if (calleeIds.length === 0) return new Set();
-  const [rows, saved] = await Promise.all([getUserRows(dbx, calleeIds), ownersWhoSaved(dbx, callerId, calleeIds)]);
+  const [rows, saved] = await Promise.all([
+    getUserRows(dbx, calleeIds),
+    ownersWhoSaved(dbx, callerId, calleeIds),
+  ]);
   return new Set(
     calleeIds.filter((id) => {
       const row = rows.get(id);
@@ -217,7 +269,13 @@ export interface CallCtx {
   chatDeleted: boolean;
 }
 
-function newCtx(tx: Tx, fx: Effects, chat: ChatRow, call: CallRow, parts: CallParticipantRow[]): CallCtx {
+function newCtx(
+  tx: Tx,
+  fx: Effects,
+  chat: ChatRow,
+  call: CallRow,
+  parts: CallParticipantRow[],
+): CallCtx {
   return {
     tx,
     fx,
@@ -241,7 +299,11 @@ function part(ctx: CallCtx, userId: string): CallParticipantRow | undefined {
   return ctx.parts.find((p) => p.userId === userId);
 }
 
-async function patchPart(ctx: CallCtx, userId: string, patch: Partial<typeof callParticipants.$inferInsert>): Promise<void> {
+async function patchPart(
+  ctx: CallCtx,
+  userId: string,
+  patch: Partial<typeof callParticipants.$inferInsert>,
+): Promise<void> {
   const [row] = await ctx.tx
     .update(callParticipants)
     .set(patch)
@@ -250,7 +312,10 @@ async function patchPart(ctx: CallCtx, userId: string, patch: Partial<typeof cal
   if (row) ctx.parts = ctx.parts.map((p) => (p.userId === userId ? row : p));
 }
 
-async function insertParts(ctx: CallCtx, rows: (typeof callParticipants.$inferInsert)[]): Promise<void> {
+async function insertParts(
+  ctx: CallCtx,
+  rows: (typeof callParticipants.$inferInsert)[],
+): Promise<void> {
   if (rows.length === 0) return;
   ctx.parts.push(...(await ctx.tx.insert(callParticipants).values(rows).returning()));
 }
@@ -262,12 +327,20 @@ async function patchCall(ctx: CallCtx, patch: Partial<typeof calls.$inferInsert>
 
 /** Lock the call's chat, then the call row (`FOR UPDATE`), and load its participants. 404 when missing. */
 async function lockCallCtx(tx: Tx, fx: Effects, callId: string): Promise<CallCtx> {
-  const [ref] = await tx.select({ chatId: calls.chatId }).from(calls).where(eq(calls.id, callId)).limit(1);
+  const [ref] = await tx
+    .select({ chatId: calls.chatId })
+    .from(calls)
+    .where(eq(calls.id, callId))
+    .limit(1);
   if (!ref) throw notFound('Call');
   const chat = await lockChat(tx, ref.chatId);
   const [call] = await tx.select().from(calls).where(eq(calls.id, callId)).for('update');
   if (!call) throw notFound('Call');
-  const parts = await tx.select().from(callParticipants).where(eq(callParticipants.callId, callId)).orderBy(asc(callParticipants.userId));
+  const parts = await tx
+    .select()
+    .from(callParticipants)
+    .where(eq(callParticipants.callId, callId))
+    .orderBy(asc(callParticipants.userId));
   return newCtx(tx, fx, chat, call, parts);
 }
 
@@ -287,7 +360,8 @@ function endVerdict(ctx: CallCtx): { status: CallStatus; reason: RingStopReason 
   const joined = ctx.parts.filter((p) => p.status === 'joined').length;
   const pending = ctx.parts.filter((p) => isPending(p.status)).length;
   if (call.status === 'ringing') {
-    if (part(ctx, call.initiatorId)?.status !== 'joined') return { status: 'cancelled', reason: 'cancelled' };
+    if (part(ctx, call.initiatorId)?.status !== 'joined')
+      return { status: 'cancelled', reason: 'cancelled' };
     if (invitees.some((p) => p.status === 'joined' || isPending(p.status))) return null;
     const declined = invitees.length > 0 && invitees.every((p) => p.status === 'declined');
     return { status: declined ? 'declined' : 'missed', reason: 'ended' };
@@ -300,16 +374,26 @@ function endVerdict(ctx: CallCtx): { status: CallStatus; reason: RingStopReason 
 /** Terminal transition: invited/ringing → missed (ring-stop `reason`), joined → left. */
 async function endCall(ctx: CallCtx, status: CallStatus, reason: RingStopReason): Promise<void> {
   const now = new Date();
-  for (const p of ctx.parts) if (isPending(p.status) && !p.hiddenAt) ctx.ringStops.push({ userId: p.userId, reason });
+  for (const p of ctx.parts)
+    if (isPending(p.status) && !p.hiddenAt) ctx.ringStops.push({ userId: p.userId, reason });
   await ctx.tx
     .update(callParticipants)
     .set({ status: 'missed' })
-    .where(and(eq(callParticipants.callId, ctx.call.id), inArray(callParticipants.status, PENDING_STATUSES)));
+    .where(
+      and(
+        eq(callParticipants.callId, ctx.call.id),
+        inArray(callParticipants.status, PENDING_STATUSES),
+      ),
+    );
   await ctx.tx
     .update(callParticipants)
     .set({ status: 'left', leftAt: now, disconnectedAt: null })
     .where(and(eq(callParticipants.callId, ctx.call.id), eq(callParticipants.status, 'joined')));
-  ctx.parts = await ctx.tx.select().from(callParticipants).where(eq(callParticipants.callId, ctx.call.id)).orderBy(asc(callParticipants.userId));
+  ctx.parts = await ctx.tx
+    .select()
+    .from(callParticipants)
+    .where(eq(callParticipants.callId, ctx.call.id))
+    .orderBy(asc(callParticipants.userId));
   await patchCall(ctx, { status, endedAt: now });
   ctx.ended = true;
 }
@@ -330,7 +414,8 @@ async function finalize(ctx: CallCtx): Promise<void> {
     const verdict = endVerdict(ctx);
     if (verdict) await endCall(ctx, verdict.status, verdict.reason);
   }
-  const messageChanged = ctx.call.status !== ctx.prevStatus && !!ctx.call.messageId && !ctx.chatDeleted;
+  const messageChanged =
+    ctx.call.status !== ctx.prevStatus && !!ctx.call.messageId && !ctx.chatDeleted;
   if (messageChanged) {
     await ctx.tx
       .update(messages)
@@ -346,7 +431,8 @@ async function finalize(ctx: CallCtx): Promise<void> {
   const ended = ctx.ended;
 
   // 1. Ring stops (every device of the user).
-  for (const rs of ctx.ringStops) fx.toUser(rs.userId, 'call:ring-stop', { callId, reason: rs.reason });
+  for (const rs of ctx.ringStops)
+    fx.toUser(rs.userId, 'call:ring-stop', { callId, reason: rs.reason });
 
   // 2. Leavers: their call socket leaves the rooms, then peers learn about it.
   for (const userId of ctx.left) {
@@ -363,7 +449,8 @@ async function finalize(ctx: CallCtx): Promise<void> {
       fx.add(() => {
         clearGrace(callId, j.userId);
         releaseCallSocket(callId, j.userId);
-        if (j.announce) emitToRoom(rooms.call(callId), 'call:participant-joined', { callId, userId: j.userId });
+        if (j.announce)
+          emitToRoom(rooms.call(callId), 'call:participant-joined', { callId, userId: j.userId });
         if (!j.socket) return;
         if (j.socket.disconnected) {
           // Lost before we could bind it: treat like a call-socket disconnect.
@@ -426,20 +513,36 @@ async function finalize(ctx: CallCtx): Promise<void> {
     });
   }
   for (const rs of ctx.ringStops) {
-    fx.domain('call.ring-stopped', { callId, chatId, userId: rs.userId, reason: rs.reason, finalStatus: part(ctx, rs.userId)?.status ?? 'missed' });
+    fx.domain('call.ring-stopped', {
+      callId,
+      chatId,
+      userId: rs.userId,
+      reason: rs.reason,
+      finalStatus: part(ctx, rs.userId)?.status ?? 'missed',
+    });
   }
-  if (ended) fx.domain('call.ended', { callId, chatId, status: ctx.call.status, participantIds: visible });
+  if (ended)
+    fx.domain('call.ended', { callId, chatId, status: ctx.call.status, participantIds: visible });
 
   // 8. Timers.
   for (const step of ctx.after) fx.add(step);
   if (!ended) {
     const next = nextRingDeadline(ctx);
-    fx.add(() => (next === null ? clearRingCheck(callId) : scheduleRingCheck(callId, next, () => void expireRinging(callId))));
+    fx.add(() =>
+      next === null
+        ? clearRingCheck(callId)
+        : scheduleRingCheck(callId, next, () => void expireRinging(callId)),
+    );
   }
 }
 
 /** Lock + op + finalize inside the caller's transaction (account deletion hook). */
-async function applyInTx<T>(tx: Tx, fx: Effects, callId: string, op: (ctx: CallCtx) => Promise<T>): Promise<{ result: T; call: Call }> {
+async function applyInTx<T>(
+  tx: Tx,
+  fx: Effects,
+  callId: string,
+  op: (ctx: CallCtx) => Promise<T>,
+): Promise<{ result: T; call: Call }> {
   const ctx = await lockCallCtx(tx, fx, callId);
   const result = await op(ctx);
   await finalize(ctx);
@@ -470,14 +573,20 @@ async function mapDbErrors<T>(fn: () => Promise<T>, chatId?: string): Promise<T>
         .limit(1);
       if (live) throw liveCallConflict(live.id);
     }
-    if (constraint === 'call_participants_one_joined_uq') throw conflict('You are already in another call');
+    if (constraint === 'call_participants_one_joined_uq')
+      throw conflict('You are already in another call');
     throw conflict('The call changed, try again');
   }
 }
 
 /** Queue + transaction + lock + op + finalize. Resolves with the op result and the call as committed. */
-export function runCallOp<T>(callId: string, op: (ctx: CallCtx) => Promise<T>): Promise<{ result: T; call: Call }> {
-  return withCallQueue(callId, () => mapDbErrors(() => transact((tx, fx) => applyInTx(tx, fx, callId, op))));
+export function runCallOp<T>(
+  callId: string,
+  op: (ctx: CallCtx) => Promise<T>,
+): Promise<{ result: T; call: Call }> {
+  return withCallQueue(callId, () =>
+    mapDbErrors(() => transact((tx, fx) => applyInTx(tx, fx, callId, op))),
+  );
 }
 
 function logOpError(err: unknown, what: string, callId: string): void {
@@ -514,7 +623,11 @@ async function joinedUserIds(dbx: DbOrTx, userIds: string[]): Promise<Set<string
 }
 
 function initialMedia(type: CallType, input: { audioMuted?: boolean; videoOff?: boolean }) {
-  return { audioMuted: input.audioMuted ?? false, videoOff: input.videoOff ?? type === 'audio', screenSharing: false };
+  return {
+    audioMuted: input.audioMuted ?? false,
+    videoOff: input.videoOff ?? type === 'audio',
+    screenSharing: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +674,13 @@ export interface Actor {
  */
 export async function startCall(
   actor: Actor,
-  input: { chatId: string; type: CallType; userIds?: string[]; audioMuted?: boolean; videoOff?: boolean },
+  input: {
+    chatId: string;
+    type: CallType;
+    userIds?: string[];
+    audioMuted?: boolean;
+    videoOff?: boolean;
+  },
 ): Promise<{ call: Call }> {
   const { userId, sessionId, socket } = actor;
   assertUserLimit(userId, 'callStart', USER_RATE_LIMITS.callStart);
@@ -578,7 +697,8 @@ export async function startCall(
           if (peer.isBlocked) throw blocked('Unblock this contact to call them');
           if (peer.isDeleted) throw forbidden('This account was deleted');
         }
-        if (!access.permissions.canCall) throw forbidden('Only admins can start calls in this group');
+        if (!access.permissions.canCall)
+          throw forbidden('Only admins can start calls in this group');
 
         const [live] = await tx
           .select({ id: calls.id })
@@ -601,7 +721,9 @@ export async function startCall(
             invitees = input.userIds.filter((id) => members.has(id));
           } else {
             if (others.length > MAX_CALL_PARTICIPANTS - 1) {
-              throw badRequest(`userIds: choose at most ${MAX_CALL_PARTICIPANTS - 1} members to call`);
+              throw badRequest(
+                `userIds: choose at most ${MAX_CALL_PARTICIPANTS - 1} members to call`,
+              );
             }
             invitees = others;
           }
@@ -610,7 +732,8 @@ export async function startCall(
         }
         if (invitees.length === 0) throw badRequest('userIds: nobody to call');
 
-        const hidden = chat.type === 'direct' ? await blockersOf(tx, userId, invitees) : new Set<string>();
+        const hidden =
+          chat.type === 'direct' ? await blockersOf(tx, userId, invitees) : new Set<string>();
         const busy = await joinedUserIds(
           tx,
           invitees.filter((id) => !hidden.has(id)),
@@ -618,12 +741,27 @@ export async function startCall(
         const now = new Date();
         const [row] = await tx
           .insert(calls)
-          .values({ chatId: chat.id, initiatorId: userId, type: input.type, isGroup: chat.type === 'group', status: 'ringing', createdAt: now })
+          .values({
+            chatId: chat.id,
+            initiatorId: userId,
+            type: input.type,
+            isGroup: chat.type === 'group',
+            status: 'ringing',
+            createdAt: now,
+          })
           .returning();
         const parts = await tx
           .insert(callParticipants)
           .values([
-            { callId: row!.id, userId, status: 'joined', invitedAt: now, joinedAt: now, sessionId, ...initialMedia(input.type, input) },
+            {
+              callId: row!.id,
+              userId,
+              status: 'joined',
+              invitedAt: now,
+              joinedAt: now,
+              sessionId,
+              ...initialMedia(input.type, input),
+            },
             ...invitees.map((id) => ({
               callId: row!.id,
               userId: id,
@@ -633,8 +771,17 @@ export async function startCall(
             })),
           ])
           .returning();
-        const { message } = await createMessage(tx, fx, { chatId: chat.id, senderId: userId, type: 'call', metadata: { call: callMessagePayload(row!) } });
-        const [linked] = await tx.update(calls).set({ messageId: message.id }).where(eq(calls.id, row!.id)).returning();
+        const { message } = await createMessage(tx, fx, {
+          chatId: chat.id,
+          senderId: userId,
+          type: 'call',
+          metadata: { call: callMessagePayload(row!) },
+        });
+        const [linked] = await tx
+          .update(calls)
+          .set({ messageId: message.id })
+          .where(eq(calls.id, row!.id))
+          .returning();
 
         const ctx = newCtx(tx, fx, chat, linked!, parts);
         ctx.rung = invitees.filter((id) => !hidden.has(id) && !busy.has(id));
@@ -655,7 +802,10 @@ export async function startCall(
  * declined/missed/left participant too). Busy → 409, full → 409 limit_reached,
  * ringing → ongoing on the first answer.
  */
-export async function joinCall(actor: Actor, input: { callId: string; audioMuted?: boolean; videoOff?: boolean }): Promise<{ call: Call }> {
+export async function joinCall(
+  actor: Actor,
+  input: { callId: string; audioMuted?: boolean; videoOff?: boolean },
+): Promise<{ call: Call }> {
   const { userId, sessionId, socket } = actor;
   const { call } = await runCallOp(input.callId, async (ctx) => {
     const mine = part(ctx, userId);
@@ -675,9 +825,26 @@ export async function joinCall(actor: Actor, input: { callId: string; audioMuted
     const now = new Date();
     const media = initialMedia(ctx.call.type, input);
     if (mine) {
-      await patchPart(ctx, userId, { status: 'joined', joinedAt: now, leftAt: null, sessionId, disconnectedAt: null, ...media });
+      await patchPart(ctx, userId, {
+        status: 'joined',
+        joinedAt: now,
+        leftAt: null,
+        sessionId,
+        disconnectedAt: null,
+        ...media,
+      });
     } else {
-      await insertParts(ctx, [{ callId: ctx.call.id, userId, status: 'joined', invitedAt: now, joinedAt: now, sessionId, ...media }]);
+      await insertParts(ctx, [
+        {
+          callId: ctx.call.id,
+          userId,
+          status: 'joined',
+          invitedAt: now,
+          joinedAt: now,
+          sessionId,
+          ...media,
+        },
+      ]);
     }
     if (ctx.call.status === 'ringing') await patchCall(ctx, { status: 'ongoing', answeredAt: now });
     if (ringingMe) ctx.ringStops.push({ userId, reason: 'answered_elsewhere' });
@@ -694,7 +861,10 @@ export async function joinCall(actor: Actor, input: { callId: string; audioMuted
  * device, or another tab sharing this session's token, can't take the call over). Acts as a
  * newcomer (`call:participant-joined`).
  */
-export async function rejoinCall(actor: Actor, input: { callId: string; audioMuted?: boolean; videoOff?: boolean }): Promise<{ call: Call }> {
+export async function rejoinCall(
+  actor: Actor,
+  input: { callId: string; audioMuted?: boolean; videoOff?: boolean },
+): Promise<{ call: Call }> {
   const { userId, sessionId, socket } = actor;
   const { call } = await runCallOp(input.callId, async (ctx) => {
     const mine = part(ctx, userId);
@@ -703,14 +873,21 @@ export async function rejoinCall(actor: Actor, input: { callId: string; audioMut
     if (mine.status !== 'joined') throw conflict('You are no longer in this call');
     const bound = boundSocketId(ctx.call.id, userId);
     if (bound === socket.id) return;
-    if (bound && isSocketConnected(bound)) throw conflict('This call is active in another tab or on another device');
+    if (bound && isSocketConnected(bound))
+      throw conflict('This call is active in another tab or on another device');
     const sameSession = mine.sessionId === sessionId;
-    const inGrace = !!mine.disconnectedAt && Date.now() - mine.disconnectedAt.getTime() <= callTimings.reconnectGraceMs;
+    const inGrace =
+      !!mine.disconnectedAt &&
+      Date.now() - mine.disconnectedAt.getTime() <= callTimings.reconnectGraceMs;
     if (!sameSession && !inGrace) {
       if (!mine.disconnectedAt) throw conflict('This call is active on another device');
       throw expired('The reconnect window has passed');
     }
-    await patchPart(ctx, userId, { sessionId, disconnectedAt: null, ...initialMedia(ctx.call.type, input) });
+    await patchPart(ctx, userId, {
+      sessionId,
+      disconnectedAt: null,
+      ...initialMedia(ctx.call.type, input),
+    });
     ctx.joined.push({ userId, socket, announce: true });
     ctx.changed = true;
   });
@@ -747,7 +924,11 @@ export async function declineCall(userId: string, callId: string): Promise<void>
  * by the calls socket middleware on packet receipt): it disconnected meanwhile, and the
  * leave still counts at once (no reconnect grace).
  */
-export async function leaveCall(actor: Actor, callId: string, opts: { wasCallSocket?: boolean } = {}): Promise<void> {
+export async function leaveCall(
+  actor: Actor,
+  callId: string,
+  opts: { wasCallSocket?: boolean } = {},
+): Promise<void> {
   const { userId, socket } = actor;
   const wasCallSocket = opts.wasCallSocket ?? isCallSocket(socket, callId, userId);
   const boundNow = boundSocketId(callId, userId);
@@ -766,7 +947,10 @@ export async function leaveCall(actor: Actor, callId: string, opts: { wasCallSoc
  * declined/missed/busy/left participant resets `invited_at`; users already joined or ringing
  * and users with a block either way with the inviter are skipped; busy ones get `busy`.
  */
-export async function inviteToCall(userId: string, input: { callId: string; userIds: string[] }): Promise<{ call: Call }> {
+export async function inviteToCall(
+  userId: string,
+  input: { callId: string; userIds: string[] },
+): Promise<{ call: Call }> {
   const { call } = await runCallOp(input.callId, async (ctx) => {
     const mine = part(ctx, userId);
     if (!mine || mine.hiddenAt) throw notFound('Call');
@@ -807,10 +991,17 @@ export async function inviteToCall(userId: string, input: { callId: string; user
 }
 
 /** `call:signal` (call socket only): relay to the target's call socket (joined participants only). */
-export function relaySignal(actor: Actor, input: { callId: string; toUserId: string; signal: CallSignal }): void {
+export function relaySignal(
+  actor: Actor,
+  input: { callId: string; toUserId: string; signal: CallSignal },
+): void {
   const { userId, socket } = actor;
   if (input.toUserId === userId || !isCallSocket(socket, input.callId, userId)) return;
-  emitToRoom(rooms.callMember(input.callId, input.toUserId), 'call:signal', { callId: input.callId, fromUserId: userId, signal: input.signal });
+  emitToRoom(rooms.callMember(input.callId, input.toUserId), 'call:signal', {
+    callId: input.callId,
+    fromUserId: userId,
+    signal: input.signal,
+  });
 }
 
 /** `call:media` (call socket only): persist my flags and broadcast them to the call room. */
@@ -823,8 +1014,18 @@ export async function updateMediaState(
   assertUserLimit(socket.id, 'call:media', SERVER_RATE_LIMITS.callMedia);
   const [row] = await db
     .update(callParticipants)
-    .set({ audioMuted: input.audioMuted, videoOff: input.videoOff, screenSharing: input.screenSharing })
-    .where(and(eq(callParticipants.callId, input.callId), eq(callParticipants.userId, userId), eq(callParticipants.status, 'joined')))
+    .set({
+      audioMuted: input.audioMuted,
+      videoOff: input.videoOff,
+      screenSharing: input.screenSharing,
+    })
+    .where(
+      and(
+        eq(callParticipants.callId, input.callId),
+        eq(callParticipants.userId, userId),
+        eq(callParticipants.status, 'joined'),
+      ),
+    )
     .returning({ userId: callParticipants.userId });
   if (!row) return;
   emitToRoom(rooms.call(input.callId), 'call:media', {
@@ -856,7 +1057,14 @@ export async function callSocketGone(callId: string, userId: string): Promise<vo
       }
       if (p.disconnectedAt) return;
       await patchPart(ctx, userId, { disconnectedAt: new Date() });
-      ctx.after.push(() => scheduleGrace(callId, userId, callTimings.reconnectGraceMs, () => void expireGrace(callId, userId)));
+      ctx.after.push(() =>
+        scheduleGrace(
+          callId,
+          userId,
+          callTimings.reconnectGraceMs,
+          () => void expireGrace(callId, userId),
+        ),
+      );
     });
   } catch (err) {
     logOpError(err, 'disconnect', callId);
@@ -865,7 +1073,8 @@ export async function callSocketGone(callId: string, userId: string): Promise<vo
 
 /** Socket disconnect handler: every call this socket was the call socket of. */
 export function onSocketDisconnect(socket: AppSocket): void {
-  for (const { callId, userId } of takeSocketBindings(socket.id)) void callSocketGone(callId, userId);
+  for (const { callId, userId } of takeSocketBindings(socket.id))
+    void callSocketGone(callId, userId);
 }
 
 /** Reconnect grace over: the participant leaves (end rules apply). */
@@ -877,7 +1086,9 @@ export async function expireGrace(callId: string, userId: string): Promise<void>
       if (boundSocketId(callId, userId)) return;
       const due = p.disconnectedAt.getTime() + callTimings.reconnectGraceMs;
       if (due > Date.now()) {
-        ctx.after.push(() => scheduleGrace(callId, userId, due - Date.now(), () => void expireGrace(callId, userId)));
+        ctx.after.push(() =>
+          scheduleGrace(callId, userId, due - Date.now(), () => void expireGrace(callId, userId)),
+        );
         return;
       }
       await leaveParticipant(ctx, userId);
@@ -894,7 +1105,8 @@ export async function expireRinging(callId: string): Promise<void> {
       if (!isLive(ctx.call.status)) return;
       const now = Date.now();
       for (const p of [...ctx.parts]) {
-        if (!isPending(p.status) || p.invitedAt.getTime() + callTimings.ringTimeoutMs > now) continue;
+        if (!isPending(p.status) || p.invitedAt.getTime() + callTimings.ringTimeoutMs > now)
+          continue;
         await patchPart(ctx, p.userId, { status: 'missed' });
         if (!p.hiddenAt) ctx.ringStops.push({ userId: p.userId, reason: 'timeout' });
         ctx.changed = true;
@@ -987,7 +1199,10 @@ export async function forceLeaveAllCallsTx(tx: Tx, fx: Effects, userId: string):
  * participants closed and call messages updated. v1 assumes a single instance.
  */
 export async function recoverCalls(): Promise<number> {
-  const live = await db.select({ id: calls.id }).from(calls).where(inArray(calls.status, LIVE_CALL_STATUSES));
+  const live = await db
+    .select({ id: calls.id })
+    .from(calls)
+    .where(inArray(calls.status, LIVE_CALL_STATUSES));
   let failed = 0;
   for (const { id } of live) {
     try {
@@ -1000,7 +1215,11 @@ export async function recoverCalls(): Promise<number> {
       logOpError(err, 'crash recovery', id);
     }
   }
-  if (live.length) logger.info({ calls: live.length, failed }, 'calls: closed calls left open by a previous process');
+  if (live.length)
+    logger.info(
+      { calls: live.length, failed },
+      'calls: closed calls left open by a previous process',
+    );
   // The calls job retries the whole recovery on its next run (it is idempotent).
   if (failed) throw new Error(`calls: crash recovery failed for ${failed} call(s)`);
   return live.length;
@@ -1043,7 +1262,13 @@ export async function sweepCalls(): Promise<void> {
     .select({ callId: callParticipants.callId, userId: callParticipants.userId })
     .from(callParticipants)
     .innerJoin(calls, eq(calls.id, callParticipants.callId))
-    .where(and(eq(callParticipants.status, 'joined'), isNull(callParticipants.disconnectedAt), inArray(calls.status, LIVE_CALL_STATUSES)));
+    .where(
+      and(
+        eq(callParticipants.status, 'joined'),
+        isNull(callParticipants.disconnectedAt),
+        inArray(calls.status, LIVE_CALL_STATUSES),
+      ),
+    );
   for (const { callId, userId } of unbound) {
     if (!boundSocketId(callId, userId)) await callSocketGone(callId, userId);
   }
@@ -1081,10 +1306,16 @@ export async function reemitIncoming(socket: AppSocket): Promise<void> {
         if (!loaded || !isLive(loaded.call.status)) return;
         const mine = loaded.parts.find((p) => p.userId === userId);
         if (!mine || mine.hiddenAt || !isPending(mine.status)) return;
-        const [chat] = await db.select().from(chats).where(eq(chats.id, loaded.call.chatId)).limit(1);
+        const [chat] = await db
+          .select()
+          .from(chats)
+          .where(eq(chats.id, loaded.call.chatId))
+          .limit(1);
         if (!chat) return;
         const silent = await silentUserIds(db, [userId], loaded.call.initiatorId);
-        const payload = (await buildIncomingPayloads(db, chat, toCall(loaded.call, loaded.parts), [userId], silent)).get(userId);
+        const payload = (
+          await buildIncomingPayloads(db, chat, toCall(loaded.call, loaded.parts), [userId], silent)
+        ).get(userId);
         if (payload && !socket.disconnected) socket.emit('call:incoming', payload);
       });
     } catch (err) {

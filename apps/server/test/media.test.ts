@@ -10,15 +10,59 @@ import { sanitizeFileName } from '../src/services/uploads.js';
 import { startTestServer, type TestServer, type TestUser } from './helpers.js';
 import { createGroup, send } from './services/fixtures.js';
 
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
-const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.from('JFIF\0'), Buffer.alloc(64)]);
+const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+const JPEG = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+  Buffer.from('JFIF\0'),
+  Buffer.alloc(64),
+]);
 const WEBM = Buffer.from([
-  0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81, 0x01, 0x42, 0xf2, 0x81, 0x04, 0x42, 0xf3, 0x81, 0x08, 0x42, 0x82, 0x84, 0x77, 0x65,
-  0x62, 0x6d, 0x42, 0x87, 0x81, 0x02, 0x42, 0x85, 0x81, 0x02, ...Array(64).fill(0),
+  0x1a,
+  0x45,
+  0xdf,
+  0xa3,
+  0x9f,
+  0x42,
+  0x86,
+  0x81,
+  0x01,
+  0x42,
+  0xf7,
+  0x81,
+  0x01,
+  0x42,
+  0xf2,
+  0x81,
+  0x04,
+  0x42,
+  0xf3,
+  0x81,
+  0x08,
+  0x42,
+  0x82,
+  0x84,
+  0x77,
+  0x65,
+  0x62,
+  0x6d,
+  0x42,
+  0x87,
+  0x81,
+  0x02,
+  0x42,
+  0x85,
+  0x81,
+  0x02,
+  ...Array(64).fill(0),
 ]);
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 const SVG_XML = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>');
-const HTML = Buffer.from('<!doctype html><html><body><script>alert(document.cookie)</script></body></html>');
+const HTML = Buffer.from(
+  '<!doctype html><html><body><script>alert(document.cookie)</script></body></html>',
+);
 
 describe('POST /api/media', () => {
   let t: TestServer;
@@ -30,18 +74,43 @@ describe('POST /api/media', () => {
   });
   afterAll(() => t.close());
 
-  const upload = (fields: Record<string, string>, file?: { buf: Buffer; name: string; type?: string }, thumb?: { buf: Buffer; name: string; type?: string }) => {
+  const upload = (
+    fields: Record<string, string>,
+    file?: { buf: Buffer; name: string; type?: string },
+    thumb?: { buf: Buffer; name: string; type?: string },
+  ) => {
     let req = t.api(alice).post('/api/media');
     for (const [k, v] of Object.entries(fields)) req = req.field(k, v);
-    if (file) req = req.attach('file', file.buf, { filename: file.name, contentType: file.type ?? 'application/octet-stream' });
-    if (thumb) req = req.attach('thumbnail', thumb.buf, { filename: thumb.name, contentType: thumb.type ?? 'application/octet-stream' });
+    if (file)
+      req = req.attach('file', file.buf, {
+        filename: file.name,
+        contentType: file.type ?? 'application/octet-stream',
+      });
+    if (thumb)
+      req = req.attach('thumbnail', thumb.buf, {
+        filename: thumb.name,
+        contentType: thumb.type ?? 'application/octet-stream',
+      });
     return req;
   };
 
   it('stores a sniffed image under yyyy/mm/<uuid>.<ext> and returns a MediaAttachment', async () => {
-    const res = await upload({ kind: 'image', width: '1', height: '1' }, { buf: PNG, name: 'photo.jpg', type: 'image/jpeg' }).expect(201);
+    const res = await upload(
+      { kind: 'image', width: '1', height: '1' },
+      { buf: PNG, name: 'photo.jpg', type: 'image/jpeg' },
+    ).expect(201);
     const m = res.body as MediaAttachment;
-    expect(m).toMatchObject({ kind: 'image', mimeType: 'image/png', fileName: 'photo.jpg', size: PNG.length, width: 1, height: 1, durationMs: null, waveform: null, thumbnailUrl: null });
+    expect(m).toMatchObject({
+      kind: 'image',
+      mimeType: 'image/png',
+      fileName: 'photo.jpg',
+      size: PNG.length,
+      width: 1,
+      height: 1,
+      durationMs: null,
+      waveform: null,
+      thumbnailUrl: null,
+    });
     const now = new Date();
     const yyyy = String(now.getUTCFullYear());
     const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
@@ -56,21 +125,37 @@ describe('POST /api/media', () => {
   });
 
   it('rejects SVG as an image (with or without an XML declaration)', async () => {
-    const r1 = await upload({ kind: 'image' }, { buf: SVG, name: 'logo.svg', type: 'image/svg+xml' }).expect(400);
+    const r1 = await upload(
+      { kind: 'image' },
+      { buf: SVG, name: 'logo.svg', type: 'image/svg+xml' },
+    ).expect(400);
     expect(r1.body.error.code).toBe('validation_error');
-    await upload({ kind: 'image' }, { buf: SVG_XML, name: 'logo.svg', type: 'image/svg+xml' }).expect(400);
+    await upload(
+      { kind: 'image' },
+      { buf: SVG_XML, name: 'logo.svg', type: 'image/svg+xml' },
+    ).expect(400);
   });
 
   it('rejects HTML disguised as a PNG', async () => {
-    const res = await upload({ kind: 'image' }, { buf: HTML, name: 'cute-cat.png', type: 'image/png' }).expect(400);
+    const res = await upload(
+      { kind: 'image' },
+      { buf: HTML, name: 'cute-cat.png', type: 'image/png' },
+    ).expect(400);
     expect(res.body.error.message).toMatch(/not allowed for image/);
     expect(fs.readdirSync(path.join(t.uploadDir, '.tmp'))).toEqual([]);
   });
 
   it('accepts anything as a file, stored as .bin and served as an attachment', async () => {
-    const res = await upload({ kind: 'file' }, { buf: HTML, name: 'page.html', type: 'text/html' }).expect(201);
+    const res = await upload(
+      { kind: 'file' },
+      { buf: HTML, name: 'page.html', type: 'text/html' },
+    ).expect(201);
     const m = res.body as MediaAttachment;
-    expect(m).toMatchObject({ kind: 'file', mimeType: 'application/octet-stream', fileName: 'page.html' });
+    expect(m).toMatchObject({
+      kind: 'file',
+      mimeType: 'application/octet-stream',
+      fileName: 'page.html',
+    });
     expect(m.url).toMatch(/\.bin$/);
     const served = await t.api().get(m.url).expect(200);
     expect(served.headers['content-disposition']).toMatch(/^attachment/);
@@ -78,21 +163,46 @@ describe('POST /api/media', () => {
   });
 
   it('checks the kind allowlist (WebM voice ok, PNG voice rejected) and keeps waveforms for voice only', async () => {
-    const res = await upload({ kind: 'voice', durationMs: '1500', waveform: JSON.stringify([0.1, 2, -1]) }, { buf: WEBM, name: 'voice.webm' }).expect(201);
-    expect(res.body).toMatchObject({ kind: 'voice', mimeType: 'video/webm', durationMs: 1500, waveform: [0.1, 1, 0] });
+    const res = await upload(
+      { kind: 'voice', durationMs: '1500', waveform: JSON.stringify([0.1, 2, -1]) },
+      { buf: WEBM, name: 'voice.webm' },
+    ).expect(201);
+    expect(res.body).toMatchObject({
+      kind: 'voice',
+      mimeType: 'video/webm',
+      durationMs: 1500,
+      waveform: [0.1, 1, 0],
+    });
     await upload({ kind: 'voice' }, { buf: PNG, name: 'x.webm' }).expect(400);
     await upload({ kind: 'video' }, { buf: PNG, name: 'x.mp4' }).expect(400);
-    const img = await upload({ kind: 'image', waveform: '[0.5]' }, { buf: PNG, name: 'x.png' }).expect(201);
+    const img = await upload(
+      { kind: 'image', waveform: '[0.5]' },
+      { buf: PNG, name: 'x.png' },
+    ).expect(201);
     expect(img.body.waveform).toBeNull();
   });
 
   it('validates the thumbnail: JPEG/WebP only, ≤ MAX_THUMBNAIL_BYTES', async () => {
-    const ok = await upload({ kind: 'image' }, { buf: PNG, name: 'a.png' }, { buf: JPEG, name: 't.jpg' }).expect(201);
+    const ok = await upload(
+      { kind: 'image' },
+      { buf: PNG, name: 'a.png' },
+      { buf: JPEG, name: 't.jpg' },
+    ).expect(201);
     expect(ok.body.thumbnailUrl).toMatch(/^\/uploads\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.jpg$/);
-    expect(fs.existsSync(path.join(t.uploadDir, ok.body.thumbnailUrl.replace('/uploads/', '')))).toBe(true);
-    await upload({ kind: 'image' }, { buf: PNG, name: 'a.png' }, { buf: PNG, name: 't.png' }).expect(400);
+    expect(
+      fs.existsSync(path.join(t.uploadDir, ok.body.thumbnailUrl.replace('/uploads/', ''))),
+    ).toBe(true);
+    await upload(
+      { kind: 'image' },
+      { buf: PNG, name: 'a.png' },
+      { buf: PNG, name: 't.png' },
+    ).expect(400);
     const big = Buffer.concat([JPEG, Buffer.alloc(MAX_THUMBNAIL_BYTES)]);
-    const tooBig = await upload({ kind: 'image' }, { buf: PNG, name: 'a.png' }, { buf: big, name: 't.jpg' }).expect(413);
+    const tooBig = await upload(
+      { kind: 'image' },
+      { buf: PNG, name: 'a.png' },
+      { buf: big, name: 't.jpg' },
+    ).expect(413);
     expect(tooBig.body.error.code).toBe('payload_too_large');
   });
 
@@ -101,7 +211,9 @@ describe('POST /api/media', () => {
       .api(alice)
       .post('/api/media')
       .set('Content-Type', 'multipart/form-data; boundary=XYZ')
-      .send('--XYZ\r\nContent-Disposition: form-data; name="file"; filename="a\u0000.png"\r\n\r\nabc\r\n--XYZ--\r\n')
+      .send(
+        '--XYZ\r\nContent-Disposition: form-data; name="file"; filename="a\u0000.png"\r\n\r\nabc\r\n--XYZ--\r\n',
+      )
       .expect(400);
     expect(res.body.error.code).toBe('validation_error');
   });
@@ -147,7 +259,11 @@ describe('media GC job', () => {
     return (await req.expect(201)).body as MediaAttachment;
   }
   const fileOf = (url: string | null) => path.join(t.uploadDir, url!.replace('/uploads/', ''));
-  const age = (id: string, ms: number) => db.update(media).set({ createdAt: new Date(Date.now() - ms) }).where(eq(media.id, id));
+  const age = (id: string, ms: number) =>
+    db
+      .update(media)
+      .set({ createdAt: new Date(Date.now() - ms) })
+      .where(eq(media.id, id));
 
   it('deletes old unreferenced media (rows and files, thumbnails included) and keeps the rest', async () => {
     const orphan = await uploadPng(true);

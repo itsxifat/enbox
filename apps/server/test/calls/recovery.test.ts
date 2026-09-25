@@ -59,7 +59,11 @@ describe('calls job: crash recovery is retried until it succeeds', () => {
     expect((await callRow(callId)).status).toBe('ongoing');
 
     await runJobsOnce(); // the next tick of the calls job: recovery again
-    expect({ call: (await callRow(callId)).status, a: (await partOf(callId, a.id)).status, b: (await partOf(callId, b.id)).status }).toEqual({
+    expect({
+      call: (await callRow(callId)).status,
+      a: (await partOf(callId, a.id)).status,
+      b: (await partOf(callId, b.id)).status,
+    }).toEqual({
       call: 'ended',
       a: 'left',
       b: 'left',
@@ -104,7 +108,9 @@ describe('recoverCalls: a failed run is reported (so the job retries it)', () =>
     sb.disconnect();
     await sleep(100);
 
-    const inj = failNextGlobalQuery((text) => /^select "id" from "calls" where "calls"."status" in/.test(text));
+    const inj = failNextGlobalQuery((text) =>
+      /^select "id" from "calls" where "calls"."status" in/.test(text),
+    );
     await expect(recoverCalls()).rejects.toThrow();
     inj.restore();
     expect(inj.failed()).toBe(true);

@@ -40,7 +40,9 @@ export function directChatKey(a: ID, b: ID): string {
 }
 
 /** Complete settings from the stored partial overrides. Server code reads settings ONLY through this. */
-export function resolveUserSettings(stored: Partial<UserSettings> | null | undefined): UserSettings {
+export function resolveUserSettings(
+  stored: Partial<UserSettings> | null | undefined,
+): UserSettings {
   return { ...DEFAULT_USER_SETTINGS, ...(stored ?? {}) };
 }
 
@@ -50,7 +52,8 @@ export function isMuted(mutedUntil: string | null | undefined, now: Date = new D
 
 /** Name to show for a user: "Deleted account", saved contact name, then display name. */
 export function userDisplayName(
-  user: (Pick<UserPublic, 'displayName' | 'contactName'> & { isDeleted?: boolean }) | null | undefined,
+  user:
+    (Pick<UserPublic, 'displayName' | 'contactName'> & { isDeleted?: boolean }) | null | undefined,
 ): string {
   if (!user) return 'Unknown';
   if (user.isDeleted) return 'Deleted account';
@@ -166,7 +169,14 @@ export function computeChatPermissions(chat: ChatPermissionInput, viewerId: ID):
   };
 }
 
-const EDITABLE_TYPES = new Set<Message['type']>(['text', 'image', 'video', 'audio', 'voice', 'file']);
+const EDITABLE_TYPES = new Set<Message['type']>([
+  'text',
+  'image',
+  'video',
+  'audio',
+  'voice',
+  'file',
+]);
 
 /**
  * Whether the viewer may edit a message now: text or caption only, within EDIT_WINDOW_MS;
@@ -180,7 +190,9 @@ export function canEditMessage(
 ): boolean {
   if (message.deletedAt || !EDITABLE_TYPES.has(message.type)) return false;
   if (now - Date.parse(message.createdAt) > EDIT_WINDOW_MS) return false;
-  return chat.type === 'channel' ? chat.permissions.canSend : message.senderId === viewerId && chat.permissions.canSend;
+  return chat.type === 'channel'
+    ? chat.permissions.canSend
+    : message.senderId === viewerId && chat.permissions.canSend;
 }
 
 /**
@@ -196,7 +208,10 @@ export function canDeleteForEveryone(
   if (message.deletedAt || message.type === 'system' || message.type === 'call') return false;
   if (chat.membership !== 'active') return false;
   if (chat.permissions.canDeleteForEveryoneAsAdmin) return true;
-  return message.senderId === viewerId && now - Date.parse(message.createdAt) <= DELETE_FOR_EVERYONE_WINDOW_MS;
+  return (
+    message.senderId === viewerId &&
+    now - Date.parse(message.createdAt) <= DELETE_FOR_EVERYONE_WINDOW_MS
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +226,10 @@ export function mentionToken(userId: ID): string {
 }
 
 /** Distinct mentioned ids in order of appearance (at most `max`). The server keeps only active members. */
-export function extractMentionIds(text: string | null | undefined, max: number = MAX_MENTIONS): ID[] {
+export function extractMentionIds(
+  text: string | null | undefined,
+  max: number = MAX_MENTIONS,
+): ID[] {
   if (!text) return [];
   const out: ID[] = [];
   for (const m of text.matchAll(new RegExp(MENTION_PATTERN, 'g'))) {
@@ -347,11 +365,19 @@ export function callOutcome(
   viewerId: ID | null | undefined,
   myStatus?: CallParticipantStatus | null,
 ): { direction: CallDirection; outcome: CallOutcome } {
-  const direction: CallDirection = viewerId && call.initiatorId === viewerId ? 'outgoing' : 'incoming';
-  if (call.status === 'ringing' || call.status === 'ongoing') return { direction, outcome: 'ongoing' };
+  const direction: CallDirection =
+    viewerId && call.initiatorId === viewerId ? 'outgoing' : 'incoming';
+  if (call.status === 'ringing' || call.status === 'ongoing')
+    return { direction, outcome: 'ongoing' };
   if (direction === 'outgoing') {
     const outcome: CallOutcome =
-      call.status === 'ended' ? 'answered' : call.status === 'missed' ? 'unanswered' : call.status === 'declined' ? 'declined' : 'cancelled';
+      call.status === 'ended'
+        ? 'answered'
+        : call.status === 'missed'
+          ? 'unanswered'
+          : call.status === 'declined'
+            ? 'declined'
+            : 'cancelled';
     return { direction, outcome };
   }
   if (myStatus) {
@@ -359,7 +385,8 @@ export function callOutcome(
     if (myStatus === 'declined') return { direction, outcome: 'declined' };
     return { direction, outcome: 'missed' };
   }
-  const outcome: CallOutcome = call.status === 'ended' ? 'answered' : call.status === 'declined' ? 'declined' : 'missed';
+  const outcome: CallOutcome =
+    call.status === 'ended' ? 'answered' : call.status === 'declined' ? 'declined' : 'missed';
   return { direction, outcome };
 }
 
@@ -375,7 +402,11 @@ function chatNoun(kind: ChatKind): string {
  * Human text for a system event. `nameOf` resolves user ids to names ("You" for the viewer);
  * `kind` picks the wording ("group", "channel" or "community" for announcement groups).
  */
-export function systemEventText(event: SystemEvent, nameOf: (id: ID) => string, kind: ChatKind = 'group'): string {
+export function systemEventText(
+  event: SystemEvent,
+  nameOf: (id: ID) => string,
+  kind: ChatKind = 'group',
+): string {
   const noun = chatNoun(kind);
   if (event.kind === 'owner_changed') return `The ${noun} owner is now ${nameOf(event.userId)}`;
   const actor = nameOf(event.actorId);
@@ -470,7 +501,9 @@ export function messagePreviewText(
   opts: { viewerId?: ID; chatKind?: ChatKind } = {},
 ): string {
   if (message.deletedAt) {
-    return opts.viewerId && message.senderId === opts.viewerId ? 'You deleted this message' : 'This message was deleted';
+    return opts.viewerId && message.senderId === opts.viewerId
+      ? 'You deleted this message'
+      : 'This message was deleted';
   }
   const caption = message.text ? renderMentions(message.text, nameOf).trim() : '';
   switch (message.type) {

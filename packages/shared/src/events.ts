@@ -66,7 +66,9 @@ import type {
 } from './schemas.js';
 
 /** Acknowledgement envelope for client->server events that expect a reply. */
-export type Ack<T> = { ok: true; data: T } | { ok: false; error: { code: ApiErrorCode; message: string; details?: unknown } };
+export type Ack<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: ApiErrorCode; message: string; details?: unknown } };
 export type AckFn<T> = (res: Ack<T>) => void;
 
 export type TypingState = TypingPayload['state'];
@@ -96,7 +98,8 @@ export interface IncomingCallPayload {
 }
 
 /** Why a device must stop ringing. */
-export type RingStopReason = 'answered_elsewhere' | 'declined_elsewhere' | 'timeout' | 'cancelled' | 'ended';
+export type RingStopReason =
+  'answered_elsewhere' | 'declined_elsewhere' | 'timeout' | 'cancelled' | 'ended';
 
 export interface ServerToClientEvents {
   /** Sent once per connection after rooms are joined and delivered watermarks advanced. */
@@ -132,9 +135,19 @@ export interface ServerToClientEvents {
   /** History cleared on another of my devices: drop messages with seq ≤ clearedSeq (deleting a chat sends `chat:removed`). */
   'chat:cleared': (payload: { chatId: ID; clearedSeq: number }) => void;
   /** My own read state changed (any device, REST or socket; user:<id>). */
-  'chat:read': (payload: { chatId: ID; lastReadSeq: number; unreadCount: number; unreadMentionCount: number; markedUnread: boolean }) => void;
+  'chat:read': (payload: {
+    chatId: ID;
+    lastReadSeq: number;
+    unreadCount: number;
+    unreadMentionCount: number;
+    markedUnread: boolean;
+  }) => void;
   /** Tick watermarks for my messages changed (user:<id>; never for channels). */
-  'chat:watermarks': (payload: { chatId: ID; readWatermark: number; deliveredWatermark: number }) => void;
+  'chat:watermarks': (payload: {
+    chatId: ID;
+    readWatermark: number;
+    deliveredWatermark: number;
+  }) => void;
   /** Relayed to the room except the typist's sockets; never for channels. Expires after TYPING_TIMEOUT_MS. */
   'chat:typing': (payload: { chatId: ID; userId: ID; state: TypingState }) => void;
   /** Pinned messages changed (room). */
@@ -174,7 +187,12 @@ export interface ServerToClientEvents {
    * clients add the viewer on true and replace their entry on false. `viewCount`: the
    * status's current `Status.viewCount` (views counted by the read-receipts rule).
    */
-  'status:viewed': (payload: { statusId: ID; viewer: StatusViewer; firstView: boolean; viewCount: number }) => void;
+  'status:viewed': (payload: {
+    statusId: ID;
+    viewer: StatusViewer;
+    firstView: boolean;
+    viewCount: number;
+  }) => void;
 
   // --- Calls ---
   /**

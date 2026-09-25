@@ -8,10 +8,14 @@ import { db } from '../../src/db/index.js';
 
 type AnyFn = (...args: unknown[]) => Promise<unknown>;
 type TxClient = { query: AnyFn };
-type RootClient = { query: AnyFn; transaction: (cb: (tx: TxClient) => Promise<unknown>) => Promise<unknown> };
+type RootClient = {
+  query: AnyFn;
+  transaction: (cb: (tx: TxClient) => Promise<unknown>) => Promise<unknown>;
+};
 
 const rootClient = () => (db as unknown as { $client: RootClient }).$client;
-export const textOf = (a0: unknown) => (typeof a0 === 'string' ? a0 : ((a0 as { text?: string } | undefined)?.text ?? ''));
+export const textOf = (a0: unknown) =>
+  typeof a0 === 'string' ? a0 : ((a0 as { text?: string } | undefined)?.text ?? '');
 
 /**
  * Delay the RESULT of the next global-db query (outside transactions) matching `match` until
@@ -48,7 +52,10 @@ export function delayNextResult(match: (text: string, params: unknown[]) => bool
 }
 
 /** Run `onHit` right after the next global-db query matching `match` returned (before its caller continues). */
-export function afterNextResult(match: (text: string, params: unknown[]) => boolean, onHit: () => Promise<void>) {
+export function afterNextResult(
+  match: (text: string, params: unknown[]) => boolean,
+  onHit: () => Promise<void>,
+) {
   const client = rootClient();
   const original = client.query;
   let fired = false;
@@ -151,7 +158,8 @@ export function recordChatLocks() {
     return original.call(this, (tx) => {
       const query = tx.query.bind(tx);
       tx.query = ((q: string, params?: unknown[], opts?: unknown) => {
-        if (/from "chats"/i.test(q) && /for update/i.test(q)) batches.push({ tx: txId, ids: (params ?? []).map(String) });
+        if (/from "chats"/i.test(q) && /for update/i.test(q))
+          batches.push({ tx: txId, ids: (params ?? []).map(String) });
         return query(q, params, opts);
       }) as AnyFn;
       return cb(tx);

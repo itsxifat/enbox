@@ -16,9 +16,23 @@
  * viewer-specific (→ user:<id>) and serialized in the prepare phase through `tx`.
  */
 import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { MAX_GROUP_MEMBERS, type Community, type CommunityGroup, type MemberRole } from '@enbox/shared';
+import {
+  MAX_GROUP_MEMBERS,
+  type Community,
+  type CommunityGroup,
+  type MemberRole,
+} from '@enbox/shared';
 import type { DbOrTx, Tx } from '../db/index.js';
-import { chatMembers, chats, communities, communityMembers, media, type ChatRow, type CommunityMemberRow, type CommunityRow } from '../db/schema.js';
+import {
+  chatMembers,
+  chats,
+  communities,
+  communityMembers,
+  media,
+  type ChatRow,
+  type CommunityMemberRow,
+  type CommunityRow,
+} from '../db/schema.js';
 import { conflict, limitReached, notFound } from '../lib/errors.js';
 import { emitToUser } from '../realtime/emit.js';
 import { getChat, getMembership, lockChats } from './chats.js';
@@ -40,7 +54,10 @@ import { lockLiveUsers } from './users.js';
  * `pairKey(communityId, userId)`. Groups: the announcement group first, then linked groups
  * by creation time.
  */
-export async function communitiesForPairs(dbx: DbOrTx, pairs: { communityId: string; userId: string }[]): Promise<Map<string, Community>> {
+export async function communitiesForPairs(
+  dbx: DbOrTx,
+  pairs: { communityId: string; userId: string }[],
+): Promise<Map<string, Community>> {
   const out = new Map<string, Community>();
   if (pairs.length === 0) return out;
   const communityIds = uniq(pairs.map((p) => p.communityId));
@@ -54,7 +71,12 @@ export async function communitiesForPairs(dbx: DbOrTx, pairs: { communityId: str
   const memberRows = await dbx
     .select()
     .from(communityMembers)
-    .where(and(inArray(communityMembers.communityId, communityIds), inArray(communityMembers.userId, userIds)));
+    .where(
+      and(
+        inArray(communityMembers.communityId, communityIds),
+        inArray(communityMembers.userId, userIds),
+      ),
+    );
   const counts = await dbx
     .select({ communityId: communityMembers.communityId, n: count() })
     .from(communityMembers)
@@ -86,7 +108,13 @@ export async function communitiesForPairs(dbx: DbOrTx, pairs: { communityId: str
     ? await dbx
         .select({ chatId: chatMembers.chatId, userId: chatMembers.userId })
         .from(chatMembers)
-        .where(and(inArray(chatMembers.chatId, chatIds), inArray(chatMembers.userId, userIds), isNull(chatMembers.leftAt)))
+        .where(
+          and(
+            inArray(chatMembers.chatId, chatIds),
+            inArray(chatMembers.userId, userIds),
+            isNull(chatMembers.leftAt),
+          ),
+        )
     : [];
 
   const byId = new Map(rows.map((r) => [r.community.id, r]));
@@ -95,14 +123,17 @@ export async function communitiesForPairs(dbx: DbOrTx, pairs: { communityId: str
   const chatCountOf = new Map(chatCounts.map((c) => [c.chatId, Number(c.n)]));
   const activeIn = new Set(mine.map((m) => pairKey(m.chatId, m.userId)));
   const groupsOf = new Map<string, typeof groupRows>();
-  for (const g of groupRows) groupsOf.set(g.communityId!, [...(groupsOf.get(g.communityId!) ?? []), g]);
+  for (const g of groupRows)
+    groupsOf.set(g.communityId!, [...(groupsOf.get(g.communityId!) ?? []), g]);
 
   for (const { communityId, userId } of pairs) {
     const r = byId.get(communityId);
     const role = roleOf.get(pairKey(communityId, userId));
     if (!r || !role || !r.community.announcementChatId) continue;
     const c = r.community;
-    const list = [...(groupsOf.get(communityId) ?? [])].sort((a, b) => Number(b.isAnnouncement) - Number(a.isAnnouncement));
+    const list = [...(groupsOf.get(communityId) ?? [])].sort(
+      (a, b) => Number(b.isAnnouncement) - Number(a.isAnnouncement),
+    );
     const groups: CommunityGroup[] = list.map((g) => ({
       chatId: g.id,
       name: g.name ?? '',
@@ -130,13 +161,24 @@ export async function communitiesForPairs(dbx: DbOrTx, pairs: { communityId: str
 }
 
 /** `toCommunity(dbx, viewerId, communityId)` (docs): the viewer's Community, or null for non-members. */
-export async function toCommunity(dbx: DbOrTx, viewerId: string, communityId: string): Promise<Community | null> {
-  return (await communitiesForPairs(dbx, [{ communityId, userId: viewerId }])).get(pairKey(communityId, viewerId)) ?? null;
+export async function toCommunity(
+  dbx: DbOrTx,
+  viewerId: string,
+  communityId: string,
+): Promise<Community | null> {
+  return (
+    (await communitiesForPairs(dbx, [{ communityId, userId: viewerId }])).get(
+      pairKey(communityId, viewerId),
+    ) ?? null
+  );
 }
 
 /** Every community the user belongs to (`GET /communities`), by name. */
 export async function listCommunities(dbx: DbOrTx, viewerId: string): Promise<Community[]> {
-  const rows = await dbx.select({ communityId: communityMembers.communityId }).from(communityMembers).where(eq(communityMembers.userId, viewerId));
+  const rows = await dbx
+    .select({ communityId: communityMembers.communityId })
+    .from(communityMembers)
+    .where(eq(communityMembers.userId, viewerId));
   const map = await communitiesForPairs(
     dbx,
     rows.map((r) => ({ communityId: r.communityId, userId: viewerId })),
@@ -148,7 +190,11 @@ export async function listCommunities(dbx: DbOrTx, viewerId: string): Promise<Co
  * `community:upsert` → user:<u> for each user with their own Community as of the end of the
  * transaction (one batched serialization per call). Users who are no longer members are skipped.
  */
-export function communityUpsert(fx: Effects, userIds: string | Iterable<string>, communityId: string): Effects {
+export function communityUpsert(
+  fx: Effects,
+  userIds: string | Iterable<string>,
+  communityId: string,
+): Effects {
   const ids = typeof userIds === 'string' ? [userIds] : uniq(userIds);
   if (ids.length === 0) return fx;
   let payloads = new Map<string, Community>();
@@ -173,7 +219,8 @@ export function communityUpsertAll(fx: Effects, communityId: string): Effects {
   let payloads: [string, Community][] = [];
   return fx.add(
     () => {
-      for (const [userId, community] of payloads) emitToUser(userId, 'community:upsert', { community });
+      for (const [userId, community] of payloads)
+        emitToUser(userId, 'community:upsert', { community });
     },
     async (dbx) => {
       const ids = await communityMemberIds(dbx, communityId);
@@ -194,11 +241,19 @@ export function communityUpsertAll(fx: Effects, communityId: string): Effects {
 // ---------------------------------------------------------------------------
 
 export async function getCommunity(dbx: DbOrTx, communityId: string): Promise<CommunityRow | null> {
-  const [row] = await dbx.select().from(communities).where(eq(communities.id, communityId)).limit(1);
+  const [row] = await dbx
+    .select()
+    .from(communities)
+    .where(eq(communities.id, communityId))
+    .limit(1);
   return row ?? null;
 }
 
-export async function getCommunityMember(dbx: DbOrTx, communityId: string, userId: string): Promise<CommunityMemberRow | null> {
+export async function getCommunityMember(
+  dbx: DbOrTx,
+  communityId: string,
+  userId: string,
+): Promise<CommunityMemberRow | null> {
   const [row] = await dbx
     .select()
     .from(communityMembers)
@@ -208,12 +263,18 @@ export async function getCommunityMember(dbx: DbOrTx, communityId: string, userI
 }
 
 export async function communityMemberIds(dbx: DbOrTx, communityId: string): Promise<string[]> {
-  const rows = await dbx.select({ userId: communityMembers.userId }).from(communityMembers).where(eq(communityMembers.communityId, communityId));
+  const rows = await dbx
+    .select({ userId: communityMembers.userId })
+    .from(communityMembers)
+    .where(eq(communityMembers.communityId, communityId));
   return rows.map((r) => r.userId);
 }
 
 export async function communityMemberCount(dbx: DbOrTx, communityId: string): Promise<number> {
-  const [row] = await dbx.select({ n: count() }).from(communityMembers).where(eq(communityMembers.communityId, communityId));
+  const [row] = await dbx
+    .select({ n: count() })
+    .from(communityMembers)
+    .where(eq(communityMembers.communityId, communityId));
   return Number(row?.n ?? 0);
 }
 
@@ -249,10 +310,18 @@ export async function lockCommunityScope(
   communityId: string,
   opts: { groups?: boolean; extraChatIds?: string[] } = {},
 ): Promise<CommunityScope> {
-  const [community] = await tx.select().from(communities).where(eq(communities.id, communityId)).for('update');
+  const [community] = await tx
+    .select()
+    .from(communities)
+    .where(eq(communities.id, communityId))
+    .for('update');
   if (!community?.announcementChatId) throw notFound('Community');
   const linked = opts.groups ? await linkedGroupIds(tx, communityId) : [];
-  const rows = await lockChats(tx, [community.announcementChatId, ...linked, ...(opts.extraChatIds ?? [])]);
+  const rows = await lockChats(tx, [
+    community.announcementChatId,
+    ...linked,
+    ...(opts.extraChatIds ?? []),
+  ]);
   const byId = new Map(rows.map((r) => [r.id, r]));
   const ann = byId.get(community.announcementChatId);
   if (!ann) throw notFound('Community');
@@ -261,7 +330,11 @@ export async function lockCommunityScope(
         .filter((r) => r.communityId === communityId && !r.isAnnouncement)
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
     : [];
-  const extra = new Map((opts.extraChatIds ?? []).flatMap((id) => (byId.has(id) ? [[id, byId.get(id)!] as [string, ChatRow]] : [])));
+  const extra = new Map(
+    (opts.extraChatIds ?? []).flatMap((id) =>
+      byId.has(id) ? [[id, byId.get(id)!] as [string, ChatRow]] : [],
+    ),
+  );
   return { community, ann, groups, extra };
 }
 
@@ -276,7 +349,10 @@ class GroupLinkChanged extends Error {}
  * chat lock BEFORE the next attempt locks a community row (never community-after-chat).
  * 404 when the chat doesn't exist; `409 conflict` when the link keeps changing.
  */
-export async function lockGroupScope(tx: Tx, chatId: string): Promise<{ chat: ChatRow; scope: CommunityScope | null }> {
+export async function lockGroupScope(
+  tx: Tx,
+  chatId: string,
+): Promise<{ chat: ChatRow; scope: CommunityScope | null }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const pre = await getChat(tx, chatId);
     if (!pre) throw notFound('Chat');
@@ -287,7 +363,8 @@ export async function lockGroupScope(tx: Tx, chatId: string): Promise<{ chat: Ch
         if (!linked) {
           const [chat] = await lockChats(sp, [chatId]);
           if (!chat) throw notFound('Chat');
-          if (chat.communityId && !chat.isAnnouncement && chat.communityId !== communityId) throw new GroupLinkChanged(); // linked meanwhile
+          if (chat.communityId && !chat.isAnnouncement && chat.communityId !== communityId)
+            throw new GroupLinkChanged(); // linked meanwhile
           return { chat, scope: null };
         }
         const scope = await lockCommunityScope(sp, communityId, { extraChatIds: [chatId] });
@@ -329,29 +406,56 @@ export async function addCommunityMembers(
   const existing = await tx
     .select({ userId: communityMembers.userId })
     .from(communityMembers)
-    .where(and(eq(communityMembers.communityId, scope.community.id), inArray(communityMembers.userId, ids)));
+    .where(
+      and(
+        eq(communityMembers.communityId, scope.community.id),
+        inArray(communityMembers.userId, ids),
+      ),
+    );
   const known = new Set(existing.map((r) => r.userId));
   // Accounts deleted meanwhile never become members (see lockLiveUsers).
-  const live = await lockLiveUsers(tx, ids.filter((id) => !known.has(id)));
+  const live = await lockLiveUsers(
+    tx,
+    ids.filter((id) => !known.has(id)),
+  );
   const fresh = ids.filter((id) => !known.has(id) && live.has(id));
   if (fresh.length === 0) return [];
   if ((await communityMemberCount(tx, scope.community.id)) + fresh.length > MAX_GROUP_MEMBERS) {
     throw limitReached(`A community can have at most ${MAX_GROUP_MEMBERS} members`);
   }
   const now = new Date();
-  await tx.insert(communityMembers).values(fresh.map((userId) => ({ communityId: scope.community.id, userId, role: 'member' as const, joinedAt: now })));
+  await tx.insert(communityMembers).values(
+    fresh.map((userId) => ({
+      communityId: scope.community.id,
+      userId,
+      role: 'member' as const,
+      joinedAt: now,
+    })),
+  );
 
   // Mirror into the announcement group (skip rows that are somehow already active).
   const annActive = await tx
     .select({ userId: chatMembers.userId })
     .from(chatMembers)
-    .where(and(eq(chatMembers.chatId, scope.ann.id), inArray(chatMembers.userId, fresh), isNull(chatMembers.leftAt)));
+    .where(
+      and(
+        eq(chatMembers.chatId, scope.ann.id),
+        inArray(chatMembers.userId, fresh),
+        isNull(chatMembers.leftAt),
+      ),
+    );
   const alreadyActive = new Set(annActive.map((r) => r.userId));
   const toActivate = fresh.filter((id) => !alreadyActive.has(id));
   if (toActivate.length) {
-    await upsertMembership(tx, fx, { kind: 'activate', chatId: scope.ann.id, userIds: toActivate, addedBy: opts.addedBy });
+    await upsertMembership(tx, fx, {
+      kind: 'activate',
+      chatId: scope.ann.id,
+      userIds: toActivate,
+      addedBy: opts.addedBy,
+    });
   }
-  if (opts.upsert !== false) for (const userId of fresh) communityUpsert(fx, userId, scope.community.id);
+  if (opts.upsert !== false)
+    for (const userId of fresh) communityUpsert(fx, userId, scope.community.id);
   fx.memberCountChanged(scope.ann.id).membersChanged(scope.ann);
   return fresh;
 }
@@ -362,7 +466,11 @@ export async function addCommunityMembers(
  * system message. Registers `community:upsert` + `chat:upsert(ann)` → U(new owner).
  * Returns the new owner, or null when the community has no members left (or has an owner).
  */
-export async function ensureCommunityOwner(tx: Tx, fx: Effects, scope: CommunityScope): Promise<string | null> {
+export async function ensureCommunityOwner(
+  tx: Tx,
+  fx: Effects,
+  scope: CommunityScope,
+): Promise<string | null> {
   const communityId = scope.community.id;
   const [owner] = await tx
     .select({ userId: communityMembers.userId })
@@ -374,17 +482,32 @@ export async function ensureCommunityOwner(tx: Tx, fx: Effects, scope: Community
     .select({ userId: communityMembers.userId })
     .from(communityMembers)
     .where(eq(communityMembers.communityId, communityId))
-    .orderBy(sql`${communityMembers.role} = 'admin' desc`, asc(communityMembers.joinedAt), asc(communityMembers.userId))
+    .orderBy(
+      sql`${communityMembers.role} = 'admin' desc`,
+      asc(communityMembers.joinedAt),
+      asc(communityMembers.userId),
+    )
     .limit(1);
   if (!candidate) return null;
   await tx
     .update(communityMembers)
     .set({ role: 'owner' })
-    .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, candidate.userId)));
+    .where(
+      and(
+        eq(communityMembers.communityId, communityId),
+        eq(communityMembers.userId, candidate.userId),
+      ),
+    );
   await tx
     .update(chatMembers)
     .set({ role: 'owner' })
-    .where(and(eq(chatMembers.chatId, scope.ann.id), eq(chatMembers.userId, candidate.userId), isNull(chatMembers.leftAt)));
+    .where(
+      and(
+        eq(chatMembers.chatId, scope.ann.id),
+        eq(chatMembers.userId, candidate.userId),
+        isNull(chatMembers.leftAt),
+      ),
+    );
   communityUpsert(fx, candidate.userId, communityId);
   fx.chatUpsert(candidate.userId, scope.ann.id);
   return candidate.userId;
@@ -418,14 +541,24 @@ export async function removeCommunityMember(
       chatId: group.id,
       userId,
       reason: opts.reason,
-      systemEvent: opts.reason === 'removed' ? { kind: 'member_removed', actorId: opts.actorId, userId } : { kind: 'member_left', actorId: userId },
+      systemEvent:
+        opts.reason === 'removed'
+          ? { kind: 'member_removed', actorId: opts.actorId, userId }
+          : { kind: 'member_left', actorId: userId },
     });
     fx.memberCountChanged(group.id).membersChanged(group);
   }
 
   const annRow = await getMembership(tx, scope.ann.id, userId);
   if (annRow && !annRow.leftAt) {
-    await upsertMembership(tx, fx, { kind: 'deactivate', chatId: scope.ann.id, userId, reason: opts.reason, hide: true, succession: false });
+    await upsertMembership(tx, fx, {
+      kind: 'deactivate',
+      chatId: scope.ann.id,
+      userId,
+      reason: opts.reason,
+      hide: true,
+      succession: false,
+    });
   } else if (annRow && !annRow.hidden) {
     await tx
       .update(chatMembers)
@@ -435,7 +568,14 @@ export async function removeCommunityMember(
   }
   fx.memberCountChanged(scope.ann.id).membersChanged(scope.ann);
 
-  await tx.delete(communityMembers).where(and(eq(communityMembers.communityId, scope.community.id), eq(communityMembers.userId, userId)));
+  await tx
+    .delete(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityId, scope.community.id),
+        eq(communityMembers.userId, userId),
+      ),
+    );
   fx.toUser(userId, 'community:removed', { communityId: scope.community.id });
 
   if (member.role !== 'owner') return { newOwnerId: null, deactivated: false };
@@ -464,8 +604,16 @@ export async function deactivateCommunity(
   const { community, ann } = scope;
   const memberIds = await communityMemberIds(tx, community.id);
   for (const group of scope.groups) {
-    await postSystemMessage(tx, fx, group, { kind: 'removed_from_community', actorId, communityId: community.id, communityName: community.name });
-    await tx.update(chats).set({ communityId: null, updatedAt: new Date() }).where(eq(chats.id, group.id));
+    await postSystemMessage(tx, fx, group, {
+      kind: 'removed_from_community',
+      actorId,
+      communityId: community.id,
+      communityName: community.name,
+    });
+    await tx
+      .update(chats)
+      .set({ communityId: null, updatedAt: new Date() })
+      .where(eq(chats.id, group.id));
     fx.chatUpdated(group.id, { communityId: null });
   }
   // A live call in the announcement group ends properly (call:ended, ring-stops, sockets
@@ -474,7 +622,8 @@ export async function deactivateCommunity(
   fx.toChat(ann.id, 'chat:removed', { chatId: ann.id }).clearRoom(ann.id);
   await tx.delete(chats).where(eq(chats.id, ann.id));
   await tx.delete(communities).where(eq(communities.id, community.id));
-  if (opts.notify !== false && memberIds.length) fx.toUsers(memberIds, 'community:removed', { communityId: community.id });
+  if (opts.notify !== false && memberIds.length)
+    fx.toUsers(memberIds, 'community:removed', { communityId: community.id });
   return memberIds;
 }
 
@@ -488,11 +637,25 @@ export async function deactivateCommunity(
  * community cascade for its active members (no per-user upsert: the caller registers
  * `communityUpsertAll` once at the end). `group` must be locked in the scope's lock call.
  */
-export async function linkGroup(tx: Tx, fx: Effects, scope: CommunityScope, group: ChatRow, actorId: string): Promise<string[]> {
+export async function linkGroup(
+  tx: Tx,
+  fx: Effects,
+  scope: CommunityScope,
+  group: ChatRow,
+  actorId: string,
+): Promise<string[]> {
   const { community } = scope;
-  await tx.update(chats).set({ communityId: community.id, updatedAt: new Date() }).where(eq(chats.id, group.id));
+  await tx
+    .update(chats)
+    .set({ communityId: community.id, updatedAt: new Date() })
+    .where(eq(chats.id, group.id));
   const linked = { ...group, communityId: community.id };
-  await postSystemMessage(tx, fx, linked, { kind: 'added_to_community', actorId, communityId: community.id, communityName: community.name });
+  await postSystemMessage(tx, fx, linked, {
+    kind: 'added_to_community',
+    actorId,
+    communityId: community.id,
+    communityName: community.name,
+  });
   fx.chatUpdated(group.id, { communityId: community.id });
   const members = await tx
     .select({ userId: chatMembers.userId })
@@ -513,10 +676,24 @@ export async function linkGroup(tx: Tx, fx: Effects, scope: CommunityScope, grou
  * `community_id = null` → `chat:updated {communityId: null}` → R(g). Nobody leaves the
  * community. The caller registers `communityUpsertAll`.
  */
-export async function unlinkGroup(tx: Tx, fx: Effects, scope: CommunityScope, group: ChatRow, actorId: string): Promise<void> {
+export async function unlinkGroup(
+  tx: Tx,
+  fx: Effects,
+  scope: CommunityScope,
+  group: ChatRow,
+  actorId: string,
+): Promise<void> {
   const { community } = scope;
-  await postSystemMessage(tx, fx, group, { kind: 'removed_from_community', actorId, communityId: community.id, communityName: community.name });
-  await tx.update(chats).set({ communityId: null, updatedAt: new Date() }).where(eq(chats.id, group.id));
+  await postSystemMessage(tx, fx, group, {
+    kind: 'removed_from_community',
+    actorId,
+    communityId: community.id,
+    communityName: community.name,
+  });
+  await tx
+    .update(chats)
+    .set({ communityId: null, updatedAt: new Date() })
+    .where(eq(chats.id, group.id));
   fx.chatUpdated(group.id, { communityId: null });
   scope.groups = scope.groups.filter((g) => g.id !== group.id);
 }

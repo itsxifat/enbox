@@ -18,7 +18,12 @@ import { chats } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
 import { badRequest, forbidden, notFound } from '../../lib/errors.js';
 import { parse } from '../../lib/validate.js';
-import { activeMemberRows, getMembership, isAdminRole, requirePermission } from '../../services/chats.js';
+import {
+  activeMemberRows,
+  getMembership,
+  isAdminRole,
+  requirePermission,
+} from '../../services/chats.js';
 import { communityUpsert, lockGroupScope } from '../../services/communities.js';
 import { transact } from '../../services/effects.js';
 import { generateUniqueInviteCode } from '../../services/invites.js';
@@ -26,7 +31,13 @@ import { mediaUrl, requireAvatarMedia } from '../../services/media.js';
 import { changeRole, transferOwnership, upsertMembership } from '../../services/membership.js';
 import { toChatSummary } from '../../services/summaries.js';
 import { postSystemMessage } from '../../services/system.js';
-import { addGroupMembersTx, createGroupTx, ensureInviteCode, normDescription, requireGroupAccess } from './service.js';
+import {
+  addGroupMembersTx,
+  createGroupTx,
+  ensureInviteCode,
+  normDescription,
+  requireGroupAccess,
+} from './service.js';
 
 /**
  * Groups module — owns: /groups/* (type 'group', never announcement groups: those are
@@ -37,7 +48,11 @@ export const router = Router();
 
 const chatParams = idParamSchema('chatId');
 const memberParams = idParamSchema('chatId', 'userId');
-const SETTING_KEYS: (keyof GroupSettings)[] = ['onlyAdminsCanSend', 'onlyAdminsCanEditInfo', 'onlyAdminsCanAddMembers'];
+const SETTING_KEYS: (keyof GroupSettings)[] = [
+  'onlyAdminsCanSend',
+  'onlyAdminsCanEditInfo',
+  'onlyAdminsCanAddMembers',
+];
 
 async function summaryOf(userId: string, chatId: string) {
   const chat = await toChatSummary(db, userId, chatId);
@@ -82,7 +97,9 @@ router.patch('/groups/:chatId', async (req, res) => {
       events.push({ kind: 'description_changed', actorId: me });
     }
     if (body.avatarMediaId !== undefined && body.avatarMediaId !== chat.avatarMediaId) {
-      const avatar = body.avatarMediaId ? await requireAvatarMedia(tx, body.avatarMediaId, me) : null;
+      const avatar = body.avatarMediaId
+        ? await requireAvatarMedia(tx, body.avatarMediaId, me)
+        : null;
       set.avatarMediaId = avatar?.id ?? null;
       changes.avatarUrl = avatar ? mediaUrl(avatar.storageKey) : null;
       events.push({ kind: 'avatar_changed', actorId: me });
@@ -117,8 +134,17 @@ router.patch('/groups/:chatId/settings', async (req, res) => {
       }
     }
     if (changed.length === 0) return;
-    await tx.update(chats).set({ groupSettings: next, updatedAt: new Date() }).where(eq(chats.id, chatId));
-    for (const key of changed) await postSystemMessage(tx, fx, access.chat, { kind: 'settings_changed', actorId: me, setting: key, value: next[key] });
+    await tx
+      .update(chats)
+      .set({ groupSettings: next, updatedAt: new Date() })
+      .where(eq(chats.id, chatId));
+    for (const key of changed)
+      await postSystemMessage(tx, fx, access.chat, {
+        kind: 'settings_changed',
+        actorId: me,
+        setting: key,
+        value: next[key],
+      });
     fx.chatUpdated(chatId, { groupSettings: next });
   });
   res.json(await summaryOf(me, chatId));
@@ -135,7 +161,12 @@ router.post('/groups/:chatId/members', async (req, res) => {
     requirePermission(access, 'canAddMembers', 'Only admins can add members');
     return addGroupMembersTx(tx, fx, { chat, scope, actorId: me, userIds });
   });
-  const out: AddMembersResult = { chat: await summaryOf(me, chatId), added: plan.toAdd, needsInvite: plan.needsInvite, failed: plan.failed };
+  const out: AddMembersResult = {
+    chat: await summaryOf(me, chatId),
+    added: plan.toAdd,
+    needsInvite: plan.needsInvite,
+    failed: plan.failed,
+  };
   res.json(out);
 });
 
@@ -175,7 +206,10 @@ router.put('/groups/:chatId/members/:userId/role', async (req, res) => {
       chatId,
       userId,
       role,
-      systemEvent: role === 'admin' ? { kind: 'admin_promoted', actorId: me, userId } : { kind: 'admin_demoted', actorId: me, userId },
+      systemEvent:
+        role === 'admin'
+          ? { kind: 'admin_promoted', actorId: me, userId }
+          : { kind: 'admin_demoted', actorId: me, userId },
     });
     if (changed) fx.membersChanged(access.chat);
   });
@@ -191,7 +225,12 @@ router.post('/groups/:chatId/transfer-ownership', async (req, res) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
     if (access.member.role !== 'owner') throw forbidden('Only the owner can transfer ownership');
     if (userId === me) throw badRequest('You already own this group');
-    await transferOwnership(tx, fx, { chatId, fromUserId: me, toUserId: userId, systemEvent: { kind: 'owner_transferred', actorId: me, userId } });
+    await transferOwnership(tx, fx, {
+      chatId,
+      fromUserId: me,
+      toUserId: userId,
+      systemEvent: { kind: 'owner_transferred', actorId: me, userId },
+    });
     fx.membersChanged(access.chat);
   });
   res.status(204).end();
@@ -203,7 +242,13 @@ router.post('/groups/:chatId/leave', async (req, res) => {
   const { chatId } = parse(chatParams, req.params);
   await transact(async (tx, fx) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
-    await upsertMembership(tx, fx, { kind: 'deactivate', chatId, userId: me, reason: 'left', systemEvent: { kind: 'member_left', actorId: me } });
+    await upsertMembership(tx, fx, {
+      kind: 'deactivate',
+      chatId,
+      userId: me,
+      reason: 'left',
+      systemEvent: { kind: 'member_left', actorId: me },
+    });
     fx.memberCountChanged(chatId).membersChanged(access.chat);
     if (access.chat.communityId) communityUpsert(fx, me, access.chat.communityId);
   });
@@ -230,10 +275,15 @@ router.post('/groups/:chatId/invite/reset', async (req, res) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
     if (!isAdminRole(access.member.role)) throw forbidden('Only admins can reset the invite link');
     const next = await generateUniqueInviteCode(tx);
-    await tx.update(chats).set({ inviteCode: next, updatedAt: new Date() }).where(eq(chats.id, chatId));
+    await tx
+      .update(chats)
+      .set({ inviteCode: next, updatedAt: new Date() })
+      .where(eq(chats.id, chatId));
     await postSystemMessage(tx, fx, access.chat, { kind: 'invite_link_reset', actorId: me });
     const adminsOnly = access.chat.groupSettings?.onlyAdminsCanAddMembers ?? false;
-    const inviters = (await activeMemberRows(tx, chatId)).filter((m) => !adminsOnly || isAdminRole(m.role)).map((m) => m.userId);
+    const inviters = (await activeMemberRows(tx, chatId))
+      .filter((m) => !adminsOnly || isAdminRole(m.role))
+      .map((m) => m.userId);
     fx.chatUpsert(inviters, chatId);
     return next;
   });

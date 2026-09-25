@@ -23,7 +23,12 @@ export interface DomainEventMap {
    * channels, which never push). Push rules (system/call messages, mutes, settings) are the
    * consumer's job.
    */
-  'message.created': { message: MessageRow; chat: ChatRow; recipientIds: string[]; withheldUserIds: string[] };
+  'message.created': {
+    message: MessageRow;
+    chat: ChatRow;
+    recipientIds: string[];
+    withheldUserIds: string[];
+  };
   /** The user's read position changed (`clearedUnread`: unread messages or the marked-unread flag were cleared → dismiss push). */
   'chat.read': { userId: string; chatId: string; lastReadSeq: number; clearedUnread: boolean };
   /** A user stopped being an active member of a chat (left, removed, unfollowed, hidden announcement row). Calls: forced leave. */
@@ -31,9 +36,23 @@ export interface DomainEventMap {
   /** Users module (`PUT /blocks/:userId`): a new block. Calls: forced leave of a live call between the two. */
   'user.blocked': { blockerId: string; blockedId: string };
   /** Calls module: invitees were rung (`silentUserIds` ring silently: log only, no push). */
-  'call.ringing': { callId: string; chatId: string; callerId: string; callType: CallType; isGroup: boolean; userIds: string[]; silentUserIds: string[] };
+  'call.ringing': {
+    callId: string;
+    chatId: string;
+    callerId: string;
+    callType: CallType;
+    isGroup: boolean;
+    userIds: string[];
+    silentUserIds: string[];
+  };
   /** Calls module: a user's ringing stopped (push `call_cancel`; body "Missed call" when `finalStatus` is missed). */
-  'call.ring-stopped': { callId: string; chatId: string; userId: string; reason: RingStopReason; finalStatus: CallParticipantStatus };
+  'call.ring-stopped': {
+    callId: string;
+    chatId: string;
+    userId: string;
+    reason: RingStopReason;
+    finalStatus: CallParticipantStatus;
+  };
   /** Calls module: a call reached a terminal status. */
   'call.ended': { callId: string; chatId: string; status: CallStatus; participantIds: string[] };
 }
@@ -63,7 +82,9 @@ class DomainEventBus {
       try {
         const r = listener(payload);
         if (r && typeof (r as Promise<void>).catch === 'function') {
-          (r as Promise<void>).catch((err) => logger.error({ err, event }, 'domain event listener failed'));
+          (r as Promise<void>).catch((err) =>
+            logger.error({ err, event }, 'domain event listener failed'),
+          );
         }
       } catch (err) {
         logger.error({ err, event }, 'domain event listener failed');

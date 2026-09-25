@@ -214,19 +214,50 @@ export const ORPHAN_MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
 export const MEDIA_MIME_ALLOWLIST = {
   image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
   video: ['video/mp4', 'video/webm', 'video/quicktime'],
-  audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/webm', 'audio/wav', 'audio/opus', 'video/webm', 'video/mp4'],
-  voice: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/webm', 'audio/wav', 'audio/opus', 'video/webm', 'video/mp4'],
+  audio: [
+    'audio/mpeg',
+    'audio/mp4',
+    'audio/aac',
+    'audio/ogg',
+    'audio/webm',
+    'audio/wav',
+    'audio/opus',
+    'video/webm',
+    'video/mp4',
+  ],
+  voice: [
+    'audio/mpeg',
+    'audio/mp4',
+    'audio/aac',
+    'audio/ogg',
+    'audio/webm',
+    'audio/wav',
+    'audio/opus',
+    'video/webm',
+    'video/mp4',
+  ],
   file: null,
-} as const satisfies Record<'image' | 'video' | 'audio' | 'voice' | 'file', readonly string[] | null>;
+} as const satisfies Record<
+  'image' | 'video' | 'audio' | 'voice' | 'file',
+  readonly string[] | null
+>;
 
 // ---------------------------------------------------------------------------
 // Web push
 // ---------------------------------------------------------------------------
 
 /** Push endpoints must be https on one of these hosts ... */
-export const PUSH_SERVICE_HOSTS = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com'] as const;
+export const PUSH_SERVICE_HOSTS = [
+  'fcm.googleapis.com',
+  'updates.push.services.mozilla.com',
+  'web.push.apple.com',
+] as const;
 /** ... or on a subdomain of one of these. */
-export const PUSH_SERVICE_HOST_SUFFIXES = ['.notify.windows.com', '.push.apple.com', '.push.services.mozilla.com'] as const;
+export const PUSH_SERVICE_HOST_SUFFIXES = [
+  '.notify.windows.com',
+  '.push.apple.com',
+  '.push.services.mozilla.com',
+] as const;
 /** TTL of message pushes (seconds). Call pushes use CALL_RING_TIMEOUT_MS / 1000. */
 export const PUSH_MESSAGE_TTL_SEC = 24 * 60 * 60;
 

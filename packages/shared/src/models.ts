@@ -429,7 +429,10 @@ export interface MessagePreview {
   type: MessageType;
   /** Text or caption (mention tokens kept), truncated to ~200 chars. Null if deleted or none. */
   text: string | null;
-  media: Pick<MediaAttachment, 'id' | 'kind' | 'url' | 'thumbnailUrl' | 'mimeType' | 'fileName' | 'durationMs'> | null;
+  media: Pick<
+    MediaAttachment,
+    'id' | 'kind' | 'url' | 'thumbnailUrl' | 'mimeType' | 'fileName' | 'durationMs'
+  > | null;
   /** The original was deleted for everyone (content fields are null). */
   deleted: boolean;
 }
@@ -683,7 +686,8 @@ export interface Call {
 }
 
 export type CallDirection = 'incoming' | 'outgoing';
-export type CallOutcome = 'answered' | 'missed' | 'declined' | 'cancelled' | 'unanswered' | 'ongoing';
+export type CallOutcome =
+  'answered' | 'missed' | 'declined' | 'cancelled' | 'unanswered' | 'ongoing';
 
 /** Row in the Calls tab (direction/outcome from `callOutcome()`). */
 export interface CallLogEntry {

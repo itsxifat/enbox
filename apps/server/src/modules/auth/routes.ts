@@ -61,7 +61,11 @@ publicRouter.get('/auth/username-available', usernameCheckLimiter, async (req, r
   const { username } = parse(usernameAvailabilityQuerySchema, req.query);
   let available = !username.startsWith(DELETED_USERNAME_PREFIX);
   if (available) {
-    const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+    const [taken] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
     available = !taken;
   }
   const response: UsernameAvailability = { available };
@@ -76,23 +80,41 @@ publicRouter.post('/auth/register', authLimiter, async (req, res) => {
 
   const out = await db
     .transaction(async (tx) => {
-      const [taken] = await tx.select({ id: users.id }).from(users).where(eq(users.username, body.username)).limit(1);
+      const [taken] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, body.username))
+        .limit(1);
       if (taken) throw conflict('This username is taken');
       if (phone) {
-        const [used] = await tx.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
+        const [used] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.phone, phone))
+          .limit(1);
         if (used) throw conflict('This phone number is already registered');
       }
       const [row] = await tx
         .insert(users)
-        .values({ username: body.username, displayName: body.displayName, phone, passwordHash, about: DEFAULT_ABOUT })
+        .values({
+          username: body.username,
+          displayName: body.displayName,
+          phone,
+          passwordHash,
+          about: DEFAULT_ABOUT,
+        })
         .returning();
-      const { token } = await createSession({ userId: row!.id, deviceName: body.deviceName, ...clientInfo(req) }, tx);
+      const { token } = await createSession(
+        { userId: row!.id, deviceName: body.deviceName, ...clientInfo(req) },
+        tx,
+      );
       return { token, userId: row!.id };
     })
     .catch((err: unknown) => {
       // Concurrent registrations: the unique indexes are the final arbiter.
       if (isUniqueViolation(err, 'users_username_uq')) throw conflict('This username is taken');
-      if (isUniqueViolation(err, 'users_phone_uq')) throw conflict('This phone number is already registered');
+      if (isUniqueViolation(err, 'users_phone_uq'))
+        throw conflict('This phone number is already registered');
       throw err;
     });
 
@@ -115,7 +137,11 @@ publicRouter.post('/auth/login', authLimiter, async (req, res) => {
   // Unknown or deleted accounts cost the same as a wrong password and fail identically.
   if (!(await checkPassword(row, body.password)) || !row) throw invalidCredentials();
 
-  const { token } = await createSession({ userId: row.id, deviceName: body.deviceName, ...clientInfo(req) });
+  const { token } = await createSession({
+    userId: row.id,
+    deviceName: body.deviceName,
+    ...clientInfo(req),
+  });
   const user = await getUserRow(db, row.id);
   if (!user || user.deletedAt) throw invalidCredentials();
   const response: AuthResponse = { token, user: toUserSelf(user) };
@@ -141,7 +167,11 @@ router.get('/auth/sessions', async (req, res) => {
     .select()
     .from(sessions)
     .where(and(eq(sessions.userId, me.userId), gt(sessions.expiresAt, new Date())))
-    .orderBy(desc(sql`${sessions.id} = ${me.sessionId}`), desc(sessions.lastActiveAt), asc(sessions.createdAt));
+    .orderBy(
+      desc(sql`${sessions.id} = ${me.sessionId}`),
+      desc(sessions.lastActiveAt),
+      asc(sessions.createdAt),
+    );
   const list: SessionInfo[] = rows.map((s) => ({
     id: s.id,
     deviceName: s.deviceName,
@@ -195,14 +225,21 @@ router.post('/auth/change-password', authLimiter, async (req, res) => {
   const me = authCtx(req);
   const body = parse(changePasswordSchema, req.body ?? {});
   const user = await requireUser(db, me.userId);
-  if (!(await checkPassword(user, body.currentPassword))) throw forbidden('Your current password is incorrect');
+  if (!(await checkPassword(user, body.currentPassword)))
+    throw forbidden('Your current password is incorrect');
   const passwordHash = await hashPassword(body.newPassword);
   await transact(async (tx, fx) => {
     // Compare-and-set: a concurrent change on another device wins, this one fails.
     const updated = await tx
       .update(users)
       .set({ passwordHash, updatedAt: new Date() })
-      .where(and(eq(users.id, me.userId), eq(users.passwordHash, user.passwordHash), isNull(users.deletedAt)))
+      .where(
+        and(
+          eq(users.id, me.userId),
+          eq(users.passwordHash, user.passwordHash),
+          isNull(users.deletedAt),
+        ),
+      )
       .returning({ id: users.id });
     if (updated.length === 0) throw conflict('Your password was just changed on another device');
     const revoked = await tx

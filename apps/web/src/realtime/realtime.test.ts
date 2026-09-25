@@ -119,10 +119,14 @@ describe('message:new → chat list', () => {
     ).toMatchObject({ lastSeq: 5, lastReadSeq: 5, unreadCount: 0, markedUnread: false });
     // A lower seq from someone else after my confirmed send: already read, not fresh.
     expect(
-      messageChatPatch({ ...chat, lastSeq: 6, lastReadSeq: 6, unreadCount: 0 }, makeMessage({ seq: 5 }), {
-        me: 'me',
-        visible: false,
-      }),
+      messageChatPatch(
+        { ...chat, lastSeq: 6, lastReadSeq: 6, unreadCount: 0 },
+        makeMessage({ seq: 5 }),
+        {
+          me: 'me',
+          visible: false,
+        },
+      ),
     ).toBeNull();
   });
 });
@@ -195,7 +199,13 @@ describe('message:updated / message:removed', () => {
 
 describe('chat events', () => {
   const liveCall = (chatId: string) =>
-    ({ id: 'call-1', chatId, status: 'ongoing', isGroup: true, participants: [] }) as unknown as Call;
+    ({
+      id: 'call-1',
+      chatId,
+      status: 'ongoing',
+      isGroup: true,
+      participants: [],
+    }) as unknown as Call;
 
   it('forgets the live call of a chat I left or that was removed', () => {
     const { socket, fire } = fakeSocket();
@@ -250,9 +260,7 @@ describe('chat events', () => {
     useChats.getState().upsertChat(makeChat({ id: 'd', type: 'direct', name: null, peer: bob }));
     vi.spyOn(api, 'post').mockResolvedValue([{ ...bob, isDeleted: true }] as UserPublic[]);
     fire('user:changed', { userId: 'bob' });
-    await vi.waitFor(() =>
-      expect(useChats.getState().byId.d!.permissions.canSend).toBe(false),
-    );
+    await vi.waitFor(() => expect(useChats.getState().byId.d!.permissions.canSend).toBe(false));
     expect(useChats.getState().byId.d!.permissions.canCall).toBe(false);
     expect(useUsers.getState().byId.bob?.isDeleted).toBe(true);
   });

@@ -43,7 +43,10 @@ export async function activeDirectAndGroupChatIds(dbx: DbOrTx, userId: string): 
 
 /** Who must hear about a profile change of `userId`. */
 export async function userChangedTargets(dbx: DbOrTx, userId: string): Promise<UserChangedTargets> {
-  const [chatIds, userIds] = await Promise.all([activeDirectAndGroupChatIds(dbx, userId), usersWhoSaved(dbx, userId)]);
+  const [chatIds, userIds] = await Promise.all([
+    activeDirectAndGroupChatIds(dbx, userId),
+    usersWhoSaved(dbx, userId),
+  ]);
   return { chatIds, userIds };
 }
 

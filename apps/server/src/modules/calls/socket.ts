@@ -32,7 +32,11 @@ import {
 } from './service.js';
 import { isCallSocket } from './state.js';
 
-const actor = (ctx: SocketCtx): Actor => ({ socket: ctx.socket, userId: ctx.userId, sessionId: ctx.sessionId });
+const actor = (ctx: SocketCtx): Actor => ({
+  socket: ctx.socket,
+  userId: ctx.userId,
+  sessionId: ctx.sessionId,
+});
 
 // Late devices: after `ready`, re-emit `call:incoming` for live calls still ringing me.
 onAfterReady((socket) => reemitIncoming(socket));
@@ -41,7 +45,9 @@ onAfterReady((socket) => reemitIncoming(socket));
 domainEvents.on('member.left', ({ chatId, userId }) => forceLeaveChatCall(chatId, userId));
 
 // A block between direct-chat peers ends their live 1:1 call (docs: blocks matrix row).
-domainEvents.on('user.blocked', ({ blockerId, blockedId }) => forceLeaveDirectCall(blockerId, blockedId));
+domainEvents.on('user.blocked', ({ blockerId, blockedId }) =>
+  forceLeaveDirectCall(blockerId, blockedId),
+);
 
 // Account deletion (docs step 1): forced leave of any live call, inside the deletion tx.
 registerAccountDeletionHook('calls', (tx, fx, userId) => forceLeaveAllCallsTx(tx, fx, userId));
@@ -61,7 +67,11 @@ export const registerCallsSocket: SocketRegistrar = (_io, socket) => {
   socket.use((packet, next) => {
     if (packet[0] === 'call:leave') {
       const parsed = callIdSchema.safeParse(packet[1]);
-      if (parsed.success) pendingLeaves.set(parsed.data.callId, isCallSocket(socket, parsed.data.callId, socket.data.userId));
+      if (parsed.success)
+        pendingLeaves.set(
+          parsed.data.callId,
+          isCallSocket(socket, parsed.data.callId, socket.data.userId),
+        );
     }
     next();
   });
@@ -113,7 +123,9 @@ export const registerCallsSocket: SocketRegistrar = (_io, socket) => {
   socket.on('disconnect', () => {
     const me: Actor = { socket, userId: socket.data.userId, sessionId: socket.data.sessionId };
     for (const [callId, wasCallSocket] of pendingLeaves) {
-      leaveCall(me, callId, { wasCallSocket }).catch((err) => logger.error({ err, callId }, 'calls: leave on disconnect failed'));
+      leaveCall(me, callId, { wasCallSocket }).catch((err) =>
+        logger.error({ err, callId }, 'calls: leave on disconnect failed'),
+      );
     }
     pendingLeaves.clear();
     try {

@@ -33,12 +33,28 @@ describe('services/users', () => {
   afterAll(() => t.close());
 
   async function subjectWithProfile(overrides: Record<string, unknown> = {}) {
-    const u = await t.createUser({ displayName: 'Subject', phone: `+1555${Math.floor(1_000_000 + Math.random() * 8_999_999)}` });
+    const u = await t.createUser({
+      displayName: 'Subject',
+      phone: `+1555${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+    });
     const [m] = await db
       .insert(media)
-      .values({ uploaderId: u.id, kind: 'image', mimeType: 'image/png', size: 10, storageKey: `2026/01/${crypto.randomUUID()}.png` })
+      .values({
+        uploaderId: u.id,
+        kind: 'image',
+        mimeType: 'image/png',
+        size: 10,
+        storageKey: `2026/01/${crypto.randomUUID()}.png`,
+      })
       .returning();
-    await db.update(users).set({ avatarMediaId: m!.id, about: 'about me', lastSeenAt: new Date('2026-01-01T00:00:00Z') }).where(eq(users.id, u.id));
+    await db
+      .update(users)
+      .set({
+        avatarMediaId: m!.id,
+        about: 'about me',
+        lastSeenAt: new Date('2026-01-01T00:00:00Z'),
+      })
+      .where(eq(users.id, u.id));
     if (Object.keys(overrides).length) await setSettings(u, overrides);
     return { user: u, avatarUrl: `/uploads/${m!.storageKey}` };
   }
@@ -46,7 +62,18 @@ describe('services/users', () => {
   it('shows everything allowed by default settings except the phone (only if the subject saved me)', async () => {
     const { user, avatarUrl } = await subjectWithProfile();
     let p = (await toUserPublic(db, viewer.id, user.id))!;
-    expect(p).toMatchObject({ id: user.id, displayName: 'Subject', avatarUrl, about: 'about me', phone: null, online: false, isContact: false, contactName: null, isBlocked: false, isDeleted: false });
+    expect(p).toMatchObject({
+      id: user.id,
+      displayName: 'Subject',
+      avatarUrl,
+      about: 'about me',
+      phone: null,
+      online: false,
+      isContact: false,
+      contactName: null,
+      isBlocked: false,
+      isDeleted: false,
+    });
     expect(p.lastSeenAt).toBe('2026-01-01T00:00:00.000Z');
     await saveContact(user, viewer);
     await saveContact(viewer, user, 'My buddy');
@@ -56,7 +83,12 @@ describe('services/users', () => {
   });
 
   it("applies 'contacts' / 'nobody' levels from the SUBJECT's point of view", async () => {
-    const { user, avatarUrl } = await subjectWithProfile({ profilePhotoVisibility: 'contacts', aboutVisibility: 'nobody', lastSeenVisibility: 'contacts', onlineVisibility: 'same_as_last_seen' });
+    const { user, avatarUrl } = await subjectWithProfile({
+      profilePhotoVisibility: 'contacts',
+      aboutVisibility: 'nobody',
+      lastSeenVisibility: 'contacts',
+      onlineVisibility: 'same_as_last_seen',
+    });
     let p = (await toUserPublic(db, viewer.id, user.id))!;
     expect(p).toMatchObject({ avatarUrl: null, about: null, online: null, lastSeenAt: null });
     await saveContact(viewer, user); // I saved them: irrelevant
@@ -64,7 +96,12 @@ describe('services/users', () => {
     expect(p.avatarUrl).toBeNull();
     await saveContact(user, viewer); // they saved me
     p = (await toUserPublic(db, viewer.id, user.id))!;
-    expect(p).toMatchObject({ avatarUrl, about: null, online: false, lastSeenAt: '2026-01-01T00:00:00.000Z' });
+    expect(p).toMatchObject({
+      avatarUrl,
+      about: null,
+      online: false,
+      lastSeenAt: '2026-01-01T00:00:00.000Z',
+    });
   });
 
   it("onlineVisibility 'everyone' shows online even when last seen is hidden", async () => {
@@ -86,7 +123,14 @@ describe('services/users', () => {
     await saveContact(user, viewer);
     await block(user, viewer);
     const p = (await toUserPublic(db, viewer.id, user.id))!;
-    expect(p).toMatchObject({ avatarUrl: null, about: null, phone: null, online: null, lastSeenAt: null, isBlocked: false });
+    expect(p).toMatchObject({
+      avatarUrl: null,
+      about: null,
+      phone: null,
+      online: null,
+      lastSeenAt: null,
+      isBlocked: false,
+    });
     expect(p.displayName).toBe('Subject');
   });
 
@@ -94,12 +138,28 @@ describe('services/users', () => {
     const { user, avatarUrl } = await subjectWithProfile();
     await block(viewer, user);
     const p = (await toUserPublic(db, viewer.id, user.id))!;
-    expect(p).toMatchObject({ avatarUrl, about: 'about me', online: null, lastSeenAt: null, isBlocked: true });
-    expect(canSeePresence(viewer.id, { id: user.id, settings: {}, deletedAt: null }, await loadRelationship(db, viewer.id, user.id))).toEqual({ canSeeOnline: false, canSeeLastSeen: false });
+    expect(p).toMatchObject({
+      avatarUrl,
+      about: 'about me',
+      online: null,
+      lastSeenAt: null,
+      isBlocked: true,
+    });
+    expect(
+      canSeePresence(
+        viewer.id,
+        { id: user.id, settings: {}, deletedAt: null },
+        await loadRelationship(db, viewer.id, user.id),
+      ),
+    ).toEqual({ canSeeOnline: false, canSeeLastSeen: false });
   });
 
   it('deleted accounts render as "Deleted account" with everything null; self view is complete', async () => {
-    const { user } = await subjectWithProfile({ aboutVisibility: 'nobody', profilePhotoVisibility: 'nobody', lastSeenVisibility: 'nobody' });
+    const { user } = await subjectWithProfile({
+      aboutVisibility: 'nobody',
+      profilePhotoVisibility: 'nobody',
+      lastSeenVisibility: 'nobody',
+    });
     const self = (await toUserPublic(db, user.id, user.id))!;
     expect(self.about).toBe('about me');
     expect(self.avatarUrl).not.toBeNull();
@@ -133,7 +193,10 @@ describe('services/users', () => {
     const a = await t.createUser();
     const b = await t.createUser();
     const unknown = crypto.randomUUID();
-    expect((await toUserPublics(db, viewer.id, [b.id, unknown, a.id])).map((u) => u.id)).toEqual([b.id, a.id]);
+    expect((await toUserPublics(db, viewer.id, [b.id, unknown, a.id])).map((u) => u.id)).toEqual([
+      b.id,
+      a.id,
+    ]);
     expect([...(await toUserPublicMap(db, viewer.id, [a.id])).keys()]).toEqual([a.id]);
     await block(a, viewer);
     expect(await isBlocked(db, a.id, viewer.id)).toBe(true);
@@ -157,11 +220,37 @@ describe('services/users', () => {
 
   it('requireOwnedMedia: 404 unless mine; 400 on kind/type/size mismatch', async () => {
     const other = await t.createUser();
-    const [mine] = await db.insert(media).values({ uploaderId: viewer.id, kind: 'image', mimeType: 'image/gif', size: 10, storageKey: `k/${crypto.randomUUID()}.gif` }).returning();
-    const [theirs] = await db.insert(media).values({ uploaderId: other.id, kind: 'image', mimeType: 'image/png', size: 10, storageKey: `k/${crypto.randomUUID()}.png` }).returning();
-    expect((await requireOwnedMedia(db, mine!.id, viewer.id, { kinds: ['image'] })).id).toBe(mine!.id);
-    await expect(requireOwnedMedia(db, theirs!.id, viewer.id)).rejects.toMatchObject({ status: 404 });
-    await expect(requireOwnedMedia(db, mine!.id, viewer.id, { kinds: ['video'] })).rejects.toMatchObject({ status: 400 });
-    await expect(requireAvatarMedia(db, mine!.id, viewer.id)).rejects.toMatchObject({ status: 400 }); // GIF is not an avatar type
+    const [mine] = await db
+      .insert(media)
+      .values({
+        uploaderId: viewer.id,
+        kind: 'image',
+        mimeType: 'image/gif',
+        size: 10,
+        storageKey: `k/${crypto.randomUUID()}.gif`,
+      })
+      .returning();
+    const [theirs] = await db
+      .insert(media)
+      .values({
+        uploaderId: other.id,
+        kind: 'image',
+        mimeType: 'image/png',
+        size: 10,
+        storageKey: `k/${crypto.randomUUID()}.png`,
+      })
+      .returning();
+    expect((await requireOwnedMedia(db, mine!.id, viewer.id, { kinds: ['image'] })).id).toBe(
+      mine!.id,
+    );
+    await expect(requireOwnedMedia(db, theirs!.id, viewer.id)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      requireOwnedMedia(db, mine!.id, viewer.id, { kinds: ['video'] }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(requireAvatarMedia(db, mine!.id, viewer.id)).rejects.toMatchObject({
+      status: 400,
+    }); // GIF is not an avatar type
   });
 });

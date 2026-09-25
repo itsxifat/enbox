@@ -25,12 +25,27 @@ describe('account deletion: communities and channels', () => {
 
   const makeUsers = (n: number) => Promise.all(Array.from({ length: n }, () => t.createUser()));
   const api = (u: TestUser) => t.api(u);
-  const deleteAccount = (u: TestUser) => transact((tx, fx) => runAccountDeletionHooks(tx, fx, u.id));
+  const deleteAccount = (u: TestUser) =>
+    transact((tx, fx) => runAccountDeletionHooks(tx, fx, u.id));
 
-  async function communityWith(owner: TestUser, groupIds: string[], members: TestUser[], admins: TestUser[] = []): Promise<Community> {
-    const c = (await api(owner).post('/api/communities').send({ name: 'C', groupIds }).expect(201)).body as Community;
-    if (members.length) await api(owner).post(`/api/communities/${c.id}/members`).send({ userIds: members.map((m) => m.id) }).expect(200);
-    for (const a of admins) await api(owner).put(`/api/communities/${c.id}/members/${a.id}/role`).send({ role: 'admin' }).expect(204);
+  async function communityWith(
+    owner: TestUser,
+    groupIds: string[],
+    members: TestUser[],
+    admins: TestUser[] = [],
+  ): Promise<Community> {
+    const c = (await api(owner).post('/api/communities').send({ name: 'C', groupIds }).expect(201))
+      .body as Community;
+    if (members.length)
+      await api(owner)
+        .post(`/api/communities/${c.id}/members`)
+        .send({ userIds: members.map((m) => m.id) })
+        .expect(200);
+    for (const a of admins)
+      await api(owner)
+        .put(`/api/communities/${c.id}/members/${a.id}/role`)
+        .send({ role: 'admin' })
+        .expect(204);
     return c;
   }
 
@@ -42,16 +57,35 @@ describe('account deletion: communities and channels', () => {
     const [aRec, mRec] = conns.sockets.map((s) => recordEvents(s));
     await deleteAccount(owner!);
     await settle();
-    expect(await db.select().from(communityMembers).where(and(eq(communityMembers.communityId, c.id), eq(communityMembers.userId, owner!.id)))).toEqual([]);
-    const [newOwner] = await db.select().from(communityMembers).where(and(eq(communityMembers.communityId, c.id), eq(communityMembers.role, 'owner')));
+    expect(
+      await db
+        .select()
+        .from(communityMembers)
+        .where(and(eq(communityMembers.communityId, c.id), eq(communityMembers.userId, owner!.id))),
+    ).toEqual([]);
+    const [newOwner] = await db
+      .select()
+      .from(communityMembers)
+      .where(and(eq(communityMembers.communityId, c.id), eq(communityMembers.role, 'owner')));
     expect(newOwner!.userId).toBe(admin!.id);
     expect((await memberRow(c.announcementChatId, admin!)).role).toBe('owner');
-    expect(await memberRow(c.announcementChatId, owner!)).toMatchObject({ hidden: true, leftReason: 'left', role: 'member' });
+    expect(await memberRow(c.announcementChatId, owner!)).toMatchObject({
+      hidden: true,
+      leftReason: 'left',
+      role: 'member',
+    });
     expect((await systemKinds(g)).slice(-2)).toEqual(['member_left', 'owner_changed']);
     expect((await summary(member!, g))!.myRole).toBe('owner'); // group succession
     expect(aRec!.of('community:upsert').at(-1)!.community.myRole).toBe('owner');
-    expect(aRec!.of('chat:upsert').some((p) => p.chat.id === c.announcementChatId && p.chat.myRole === 'owner')).toBe(true);
-    expect(mRec!.of('message:new').map((p) => p.message.system?.kind)).toEqual(['member_left', 'owner_changed']);
+    expect(
+      aRec!
+        .of('chat:upsert')
+        .some((p) => p.chat.id === c.announcementChatId && p.chat.myRole === 'owner'),
+    ).toBe(true);
+    expect(mRec!.of('message:new').map((p) => p.message.system?.kind)).toEqual([
+      'member_left',
+      'owner_changed',
+    ]);
     await conns.close();
   });
 
@@ -71,19 +105,46 @@ describe('account deletion: communities and channels', () => {
     const g = await createGroup(owner!, [member!]);
     const c = await communityWith(owner!, [g], []);
     // Accounts module left the regular group (and even the announcement group) first.
-    await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'deactivate', chatId: g, userId: member!.id, reason: 'left', systemEvent: { kind: 'member_left', actorId: member!.id } }));
-    await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'deactivate', chatId: c.announcementChatId, userId: member!.id, reason: 'left' }));
+    await transact((tx, fx) =>
+      upsertMembership(tx, fx, {
+        kind: 'deactivate',
+        chatId: g,
+        userId: member!.id,
+        reason: 'left',
+        systemEvent: { kind: 'member_left', actorId: member!.id },
+      }),
+    );
+    await transact((tx, fx) =>
+      upsertMembership(tx, fx, {
+        kind: 'deactivate',
+        chatId: c.announcementChatId,
+        userId: member!.id,
+        reason: 'left',
+      }),
+    );
     await deleteAccount(member!);
-    expect(await db.select().from(communityMembers).where(and(eq(communityMembers.communityId, c.id), eq(communityMembers.userId, member!.id)))).toEqual([]);
+    expect(
+      await db
+        .select()
+        .from(communityMembers)
+        .where(
+          and(eq(communityMembers.communityId, c.id), eq(communityMembers.userId, member!.id)),
+        ),
+    ).toEqual([]);
     expect(await memberRow(c.announcementChatId, member!)).toMatchObject({ hidden: true });
     expect((await systemKinds(g)).filter((k) => k === 'member_left')).toHaveLength(1);
   });
 
   it('channels: follower rows deleted; owned channels pass to the oldest admin or are deleted', async () => {
     const [owner, admin, follower] = await makeUsers(3);
-    const withAdmin = (await api(owner!).post('/api/channels').send({ name: 'Keeps going' }).expect(201)).body as ChatSummary;
-    const noAdmin = (await api(owner!).post('/api/channels').send({ name: 'Ends' }).expect(201)).body as ChatSummary;
-    const theirs = (await api(admin!).post('/api/channels').send({ name: 'Someone else' }).expect(201)).body as ChatSummary;
+    const withAdmin = (
+      await api(owner!).post('/api/channels').send({ name: 'Keeps going' }).expect(201)
+    ).body as ChatSummary;
+    const noAdmin = (await api(owner!).post('/api/channels').send({ name: 'Ends' }).expect(201))
+      .body as ChatSummary;
+    const theirs = (
+      await api(admin!).post('/api/channels').send({ name: 'Someone else' }).expect(201)
+    ).body as ChatSummary;
     for (const ch of [withAdmin, noAdmin]) {
       await api(admin!).put(`/api/channels/${ch.id}/follow`).expect(200);
       await api(follower!).put(`/api/channels/${ch.id}/follow`).expect(200);
@@ -96,12 +157,18 @@ describe('account deletion: communities and channels', () => {
     await deleteAccount(owner!);
     await settle();
     expect((await memberRow(withAdmin.id, admin!)).role).toBe('owner');
-    expect(aRec!.of('chat:upsert').some((p) => p.chat.id === withAdmin.id && p.chat.myRole === 'owner')).toBe(true);
+    expect(
+      aRec!.of('chat:upsert').some((p) => p.chat.id === withAdmin.id && p.chat.myRole === 'owner'),
+    ).toBe(true);
     expect(await db.select().from(chats).where(eq(chats.id, noAdmin.id))).toEqual([]);
     expect(fRec!.of('chat:removed')).toEqual([{ chatId: noAdmin.id }]);
-    expect(fRec!.of('chat:updated')).toEqual(expect.arrayContaining([{ chatId: withAdmin.id, changes: { memberCount: 2 } }]));
+    expect(fRec!.of('chat:updated')).toEqual(
+      expect.arrayContaining([{ chatId: withAdmin.id, changes: { memberCount: 2 } }]),
+    );
     const rows = await db.select().from(chatMembers).where(eq(chatMembers.userId, owner!.id));
-    expect(rows.filter((r) => [withAdmin.id, noAdmin.id, theirs.id].includes(r.chatId))).toEqual([]);
+    expect(rows.filter((r) => [withAdmin.id, noAdmin.id, theirs.id].includes(r.chatId))).toEqual(
+      [],
+    );
     expect((await summary(admin!, theirs.id))!.memberCount).toBe(1);
     await conns.close();
   });

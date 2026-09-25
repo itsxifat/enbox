@@ -6,15 +6,7 @@
  *   (read receipts / unread suppression) like the conversation view.
  * - Anyone else: a preview (GET /api/channels/:id → header + recent posts) with Follow.
  */
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import {
@@ -234,9 +226,7 @@ function Feed({
     showedLatest.current = !hasMoreAfter;
     if (!hasMoreAfter && toLatest.current) {
       toLatest.current = false;
-      requestAnimationFrame(() =>
-        virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end' }),
-      );
+      requestAnimationFrame(() => virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end' }));
     }
   }, [hasMoreAfter, items]);
 

@@ -25,7 +25,14 @@ import {
   type starredMessagesQuerySchema,
 } from '@enbox/shared';
 import { db, type Tx } from '../../db/index.js';
-import { chatMembers, messageReactions, messages, pollVotes, starredMessages, type MessageRow } from '../../db/schema.js';
+import {
+  chatMembers,
+  messageReactions,
+  messages,
+  pollVotes,
+  starredMessages,
+  type MessageRow,
+} from '../../db/schema.js';
 import type { MessageMetadata } from '../../db/types.js';
 import { badRequest, expired, forbidden, notFound } from '../../lib/errors.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
@@ -75,14 +82,23 @@ async function toMessageFor(viewerId: string, row: MessageRow): Promise<Message>
 
 /** Wire-shaped fields the shared `canEditMessage` / `canDeleteForEveryone` helpers need. */
 function ruleFields(row: MessageRow) {
-  return { type: row.type, senderId: row.senderId, deletedAt: row.deletedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString() };
+  return {
+    type: row.type,
+    senderId: row.senderId,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 /**
  * Load a message visible to the viewer and lock its chat (writes to messages / chat_pins lock
  * the chat first), then re-read it under the lock. Former members get `403 not_member`.
  */
-async function lockVisibleMessage(tx: Tx, viewerId: string, messageId: string): Promise<{ access: ChatAccess; message: MessageRow }> {
+async function lockVisibleMessage(
+  tx: Tx,
+  viewerId: string,
+  messageId: string,
+): Promise<{ access: ChatAccess; message: MessageRow }> {
   const first = await loadVisibleMessage(tx, viewerId, messageId);
   const access = await requireActiveMember(tx, viewerId, first.message.chatId, { lock: true });
   const { message } = await loadVisibleMessage(tx, viewerId, messageId, { chatId: access.chat.id });
@@ -94,7 +110,11 @@ async function lockVisibleMessage(tx: Tx, viewerId: string, messageId: string): 
 // ---------------------------------------------------------------------------
 
 /** `GET /chats/:chatId/messages` (docs "History paging"). */
-export function listMessages(me: string, chatId: string, query: ListMessagesQuery): Promise<MessagePage> {
+export function listMessages(
+  me: string,
+  chatId: string,
+  query: ListMessagesQuery,
+): Promise<MessagePage> {
   return loadMessagePage(db, me, chatId, query);
 }
 
@@ -111,20 +131,36 @@ function captionOf(text: string | undefined): string | null {
  * reply targets (same chat or reply privately) and status replies validated. The rest (seq,
  * expiry, mentions, withheld recipients, unhide, marks, fan-out) is `createMessage`.
  */
-export async function sendMessage(me: string, chatId: string, body: SendMessageBody): Promise<{ message: Message; created: boolean }> {
+export async function sendMessage(
+  me: string,
+  chatId: string,
+  body: SendMessageBody,
+): Promise<{ message: Message; created: boolean }> {
   assertUserLimit(me, 'sendMessage', USER_RATE_LIMITS.sendMessage);
   const { row, created } = await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
     const [existing] = await tx
       .select()
       .from(messages)
-      .where(and(eq(messages.chatId, chatId), eq(messages.senderId, me), eq(messages.clientId, body.clientId)))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(messages.senderId, me),
+          eq(messages.clientId, body.clientId),
+        ),
+      )
       .limit(1);
     if (existing) return { row: existing, created: false };
     assertCanSend(access);
 
     const metadata: MessageMetadata = {};
-    const input: CreateMessageInput = { chatId, senderId: me, type: body.type, clientId: body.clientId, metadata };
+    const input: CreateMessageInput = {
+      chatId,
+      senderId: me,
+      type: body.type,
+      clientId: body.clientId,
+      metadata,
+    };
     switch (body.type) {
       case 'text':
         input.text = body.text;
@@ -143,9 +179,14 @@ export async function sendMessage(me: string, chatId: string, body: SendMessageB
         input.mediaId = body.mediaId;
         input.text = captionOf(body.text);
     }
-    if (body.replyToId) input.replyToId = (await resolveReplyTarget(tx, me, access.chat, body.replyToId)).id;
+    if (body.replyToId)
+      input.replyToId = (await resolveReplyTarget(tx, me, access.chat, body.replyToId)).id;
     if (body.statusReplyToId) {
-      metadata.statusReply = await resolveStatusReply(tx, { senderId: me, chat: access.chat, statusId: body.statusReplyToId });
+      metadata.statusReply = await resolveStatusReply(tx, {
+        senderId: me,
+        chat: access.chat,
+        statusId: body.statusReplyToId,
+      });
     }
     const result = await createMessage(tx, fx, input);
     return { row: result.message, created: result.created };
@@ -158,7 +199,9 @@ export async function sendMessage(me: string, chatId: string, body: SendMessageB
 // ---------------------------------------------------------------------------
 
 /** What a forwarded copy keeps (docs "Forward"): type, text, media, fresh location/contact/poll. */
-function forwardedContent(src: MessageRow): Pick<CreateMessageInput, 'type' | 'text' | 'mediaId' | 'metadata'> {
+function forwardedContent(
+  src: MessageRow,
+): Pick<CreateMessageInput, 'type' | 'text' | 'mediaId' | 'metadata'> {
   const md = src.metadata ?? {};
   const metadata: MessageMetadata = {};
   if (md.location) metadata.location = { ...md.location };
@@ -183,10 +226,14 @@ function forwardedContent(src: MessageRow): Pick<CreateMessageInput, 'type' | 't
  * one window allows (`messageIds × chatIds` > USER_RATE_LIMITS.sendMessage.limit) is a
  * `400 validation_error` (it could never pass). Result: target-major, sources in request order.
  */
-export async function forwardMessages(me: string, body: ForwardBody): Promise<{ messages: Message[]; created: boolean }> {
+export async function forwardMessages(
+  me: string,
+  body: ForwardBody,
+): Promise<{ messages: Message[]; created: boolean }> {
   const rule = USER_RATE_LIMITS.sendMessage;
   const copies = body.messageIds.length * body.chatIds.length;
-  if (copies > rule.limit) throw badRequest(`A forward can create at most ${rule.limit} messages (messages × chats)`);
+  if (copies > rule.limit)
+    throw badRequest(`A forward can create at most ${rule.limit} messages (messages × chats)`);
   assertUserLimit(me, 'sendMessage', rule, copies);
   const { rows, created } = await transact(async (tx, fx) => {
     // Unlocked membership pre-check: never queue on the row lock of a chat I can't see.
@@ -200,7 +247,8 @@ export async function forwardMessages(me: string, body: ForwardBody): Promise<{ 
     const sources: MessageRow[] = [];
     for (const id of body.messageIds) {
       const { message } = await loadVisibleMessage(tx, me, id);
-      if (message.type === 'system' || message.type === 'call') throw badRequest('This message cannot be forwarded');
+      if (message.type === 'system' || message.type === 'call')
+        throw badRequest('This message cannot be forwarded');
       if (message.deletedAt) throw badRequest('This message was deleted');
       sources.push(message);
     }
@@ -228,7 +276,14 @@ export async function forwardMessages(me: string, body: ForwardBody): Promise<{ 
 // Edit & delete
 // ---------------------------------------------------------------------------
 
-const EDITABLE_TYPES = new Set<MessageRow['type']>(['text', 'image', 'video', 'audio', 'voice', 'file']);
+const EDITABLE_TYPES = new Set<MessageRow['type']>([
+  'text',
+  'image',
+  'video',
+  'audio',
+  'voice',
+  'file',
+]);
 
 /**
  * `PATCH /messages/:messageId` (docs "Edit"): text and captions only (400), not deleted (403),
@@ -242,10 +297,18 @@ export async function editMessage(me: string, messageId: string, text: string): 
     const { access, message } = await lockVisibleMessage(tx, me, messageId);
     if (!EDITABLE_TYPES.has(message.type)) throw badRequest('This message cannot be edited');
     if (message.deletedAt) throw forbidden('This message was deleted');
-    const isAuthor = access.chat.type === 'channel' ? access.permissions.canSend : message.senderId === me;
+    const isAuthor =
+      access.chat.type === 'channel' ? access.permissions.canSend : message.senderId === me;
     if (!isAuthor) throw forbidden('You can only edit your own messages');
-    if (!access.permissions.canSend) throw forbidden('You can no longer send messages in this chat');
-    if (!canEditMessage(ruleFields(message), { type: access.chat.type, permissions: access.permissions }, me)) {
+    if (!access.permissions.canSend)
+      throw forbidden('You can no longer send messages in this chat');
+    if (
+      !canEditMessage(
+        ruleFields(message),
+        { type: access.chat.type, permissions: access.permissions },
+        me,
+      )
+    ) {
       throw expired('This message can no longer be edited');
     }
     let next: string | null;
@@ -253,12 +316,17 @@ export async function editMessage(me: string, messageId: string, text: string): 
       if (!text) throw badRequest('text: Text messages need text');
       next = text;
     } else {
-      if (text.length > MAX_CAPTION_LENGTH) throw badRequest(`text: Captions are limited to ${MAX_CAPTION_LENGTH} characters`);
+      if (text.length > MAX_CAPTION_LENGTH)
+        throw badRequest(`text: Captions are limited to ${MAX_CAPTION_LENGTH} characters`);
       next = text || null;
     }
     if (next === message.text) return message;
     const mentions = await deriveMentions(tx, message.chatId, message.senderId, next);
-    const [updated] = await tx.update(messages).set({ text: next, mentions, editedAt: new Date() }).where(eq(messages.id, messageId)).returning();
+    const [updated] = await tx
+      .update(messages)
+      .set({ text: next, mentions, editedAt: new Date() })
+      .where(eq(messages.id, messageId))
+      .returning();
     fx.messageUpdated(messageId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
     return updated!;
   });
@@ -274,7 +342,11 @@ export async function editMessage(me: string, messageId: string, text: string): 
  *   admins in direct chats (403). Scrubs content and removes reactions/pins/stars/votes;
  *   `message:updated` (tombstone) → room, `chat:pins` → room if it was pinned.
  */
-export async function deleteMessage(me: string, messageId: string, scope: 'me' | 'everyone'): Promise<void> {
+export async function deleteMessage(
+  me: string,
+  messageId: string,
+  scope: 'me' | 'everyone',
+): Promise<void> {
   if (scope === 'me') {
     await transact(async (tx, fx) => {
       const { message } = await loadVisibleMessage(tx, me, messageId);
@@ -284,12 +356,19 @@ export async function deleteMessage(me: string, messageId: string, scope: 'me' |
   }
   await transact(async (tx, fx) => {
     const { access, message } = await lockVisibleMessage(tx, me, messageId);
-    if (message.type === 'system' || message.type === 'call') throw badRequest('This message cannot be deleted for everyone');
+    if (message.type === 'system' || message.type === 'call')
+      throw badRequest('This message cannot be deleted for everyone');
     if (message.deletedAt) return;
     if (!access.permissions.canDeleteForEveryoneAsAdmin && message.senderId !== me) {
-      throw forbidden("You can only delete your own messages for everyone");
+      throw forbidden('You can only delete your own messages for everyone');
     }
-    if (!canDeleteForEveryone(ruleFields(message), { type: access.chat.type, membership: access.membership, permissions: access.permissions }, me)) {
+    if (
+      !canDeleteForEveryone(
+        ruleFields(message),
+        { type: access.chat.type, membership: access.membership, permissions: access.permissions },
+        me,
+      )
+    ) {
       throw expired('This message can no longer be deleted for everyone');
     }
     await deleteForEveryoneTx(tx, fx, messageId);
@@ -324,11 +403,13 @@ async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) 
 export async function react(me: string, messageId: string, emoji: string): Promise<Message> {
   const row = await transact(async (tx, fx) => {
     const { message, chat, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
-    if (message.type === 'system' || message.deletedAt) throw badRequest('You cannot react to this message');
+    if (message.type === 'system' || message.deletedAt)
+      throw badRequest('You cannot react to this message');
     if (chat.type === 'channel') {
       const mode = chat.channelSettings?.reactions ?? 'all';
       if (mode === 'none') throw forbidden('Reactions are turned off in this channel');
-      if (mode === 'quick' && !QUICK.has(stripVs16(emoji))) throw forbidden('Only quick reactions are allowed in this channel');
+      if (mode === 'quick' && !QUICK.has(stripVs16(emoji)))
+        throw forbidden('Only quick reactions are allowed in this channel');
     }
     const [current] = await tx
       .select({ emoji: messageReactions.emoji })
@@ -339,7 +420,10 @@ export async function react(me: string, messageId: string, emoji: string): Promi
       await tx
         .insert(messageReactions)
         .values({ messageId, userId: me, emoji })
-        .onConflictDoUpdate({ target: [messageReactions.messageId, messageReactions.userId], set: { emoji, createdAt: new Date() } });
+        .onConflictDoUpdate({
+          target: [messageReactions.messageId, messageReactions.userId],
+          set: { emoji, createdAt: new Date() },
+        });
       fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
     }
     return message;
@@ -366,15 +450,19 @@ export async function setStar(me: string, messageId: string, starred: boolean): 
   await transact(async (tx) => {
     const { message } = await loadVisibleMessage(tx, me, messageId, { lock: starred });
     if (!starred) {
-      await tx.delete(starredMessages).where(and(eq(starredMessages.userId, me), eq(starredMessages.messageId, messageId)));
+      await tx
+        .delete(starredMessages)
+        .where(and(eq(starredMessages.userId, me), eq(starredMessages.messageId, messageId)));
       return;
     }
-    if (message.type === 'system' || message.deletedAt) throw badRequest('This message cannot be starred');
+    if (message.type === 'system' || message.deletedAt)
+      throw badRequest('This message cannot be starred');
     await tx.insert(starredMessages).values({ userId: me, messageId }).onConflictDoNothing();
   });
 }
 
-const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+const sameSet = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((x) => b.includes(x));
 
 /**
  * `PUT /messages/:messageId/vote` (docs "Polls"): under the message row lock, replace my votes
@@ -385,15 +473,22 @@ export async function vote(me: string, messageId: string, optionIds: string[]): 
   const row = await transact(async (tx, fx) => {
     const { message, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
     const poll = message.metadata?.poll;
-    if (message.type !== 'poll' || message.deletedAt || !poll) throw badRequest('This message is not a poll');
+    if (message.type !== 'poll' || message.deletedAt || !poll)
+      throw badRequest('This message is not a poll');
     const valid = new Set(poll.options.map((o) => o.id));
     if (optionIds.some((id) => !valid.has(id))) throw badRequest('optionIds: Unknown poll option');
-    if (!poll.allowMultiple && optionIds.length > 1) throw badRequest('optionIds: This poll allows a single choice');
+    if (!poll.allowMultiple && optionIds.length > 1)
+      throw badRequest('optionIds: This poll allows a single choice');
     const where = and(eq(pollVotes.messageId, messageId), eq(pollVotes.userId, me));
-    const current = (await tx.select({ optionId: pollVotes.optionId }).from(pollVotes).where(where)).map((r) => r.optionId);
+    const current = (
+      await tx.select({ optionId: pollVotes.optionId }).from(pollVotes).where(where)
+    ).map((r) => r.optionId);
     if (sameSet(current, optionIds)) return message;
     await tx.delete(pollVotes).where(where);
-    if (optionIds.length) await tx.insert(pollVotes).values(optionIds.map((optionId) => ({ messageId, userId: me, optionId })));
+    if (optionIds.length)
+      await tx
+        .insert(pollVotes)
+        .values(optionIds.map((optionId) => ({ messageId, userId: me, optionId })));
     fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
     return message;
   });
@@ -423,7 +518,14 @@ export async function messageInfo(me: string, messageId: string): Promise<Messag
   const members = await db
     .select()
     .from(chatMembers)
-    .where(and(eq(chatMembers.chatId, chat.id), isNull(chatMembers.leftAt), ne(chatMembers.userId, me), sql`${chatMembers.joinedSeq} < ${seq}`))
+    .where(
+      and(
+        eq(chatMembers.chatId, chat.id),
+        isNull(chatMembers.leftAt),
+        ne(chatMembers.userId, me),
+        sql`${chatMembers.joinedSeq} < ${seq}`,
+      ),
+    )
     .orderBy(chatMembers.joinedAt, chatMembers.userId);
   const info: MessageInfo = { messageId, readBy: [], deliveredTo: [], pending: [] };
   if (members.length === 0) return info;
@@ -441,8 +543,10 @@ export async function messageInfo(me: string, messageId: string): Promise<Messag
   for (const m of members) {
     const user = users.get(m.userId);
     if (!user) continue;
-    if (!readsHidden && Number(m.lastReadSeq) >= seq) info.readBy.push({ user, at: m.lastReadAt?.toISOString() ?? null });
-    else if (Number(m.lastDeliveredSeq) >= seq) info.deliveredTo.push({ user, at: m.lastDeliveredAt?.toISOString() ?? null });
+    if (!readsHidden && Number(m.lastReadSeq) >= seq)
+      info.readBy.push({ user, at: m.lastReadAt?.toISOString() ?? null });
+    else if (Number(m.lastDeliveredSeq) >= seq)
+      info.deliveredTo.push({ user, at: m.lastDeliveredAt?.toISOString() ?? null });
     else info.pending.push(user);
   }
   return info;
@@ -457,13 +561,19 @@ export async function messageInfo(me: string, messageId: string): Promise<Messag
  * first (≤ STARRED_LIST_LIMIT), with chat previews. `chatId`: only that chat's (404 unless
  * I have a non-hidden row, like search; former members: their window).
  */
-export async function listStarred(me: string, opts: StarredMessagesQuery = {}): Promise<MessageSearchResult[]> {
+export async function listStarred(
+  me: string,
+  opts: StarredMessagesQuery = {},
+): Promise<MessageSearchResult[]> {
   if (opts.chatId) await getChatAccess(db, me, opts.chatId);
   const rows = await db
     .select({ message: messages })
     .from(starredMessages)
     .innerJoin(messages, eq(messages.id, starredMessages.messageId))
-    .innerJoin(chatMembers, and(eq(chatMembers.chatId, messages.chatId), eq(chatMembers.userId, starredMessages.userId)))
+    .innerJoin(
+      chatMembers,
+      and(eq(chatMembers.chatId, messages.chatId), eq(chatMembers.userId, starredMessages.userId)),
+    )
     .where(
       and(
         eq(starredMessages.userId, me),
@@ -491,13 +601,19 @@ export function escapeLike(s: string): string {
  * `left_seq`, cleared, hidden or expired), not deleted, optionally in one chat (404 unless I
  * have a non-hidden row), newest first, ≤ `limit`.
  */
-export async function searchMessages(me: string, query: SearchMessagesQuery): Promise<MessageSearchResult[]> {
+export async function searchMessages(
+  me: string,
+  query: SearchMessagesQuery,
+): Promise<MessageSearchResult[]> {
   if (query.chatId) await getChatAccess(db, me, query.chatId);
   const pattern = `%${escapeLike(query.q)}%`;
   const rows = await db
     .select({ message: messages })
     .from(messages)
-    .innerJoin(chatMembers, and(eq(chatMembers.chatId, messages.chatId), eq(chatMembers.userId, me)))
+    .innerJoin(
+      chatMembers,
+      and(eq(chatMembers.chatId, messages.chatId), eq(chatMembers.userId, me)),
+    )
     .where(
       and(
         query.chatId ? eq(messages.chatId, query.chatId) : undefined,

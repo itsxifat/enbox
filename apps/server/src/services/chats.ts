@@ -11,7 +11,16 @@ import {
   type Membership,
 } from '@enbox/shared';
 import type { DbOrTx } from '../db/index.js';
-import { blocks, chatMembers, chats, messageHidden, messages, users, type ChatMemberRow, type ChatRow } from '../db/schema.js';
+import {
+  blocks,
+  chatMembers,
+  chats,
+  messageHidden,
+  messages,
+  users,
+  type ChatMemberRow,
+  type ChatRow,
+} from '../db/schema.js';
 import { blocked as blockedError, forbidden, notFound, notMember } from '../lib/errors.js';
 import { uniq } from './sql.js';
 
@@ -55,7 +64,11 @@ export async function requireChat(dbx: DbOrTx, chatId: string): Promise<ChatRow>
 }
 
 /** The user's membership row (active, former or hidden), or null. */
-export async function getMembership(dbx: DbOrTx, chatId: string, userId: string): Promise<ChatMemberRow | null> {
+export async function getMembership(
+  dbx: DbOrTx,
+  chatId: string,
+  userId: string,
+): Promise<ChatMemberRow | null> {
   const [row] = await dbx
     .select()
     .from(chatMembers)
@@ -95,7 +108,13 @@ export async function adminIds(dbx: DbOrTx, chatId: string): Promise<string[]> {
   const rows = await dbx
     .select({ userId: chatMembers.userId })
     .from(chatMembers)
-    .where(and(eq(chatMembers.chatId, chatId), isNull(chatMembers.leftAt), inArray(chatMembers.role, ['owner', 'admin'])));
+    .where(
+      and(
+        eq(chatMembers.chatId, chatId),
+        isNull(chatMembers.leftAt),
+        inArray(chatMembers.role, ['owner', 'admin']),
+      ),
+    );
   return rows.map((r) => r.userId);
 }
 
@@ -104,7 +123,13 @@ export async function ownerId(dbx: DbOrTx, chatId: string): Promise<string | nul
   const [row] = await dbx
     .select({ userId: chatMembers.userId })
     .from(chatMembers)
-    .where(and(eq(chatMembers.chatId, chatId), isNull(chatMembers.leftAt), eq(chatMembers.role, 'owner')))
+    .where(
+      and(
+        eq(chatMembers.chatId, chatId),
+        isNull(chatMembers.leftAt),
+        eq(chatMembers.role, 'owner'),
+      ),
+    )
     .limit(1);
   return row?.userId ?? null;
 }
@@ -118,7 +143,9 @@ export function membershipOf(member: Pick<ChatMemberRow, 'leftAt' | 'leftReason'
   return member.leftReason === 'removed' ? 'removed' : 'left';
 }
 
-export function isActive(member: Pick<ChatMemberRow, 'leftAt'> | null | undefined): member is ChatMemberRow {
+export function isActive(
+  member: Pick<ChatMemberRow, 'leftAt'> | null | undefined,
+): member is ChatMemberRow {
   return !!member && !member.leftAt;
 }
 
@@ -148,14 +175,29 @@ export interface VisibilityWindow {
 }
 
 /** Full-history window of a non-member (public channel previews). */
-export const PUBLIC_WINDOW: Readonly<VisibilityWindow> = Object.freeze({ userId: null, joinedSeq: 0, clearedSeq: 0, leftSeq: null });
+export const PUBLIC_WINDOW: Readonly<VisibilityWindow> = Object.freeze({
+  userId: null,
+  joinedSeq: 0,
+  clearedSeq: 0,
+  leftSeq: null,
+});
 
-export function windowOf(member: Pick<ChatMemberRow, 'userId' | 'joinedSeq' | 'clearedSeq' | 'leftSeq'>): VisibilityWindow {
-  return { userId: member.userId, joinedSeq: Number(member.joinedSeq), clearedSeq: Number(member.clearedSeq), leftSeq: member.leftSeq == null ? null : Number(member.leftSeq) };
+export function windowOf(
+  member: Pick<ChatMemberRow, 'userId' | 'joinedSeq' | 'clearedSeq' | 'leftSeq'>,
+): VisibilityWindow {
+  return {
+    userId: member.userId,
+    joinedSeq: Number(member.joinedSeq),
+    clearedSeq: Number(member.clearedSeq),
+    leftSeq: member.leftSeq == null ? null : Number(member.leftSeq),
+  };
 }
 
 /** Highest seq a member may ever see (their window end): chat.lastSeq, or left_seq for former members. */
-export function windowEnd(chat: Pick<ChatRow, 'lastSeq'>, member: Pick<ChatMemberRow, 'leftSeq'> | null): number {
+export function windowEnd(
+  chat: Pick<ChatRow, 'lastSeq'>,
+  member: Pick<ChatMemberRow, 'leftSeq'> | null,
+): number {
   return member?.leftSeq != null ? Number(member.leftSeq) : Number(chat.lastSeq);
 }
 
@@ -195,14 +237,27 @@ export function memberVisibleSql(m = 'm', cm = 'cm'): SQL {
  * For `chat:pins`: the active, non-hidden members that have a `message_hidden` row (deleted
  * for me / withheld) on some of `messageIds`, with those ids. One query.
  */
-export async function hiddenPinsByMember(dbx: DbOrTx, chatId: string, messageIds: string[]): Promise<Map<string, Set<string>>> {
+export async function hiddenPinsByMember(
+  dbx: DbOrTx,
+  chatId: string,
+  messageIds: string[],
+): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
   if (messageIds.length === 0) return out;
   const rows = await dbx
     .select({ userId: messageHidden.userId, messageId: messageHidden.messageId })
     .from(messageHidden)
-    .innerJoin(chatMembers, and(eq(chatMembers.userId, messageHidden.userId), eq(chatMembers.chatId, chatId)))
-    .where(and(inArray(messageHidden.messageId, messageIds), isNull(chatMembers.leftAt), eq(chatMembers.hidden, false)));
+    .innerJoin(
+      chatMembers,
+      and(eq(chatMembers.userId, messageHidden.userId), eq(chatMembers.chatId, chatId)),
+    )
+    .where(
+      and(
+        inArray(messageHidden.messageId, messageIds),
+        isNull(chatMembers.leftAt),
+        eq(chatMembers.hidden, false),
+      ),
+    );
   for (const r of rows) {
     let set = out.get(r.userId);
     if (!set) out.set(r.userId, (set = new Set()));
@@ -212,11 +267,22 @@ export async function hiddenPinsByMember(dbx: DbOrTx, chatId: string, messageIds
 }
 
 /** Highest visible seq in the window (≤ `upTo` when given), or null when nothing is visible. */
-export async function maxVisibleSeq(dbx: DbOrTx, chatId: string, w: VisibilityWindow, upTo?: number): Promise<number | null> {
+export async function maxVisibleSeq(
+  dbx: DbOrTx,
+  chatId: string,
+  w: VisibilityWindow,
+  upTo?: number,
+): Promise<number | null> {
   const [row] = await dbx
     .select({ seq: messages.seq })
     .from(messages)
-    .where(and(eq(messages.chatId, chatId), visibleTo(w), upTo !== undefined ? sql`${messages.seq} <= ${upTo}` : undefined))
+    .where(
+      and(
+        eq(messages.chatId, chatId),
+        visibleTo(w),
+        upTo !== undefined ? sql`${messages.seq} <= ${upTo}` : undefined,
+      ),
+    )
     .orderBy(sql`${messages.seq} desc`)
     .limit(1);
   return row ? Number(row.seq) : null;
@@ -271,7 +337,11 @@ export interface ChatAccess {
 }
 
 /** Load the direct-chat peer facts for a viewer (self chat → the viewer). */
-export async function loadPeerInfo(dbx: DbOrTx, chatId: string, viewerId: string): Promise<PeerInfo> {
+export async function loadPeerInfo(
+  dbx: DbOrTx,
+  chatId: string,
+  viewerId: string,
+): Promise<PeerInfo> {
   const [other] = await dbx
     .select({ userId: chatMembers.userId })
     .from(chatMembers)
@@ -279,7 +349,11 @@ export async function loadPeerInfo(dbx: DbOrTx, chatId: string, viewerId: string
     .limit(1);
   const peerId = other?.userId ?? viewerId;
   if (peerId === viewerId) return { id: viewerId, isBlocked: false, isDeleted: false };
-  const [u] = await dbx.select({ deletedAt: users.deletedAt }).from(users).where(eq(users.id, peerId)).limit(1);
+  const [u] = await dbx
+    .select({ deletedAt: users.deletedAt })
+    .from(users)
+    .where(eq(users.id, peerId))
+    .limit(1);
   const [b] = await dbx
     .select({ x: sql<number>`1` })
     .from(blocks)
@@ -304,7 +378,12 @@ export interface ChatAccessOptions {
  * requireActiveMember). In mutations pass `lock: true` (or a locked `chat`) so permission and
  * membership checks happen under the chat lock.
  */
-export async function getChatAccess(dbx: DbOrTx, viewerId: string, chatId: string, opts: ChatAccessOptions = {}): Promise<ChatAccess> {
+export async function getChatAccess(
+  dbx: DbOrTx,
+  viewerId: string,
+  chatId: string,
+  opts: ChatAccessOptions = {},
+): Promise<ChatAccess> {
   let chat = opts.chat ?? (opts.lock ? await lockChat(dbx, chatId) : undefined);
   let member: ChatMemberRow | undefined;
   if (chat) {
@@ -332,7 +411,12 @@ export async function getChatAccess(dbx: DbOrTx, viewerId: string, chatId: strin
 }
 
 /** Like getChatAccess, plus `403 not_member` for former members (members, pins, invite, calls, message mutations). */
-export async function requireActiveMember(dbx: DbOrTx, viewerId: string, chatId: string, opts: ChatAccessOptions = {}): Promise<ChatAccess> {
+export async function requireActiveMember(
+  dbx: DbOrTx,
+  viewerId: string,
+  chatId: string,
+  opts: ChatAccessOptions = {},
+): Promise<ChatAccess> {
   const access = await getChatAccess(dbx, viewerId, chatId, opts);
   if (access.membership !== 'active') throw notMember();
   return access;
@@ -358,7 +442,10 @@ export function assertCanSend(access: ChatAccess): void {
  * edits, reactions and votes must not reach them — docs "Blocking"), else `[]`. Use as the
  * `exceptUserIds` of the room events such a mutation registers.
  */
-export async function peersWhoBlockedMe(dbx: DbOrTx, access: Pick<ChatAccess, 'chat' | 'member' | 'peer'>): Promise<string[]> {
+export async function peersWhoBlockedMe(
+  dbx: DbOrTx,
+  access: Pick<ChatAccess, 'chat' | 'member' | 'peer'>,
+): Promise<string[]> {
   const me = access.member.userId;
   if (access.chat.type !== 'direct' || !access.peer || access.peer.id === me) return [];
   const [row] = await dbx
@@ -370,7 +457,11 @@ export async function peersWhoBlockedMe(dbx: DbOrTx, access: Pick<ChatAccess, 'c
 }
 
 /** 403 unless the viewer has `perm` (not_member for former members). */
-export function requirePermission(access: ChatAccess, perm: keyof ChatPermissions, message?: string): void {
+export function requirePermission(
+  access: ChatAccess,
+  perm: keyof ChatPermissions,
+  message?: string,
+): void {
   if (access.membership !== 'active') throw notMember();
   if (!access.permissions[perm]) throw forbidden(message);
 }

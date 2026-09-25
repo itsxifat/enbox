@@ -2,11 +2,35 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import type { Presence, UserPublic } from '@enbox/shared';
 import { db } from '../../src/db/index.js';
-import { blocks, chatMembers, contacts, messages, pushSubscriptions, sessions, statuses, users } from '../../src/db/schema.js';
+import {
+  blocks,
+  chatMembers,
+  contacts,
+  messages,
+  pushSubscriptions,
+  sessions,
+  statuses,
+  users,
+} from '../../src/db/schema.js';
 import { registerAccountDeletionHook } from '../../src/services/hooks.js';
 import { toChatSummary } from '../../src/services/summaries.js';
-import { emitAck, startTestServer, waitForEvent, type TestServer, type TestUser } from '../helpers.js';
-import { block, createDirect, createGroup, memberRow, recordEvents, saveContact, send, settle } from '../services/fixtures.js';
+import {
+  emitAck,
+  startTestServer,
+  waitForEvent,
+  type TestServer,
+  type TestUser,
+} from '../helpers.js';
+import {
+  block,
+  createDirect,
+  createGroup,
+  memberRow,
+  recordEvents,
+  saveContact,
+  send,
+  settle,
+} from '../services/fixtures.js';
 import { newDevice, waitDisconnect } from './util.js';
 
 describe('DELETE /api/me (account deletion)', () => {
@@ -20,7 +44,10 @@ describe('DELETE /api/me (account deletion)', () => {
   it('requires the correct password (403) and a body (400); nothing changes', async () => {
     const u = await t.createUser();
     const s = await t.connect(u);
-    expect((await t.api(u).delete('/api/me').send({ password: 'wrong-password' }).expect(403)).body.error.code).toBe('forbidden');
+    expect(
+      (await t.api(u).delete('/api/me').send({ password: 'wrong-password' }).expect(403)).body.error
+        .code,
+    ).toBe('forbidden');
     await t.api(u).delete('/api/me').send({}).expect(400);
     await t.api(u).delete('/api/me').expect(400);
     await t.api(u).get('/api/me').expect(200);
@@ -46,7 +73,11 @@ describe('DELETE /api/me (account deletion)', () => {
     let aliceGone: Promise<string[]>;
 
     beforeAll(async () => {
-      alice = await t.createUser({ username: 'alice_del', displayName: 'Alice', phone: '+15557770001' });
+      alice = await t.createUser({
+        username: 'alice_del',
+        displayName: 'Alice',
+        phone: '+15557770001',
+      });
       const aliceTablet = await newDevice(alice, 'Tablet');
       bob = await t.createUser({ displayName: 'Bob' });
       carol = await t.createUser({ displayName: 'Carol' });
@@ -63,14 +94,35 @@ describe('DELETE /api/me (account deletion)', () => {
       await saveContact(alice, carol);
       await block(dave, alice);
       await block(alice, erin);
-      await db.insert(pushSubscriptions).values({ userId: alice.id, sessionId: alice.sessionId, endpoint: 'https://fcm.googleapis.com/fcm/send/alice', p256dh: 'p', auth: 'a' });
-      await db.insert(statuses).values({ userId: alice.id, type: 'text', text: 'my status', audience: [bob.id], expiresAt: new Date(Date.now() + 3_600_000) });
+      await db.insert(pushSubscriptions).values({
+        userId: alice.id,
+        sessionId: alice.sessionId,
+        endpoint: 'https://fcm.googleapis.com/fcm/send/alice',
+        p256dh: 'p',
+        auth: 'a',
+      });
+      await db.insert(statuses).values({
+        userId: alice.id,
+        type: 'text',
+        text: 'my status',
+        audience: [bob.id],
+        expiresAt: new Date(Date.now() + 3_600_000),
+      });
 
       registerAccountDeletionHook('accounts-test', async (tx, _fx, userId) => {
         if (userId !== alice.id) return;
-        const [row] = await tx.select({ deletedAt: users.deletedAt }).from(users).where(eq(users.id, userId));
-        const [s] = await tx.select({ n: sql<number>`count(*)::int` }).from(sessions).where(eq(sessions.userId, userId));
-        const [st] = await tx.select({ n: sql<number>`count(*)::int` }).from(statuses).where(eq(statuses.userId, userId));
+        const [row] = await tx
+          .select({ deletedAt: users.deletedAt })
+          .from(users)
+          .where(eq(users.id, userId));
+        const [s] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(sessions)
+          .where(eq(sessions.userId, userId));
+        const [st] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(statuses)
+          .where(eq(statuses.userId, userId));
         hookSaw = { deletedAt: row!.deletedAt, sessions: Number(s!.n), statuses: Number(st!.n) };
       });
 
@@ -96,8 +148,16 @@ describe('DELETE /api/me (account deletion)', () => {
     it('disconnects every device and revokes every session; the account cannot log in', async () => {
       await t.api(alice).get('/api/me').expect(401);
       await expect(t.connect(alice)).rejects.toThrow(/unauthorized/);
-      await t.api().post('/api/auth/login').send({ identifier: 'alice_del', password: alice.password }).expect(401);
-      await t.api().post('/api/auth/login').send({ identifier: '+15557770001', password: alice.password }).expect(401);
+      await t
+        .api()
+        .post('/api/auth/login')
+        .send({ identifier: 'alice_del', password: alice.password })
+        .expect(401);
+      await t
+        .api()
+        .post('/api/auth/login')
+        .send({ identifier: '+15557770001', password: alice.password })
+        .expect(401);
     });
 
     it('scrubs the row and deletes sessions, push subscriptions, contacts, blocks and statuses', async () => {
@@ -113,9 +173,21 @@ describe('DELETE /api/me (account deletion)', () => {
       });
       expect(row!.deletedAt).toBeInstanceOf(Date);
       expect(await db.select().from(sessions).where(eq(sessions.userId, alice.id))).toEqual([]);
-      expect(await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, alice.id))).toEqual([]);
-      expect(await db.select().from(contacts).where(or(eq(contacts.ownerId, alice.id), eq(contacts.contactId, alice.id)))).toEqual([]);
-      expect(await db.select().from(blocks).where(or(eq(blocks.blockerId, alice.id), eq(blocks.blockedId, alice.id)))).toEqual([]);
+      expect(
+        await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, alice.id)),
+      ).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(contacts)
+          .where(or(eq(contacts.ownerId, alice.id), eq(contacts.contactId, alice.id))),
+      ).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(blocks)
+          .where(or(eq(blocks.blockerId, alice.id), eq(blocks.blockedId, alice.id))),
+      ).toEqual([]);
       expect(await db.select().from(statuses).where(eq(statuses.userId, alice.id))).toEqual([]);
     });
 
@@ -129,32 +201,59 @@ describe('DELETE /api/me (account deletion)', () => {
     });
 
     it('leaves every group through the normal pipeline, with ownership succession', async () => {
-      for (const g of [g1, g2, g3]) expect(await memberRow(g, alice)).toMatchObject({ leftReason: 'left', role: 'member' });
+      for (const g of [g1, g2, g3])
+        expect(await memberRow(g, alice)).toMatchObject({ leftReason: 'left', role: 'member' });
       expect(await memberRow(g1, carol)).toMatchObject({ role: 'owner' });
-      const g1Messages = await db.select().from(messages).where(eq(messages.chatId, g1)).orderBy(asc(messages.seq));
+      const g1Messages = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.chatId, g1))
+        .orderBy(asc(messages.seq));
       expect(g1Messages.slice(-2).map((m) => m.metadata.system)).toEqual([
         { kind: 'member_left', actorId: alice.id },
         { kind: 'owner_changed', userId: carol.id },
       ]);
       // A group left without members stays (empty).
-      const g3Active = await db.select().from(chatMembers).where(and(eq(chatMembers.chatId, g3), sql`${chatMembers.leftAt} is null`));
+      const g3Active = await db
+        .select()
+        .from(chatMembers)
+        .where(and(eq(chatMembers.chatId, g3), sql`${chatMembers.leftAt} is null`));
       expect(g3Active).toEqual([]);
 
       // Room events in matrix order (sys → [owner_changed] → memberCount → members-changed).
       // (chat:watermarks: bob's ticks changed because a member left — emitted by the leave pipeline.)
       const inChat = (chatId: string) =>
-        bobLog.log.filter((e) => (e.payload?.chatId === chatId || e.payload?.message?.chatId === chatId) && e.event !== 'chat:watermarks');
+        bobLog.log.filter(
+          (e) =>
+            (e.payload?.chatId === chatId || e.payload?.message?.chatId === chatId) &&
+            e.event !== 'chat:watermarks',
+        );
       const g1Events = inChat(g1);
-      expect(g1Events.map((e) => e.event)).toEqual(['message:new', 'message:new', 'chat:updated', 'chat:members-changed']);
+      expect(g1Events.map((e) => e.event)).toEqual([
+        'message:new',
+        'message:new',
+        'chat:updated',
+        'chat:members-changed',
+      ]);
       expect(g1Events[2]!.payload).toEqual({ chatId: g1, changes: { memberCount: 2 } });
-      expect(inChat(g2).map((e) => e.event)).toEqual(['message:new', 'chat:updated', 'chat:members-changed']);
+      expect(inChat(g2).map((e) => e.event)).toEqual([
+        'message:new',
+        'chat:updated',
+        'chat:members-changed',
+      ]);
       // The new owner gets their summary.
-      expect(carolLog.of('chat:upsert').map((p) => p.chat)).toContainEqual(expect.objectContaining({ id: g1, myRole: 'owner' }));
+      expect(carolLog.of('chat:upsert').map((p) => p.chat)).toContainEqual(
+        expect.objectContaining({ id: g1, myRole: 'owner' }),
+      );
     });
 
     it('keeps the direct chat and its messages; the peer sees a deleted, unmessageable account', async () => {
       const summary = (await toChatSummary(db, bob.id, direct))!;
-      expect(summary.peer).toMatchObject({ id: alice.id, isDeleted: true, displayName: 'Deleted account' });
+      expect(summary.peer).toMatchObject({
+        id: alice.id,
+        isDeleted: true,
+        displayName: 'Deleted account',
+      });
       expect(summary.permissions).toMatchObject({ canSend: false, canCall: false });
       const rows = await db.select().from(messages).where(eq(messages.chatId, direct));
       expect(rows.map((m) => m.text)).toEqual(['hi bob', 'hi alice']);
@@ -171,14 +270,31 @@ describe('DELETE /api/me (account deletion)', () => {
     });
 
     it('cannot be found, looked up or added anymore; the username and phone are free again', async () => {
-      const search = (await t.api(bob).get('/api/users/search').query({ q: 'alice_del' }).expect(200)).body as UserPublic[];
+      const search = (
+        await t.api(bob).get('/api/users/search').query({ q: 'alice_del' }).expect(200)
+      ).body as UserPublic[];
       expect(search).toEqual([]);
       await t.api(bob).get('/api/users/by-username/alice_del').expect(404);
       await t.api(bob).post('/api/contacts').send({ userId: alice.id }).expect(404);
       await t.api(bob).put(`/api/blocks/${alice.id}`).expect(404);
       const seen = (await t.api(bob).get(`/api/users/${alice.id}`).expect(200)).body as UserPublic;
-      expect(seen).toMatchObject({ isDeleted: true, displayName: 'Deleted account', phone: null, avatarUrl: null, online: null });
-      await t.api().post('/api/auth/register').send({ username: 'alice_del', displayName: 'New Alice', password: 'password-2', phone: '+15557770001' }).expect(201);
+      expect(seen).toMatchObject({
+        isDeleted: true,
+        displayName: 'Deleted account',
+        phone: null,
+        avatarUrl: null,
+        online: null,
+      });
+      await t
+        .api()
+        .post('/api/auth/register')
+        .send({
+          username: 'alice_del',
+          displayName: 'New Alice',
+          password: 'password-2',
+          phone: '+15557770001',
+        })
+        .expect(201);
     });
   });
 });

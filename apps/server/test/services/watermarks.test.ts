@@ -15,8 +15,25 @@ import {
   readReceiptsChanged,
   viewerWatermarks,
 } from '../../src/services/watermarks.js';
-import { expectNoEvent, startTestServer, waitForEvent, type TestServer, type TestUser } from '../helpers.js';
-import { block, createChannel, createDirect, createGroup, goOffline, memberRow, recordEvents, send, setSettings, settle } from './fixtures.js';
+import {
+  expectNoEvent,
+  startTestServer,
+  waitForEvent,
+  type TestServer,
+  type TestUser,
+} from '../helpers.js';
+import {
+  block,
+  createChannel,
+  createDirect,
+  createGroup,
+  goOffline,
+  memberRow,
+  recordEvents,
+  send,
+  setSettings,
+  settle,
+} from './fixtures.js';
 
 describe('services/watermarks', () => {
   let t: TestServer;
@@ -32,7 +49,8 @@ describe('services/watermarks', () => {
   });
   afterAll(() => t.close());
 
-  const read = (userId: string, chatId: string, seq: number) => transact((tx, fx) => advanceRead(tx, fx, { chatId, userId, seq }));
+  const read = (userId: string, chatId: string, seq: number) =>
+    transact((tx, fx) => advanceRead(tx, fx, { chatId, userId, seq }));
 
   describe('pure computation', () => {
     it('min over the other active members, from the two smallest values', () => {
@@ -41,20 +59,48 @@ describe('services/watermarks', () => {
         { userId: 'b', read: 7, delivered: 8 },
         { userId: 'c', read: 9, delivered: 9 },
       ]);
-      const p = { chatType: 'group' as const, viewerActive: true, lastSeq: 10, readReceiptsOff: false };
-      expect(viewerWatermarks(agg, { ...p, viewerId: 'a' })).toEqual({ readWatermark: 7, deliveredWatermark: 8 });
-      expect(viewerWatermarks(agg, { ...p, viewerId: 'b' })).toEqual({ readWatermark: 5, deliveredWatermark: 9 });
-      expect(viewerWatermarks(agg, { ...p, viewerId: 'x', viewerActive: false })).toEqual({ readWatermark: 5, deliveredWatermark: 8 });
+      const p = {
+        chatType: 'group' as const,
+        viewerActive: true,
+        lastSeq: 10,
+        readReceiptsOff: false,
+      };
+      expect(viewerWatermarks(agg, { ...p, viewerId: 'a' })).toEqual({
+        readWatermark: 7,
+        deliveredWatermark: 8,
+      });
+      expect(viewerWatermarks(agg, { ...p, viewerId: 'b' })).toEqual({
+        readWatermark: 5,
+        deliveredWatermark: 9,
+      });
+      expect(viewerWatermarks(agg, { ...p, viewerId: 'x', viewerActive: false })).toEqual({
+        readWatermark: 5,
+        deliveredWatermark: 8,
+      });
       // ties: another holder of the minimum keeps it
       const tie = aggregateMarks([
         { userId: 'a', read: 3, delivered: 3 },
         { userId: 'b', read: 3, delivered: 3 },
       ]);
-      expect(viewerWatermarks(tie, { ...p, viewerId: 'a' })).toEqual({ readWatermark: 3, deliveredWatermark: 3 });
+      expect(viewerWatermarks(tie, { ...p, viewerId: 'a' })).toEqual({
+        readWatermark: 3,
+        deliveredWatermark: 3,
+      });
       // nobody else → lastSeq; channels → 0; receipts off → read 0
-      expect(viewerWatermarks(aggregateMarks([{ userId: 'a', read: 1, delivered: 1 }]), { ...p, viewerId: 'a' })).toEqual({ readWatermark: 10, deliveredWatermark: 10 });
-      expect(viewerWatermarks(agg, { ...p, viewerId: 'a', chatType: 'channel' })).toEqual({ readWatermark: 0, deliveredWatermark: 0 });
-      expect(viewerWatermarks(agg, { ...p, viewerId: 'a', readReceiptsOff: true })).toEqual({ readWatermark: 0, deliveredWatermark: 8 });
+      expect(
+        viewerWatermarks(aggregateMarks([{ userId: 'a', read: 1, delivered: 1 }]), {
+          ...p,
+          viewerId: 'a',
+        }),
+      ).toEqual({ readWatermark: 10, deliveredWatermark: 10 });
+      expect(viewerWatermarks(agg, { ...p, viewerId: 'a', chatType: 'channel' })).toEqual({
+        readWatermark: 0,
+        deliveredWatermark: 0,
+      });
+      expect(viewerWatermarks(agg, { ...p, viewerId: 'a', readReceiptsOff: true })).toEqual({
+        readWatermark: 0,
+        deliveredWatermark: 8,
+      });
     });
   });
 
@@ -63,14 +109,23 @@ describe('services/watermarks', () => {
       const chatId = await createGroup(alice, [bob]);
       const m1 = await send(alice, chatId, 'one');
       const m2 = await send(alice, chatId, 'two');
-      await db.update(chatMembers).set({ markedUnread: true }).where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, bob.id)));
+      await db
+        .update(chatMembers)
+        .set({ markedUnread: true })
+        .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, bob.id)));
       const bobSock = await t.connect(bob);
       const reads: unknown[] = [];
       const off = domainEvents.on('chat.read', (e) => void reads.push(e));
       const evt = waitForEvent(bobSock, 'chat:read');
       const r = await read(bob.id, chatId, Number(m1.message.seq));
       expect(r).toEqual({ seq: Number(m1.message.seq), advanced: true });
-      expect(await evt).toEqual({ chatId, lastReadSeq: Number(m1.message.seq), unreadCount: 1, unreadMentionCount: 0, markedUnread: false });
+      expect(await evt).toEqual({
+        chatId,
+        lastReadSeq: Number(m1.message.seq),
+        unreadCount: 1,
+        unreadMentionCount: 0,
+        markedUnread: false,
+      });
       const row = await memberRow(chatId, bob);
       expect(Number(row.lastDeliveredSeq)).toBeGreaterThanOrEqual(Number(m1.message.seq));
       expect(row.lastReadAt).not.toBeNull();
@@ -92,7 +147,10 @@ describe('services/watermarks', () => {
       const hidden = await send(alice, chatId, 'hidden for bob');
       await db.insert(messageHidden).values({ userId: bob.id, messageId: hidden.message.id });
       const expired = await send(alice, chatId, 'expired');
-      await db.update(messages).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(messages.id, expired.message.id));
+      await db
+        .update(messages)
+        .set({ expiresAt: new Date(Date.now() - 1) })
+        .where(eq(messages.id, expired.message.id));
       const r = await read(bob.id, chatId, 10_000);
       expect(r.seq).toBe(Number(visible.message.seq));
       const row = await memberRow(chatId, bob);
@@ -107,7 +165,15 @@ describe('services/watermarks', () => {
       const chatId = await createGroup(alice, [bob]);
       await expect(read(carol.id, chatId, 5)).rejects.toMatchObject({ status: 404 });
       const m = await send(alice, chatId, 'x');
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'deactivate', chatId, userId: bob.id, reason: 'left', systemEvent: { kind: 'member_left', actorId: bob.id } }));
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, {
+          kind: 'deactivate',
+          chatId,
+          userId: bob.id,
+          reason: 'left',
+          systemEvent: { kind: 'member_left', actorId: bob.id },
+        }),
+      );
       await send(alice, chatId, 'after bob left');
       const r = await read(bob.id, chatId, 10_000);
       expect(r.seq).toBeGreaterThanOrEqual(Number(m.message.seq));
@@ -124,7 +190,8 @@ describe('services/watermarks', () => {
       const seq = Number(m.message.seq);
       await settle();
       const recs = socks.map(recordEvents);
-      const marks = (i: number) => recs[i]!.of('chat:watermarks').filter((w) => w.chatId === chatId);
+      const marks = (i: number) =>
+        recs[i]!.of('chat:watermarks').filter((w) => w.chatId === chatId);
 
       // u2 reads: u1's view = min(u2, u3 = 0) unchanged; u2's own view unchanged;
       // u3's view = min(u1 = seq, u2) → seq: changed.
@@ -154,7 +221,13 @@ describe('services/watermarks', () => {
       const before = (await computeWatermarks(db, chatId, [alice.id])).get(alice.id)!;
       expect(before.readWatermark).toBe(Number(m.message.seq));
       await transact((tx, fx) =>
-        upsertMembership(tx, fx, { kind: 'activate', chatId, userIds: [carol.id], addedBy: alice.id, systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] } }),
+        upsertMembership(tx, fx, {
+          kind: 'activate',
+          chatId,
+          userIds: [carol.id],
+          addedBy: alice.id,
+          systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] },
+        }),
       );
       const after = (await computeWatermarks(db, chatId, [alice.id])).get(alice.id)!;
       expect(after.readWatermark).toBeGreaterThanOrEqual(before.readWatermark);
@@ -193,24 +266,45 @@ describe('services/watermarks', () => {
       const bobSock = await t.connect(bob);
       const evt = waitForEvent(bobSock, 'chat:watermarks', { filter: (p) => p.chatId === self });
       const m = await send(bob, self, 'note');
-      expect(await evt).toEqual({ chatId: self, readWatermark: Number(m.message.seq), deliveredWatermark: Number(m.message.seq) });
+      expect(await evt).toEqual({
+        chatId: self,
+        readWatermark: Number(m.message.seq),
+        deliveredWatermark: Number(m.message.seq),
+      });
       bobSock.disconnect();
 
       const chatId = await createGroup(carol, [bob]);
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'deactivate', chatId, userId: bob.id, reason: 'left', systemEvent: { kind: 'member_left', actorId: bob.id } }));
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, {
+          kind: 'deactivate',
+          chatId,
+          userId: bob.id,
+          reason: 'left',
+          systemEvent: { kind: 'member_left', actorId: bob.id },
+        }),
+      );
       const last = await send(carol, chatId, 'alone');
       const s = (await toChatSummary(db, carol.id, chatId))!;
-      expect(s).toMatchObject({ readWatermark: Number(last.message.seq), deliveredWatermark: Number(last.message.seq), lastSeq: Number(last.message.seq) });
+      expect(s).toMatchObject({
+        readWatermark: Number(last.message.seq),
+        deliveredWatermark: Number(last.message.seq),
+        lastSeq: Number(last.message.seq),
+      });
     });
 
     it('channels never have ticks nor chat:watermarks', async () => {
       const channelId = await createChannel(alice);
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'activate', chatId: channelId, userIds: [bob.id] }));
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, { kind: 'activate', chatId: channelId, userIds: [bob.id] }),
+      );
       const aliceSock = await t.connect(alice);
       await send(alice, channelId, 'post');
       await read(bob.id, channelId, 100);
       await expectNoEvent(aliceSock, 'chat:watermarks');
-      expect((await computeWatermarks(db, channelId)).get(alice.id)).toEqual({ readWatermark: 0, deliveredWatermark: 0 });
+      expect((await computeWatermarks(db, channelId)).get(alice.id)).toEqual({
+        readWatermark: 0,
+        deliveredWatermark: 0,
+      });
       aliceSock.disconnect();
     });
   });
@@ -223,12 +317,18 @@ describe('services/watermarks', () => {
       const bobSock = await t.connect(bob);
       const m1 = await send(alice, chatId, 'bob online, carol offline');
       expect(Number((await memberRow(chatId, bob)).lastDeliveredSeq)).toBe(Number(m1.message.seq));
-      expect(Number((await memberRow(chatId, carol)).lastDeliveredSeq)).toBeLessThan(Number(m1.message.seq));
+      expect(Number((await memberRow(chatId, carol)).lastDeliveredSeq)).toBeLessThan(
+        Number(m1.message.seq),
+      );
       // carol connects → delivered advanced before ready → alice's delivered watermark reaches m1
-      const evt = waitForEvent(aliceSock, 'chat:watermarks', { filter: (p) => p.chatId === chatId && p.deliveredWatermark === Number(m1.message.seq) });
+      const evt = waitForEvent(aliceSock, 'chat:watermarks', {
+        filter: (p) => p.chatId === chatId && p.deliveredWatermark === Number(m1.message.seq),
+      });
       const carolSock = await t.connect(carol);
       expect(await evt).toMatchObject({ chatId, deliveredWatermark: Number(m1.message.seq) });
-      expect(Number((await memberRow(chatId, carol)).lastDeliveredSeq)).toBe(Number(m1.message.seq));
+      expect(Number((await memberRow(chatId, carol)).lastDeliveredSeq)).toBe(
+        Number(m1.message.seq),
+      );
       aliceSock.disconnect();
       bobSock.disconnect();
       carolSock.disconnect();
@@ -242,10 +342,14 @@ describe('services/watermarks', () => {
       await block(hank, gina);
       const withheld = await send(gina, dm, 'withheld');
       const channelId = await createChannel(gina);
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'activate', chatId: channelId, userIds: [hank.id] }));
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, { kind: 'activate', chatId: channelId, userIds: [hank.id] }),
+      );
       await send(gina, channelId, 'post');
       await markDeliveredOnConnect(hank.id);
-      expect(Number((await memberRow(dm, hank)).lastDeliveredSeq)).toBeLessThan(Number(withheld.message.seq));
+      expect(Number((await memberRow(dm, hank)).lastDeliveredSeq)).toBeLessThan(
+        Number(withheld.message.seq),
+      );
       const channelRow = await memberRow(channelId, hank);
       expect(Number(channelRow.lastDeliveredSeq)).toBe(Number(channelRow.lastReadSeq)); // untouched
     });
@@ -253,9 +357,13 @@ describe('services/watermarks', () => {
     it('advanceDelivered is clamped and monotonic', async () => {
       const chatId = await createGroup(alice, [bob]);
       const m = await send(alice, chatId, 'x');
-      const r = await transact((tx, fx) => advanceDelivered(tx, fx, { chatId, userId: bob.id, seq: 999 }));
+      const r = await transact((tx, fx) =>
+        advanceDelivered(tx, fx, { chatId, userId: bob.id, seq: 999 }),
+      );
       expect(r.seq).toBe(Number(m.message.seq));
-      const r2 = await transact((tx, fx) => advanceDelivered(tx, fx, { chatId, userId: bob.id, seq: 1 }));
+      const r2 = await transact((tx, fx) =>
+        advanceDelivered(tx, fx, { chatId, userId: bob.id, seq: 1 }),
+      );
       expect(r2).toEqual({ seq: Number(m.message.seq), advanced: false });
     });
   });

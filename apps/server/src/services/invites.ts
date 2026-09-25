@@ -11,9 +11,17 @@ import { generateInviteCode } from '../lib/crypto.js';
 export async function generateUniqueInviteCode(dbx: DbOrTx): Promise<string> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateInviteCode();
-    const [c] = await dbx.select({ id: chats.id }).from(chats).where(eq(chats.inviteCode, code)).limit(1);
+    const [c] = await dbx
+      .select({ id: chats.id })
+      .from(chats)
+      .where(eq(chats.inviteCode, code))
+      .limit(1);
     if (c) continue;
-    const [k] = await dbx.select({ id: communities.id }).from(communities).where(eq(communities.inviteCode, code)).limit(1);
+    const [k] = await dbx
+      .select({ id: communities.id })
+      .from(communities)
+      .where(eq(communities.inviteCode, code))
+      .limit(1);
     if (!k) return code;
   }
   throw new Error('Could not generate a unique invite code');

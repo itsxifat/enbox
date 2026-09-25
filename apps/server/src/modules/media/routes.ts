@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
-import { MAX_THUMBNAIL_BYTES, MAX_UPLOAD_BYTES, THUMBNAIL_MIME_TYPES, uploadMediaMetaSchema } from '@enbox/shared';
+import {
+  MAX_THUMBNAIL_BYTES,
+  MAX_UPLOAD_BYTES,
+  THUMBNAIL_MIME_TYPES,
+  uploadMediaMetaSchema,
+} from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { media } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
@@ -61,11 +66,15 @@ function receiveMultipart(req: Request, res: Response, next: NextFunction) {
   ])(req, res, (err: unknown) => {
     if (!err) return next();
     if (err instanceof multer.MulterError) {
-      if (err.code === 'LIMIT_FILE_SIZE') return next(new HttpError(413, 'payload_too_large', `${err.field ?? 'file'}: file too large`));
+      if (err.code === 'LIMIT_FILE_SIZE')
+        return next(
+          new HttpError(413, 'payload_too_large', `${err.field ?? 'file'}: file too large`),
+        );
       return next(badRequest(`${err.field ? `${err.field}: ` : ''}${err.message}`));
     }
     const errno = (err as NodeJS.ErrnoException).errno;
-    if (err instanceof Error && errno === undefined) return next(badRequest(`Malformed multipart body: ${err.message}`));
+    if (err instanceof Error && errno === undefined)
+      return next(badRequest(`Malformed multipart body: ${err.message}`));
     next(err);
   });
 }
@@ -82,14 +91,18 @@ router.post('/media', uploadLimiter, receiveMultipart, async (req, res) => {
 
     const sniffed = await sniffFile(file.path);
     if (!isAllowedMime(meta.kind, sniffed?.mime ?? null)) {
-      throw badRequest(`file: ${sniffed ? `${sniffed.mime} is` : 'unrecognised content is'} not allowed for ${meta.kind} uploads`);
+      throw badRequest(
+        `file: ${sniffed ? `${sniffed.mime} is` : 'unrecognised content is'} not allowed for ${meta.kind} uploads`,
+      );
     }
 
     let thumbExt: string | null = null;
     if (thumb) {
-      if (thumb.size > MAX_THUMBNAIL_BYTES) throw new HttpError(413, 'payload_too_large', 'thumbnail: file too large');
+      if (thumb.size > MAX_THUMBNAIL_BYTES)
+        throw new HttpError(413, 'payload_too_large', 'thumbnail: file too large');
       const t = await sniffFile(thumb.path);
-      if (!t || !(THUMBNAIL_MIME_TYPES as readonly string[]).includes(t.mime)) throw badRequest('thumbnail: must be a JPEG or WebP image');
+      if (!t || !(THUMBNAIL_MIME_TYPES as readonly string[]).includes(t.mime))
+        throw badRequest('thumbnail: must be a JPEG or WebP image');
       thumbExt = t.ext;
     }
 

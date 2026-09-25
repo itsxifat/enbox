@@ -26,7 +26,10 @@ export interface CreateSessionInput {
 }
 
 /** Create a session (pass `tx` when called inside a transaction, e.g. registration). */
-export async function createSession(input: CreateSessionInput, dbx: DbOrTx = db): Promise<{ token: string; session: SessionRow }> {
+export async function createSession(
+  input: CreateSessionInput,
+  dbx: DbOrTx = db,
+): Promise<{ token: string; session: SessionRow }> {
   const token = generateToken();
   const [session] = await dbx
     .insert(sessions)

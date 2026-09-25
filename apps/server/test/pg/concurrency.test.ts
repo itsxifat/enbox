@@ -20,7 +20,13 @@ import { resetCallState } from '../../src/modules/calls/state.js';
 import { startTestServer, type TestServer, type TestSocket, type TestUser } from '../helpers.js';
 import { ackCall, partOf, until } from '../calls/helpers.js';
 import { mkStatus, sendOk } from '../messaging/support.js';
-import { createDirect, createGroup, memberRow, recordEvents, settle } from '../services/fixtures.js';
+import {
+  createDirect,
+  createGroup,
+  memberRow,
+  recordEvents,
+  settle,
+} from '../services/fixtures.js';
 
 const PG_ADMIN_URL = process.env.ENBOX_TEST_PG_URL;
 
@@ -30,14 +36,17 @@ type AnyFn = (...args: unknown[]) => Promise<unknown>;
  * Hook every promise-style query of node-postgres clients (transaction clients included).
  * When `hook` returns a promise, the query waits for it before being sent.
  */
-function patchPgQuery(hook: (client: object, text: string, values: unknown[]) => Promise<void> | void): () => void {
+function patchPgQuery(
+  hook: (client: object, text: string, values: unknown[]) => Promise<void> | void,
+): () => void {
   const proto = pg.Client.prototype as unknown as { query: AnyFn };
   const original = proto.query;
   proto.query = function (this: object, ...args: unknown[]) {
     if (typeof args[args.length - 1] === 'function') return original.apply(this, args);
     const a0 = args[0] as string | { text?: string; values?: unknown[] };
     const text = typeof a0 === 'string' ? a0 : (a0?.text ?? '');
-    const values = (args[1] as unknown[] | undefined) ?? (typeof a0 === 'object' ? a0?.values : undefined) ?? [];
+    const values =
+      (args[1] as unknown[] | undefined) ?? (typeof a0 === 'object' ? a0?.values : undefined) ?? [];
     const wait = hook(this, text, values);
     if (!wait) return original.apply(this, args);
     return wait.then(() => original.apply(this, args));
@@ -118,12 +127,19 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
   };
 
   async function community(owner: TestUser, members: TestUser[]) {
-    const c = (await t.api(owner).post('/api/communities').send({ name: 'Comm' }).expect(201)).body as { id: string; announcementChatId: string };
-    if (members.length) await t.api(owner).post(`/api/communities/${c.id}/members`).send({ userIds: members.map((m) => m.id) }).expect(200);
+    const c = (await t.api(owner).post('/api/communities').send({ name: 'Comm' }).expect(201))
+      .body as { id: string; announcementChatId: string };
+    if (members.length)
+      await t
+        .api(owner)
+        .post(`/api/communities/${c.id}/members`)
+        .send({ userIds: members.map((m) => m.id) })
+        .expect(200);
     return c;
   }
 
-  const isDeleted = async (u: TestUser) => !!(await db.select({ d: users.deletedAt }).from(users).where(eq(users.id, u.id)))[0]?.d;
+  const isDeleted = async (u: TestUser) =>
+    !!(await db.select({ d: users.deletedAt }).from(users).where(eq(users.id, u.id)))[0]?.d;
 
   // -------------------------------------------------------------------------
   // C4 / R10: the connect-time delivered advance vs a multi-chat forward
@@ -147,13 +163,23 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
         return connectLocks.opened;
       }
       // The forward's delivered bump of V in gA (after it bumped V in gB).
-      if (text.includes('update chat_members c set') && vals.includes(gA) && vals.includes(v.id) && !vals.includes(s.id)) {
+      if (
+        text.includes('update chat_members c set') &&
+        vals.includes(gA) &&
+        vals.includes(v.id) &&
+        !vals.includes(s.id)
+      ) {
         fwdBumpA.hit();
         return fwdBumpA.opened;
       }
     });
     try {
-      const sock = ioClient(t.url, { auth: { token: v.token }, transports: ['websocket'], forceNew: true, reconnection: false });
+      const sock = ioClient(t.url, {
+        auth: { token: v.token },
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      });
       const ready = new Promise<void>((r) => sock.once('ready', () => r()));
       await connectLocks.reached; // V is online (markConnected ran); its delivered advance is next
       const fwd = t
@@ -188,7 +214,8 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
     const commit = gate();
     let armed = true;
     const unpatch = patchPgQuery((client, text, values) => {
-      if (/^update "chats" set "last_seq"/.test(text) && JSON.stringify(values).includes(c)) sendTx.add(client);
+      if (/^update "chats" set "last_seq"/.test(text) && JSON.stringify(values).includes(c))
+        sendTx.add(client);
       if (armed && text === 'commit' && sendTx.has(client)) {
         armed = false;
         commit.hit();
@@ -202,14 +229,23 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
         .send({ type: 'text', text: 'hello', clientId: 'c7-1' })
         .then((res) => res.body as Message);
       await commit.reached; // the send evaluated isOnline(U) = false and is committing
-      const su = ioClient(t.url, { auth: { token: u.token }, transports: ['websocket'], forceNew: true, reconnection: false }) as TestSocket;
+      const su = ioClient(t.url, {
+        auth: { token: u.token },
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      }) as TestSocket;
       const rec = recordEvents(su);
       const ready = new Promise<void>((r) => su.once('ready', () => r()));
       await lockWaiters('%for share of c%'); // U's delivered advance waits for the send's chat lock
       commit.open();
       const msg = await sent;
       await ready;
-      await until(() => rec.of('message:new').some((p) => p.message.id === msg.id), 3000, 'message:new on U');
+      await until(
+        () => rec.of('message:new').some((p) => p.message.id === msg.id),
+        3000,
+        'message:new on U',
+      );
       expect(Number((await memberRow(c, u)).lastDeliveredSeq)).toBeGreaterThanOrEqual(msg.seq);
       su.disconnect();
     } finally {
@@ -234,7 +270,10 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
       .send({ password: u.password })
       .then((res) => res.status);
     await lockWaiters('%from "chats"%for update%'); // memberships already read, waiting for g0
-    const add = await t.api(x).post(`/api/groups/${g}/members`).send({ userIds: [u.id] });
+    const add = await t
+      .api(x)
+      .post(`/api/groups/${g}/members`)
+      .send({ userIds: [u.id] });
     expect(add.status).toBe(200);
     await r.query('commit');
     expect(await del).toBe(409);
@@ -250,7 +289,11 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
     // U's deletion commits.
     const held = gate();
     const unpatch = patchPgQuery((_client, text, values) => {
-      if (/from "users"/.test(text) && /for share/.test(text) && JSON.stringify(values).includes(u.id)) {
+      if (
+        /from "users"/.test(text) &&
+        /for share/.test(text) &&
+        JSON.stringify(values).includes(u.id)
+      ) {
         held.hit();
         return held.opened;
       }
@@ -265,7 +308,12 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
       const delStatus = (await t.api(u).delete('/api/me').send({ password: u.password })).status;
       held.open();
       const res = await add;
-      expect({ delStatus, addStatus: res.status, added: res.body.added, failed: res.body.failed }).toEqual({
+      expect({
+        delStatus,
+        addStatus: res.status,
+        added: res.body.added,
+        failed: res.body.failed,
+      }).toEqual({
         delStatus: 204,
         addStatus: 200,
         added: [],
@@ -326,7 +374,9 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
     // A link of g in flight: community row, chats (sorted), community_id.
     await r.query('begin');
     await r.query('select id from communities where id = $1 for update', [c.id]);
-    await r.query('select id from chats where id = any($1::uuid[]) order by id for update', [[c.announcementChatId, g]]);
+    await r.query('select id from chats where id = any($1::uuid[]) order by id for update', [
+      [c.announcementChatId, g],
+    ]);
     await r.query('update chats set community_id = $1 where id = $2', [c.id, g]);
     const add = t
       .api(o)
@@ -345,7 +395,15 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
   it('C6b: account deletion racing a forward into a linked group it never joined does not deadlock', async () => {
     const [o, u, s, z] = (await mkUsers(4)) as [TestUser, TestUser, TestUser, TestUser];
     const c = await community(o, [u, s]);
-    const g = ((await t.api(o).post(`/api/communities/${c.id}/groups`).send({ name: 'Linked', memberIds: [s.id] }).expect(201)).body as { chat: { id: string } }).chat.id;
+    const g = (
+      (
+        await t
+          .api(o)
+          .post(`/api/communities/${c.id}/groups`)
+          .send({ name: 'Linked', memberIds: [s.id] })
+          .expect(201)
+      ).body as { chat: { id: string } }
+    ).chat.id;
     // d: a chat of U (and S) that sorts after g, so the forward locks g first and then d.
     let d = await createGroup(s, [u]);
     while (d < g) d = await createGroup(s, [u]);
@@ -382,7 +440,10 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
       const r = await raw();
       await r.query('begin');
       await r.query('delete from statuses where id = $1', [st.id]); // the author's delete / the expiry purge, uncommitted
-      const req = action === 'view' ? t.api(viewer).post(`/api/status/${st.id}/view`) : t.api(viewer).put(`/api/status/${st.id}/reaction`).send({ emoji: '👍' });
+      const req =
+        action === 'view'
+          ? t.api(viewer).post(`/api/status/${st.id}/view`)
+          : t.api(viewer).put(`/api/status/${st.id}/reaction`).send({ emoji: '👍' });
       const status = req.then((res) => res.status);
       await lockWaiters('%from "statuses"%for key share%');
       await r.query('commit');
@@ -404,14 +465,29 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
       const r = await raw();
       await r.query('begin');
       // The other device's first view, in flight (uncommitted).
-      await r.query('insert into status_views (status_id, viewer_id, viewed_at) values ($1, $2, now())', [st.id, viewer.id]);
-      const req = t.api(viewer).put(`/api/status/${st.id}/reaction`).send({ emoji: '👍' }).then((res) => res.status);
+      await r.query(
+        'insert into status_views (status_id, viewer_id, viewed_at) values ($1, $2, now())',
+        [st.id, viewer.id],
+      );
+      const req = t
+        .api(viewer)
+        .put(`/api/status/${st.id}/reaction`)
+        .send({ emoji: '👍' })
+        .then((res) => res.status);
       await lockWaiters('%insert into "status_views"%');
       await r.query(outcome);
       expect(await req).toBe(204);
-      await until(() => rec.of('status:viewed').some((e) => e.statusId === st.id), 3000, 'status:viewed');
+      await until(
+        () => rec.of('status:viewed').some((e) => e.statusId === st.id),
+        3000,
+        'status:viewed',
+      );
       const evt = rec.of('status:viewed').find((e) => e.statusId === st.id)!;
-      out[outcome] = { firstView: evt.firstView, viewCount: evt.viewCount, reaction: evt.viewer.reaction };
+      out[outcome] = {
+        firstView: evt.firstView,
+        viewCount: evt.viewCount,
+        reaction: evt.viewer.reaction,
+      };
     }
     // Committed: the reaction only updated that view. Rolled back: the reaction recorded it.
     expect(out).toEqual({
@@ -429,7 +505,8 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
     await sendOk(t, b, g, 'plain');
     const counts = (await t.api(b).get(`/api/chats/${g}/media/counts`).expect(200)).body;
     expect(counts).toEqual({ media: 0, docs: 0, links: 2, voice: 0 });
-    const links = (await t.api(b).get(`/api/chats/${g}/media?kind=links`).expect(200)).body as Message[];
+    const links = (await t.api(b).get(`/api/chats/${g}/media?kind=links`).expect(200))
+      .body as Message[];
     expect(links).toHaveLength(counts.links);
   });
 

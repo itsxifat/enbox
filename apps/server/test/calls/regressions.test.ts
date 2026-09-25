@@ -8,7 +8,13 @@ import { rooms } from '@enbox/shared';
 import { sweepCalls } from '../../src/modules/calls/service.js';
 import { boundSocketId, resetCallState, setCallTimings } from '../../src/modules/calls/state.js';
 import { createSession } from '../../src/services/sessions.js';
-import { startTestServer, waitForEvent, type TestServer, type TestSocket, type TestUser } from '../helpers.js';
+import {
+  startTestServer,
+  waitForEvent,
+  type TestServer,
+  type TestSocket,
+  type TestUser,
+} from '../helpers.js';
 import { createDirect, recordEvents, settle } from '../services/fixtures.js';
 import { delayNextResult, delayNextTxResult, failNextTxQuery } from '../support/db-hooks.js';
 import { ackCall, callRow, partOf, rawAck, send, until } from './helpers.js';
@@ -35,8 +41,14 @@ describe('calls: review regressions', () => {
 
   /** Community owned by `owner` with `members` added by the owner. */
   async function community(owner: TestUser, members: TestUser[]) {
-    const c = (await t.api(owner).post('/api/communities').send({ name: 'Comm' }).expect(201)).body as { id: string; announcementChatId: string };
-    if (members.length) await t.api(owner).post(`/api/communities/${c.id}/members`).send({ userIds: members.map((m) => m.id) }).expect(200);
+    const c = (await t.api(owner).post('/api/communities').send({ name: 'Comm' }).expect(201))
+      .body as { id: string; announcementChatId: string };
+    if (members.length)
+      await t
+        .api(owner)
+        .post(`/api/communities/${c.id}/members`)
+        .send({ userIds: members.map((m) => m.id) })
+        .expect(200);
     return c;
   }
 
@@ -60,14 +72,23 @@ describe('calls: review regressions', () => {
     const s2 = await t.connect(m2);
     const s3 = await t.connect(m3);
     const r3 = recordEvents(s3);
-    const call = await ackCall(so, 'call:start', { chatId: c.announcementChatId, type: 'audio', userIds: [m1.id] });
+    const call = await ackCall(so, 'call:start', {
+      chatId: c.announcementChatId,
+      type: 'audio',
+      userIds: [m1.id],
+    });
     await ackCall(s2, 'call:join', { callId: call.id });
-    const summary = (await t.api(m2).get(`/api/chats/${c.announcementChatId}`).expect(200)).body as { permissions: { canCall: boolean } };
+    const summary = (await t.api(m2).get(`/api/chats/${c.announcementChatId}`).expect(200))
+      .body as { permissions: { canCall: boolean } };
     expect(summary.permissions.canCall).toBe(false);
 
     const res = await rawAck(s2, 'call:invite', { callId: call.id, userIds: [m3.id] });
     await settle(300);
-    expect({ ok: res.ok, code: res.ok ? null : res.error.code, rung: r3.of('call:incoming').map((p) => p.call.id) }).toEqual({ ok: false, code: 'forbidden', rung: [] });
+    expect({
+      ok: res.ok,
+      code: res.ok ? null : res.error.code,
+      rung: r3.of('call:incoming').map((p) => p.call.id),
+    }).toEqual({ ok: false, code: 'forbidden', rung: [] });
     // An admin in the same call still may.
     await ackCall(so, 'call:invite', { callId: call.id, userIds: [m3.id] });
     await until(() => r3.of('call:incoming').length === 1, 3000, 'incoming on m3');
@@ -80,7 +101,10 @@ describe('calls: review regressions', () => {
   it('call:leave immediately followed by socket.disconnect() (logout) ends the call at once, not after the reconnect grace', async () => {
     setCallTimings({ reconnectGraceMs: 3000 });
     const { sa, sb, call } = await ongoingPair();
-    const ended = waitForEvent(sa, 'call:ended', { timeoutMs: 1500, filter: (p) => p.callId === call.id });
+    const ended = waitForEvent(sa, 'call:ended', {
+      timeoutMs: 1500,
+      filter: (p) => p.callId === call.id,
+    });
     send(sb, 'call:leave', { callId: call.id });
     sb.disconnect();
     const got = await ended.catch(() => null);
@@ -92,9 +116,14 @@ describe('calls: review regressions', () => {
     setCallTimings({ reconnectGraceMs: 3000 });
     const { sa, sb, call } = await ongoingPair();
     const bId = sb.id!;
-    const ended = waitForEvent(sa, 'call:ended', { timeoutMs: 1500, filter: (p) => p.callId === call.id });
+    const ended = waitForEvent(sa, 'call:ended', {
+      timeoutMs: 1500,
+      filter: (p) => p.callId === call.id,
+    });
     // The leave op is inside its transaction (lockCallCtx) when the transport closes.
-    const d = delayNextTxResult((text, params) => /^select "chat_id" from "calls"/.test(text) && params.includes(call.id));
+    const d = delayNextTxResult(
+      (text, params) => /^select "chat_id" from "calls"/.test(text) && params.includes(call.id),
+    );
     send(sb, 'call:leave', { callId: call.id });
     await d.hit;
     sb.disconnect();
@@ -111,7 +140,10 @@ describe('calls: review regressions', () => {
     const sa = await t.connect(a);
     const sb = await t.connect(b);
     const call = await ackCall(sa, 'call:start', { chatId, type: 'audio' });
-    const ended = waitForEvent(sa, 'call:ended', { timeoutMs: 3000, filter: (p) => p.callId === call.id });
+    const ended = waitForEvent(sa, 'call:ended', {
+      timeoutMs: 3000,
+      filter: (p) => p.callId === call.id,
+    });
     const accept = rawAck(sb, 'call:accept', { callId: call.id });
     const leave = rawAck(sb, 'call:leave', { callId: call.id });
     expect((await accept).ok).toBe(true);
@@ -144,15 +176,27 @@ describe('calls: review regressions', () => {
     const s2 = await t.connect(m2);
     const [ro, r1, r2] = [recordEvents(so), recordEvents(s1), recordEvents(s2)];
 
-    const call = await ackCall(so, 'call:start', { chatId: c.announcementChatId, type: 'audio', userIds: [m1.id, m2.id] });
-    await until(() => r1.of('call:incoming').length === 1 && r2.of('call:incoming').length === 1, 3000, 'incoming');
+    const call = await ackCall(so, 'call:start', {
+      chatId: c.announcementChatId,
+      type: 'audio',
+      userIds: [m1.id, m2.id],
+    });
+    await until(
+      () => r1.of('call:incoming').length === 1 && r2.of('call:incoming').length === 1,
+      3000,
+      'incoming',
+    );
     await ackCall(s1, 'call:accept', { callId: call.id });
     await settle(200);
     [ro, r1, r2].forEach((r) => r.clear());
 
     await t.api(o).delete(`/api/communities/${c.id}`).expect(204);
     await settle(300);
-    send(so, 'call:signal', { callId: call.id, toUserId: m1.id, signal: { type: 'offer', sdp: 'v=0 ghost' } });
+    send(so, 'call:signal', {
+      callId: call.id,
+      toUserId: m1.id,
+      signal: { type: 'offer', sdp: 'v=0 ghost' },
+    });
     await settle(300);
 
     expect({
@@ -189,8 +233,14 @@ describe('calls: review regressions', () => {
     const incoming = waitForEvent(sm, 'call:incoming');
     const call = await ackCall(so, 'call:start', { chatId: c.announcementChatId, type: 'audio' });
     await incoming;
-    const ownerEnded = waitForEvent(so, 'call:ended', { timeoutMs: 1500, filter: (p) => p.callId === call.id });
-    const memberStopped = waitForEvent(sm, 'call:ring-stop', { timeoutMs: 1500, filter: (p) => p.callId === call.id });
+    const ownerEnded = waitForEvent(so, 'call:ended', {
+      timeoutMs: 1500,
+      filter: (p) => p.callId === call.id,
+    });
+    const memberStopped = waitForEvent(sm, 'call:ring-stop', {
+      timeoutMs: 1500,
+      filter: (p) => p.callId === call.id,
+    });
     await t.api(owner).delete(`/api/communities/${c.id}`).expect(204);
     expect(await callRow(call.id)).toBeUndefined(); // cascaded away with the chat
     expect((await ownerEnded).status).toBe('cancelled');
@@ -213,19 +263,37 @@ describe('calls: review regressions', () => {
 
     // D2's late-device re-emit found the call ringing U, but that response is still in
     // flight while D1 answers. (The re-emit re-checks the call inside the call's queue.)
-    const d = delayNextResult((text, params) => /^select "call_participants"\."call_id" from "call_participants" inner join "calls"/.test(text) && params.includes(u.id));
+    const d = delayNextResult(
+      (text, params) =>
+        /^select "call_participants"\."call_id" from "call_participants" inner join "calls"/.test(
+          text,
+        ) && params.includes(u.id),
+    );
     const { token } = await createSession({ userId: u.id, deviceName: 'd2' });
-    const d2 = ioClient(t.url, { auth: { token }, transports: ['websocket'], forceNew: true, reconnection: false }) as TestSocket;
+    const d2 = ioClient(t.url, {
+      auth: { token },
+      transports: ['websocket'],
+      forceNew: true,
+      reconnection: false,
+    }) as TestSocket;
     extra.push(d2);
     const r2 = recordEvents(d2);
     await d.hit;
     await ackCall(d1, 'call:accept', { callId: call.id });
-    await until(() => r2.of('call:ring-stop').some((p) => p.callId === call.id), 3000, 'ring-stop on d2');
+    await until(
+      () => r2.of('call:ring-stop').some((p) => p.callId === call.id),
+      3000,
+      'ring-stop on d2',
+    );
     d.release();
     await settle(400);
 
     const seq = r2.log
-      .filter((e) => (e.event === 'call:incoming' && e.payload.call.id === call.id) || (e.event === 'call:ring-stop' && e.payload.callId === call.id))
+      .filter(
+        (e) =>
+          (e.event === 'call:incoming' && e.payload.call.id === call.id) ||
+          (e.event === 'call:ring-stop' && e.payload.callId === call.id),
+      )
       .map((e) => e.event);
     expect(seq.at(-1)).toBe('call:ring-stop');
     [sa, d1, d2].forEach((s) => s.disconnect());
@@ -237,7 +305,12 @@ describe('calls: review regressions', () => {
     const sa = await t.connect(a);
     const call = await ackCall(sa, 'call:start', { chatId, type: 'video' });
     const { token } = await createSession({ userId: u.id, deviceName: 'late' });
-    const late = ioClient(t.url, { auth: { token }, transports: ['websocket'], forceNew: true, reconnection: false }) as TestSocket;
+    const late = ioClient(t.url, {
+      auth: { token },
+      transports: ['websocket'],
+      forceNew: true,
+      reconnection: false,
+    }) as TestSocket;
     extra.push(late);
     const got = await waitForEvent(late, 'call:incoming', { filter: (p) => p.call.id === call.id });
     expect(got.call.status).toBe('ringing');
@@ -250,7 +323,9 @@ describe('calls: review regressions', () => {
   it('after a failed disconnect transaction the sweep still expires the lost participant', async () => {
     setCallTimings({ reconnectGraceMs: 200 });
     const { b, sa, sb, call } = await ongoingPair();
-    const inj = failNextTxQuery((text) => /^update "call_participants" set "disconnected_at" = \$1 where/.test(text));
+    const inj = failNextTxQuery((text) =>
+      /^update "call_participants" set "disconnected_at" = \$1 where/.test(text),
+    );
     try {
       sb.disconnect();
       await until(() => inj.failed(), 3000, 'injected failure');
@@ -259,10 +334,17 @@ describe('calls: review regressions', () => {
     }
     await settle(100);
     const lost = await partOf(call.id, b.id);
-    expect({ status: lost.status, disconnectedAt: lost.disconnectedAt }).toEqual({ status: 'joined', disconnectedAt: null });
+    expect({ status: lost.status, disconnectedAt: lost.disconnectedAt }).toEqual({
+      status: 'joined',
+      disconnectedAt: null,
+    });
 
     await sweepCalls(); // the calls job's periodic run: the lost participant enters the grace
-    await until(async () => (await partOf(call.id, b.id)).disconnectedAt !== null, 3000, 'grace started');
+    await until(
+      async () => (await partOf(call.id, b.id)).disconnectedAt !== null,
+      3000,
+      'grace started',
+    );
     await settle(400); // > grace
     await sweepCalls();
     await until(async () => (await callRow(call.id)).status === 'ended', 3000, 'call ended');

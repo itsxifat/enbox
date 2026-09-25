@@ -35,10 +35,26 @@ describe('robustness: inputs and limits', () => {
 
   describe('R1: a NUL byte or a lone surrogate is a 400, never a 500', () => {
     it('unauthenticated login and register', async () => {
-      const login = await t.api().post('/api/auth/login').send({ identifier: 'ab\u0000c', password: 'password123' });
-      expect({ status: login.status, code: login.body.error?.code }).toEqual({ status: 400, code: 'validation_error' });
-      const register = await t.api().post('/api/auth/register').send({ username: `nul${Date.now() % 100000}`, displayName: 'a\u0000b', password: 'password123' });
-      expect({ status: register.status, code: register.body.error?.code }).toEqual({ status: 400, code: 'validation_error' });
+      const login = await t
+        .api()
+        .post('/api/auth/login')
+        .send({ identifier: 'ab\u0000c', password: 'password123' });
+      expect({ status: login.status, code: login.body.error?.code }).toEqual({
+        status: 400,
+        code: 'validation_error',
+      });
+      const register = await t
+        .api()
+        .post('/api/auth/register')
+        .send({
+          username: `nul${Date.now() % 100000}`,
+          displayName: 'a\u0000b',
+          password: 'password123',
+        });
+      expect({ status: register.status, code: register.body.error?.code }).toEqual({
+        status: 400,
+        code: 'validation_error',
+      });
     });
 
     it('message text, clientId, poll question (lone surrogate), location name', async () => {
@@ -47,13 +63,28 @@ describe('robustness: inputs and limits', () => {
       const cases = [
         { text: 'hi\u0000there' },
         { text: 'ok', clientId: 'c\u00003' },
-        { type: 'poll', clientId: newClientId(), poll: { question: 'q\ud800', options: ['a', 'b'] } },
-        { type: 'poll', clientId: newClientId(), poll: { question: 'q', options: ['a\udc00', 'b'] } },
-        { type: 'location', clientId: newClientId(), location: { latitude: 1, longitude: 2, name: 'x\u0000' } },
+        {
+          type: 'poll',
+          clientId: newClientId(),
+          poll: { question: 'q\ud800', options: ['a', 'b'] },
+        },
+        {
+          type: 'poll',
+          clientId: newClientId(),
+          poll: { question: 'q', options: ['a\udc00', 'b'] },
+        },
+        {
+          type: 'location',
+          clientId: newClientId(),
+          location: { latitude: 1, longitude: 2, name: 'x\u0000' },
+        },
       ];
       for (const body of cases) {
         const res = await sendReq(t, a, d, body);
-        expect({ status: res.status, code: res.body.error?.code }).toEqual({ status: 400, code: 'validation_error' });
+        expect({ status: res.status, code: res.body.error?.code }).toEqual({
+          status: 400,
+          code: 'validation_error',
+        });
       }
       // Well-formed surrogate pairs (emoji) are fine.
       expect((await sendReq(t, a, d, { text: 'party 🎉' })).status).toBe(201);
@@ -68,33 +99,52 @@ describe('robustness: inputs and limits', () => {
         t.api(a).patch('/api/me').send({ about: 'x\u0000' }),
         t.api(a).post('/api/groups').send({ name: 'g\u0000' }),
         t.api(a).post('/api/status').send({ type: 'text', text: 's\u0000' }),
-        t.api(a).post('/api/contacts').send({ userId: (await t.createUser()).id, name: 'n\u0000' }),
+        t
+          .api(a)
+          .post('/api/contacts')
+          .send({ userId: (await t.createUser()).id, name: 'n\u0000' }),
       ];
       for (const req of checks) {
         const res = await req;
-        expect({ status: res.status, code: res.body.error?.code }).toEqual({ status: 400, code: 'validation_error' });
+        expect({ status: res.status, code: res.body.error?.code }).toEqual({
+          status: 400,
+          code: 'validation_error',
+        });
       }
     });
   });
 
   describe('R8: out-of-range datetimes are a 400, never a 500', () => {
-    it.each(['0000-01-01T00:00:00Z', '9999-12-31T23:59:59-14:00'])('PATCH prefs mutedUntil %s', async (mutedUntil) => {
-      const [a, b] = [await t.createUser(), await t.createUser()];
-      const d = await activeDirect(t, a, b);
-      const res = await t.api(a).patch(`/api/chats/${d}/prefs`).send({ mutedUntil });
-      expect({ status: res.status, code: res.body.error?.code }).toEqual({ status: 400, code: 'validation_error' });
-    });
+    it.each(['0000-01-01T00:00:00Z', '9999-12-31T23:59:59-14:00'])(
+      'PATCH prefs mutedUntil %s',
+      async (mutedUntil) => {
+        const [a, b] = [await t.createUser(), await t.createUser()];
+        const d = await activeDirect(t, a, b);
+        const res = await t.api(a).patch(`/api/chats/${d}/prefs`).send({ mutedUntil });
+        expect({ status: res.status, code: res.body.error?.code }).toEqual({
+          status: 400,
+          code: 'validation_error',
+        });
+      },
+    );
 
     it('GET /calls?before=0000-01-01T00:00:00Z', async () => {
       const a = await t.createUser();
       const res = await t.api(a).get('/api/calls?before=0000-01-01T00:00:00Z');
-      expect({ status: res.status, code: res.body.error?.code }).toEqual({ status: 400, code: 'validation_error' });
+      expect({ status: res.status, code: res.body.error?.code }).toEqual({
+        status: 400,
+        code: 'validation_error',
+      });
     });
 
     it('in-range values (MUTE_FOREVER, year 1) still work', async () => {
       const [a, b] = [await t.createUser(), await t.createUser()];
       const d = await activeDirect(t, a, b);
-      await t.api(a).patch(`/api/chats/${d}/prefs`).send({ mutedUntil: '9999-12-31T23:59:59.000Z' }).expect(200);
+      await t
+        .api(a)
+        .patch(`/api/chats/${d}/prefs`)
+        .send({ mutedUntil: '9999-12-31T23:59:59.000Z' })
+        .expect(200);
       await t.api(a).get('/api/calls?before=0001-01-01T00:00:00Z').expect(200);
     });
   });
@@ -131,11 +181,19 @@ describe('robustness: inputs and limits', () => {
         await t
           .api(bob)
           .post('/api/push/subscriptions')
-          .send({ endpoint: `https://fcm.googleapis.com/fcm/send/r7-${bob.id}-${i}`, keys: { p256dh: 'BPublicKey', auth: 'authSecret' } })
+          .send({
+            endpoint: `https://fcm.googleapis.com/fcm/send/r7-${bob.id}-${i}`,
+            keys: { p256dh: 'BPublicKey', auth: 'authSecret' },
+          })
           .expect(204);
       }
-      const rows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, bob.id));
-      expect(rows.map((r) => r.endpoint)).toEqual([`https://fcm.googleapis.com/fcm/send/r7-${bob.id}-49`]);
+      const rows = await db
+        .select()
+        .from(pushSubscriptions)
+        .where(eq(pushSubscriptions.userId, bob.id));
+      expect(rows.map((r) => r.endpoint)).toEqual([
+        `https://fcm.googleapis.com/fcm/send/r7-${bob.id}-49`,
+      ]);
 
       let sends = 0;
       setPushSender(async (target) => {
@@ -160,10 +218,17 @@ describe('robustness: inputs and limits', () => {
         const { token } = await createSession({ userId: u.id, deviceName: `d${i}` });
         const endpoint = `https://fcm.googleapis.com/fcm/send/cap-${u.id}-${i}`;
         endpoints.push(endpoint);
-        await t.api({ token }).post('/api/push/subscriptions').send({ endpoint, keys: { p256dh: 'k', auth: 'a' } }).expect(204);
+        await t
+          .api({ token })
+          .post('/api/push/subscriptions')
+          .send({ endpoint, keys: { p256dh: 'k', auth: 'a' } })
+          .expect(204);
         await sleep(2); // distinct createdAt
       }
-      const rows = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, u.id));
+      const rows = await db
+        .select()
+        .from(pushSubscriptions)
+        .where(eq(pushSubscriptions.userId, u.id));
       expect(rows.map((r) => r.endpoint).sort()).toEqual(endpoints.slice(3).sort());
     });
 
@@ -171,7 +236,11 @@ describe('robustness: inputs and limits', () => {
       const [alice, bob] = [await t.createUser(), await t.createUser()];
       const d = await activeDirect(t, alice, bob);
       const endpoint = `https://fcm.googleapis.com/fcm/send/junk-${bob.id}`;
-      await t.api(bob).post('/api/push/subscriptions').send({ endpoint, keys: { p256dh: 'junk', auth: 'junk' } }).expect(204);
+      await t
+        .api(bob)
+        .post('/api/push/subscriptions')
+        .send({ endpoint, keys: { p256dh: 'junk', auth: 'junk' } })
+        .expect(204);
       setPushSender(async (target) => {
         if (target.endpoint === endpoint) throw new Error('local encryption failed: bad p256dh');
       });
@@ -183,7 +252,9 @@ describe('robustness: inputs and limits', () => {
       } finally {
         setPushSender(undefined);
       }
-      expect(await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint))).toEqual([]);
+      expect(
+        await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint)),
+      ).toEqual([]);
     });
   });
 
@@ -192,9 +263,17 @@ describe('robustness: inputs and limits', () => {
       const u = await t.createUser();
       config.rateLimit = true;
       resetUserLimits();
-      for (let i = 0; i < 30; i++) await t.api(u).post('/api/status').send({ type: 'text', text: `s${i}` }).expect(201);
+      for (let i = 0; i < 30; i++)
+        await t
+          .api(u)
+          .post('/api/status')
+          .send({ type: 'text', text: `s${i}` })
+          .expect(201);
       const res = await t.api(u).post('/api/status').send({ type: 'text', text: 'one too many' });
-      expect({ status: res.status, code: res.body.error?.code }).toEqual({ status: 429, code: 'rate_limited' });
+      expect({ status: res.status, code: res.body.error?.code }).toEqual({
+        status: 429,
+        code: 'rate_limited',
+      });
     });
 
     it(`the feed shows at most STATUS_FEED_PER_AUTHOR (latest) statuses of an author`, async () => {
@@ -205,26 +284,44 @@ describe('robustness: inputs and limits', () => {
         ids.push((await mkStatus(author.id, [viewer.id], { text: `s${i}` })).id);
         await sleep(1);
       }
-      const feed = (await t.api(viewer).get('/api/status/feed').expect(200)).body as { updates: { user: { id: string }; statuses: { id: string }[] }[] };
+      const feed = (await t.api(viewer).get('/api/status/feed').expect(200)).body as {
+        updates: { user: { id: string }; statuses: { id: string }[] }[];
+      };
       const mine = feed.updates.find((u) => u.user.id === author.id)!;
       expect(mine.statuses.map((s) => s.id)).toEqual(ids.slice(5));
     });
   });
 
   describe('R12: uploads never orphan stored files', () => {
-    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
-    const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), Buffer.from('JFIF\0'), Buffer.alloc(64)]);
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const JPEG = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+      Buffer.from('JFIF\0'),
+      Buffer.alloc(64),
+    ]);
     const storedFiles = () =>
-      (fs.readdirSync(t.uploadDir, { recursive: true }) as string[]).filter((f) => !f.startsWith('.tmp') && fs.statSync(path.join(t.uploadDir, f)).isFile());
+      (fs.readdirSync(t.uploadDir, { recursive: true }) as string[]).filter(
+        (f) => !f.startsWith('.tmp') && fs.statSync(path.join(t.uploadDir, f)).isFile(),
+      );
 
     it('when moving the thumbnail into the store fails, the already-stored main file is removed', async () => {
       const u = await t.createUser();
       const before = new Set(storedFiles());
       const origRename = fsp.rename;
       let renames = 0;
-      (fsp as { rename: typeof fsp.rename }).rename = (async (from: fs.PathLike, to: fs.PathLike) => {
+      (fsp as { rename: typeof fsp.rename }).rename = (async (
+        from: fs.PathLike,
+        to: fs.PathLike,
+      ) => {
         renames += 1;
-        if (renames === 2) throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC', errno: -28 });
+        if (renames === 2)
+          throw Object.assign(new Error('ENOSPC: no space left on device, rename'), {
+            code: 'ENOSPC',
+            errno: -28,
+          });
         return origRename(from, to);
       }) as typeof fsp.rename;
       let status: number;

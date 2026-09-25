@@ -76,7 +76,8 @@ async function toCallLogEntries(me: string, rows: LogRow[]): Promise<CallLogEntr
     const call = toCall(entry.call, entry.parts);
     const { direction, outcome } = callOutcome(call, me, r.myStatus);
     const peerId = peerIdOf.get(chat.id);
-    const peer: UserPublic | null = chat.type === 'direct' && peerId ? (peers.get(peerId) ?? null) : null;
+    const peer: UserPublic | null =
+      chat.type === 'direct' && peerId ? (peers.get(peerId) ?? null) : null;
     out.push({
       call,
       direction,
@@ -102,7 +103,13 @@ router.get('/calls', async (req, res) => {
     .select(logRowFields)
     .from(callParticipants)
     .innerJoin(calls, eq(calls.id, callParticipants.callId))
-    .where(and(eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt), q.before ? lt(calls.createdAt, storableDate(q.before, 'before')) : undefined))
+    .where(
+      and(
+        eq(callParticipants.userId, me),
+        isNull(callParticipants.hiddenAt),
+        q.before ? lt(calls.createdAt, storableDate(q.before, 'before')) : undefined,
+      ),
+    )
     .orderBy(desc(calls.createdAt), desc(calls.id))
     .limit(q.limit);
   res.json(await toCallLogEntries(me, rows));
@@ -113,7 +120,14 @@ router.get('/calls/active', async (req, res) => {
   const rows = await db
     .select({ id: calls.id })
     .from(calls)
-    .innerJoin(chatMembers, and(eq(chatMembers.chatId, calls.chatId), eq(chatMembers.userId, me), isNull(chatMembers.leftAt)))
+    .innerJoin(
+      chatMembers,
+      and(
+        eq(chatMembers.chatId, calls.chatId),
+        eq(chatMembers.userId, me),
+        isNull(chatMembers.leftAt),
+      ),
+    )
     .where(
       and(
         inArray(calls.status, LIVE_CALL_STATUSES),
@@ -126,7 +140,11 @@ router.get('/calls/active', async (req, res) => {
     db,
     rows.map((r) => r.id),
   );
-  res.json(rows.flatMap((r) => (loaded.has(r.id) ? [toCall(loaded.get(r.id)!.call, loaded.get(r.id)!.parts)] : [])));
+  res.json(
+    rows.flatMap((r) =>
+      loaded.has(r.id) ? [toCall(loaded.get(r.id)!.call, loaded.get(r.id)!.parts)] : [],
+    ),
+  );
 });
 
 router.get('/calls/ice-servers', (req, res) => {
@@ -141,7 +159,11 @@ router.get('/calls/ice-servers', (req, res) => {
       const credential = createHmac('sha1', ice.turnSecret).update(username).digest('base64');
       iceServers.push({ urls: ice.turnUrls, username, credential });
     } else if (ice.turnUsername && ice.turnCredential) {
-      iceServers.push({ urls: ice.turnUrls, username: ice.turnUsername, credential: ice.turnCredential });
+      iceServers.push({
+        urls: ice.turnUrls,
+        username: ice.turnUsername,
+        credential: ice.turnCredential,
+      });
     } else {
       iceServers.push({ urls: ice.turnUrls });
     }
@@ -158,7 +180,13 @@ router.get('/calls/:callId', async (req, res) => {
     .select(logRowFields)
     .from(callParticipants)
     .innerJoin(calls, eq(calls.id, callParticipants.callId))
-    .where(and(eq(callParticipants.callId, callId), eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt)))
+    .where(
+      and(
+        eq(callParticipants.callId, callId),
+        eq(callParticipants.userId, me),
+        isNull(callParticipants.hiddenAt),
+      ),
+    )
     .limit(1);
   const [entry] = await toCallLogEntries(me, rows);
   if (!entry) throw notFound('Call');
@@ -174,7 +202,13 @@ router.delete('/calls', async (req, res) => {
       and(
         eq(callParticipants.userId, me),
         isNull(callParticipants.hiddenAt),
-        inArray(callParticipants.callId, db.select({ id: calls.id }).from(calls).where(notInArray(calls.status, LIVE_CALL_STATUSES))),
+        inArray(
+          callParticipants.callId,
+          db
+            .select({ id: calls.id })
+            .from(calls)
+            .where(notInArray(calls.status, LIVE_CALL_STATUSES)),
+        ),
       ),
     );
   res.status(204).end();

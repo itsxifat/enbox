@@ -65,7 +65,8 @@ export async function startTestServer() {
     /** Authenticated supertest agent helpers for a user (or anonymous when omitted). */
     api(user?: Pick<TestUser, 'token'>) {
       const agent = supertest(app);
-      const auth = <T extends supertest.Test>(req: T) => (user ? req.set('Authorization', `Bearer ${user.token}`) : req);
+      const auth = <T extends supertest.Test>(req: T) =>
+        user ? req.set('Authorization', `Bearer ${user.token}`) : req;
       return {
         get: (p: string) => auth(agent.get(p)),
         post: (p: string) => auth(agent.post(p)),
@@ -76,11 +77,21 @@ export async function startTestServer() {
     },
 
     /** Insert a user directly (bypassing the register endpoint) and create a session. */
-    async createUser(overrides: { username?: string; displayName?: string; phone?: string; password?: string } = {}): Promise<TestUser> {
+    async createUser(
+      overrides: {
+        username?: string;
+        displayName?: string;
+        phone?: string;
+        password?: string;
+      } = {},
+    ): Promise<TestUser> {
       counter += 1;
-      const username = overrides.username ?? `user${counter}_${Math.random().toString(36).slice(2, 7)}`;
+      const username =
+        overrides.username ?? `user${counter}_${Math.random().toString(36).slice(2, 7)}`;
       const password = overrides.password ?? 'password123';
-      const passwordHash = overrides.password ? await hashPassword(password) : await (defaultHash ??= hashPassword('password123'));
+      const passwordHash = overrides.password
+        ? await hashPassword(password)
+        : await (defaultHash ??= hashPassword('password123'));
       const [row] = await db
         .insert(users)
         .values({
@@ -92,12 +103,24 @@ export async function startTestServer() {
         })
         .returning();
       const { token, session } = await createSession({ userId: row!.id, deviceName: 'test' });
-      return { id: row!.id, username, displayName: row!.displayName, token, sessionId: session.id, password };
+      return {
+        id: row!.id,
+        username,
+        displayName: row!.displayName,
+        token,
+        sessionId: session.id,
+        password,
+      };
     },
 
     /** Connect an authenticated socket; resolves once the server emitted `ready`. */
     async connect(user: Pick<TestUser, 'token'>): Promise<TestSocket> {
-      const socket: TestSocket = ioClient(url, { auth: { token: user.token }, transports: ['websocket'], forceNew: true, reconnection: false });
+      const socket: TestSocket = ioClient(url, {
+        auth: { token: user.token },
+        transports: ['websocket'],
+        forceNew: true,
+        reconnection: false,
+      });
       sockets.push(socket);
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('socket ready timeout')), 5000);
@@ -132,7 +155,10 @@ export type TestServer = Awaited<ReturnType<typeof startTestServer>>;
 export function waitForEvent<E extends keyof ServerToClientEvents>(
   socket: TestSocket,
   event: E,
-  opts: { timeoutMs?: number; filter?: (payload: Parameters<ServerToClientEvents[E]>[0]) => boolean } = {},
+  opts: {
+    timeoutMs?: number;
+    filter?: (payload: Parameters<ServerToClientEvents[E]>[0]) => boolean;
+  } = {},
 ): Promise<Parameters<ServerToClientEvents[E]>[0]> {
   const { timeoutMs = 3000, filter } = opts;
   return new Promise((resolve, reject) => {
@@ -151,7 +177,11 @@ export function waitForEvent<E extends keyof ServerToClientEvents>(
 }
 
 /** Assert that `event` is NOT received within `ms`. */
-export async function expectNoEvent(socket: TestSocket, event: keyof ServerToClientEvents, ms = 300): Promise<void> {
+export async function expectNoEvent(
+  socket: TestSocket,
+  event: keyof ServerToClientEvents,
+  ms = 300,
+): Promise<void> {
   let got: unknown;
   const handler = (p: unknown) => (got = p);
   (socket as unknown as ClientSocket).on(event as string, handler);
@@ -161,13 +191,26 @@ export async function expectNoEvent(socket: TestSocket, event: keyof ServerToCli
 }
 
 /** Emit with ack and unwrap `{ ok, data }` (throws on `{ ok: false }`). */
-export function emitAck<T = unknown>(socket: TestSocket, event: keyof ClientToServerEvents, payload: unknown): Promise<T> {
+export function emitAck<T = unknown>(
+  socket: TestSocket,
+  event: keyof ClientToServerEvents,
+  payload: unknown,
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    (socket as unknown as ClientSocket).timeout(5000).emit(event as string, payload, (err: unknown, res: { ok: boolean; data?: T; error?: { message: string } }) => {
-      if (err) return reject(err);
-      if (!res.ok) return reject(Object.assign(new Error(res.error?.message ?? 'ack error'), { ack: res }));
-      resolve(res.data as T);
-    });
+    (socket as unknown as ClientSocket)
+      .timeout(5000)
+      .emit(
+        event as string,
+        payload,
+        (err: unknown, res: { ok: boolean; data?: T; error?: { message: string } }) => {
+          if (err) return reject(err);
+          if (!res.ok)
+            return reject(
+              Object.assign(new Error(res.error?.message ?? 'ack error'), { ack: res }),
+            );
+          resolve(res.data as T);
+        },
+      );
   });
 }
 

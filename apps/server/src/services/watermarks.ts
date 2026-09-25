@@ -18,7 +18,14 @@ import { chatMembers, chats } from '../db/schema.js';
 import { notFound } from '../lib/errors.js';
 import { emitToUser } from '../realtime/emit.js';
 import { isOnline } from '../realtime/presence.js';
-import { getMembership, lockChat, maxVisibleSeq, memberVisibleSql, windowEnd, windowOf } from './chats.js';
+import {
+  getMembership,
+  lockChat,
+  maxVisibleSeq,
+  memberVisibleSql,
+  windowEnd,
+  windowOf,
+} from './chats.js';
 import { Effects } from './effects.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
 
@@ -64,9 +71,15 @@ export interface MarkAggregate {
   deliveredFirst: string | null;
 }
 
-export function aggregateMarks(marks: { userId: string; read: number; delivered: number }[]): MarkAggregate {
-  const byRead = [...marks].sort((a, b) => a.read - b.read || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
-  const byDel = [...marks].sort((a, b) => a.delivered - b.delivered || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+export function aggregateMarks(
+  marks: { userId: string; read: number; delivered: number }[],
+): MarkAggregate {
+  const byRead = [...marks].sort(
+    (a, b) => a.read - b.read || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0),
+  );
+  const byDel = [...marks].sort(
+    (a, b) => a.delivered - b.delivered || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0),
+  );
   return {
     n: marks.length,
     read: byRead.slice(0, 2).map((m) => m.read),
@@ -77,7 +90,13 @@ export function aggregateMarks(marks: { userId: string; read: number; delivered:
 }
 
 /** min over the active members other than the viewer, from the two smallest values; null = no other member. */
-function othersMin(values: number[], first: string | null, n: number, viewerId: string, viewerActive: boolean): number | null {
+function othersMin(
+  values: number[],
+  first: string | null,
+  n: number,
+  viewerId: string,
+  viewerActive: boolean,
+): number | null {
   const others = viewerActive ? n - 1 : n;
   if (others <= 0) return null;
   if (viewerActive && first === viewerId) return values[1] ?? null;
@@ -90,7 +109,13 @@ function othersMin(values: number[], first: string | null, n: number, viewerId: 
  */
 export function viewerWatermarks(
   agg: MarkAggregate | undefined,
-  p: { chatType: ChatType; viewerId: string; viewerActive: boolean; lastSeq: number; readReceiptsOff: boolean },
+  p: {
+    chatType: ChatType;
+    viewerId: string;
+    viewerActive: boolean;
+    lastSeq: number;
+    readReceiptsOff: boolean;
+  },
 ): ViewerWatermarks {
   if (p.chatType === 'channel') return { readWatermark: 0, deliveredWatermark: 0 };
   const a = agg ?? { n: 0, read: [], readFirst: null, delivered: [], deliveredFirst: null };
@@ -107,10 +132,20 @@ export function viewerWatermarks(
 // ---------------------------------------------------------------------------
 
 /** Per chat: the two smallest active marks (one aggregate query; channels are skipped by callers). */
-export async function loadMarkAggregates(dbx: DbOrTx, chatIds: string[]): Promise<Map<string, MarkAggregate>> {
+export async function loadMarkAggregates(
+  dbx: DbOrTx,
+  chatIds: string[],
+): Promise<Map<string, MarkAggregate>> {
   const out = new Map<string, MarkAggregate>();
   if (chatIds.length === 0) return out;
-  const rows = await rawRows<{ chat_id: string; n: number; r: number[]; r_uid: string; d: number[]; d_uid: string }>(
+  const rows = await rawRows<{
+    chat_id: string;
+    n: number;
+    r: number[];
+    r_uid: string;
+    d: number[];
+    d_uid: string;
+  }>(
     dbx,
     sql`select chat_id, count(*)::int as n,
           (array_agg(last_read_seq order by last_read_seq, user_id))[1:2] as r,
@@ -145,10 +180,20 @@ interface MemberMarkRow {
 }
 
 /** Active members' marks (+ readReceipts setting and hidden flag) of these chats. */
-async function loadActiveMarks(dbx: DbOrTx, chatIds: string[]): Promise<Map<string, MemberMarkRow[]>> {
+async function loadActiveMarks(
+  dbx: DbOrTx,
+  chatIds: string[],
+): Promise<Map<string, MemberMarkRow[]>> {
   const out = new Map<string, MemberMarkRow[]>();
   if (chatIds.length === 0) return out;
-  const rows = await rawRows<{ chat_id: string; user_id: string; r: number; d: number; rr: boolean | null; hidden: boolean }>(
+  const rows = await rawRows<{
+    chat_id: string;
+    user_id: string;
+    r: number;
+    d: number;
+    rr: boolean | null;
+    hidden: boolean;
+  }>(
     dbx,
     sql`select cm.chat_id, cm.user_id, cm.last_read_seq as r, cm.last_delivered_seq as d,
           (u.settings->>'readReceipts')::boolean as rr, cm.hidden
@@ -157,7 +202,14 @@ async function loadActiveMarks(dbx: DbOrTx, chatIds: string[]): Promise<Map<stri
   );
   for (const r of rows) {
     const list = out.get(r.chat_id) ?? [];
-    list.push({ chatId: r.chat_id, userId: r.user_id, read: num(r.r), delivered: num(r.d), readReceipts: r.rr ?? RR_DEFAULT, hidden: !!r.hidden });
+    list.push({
+      chatId: r.chat_id,
+      userId: r.user_id,
+      read: num(r.r),
+      delivered: num(r.d),
+      readReceipts: r.rr ?? RR_DEFAULT,
+      hidden: !!r.hidden,
+    });
     out.set(r.chat_id, list);
   }
   return out;
@@ -167,7 +219,11 @@ async function loadActiveMarks(dbx: DbOrTx, chatIds: string[]): Promise<Map<stri
  * Tick watermarks of `forUserIds` (default: every active member) in one chat. Members with
  * former rows get their clamped former view; unknown users are absent.
  */
-export async function computeWatermarks(dbx: DbOrTx, chatId: string, forUserIds?: string[]): Promise<Map<string, ViewerWatermarks>> {
+export async function computeWatermarks(
+  dbx: DbOrTx,
+  chatId: string,
+  forUserIds?: string[],
+): Promise<Map<string, ViewerWatermarks>> {
   const out = new Map<string, ViewerWatermarks>();
   const [chat] = await dbx.select().from(chats).where(eq(chats.id, chatId)).limit(1);
   if (!chat) return out;
@@ -177,11 +233,19 @@ export async function computeWatermarks(dbx: DbOrTx, chatId: string, forUserIds?
   if (forUserIds) {
     const rows = forUserIds.length
       ? await dbx
-          .select({ userId: chatMembers.userId, leftAt: chatMembers.leftAt, leftSeq: chatMembers.leftSeq })
+          .select({
+            userId: chatMembers.userId,
+            leftAt: chatMembers.leftAt,
+            leftSeq: chatMembers.leftSeq,
+          })
           .from(chatMembers)
           .where(and(eq(chatMembers.chatId, chatId), inArray(chatMembers.userId, forUserIds)))
       : [];
-    viewers = rows.map((r) => ({ userId: r.userId, active: !r.leftAt, leftSeq: r.leftSeq == null ? null : Number(r.leftSeq) }));
+    viewers = rows.map((r) => ({
+      userId: r.userId,
+      active: !r.leftAt,
+      leftSeq: r.leftSeq == null ? null : Number(r.leftSeq),
+    }));
   } else {
     viewers = marks.map((m) => ({ userId: m.userId, active: true, leftSeq: null }));
   }
@@ -212,15 +276,27 @@ export async function diffWatermarks(
   dbx: DbOrTx,
   deltas: WatermarkDelta[],
 ): Promise<Map<string, { userId: string; payload: { chatId: string } & ViewerWatermarks }[]>> {
-  const out = new Map<string, { userId: string; payload: { chatId: string } & ViewerWatermarks }[]>();
-  const merged = new Map<string, { prevLastSeq?: number; prev: Map<string, Marks | null>; prevRR: Map<string, boolean>; skip: Set<string> }>();
+  const out = new Map<
+    string,
+    { userId: string; payload: { chatId: string } & ViewerWatermarks }[]
+  >();
+  const merged = new Map<
+    string,
+    {
+      prevLastSeq?: number;
+      prev: Map<string, Marks | null>;
+      prevRR: Map<string, boolean>;
+      skip: Set<string>;
+    }
+  >();
   for (const d of deltas) {
     let m = merged.get(d.chatId);
     if (!m) merged.set(d.chatId, (m = { prev: new Map(), prevRR: new Map(), skip: new Set() }));
     for (const id of d.skipUserIds ?? []) m.skip.add(id);
     if (m.prevLastSeq === undefined && d.prevLastSeq !== undefined) m.prevLastSeq = d.prevLastSeq;
     for (const x of d.members) if (!m.prev.has(x.userId)) m.prev.set(x.userId, x.prev);
-    if (d.prevReadReceipts && !m.prevRR.has(d.prevReadReceipts.userId)) m.prevRR.set(d.prevReadReceipts.userId, d.prevReadReceipts.value);
+    if (d.prevReadReceipts && !m.prevRR.has(d.prevReadReceipts.userId))
+      m.prevRR.set(d.prevReadReceipts.userId, d.prevReadReceipts.value);
   }
   const chatIds = [...merged.keys()];
   if (chatIds.length === 0) return out;
@@ -244,23 +320,46 @@ export async function diffWatermarks(
     for (const [userId, prev] of m.prev) {
       if (!prev) continue; // was not active before the tx
       const cur = afterById.get(userId);
-      before.push({ chatId: chat.id, userId, read: prev.read, delivered: prev.delivered, readReceipts: m.prevRR.get(userId) ?? cur?.readReceipts ?? RR_DEFAULT });
+      before.push({
+        chatId: chat.id,
+        userId,
+        read: prev.read,
+        delivered: prev.delivered,
+        readReceipts: m.prevRR.get(userId) ?? cur?.readReceipts ?? RR_DEFAULT,
+      });
     }
     const activeBefore = new Set(before.map((b) => b.userId));
     const aggAfter = aggregateMarks(after);
     const aggBefore = aggregateMarks(before);
     const lastAfter = Number(chat.lastSeq);
     const lastBefore = m.prevLastSeq ?? lastAfter;
-    const rrOffAfter = chat.type === 'direct' && after.length === 2 && after.some((x) => !x.readReceipts);
-    const rrOffBefore = chat.type === 'direct' && before.length === 2 && before.some((x) => !x.readReceipts);
+    const rrOffAfter =
+      chat.type === 'direct' && after.length === 2 && after.some((x) => !x.readReceipts);
+    const rrOffBefore =
+      chat.type === 'direct' && before.length === 2 && before.some((x) => !x.readReceipts);
     const emissions: { userId: string; payload: { chatId: string } & ViewerWatermarks }[] = [];
     for (const x of after) {
       if (m.prev.has(x.userId) && m.prev.get(x.userId) === null) continue; // newly active: chat:upsert carries it
       if (!activeBefore.has(x.userId)) continue;
       if (x.hidden || m.skip.has(x.userId)) continue; // not in the room / must not learn about a withheld message
-      const wb = viewerWatermarks(aggBefore, { chatType: chat.type, viewerId: x.userId, viewerActive: true, lastSeq: lastBefore, readReceiptsOff: rrOffBefore });
-      const wa = viewerWatermarks(aggAfter, { chatType: chat.type, viewerId: x.userId, viewerActive: true, lastSeq: lastAfter, readReceiptsOff: rrOffAfter });
-      if (wb.readWatermark !== wa.readWatermark || wb.deliveredWatermark !== wa.deliveredWatermark) {
+      const wb = viewerWatermarks(aggBefore, {
+        chatType: chat.type,
+        viewerId: x.userId,
+        viewerActive: true,
+        lastSeq: lastBefore,
+        readReceiptsOff: rrOffBefore,
+      });
+      const wa = viewerWatermarks(aggAfter, {
+        chatType: chat.type,
+        viewerId: x.userId,
+        viewerActive: true,
+        lastSeq: lastAfter,
+        readReceiptsOff: rrOffAfter,
+      });
+      if (
+        wb.readWatermark !== wa.readWatermark ||
+        wb.deliveredWatermark !== wa.deliveredWatermark
+      ) {
         emissions.push({ userId: x.userId, payload: { chatId: chat.id, ...wa } });
       }
     }
@@ -283,10 +382,18 @@ export interface ChatUserPair {
  * messages with seq > last_read_seq, not sent by the member, not system. Keyed by
  * `pairKey(chatId, userId)`; pairs without unread messages are absent.
  */
-export async function unreadCounts(dbx: DbOrTx, pairs: ChatUserPair[]): Promise<Map<string, { unread: number; mentions: number }>> {
+export async function unreadCounts(
+  dbx: DbOrTx,
+  pairs: ChatUserPair[],
+): Promise<Map<string, { unread: number; mentions: number }>> {
   const out = new Map<string, { unread: number; mentions: number }>();
   if (pairs.length === 0) return out;
-  const rows = await rawRows<{ chat_id: string; user_id: string; unread: number; mentions: number }>(
+  const rows = await rawRows<{
+    chat_id: string;
+    user_id: string;
+    unread: number;
+    mentions: number;
+  }>(
     dbx,
     sql`select p.c as chat_id, p.u as user_id, count(*)::int as unread,
           count(*) filter (where p.u = any(m.mentions))::int as mentions
@@ -296,7 +403,8 @@ export async function unreadCounts(dbx: DbOrTx, pairs: ChatUserPair[]): Promise<
           and m.sender_id is distinct from cm.user_id and m.type <> 'system'
         group by p.c, p.u`,
   );
-  for (const r of rows) out.set(pairKey(r.chat_id, r.user_id), { unread: num(r.unread), mentions: num(r.mentions) });
+  for (const r of rows)
+    out.set(pairKey(r.chat_id, r.user_id), { unread: num(r.unread), mentions: num(r.mentions) });
   return out;
 }
 
@@ -309,14 +417,22 @@ export interface ReadState {
 }
 
 /** Read state of many (chat, member) pairs (2 queries). Keyed by `pairKey(chatId, userId)`; non-members absent. */
-export async function readStates(dbx: DbOrTx, pairs: ChatUserPair[]): Promise<Map<string, ReadState>> {
+export async function readStates(
+  dbx: DbOrTx,
+  pairs: ChatUserPair[],
+): Promise<Map<string, ReadState>> {
   const out = new Map<string, ReadState>();
   if (pairs.length === 0) return out;
   const wanted = new Set(pairs.map((p) => pairKey(p.chatId, p.userId)));
   const rows = await dbx
     .select()
     .from(chatMembers)
-    .where(and(inArray(chatMembers.chatId, uniq(pairs.map((p) => p.chatId))), inArray(chatMembers.userId, uniq(pairs.map((p) => p.userId)))));
+    .where(
+      and(
+        inArray(chatMembers.chatId, uniq(pairs.map((p) => p.chatId))),
+        inArray(chatMembers.userId, uniq(pairs.map((p) => p.userId))),
+      ),
+    );
   const counts = await unreadCounts(dbx, pairs);
   for (const r of rows) {
     const key = pairKey(r.chatId, r.userId);
@@ -333,7 +449,11 @@ export async function readStates(dbx: DbOrTx, pairs: ChatUserPair[]): Promise<Ma
   return out;
 }
 
-export async function readState(dbx: DbOrTx, userId: string, chatId: string): Promise<ReadState | null> {
+export async function readState(
+  dbx: DbOrTx,
+  userId: string,
+  chatId: string,
+): Promise<ReadState | null> {
   return (await readStates(dbx, [{ chatId, userId }])).get(pairKey(chatId, userId)) ?? null;
 }
 
@@ -356,11 +476,15 @@ export async function bumpMarks(
   const sets: ReturnType<typeof sql>[] = [];
   if (opts.read !== undefined) {
     sets.push(sql`last_read_seq = greatest(c.last_read_seq, ${opts.read}::bigint)`);
-    sets.push(sql`last_read_at = case when ${opts.read}::bigint > c.last_read_seq then now() else c.last_read_at end`);
+    sets.push(
+      sql`last_read_at = case when ${opts.read}::bigint > c.last_read_seq then now() else c.last_read_at end`,
+    );
   }
   if (opts.delivered !== undefined) {
     sets.push(sql`last_delivered_seq = greatest(c.last_delivered_seq, ${opts.delivered}::bigint)`);
-    sets.push(sql`last_delivered_at = case when ${opts.delivered}::bigint > c.last_delivered_seq then now() else c.last_delivered_at end`);
+    sets.push(
+      sql`last_delivered_at = case when ${opts.delivered}::bigint > c.last_delivered_seq then now() else c.last_delivered_at end`,
+    );
   }
   if (opts.clearMarkedUnread) sets.push(sql`marked_unread = false`);
   if (sets.length === 0) return [];
@@ -372,7 +496,11 @@ export async function bumpMarks(
         where c.chat_id = ${chatId} and c.user_id = o.user_id
         returning c.user_id, o.last_read_seq as pr, o.last_delivered_seq as pd, c.last_read_seq as nr, c.last_delivered_seq as nd`,
   );
-  return rows.map((r) => ({ userId: r.user_id, prev: { read: num(r.pr), delivered: num(r.pd) }, next: { read: num(r.nr), delivered: num(r.nd) } }));
+  return rows.map((r) => ({
+    userId: r.user_id,
+    prev: { read: num(r.pr), delivered: num(r.pd) },
+    next: { read: num(r.nr), delivered: num(r.nd) },
+  }));
 }
 
 export interface AdvanceResult {
@@ -388,7 +516,11 @@ export interface AdvanceResult {
  * ticks changed, domain `chat.read` (push dismiss when unread messages were cleared).
  * 404 when the user has no (visible) membership row. Former members may mark their window read.
  */
-export async function advanceRead(tx: Tx, fx: Effects, input: { chatId: string; userId: string; seq: number }): Promise<AdvanceResult> {
+export async function advanceRead(
+  tx: Tx,
+  fx: Effects,
+  input: { chatId: string; userId: string; seq: number },
+): Promise<AdvanceResult> {
   const { chatId, userId } = input;
   // Unlocked pre-check: a non-member can't queue on the chat row lock (e.g. a public channel's).
   const pre = await getMembership(tx, chatId, userId);
@@ -397,7 +529,8 @@ export async function advanceRead(tx: Tx, fx: Effects, input: { chatId: string; 
   const member = await getMembership(tx, chatId, userId);
   if (!member || member.hidden) throw notFound('Chat');
   const w = windowOf(member);
-  const target = (await maxVisibleSeq(tx, chatId, w, Math.min(input.seq, windowEnd(chat, member)))) ?? 0;
+  const target =
+    (await maxVisibleSeq(tx, chatId, w, Math.min(input.seq, windowEnd(chat, member)))) ?? 0;
   const prevRead = Number(member.lastReadSeq);
   let clearedUnread = member.markedUnread;
   if (!clearedUnread && target > prevRead) {
@@ -411,24 +544,39 @@ export async function advanceRead(tx: Tx, fx: Effects, input: { chatId: string; 
     );
     clearedUnread = !!row;
   }
-  const [bumped] = await bumpMarks(tx, chatId, [userId], { read: target, delivered: target, clearMarkedUnread: true });
+  const [bumped] = await bumpMarks(tx, chatId, [userId], {
+    read: target,
+    delivered: target,
+    clearMarkedUnread: true,
+  });
   const next = bumped?.next.read ?? prevRead;
   const advanced = next > prevRead || (bumped?.next.delivered ?? 0) > (bumped?.prev.delivered ?? 0);
   fx.chatRead(userId, chatId);
-  if (!member.leftAt && bumped && advanced) fx.watermarks({ chatId, members: [{ userId, prev: bumped.prev }] });
+  if (!member.leftAt && bumped && advanced)
+    fx.watermarks({ chatId, members: [{ userId, prev: bumped.prev }] });
   fx.domain('chat.read', { userId, chatId, lastReadSeq: next, clearedUnread });
   return { seq: next, advanced: next > prevRead };
 }
 
 /** Advance one member's delivered mark (clamped like reads). Registers `chat:watermarks` for changed members. */
-export async function advanceDelivered(tx: Tx, fx: Effects, input: { chatId: string; userId: string; seq: number }): Promise<AdvanceResult> {
+export async function advanceDelivered(
+  tx: Tx,
+  fx: Effects,
+  input: { chatId: string; userId: string; seq: number },
+): Promise<AdvanceResult> {
   const { chatId, userId } = input;
   const pre = await getMembership(tx, chatId, userId);
   if (!pre || pre.leftAt) throw notFound('Chat');
   const chat = await lockChat(tx, chatId);
   const member = await getMembership(tx, chatId, userId);
   if (!member || member.leftAt) throw notFound('Chat');
-  const target = (await maxVisibleSeq(tx, chatId, windowOf(member), Math.min(input.seq, windowEnd(chat, member)))) ?? 0;
+  const target =
+    (await maxVisibleSeq(
+      tx,
+      chatId,
+      windowOf(member),
+      Math.min(input.seq, windowEnd(chat, member)),
+    )) ?? 0;
   const [bumped] = await bumpMarks(tx, chatId, [userId], { delivered: target });
   const prev = Number(member.lastDeliveredSeq);
   const next = bumped?.next.delivered ?? prev;
@@ -474,9 +622,12 @@ export async function markDeliveredOnConnect(userId: string): Promise<void> {
           order by c.id
           for share of c`,
     );
-    const rows = locked.length === 0 ? [] : await rawRows<{ chat_id: string; pr: number; pd: number }>(
-      tx,
-      sql`with target as (
+    const rows =
+      locked.length === 0
+        ? []
+        : await rawRows<{ chat_id: string; pr: number; pd: number }>(
+            tx,
+            sql`with target as (
             select cm.chat_id, cm.last_read_seq as pr, cm.last_delivered_seq as pd, v.seq
             from chat_members cm
             join chats c on c.id = cm.chat_id and c.type <> 'channel'
@@ -493,8 +644,12 @@ export async function markDeliveredOnConnect(userId: string): Promise<void> {
           from target t
           where x.chat_id = t.chat_id and x.user_id = ${userId} and x.last_delivered_seq < t.seq
           returning x.chat_id, t.pr, t.pd`,
-    );
-    for (const r of rows) fx.watermarks({ chatId: r.chat_id, members: [{ userId, prev: { read: num(r.pr), delivered: num(r.pd) } }] });
+          );
+    for (const r of rows)
+      fx.watermarks({
+        chatId: r.chat_id,
+        members: [{ userId, prev: { read: num(r.pr), delivered: num(r.pd) } }],
+      });
     await fx.prepare(tx);
   });
   fx.flush();
@@ -505,13 +660,29 @@ export async function markDeliveredOnConnect(userId: string): Promise<void> {
  * `readReceipts` setting changed (PATCH /me/settings): `chat:watermarks` → me and peers
  * whose read watermark changed.
  */
-export async function readReceiptsChanged(dbx: DbOrTx, fx: Effects, userId: string, previousValue: boolean): Promise<void> {
+export async function readReceiptsChanged(
+  dbx: DbOrTx,
+  fx: Effects,
+  userId: string,
+  previousValue: boolean,
+): Promise<void> {
   const rows = await dbx
     .select({ chatId: chatMembers.chatId })
     .from(chatMembers)
     .innerJoin(chats, eq(chats.id, chatMembers.chatId))
-    .where(and(eq(chatMembers.userId, userId), sql`${chatMembers.leftAt} is null`, eq(chats.type, 'direct')));
-  for (const r of rows) fx.watermarks({ chatId: r.chatId, members: [], prevReadReceipts: { userId, value: previousValue } });
+    .where(
+      and(
+        eq(chatMembers.userId, userId),
+        sql`${chatMembers.leftAt} is null`,
+        eq(chats.type, 'direct'),
+      ),
+    );
+  for (const r of rows)
+    fx.watermarks({
+      chatId: r.chatId,
+      members: [],
+      prevReadReceipts: { userId, value: previousValue },
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +695,11 @@ export async function readReceiptsChanged(dbx: DbOrTx, fx: Effects, userId: stri
  * changed. Never emits for channels.
  */
 export async function publishWatermarks(chatId: string, userIds?: string[]): Promise<void> {
-  const [chat] = await db.select({ type: chats.type }).from(chats).where(eq(chats.id, chatId)).limit(1);
+  const [chat] = await db
+    .select({ type: chats.type })
+    .from(chats)
+    .where(eq(chats.id, chatId))
+    .limit(1);
   if (!chat || chat.type === 'channel') return;
   const map = await computeWatermarks(db, chatId, userIds);
   for (const [userId, w] of map) emitToUser(userId, 'chat:watermarks', { chatId, ...w });

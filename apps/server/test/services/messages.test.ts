@@ -2,7 +2,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { mentionToken, type Message } from '@enbox/shared';
 import { db } from '../../src/db/index.js';
-import { chatMembers, chatPins, chats, media, messageHidden, messageReactions, messages, pollVotes, starredMessages, statuses } from '../../src/db/schema.js';
+import {
+  chatMembers,
+  chatPins,
+  chats,
+  media,
+  messageHidden,
+  messageReactions,
+  messages,
+  pollVotes,
+  starredMessages,
+  statuses,
+} from '../../src/db/schema.js';
 import { transact } from '../../src/services/effects.js';
 import { domainEvents } from '../../src/services/events.js';
 import {
@@ -18,8 +29,23 @@ import {
   toMessages,
 } from '../../src/services/messages.js';
 import { upsertMembership } from '../../src/services/membership.js';
-import { startTestServer, waitForEvent, expectNoEvent, type TestServer, type TestUser } from '../helpers.js';
-import { block, createChannel, createDirect, createGroup, memberRow, recordEvents, send, settle } from './fixtures.js';
+import {
+  startTestServer,
+  waitForEvent,
+  expectNoEvent,
+  type TestServer,
+  type TestUser,
+} from '../helpers.js';
+import {
+  block,
+  createChannel,
+  createDirect,
+  createGroup,
+  memberRow,
+  recordEvents,
+  send,
+  settle,
+} from './fixtures.js';
 
 describe('services/messages', () => {
   let t: TestServer;
@@ -40,7 +66,9 @@ describe('services/messages', () => {
       const chatId = await createGroup(alice, [bob, carol]);
       const [before] = await db.select().from(chats).where(eq(chats.id, chatId));
       const senders = [alice, bob, carol];
-      const results = await Promise.all(Array.from({ length: 20 }, (_, i) => send(senders[i % 3]!, chatId, `m${i}`)));
+      const results = await Promise.all(
+        Array.from({ length: 20 }, (_, i) => send(senders[i % 3]!, chatId, `m${i}`)),
+      );
       const seqs = results.map((r) => Number(r.message.seq)).sort((a, b) => a - b);
       const start = Number(before!.lastSeq);
       expect(seqs).toEqual(Array.from({ length: 20 }, (_, i) => start + 1 + i));
@@ -56,7 +84,9 @@ describe('services/messages', () => {
       const bobSock = await t.connect(bob);
       const first = await send(alice, chatId, { clientId: 'same-id', text: 'once' });
       expect(first.created).toBe(true);
-      await waitForEvent(bobSock, 'message:new', { filter: (p) => p.message.id === first.message.id });
+      await waitForEvent(bobSock, 'message:new', {
+        filter: (p) => p.message.id === first.message.id,
+      });
       const [c1] = await db.select().from(chats).where(eq(chats.id, chatId));
       const retry = await send(alice, chatId, { clientId: 'same-id', text: 'twice' });
       expect(retry.created).toBe(false);
@@ -76,14 +106,26 @@ describe('services/messages', () => {
       const { message } = await send(alice, chatId, 'vanishing');
       expect(message.expiresAt).not.toBeNull();
       expect(message.expiresAt!.getTime() - message.createdAt.getTime()).toBe(86_400_000);
-      const sys = await db.select().from(messages).where(and(eq(messages.chatId, chatId), eq(messages.type, 'system')));
+      const sys = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.chatId, chatId), eq(messages.type, 'system')));
       expect(sys.length).toBeGreaterThan(0);
       expect(sys.every((m) => m.expiresAt === null)).toBe(true);
       const call = await send(alice, chatId, {
         type: 'call',
         text: null,
         clientId: null,
-        metadata: { call: { callId: crypto.randomUUID(), callType: 'audio', isGroup: true, initiatorId: alice.id, status: 'ringing', durationSec: null } },
+        metadata: {
+          call: {
+            callId: crypto.randomUUID(),
+            callType: 'audio',
+            isGroup: true,
+            initiatorId: alice.id,
+            status: 'ringing',
+            durationSec: null,
+          },
+        },
       });
       expect(call.message.expiresAt).toBeNull();
     });
@@ -99,12 +141,20 @@ describe('services/messages', () => {
 
     it('advances the sender watermarks, clears marked_unread and emits chat:read to the sender', async () => {
       const chatId = await createGroup(alice, [bob]);
-      await db.update(chatMembers).set({ markedUnread: true }).where(eq(chatMembers.chatId, chatId));
+      await db
+        .update(chatMembers)
+        .set({ markedUnread: true })
+        .where(eq(chatMembers.chatId, chatId));
       const aliceSock = await t.connect(alice);
       const readEvt = waitForEvent(aliceSock, 'chat:read', { filter: (p) => p.chatId === chatId });
       const { message } = await send(alice, chatId, 'x');
       const evt = await readEvt;
-      expect(evt).toMatchObject({ chatId, lastReadSeq: Number(message.seq), unreadCount: 0, markedUnread: false });
+      expect(evt).toMatchObject({
+        chatId,
+        lastReadSeq: Number(message.seq),
+        unreadCount: 0,
+        markedUnread: false,
+      });
       const row = await memberRow(chatId, alice);
       expect(Number(row.lastReadSeq)).toBe(Number(message.seq));
       expect(Number(row.lastDeliveredSeq)).toBe(Number(message.seq));
@@ -136,25 +186,36 @@ describe('services/messages', () => {
       await block(eve, alice);
       const eveSock = await t.connect(eve);
       const created: string[] = [];
-      const off = domainEvents.on('message.created', (e) => void created.push(...e.withheldUserIds));
+      const off = domainEvents.on(
+        'message.created',
+        (e) => void created.push(...e.withheldUserIds),
+      );
       const { message } = await send(alice, chatId, 'you blocked me');
       off();
       await expectNoEvent(eveSock, 'message:new');
       await expectNoEvent(eveSock, 'chat:upsert', 50);
       expect(created).toEqual([eve.id]);
-      const hidden = await db.select().from(messageHidden).where(eq(messageHidden.messageId, message.id));
+      const hidden = await db
+        .select()
+        .from(messageHidden)
+        .where(eq(messageHidden.messageId, message.id));
       expect(hidden.map((h) => h.userId)).toEqual([eve.id]);
       const row = await memberRow(chatId, eve);
       expect(row.hidden).toBe(true);
       expect(Number(row.lastDeliveredSeq)).toBe(0); // online, but withheld: never delivered
-      await expect(loadVisibleMessage(db, eve.id, message.id)).rejects.toMatchObject({ status: 404 });
+      await expect(loadVisibleMessage(db, eve.id, message.id)).rejects.toMatchObject({
+        status: 404,
+      });
       eveSock.disconnect();
     });
 
     it('emits message.created with recipients (sender and withheld excluded; channels: none)', async () => {
       const chatId = await createGroup(alice, [bob, carol]);
       const events: { recipients: string[]; chatType: string }[] = [];
-      const off = domainEvents.on('message.created', (e) => void events.push({ recipients: e.recipientIds, chatType: e.chat.type }));
+      const off = domainEvents.on(
+        'message.created',
+        (e) => void events.push({ recipients: e.recipientIds, chatType: e.chat.type }),
+      );
       await send(alice, chatId, 'x');
       const channelId = await createChannel(alice);
       await send(alice, channelId, 'post');
@@ -168,12 +229,21 @@ describe('services/messages', () => {
       const bobSock = await t.connect(bob);
       await expect(
         transact(async (tx, fx) => {
-          await createMessage(tx, fx, { chatId, senderId: alice.id, type: 'text', text: 'never', clientId: 'rb' });
+          await createMessage(tx, fx, {
+            chatId,
+            senderId: alice.id,
+            type: 'text',
+            text: 'never',
+            clientId: 'rb',
+          });
           throw new Error('boom');
         }),
       ).rejects.toThrow('boom');
       await expectNoEvent(bobSock, 'message:new');
-      const rows = await db.select().from(messages).where(and(eq(messages.chatId, chatId), eq(messages.clientId, 'rb')));
+      const rows = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.chatId, chatId), eq(messages.clientId, 'rb')));
       expect(rows).toHaveLength(0);
       bobSock.disconnect();
     });
@@ -184,8 +254,18 @@ describe('services/messages', () => {
       const chatId = await createGroup(alice, [bob]);
       const { message } = await send(alice, chatId, 'react to me');
       await db.insert(messageReactions).values([
-        { messageId: message.id, userId: bob.id, emoji: '👍', createdAt: new Date(Date.now() - 2000) },
-        { messageId: message.id, userId: alice.id, emoji: '👍', createdAt: new Date(Date.now() - 1000) },
+        {
+          messageId: message.id,
+          userId: bob.id,
+          emoji: '👍',
+          createdAt: new Date(Date.now() - 2000),
+        },
+        {
+          messageId: message.id,
+          userId: alice.id,
+          emoji: '👍',
+          createdAt: new Date(Date.now() - 1000),
+        },
       ]);
       await db.insert(starredMessages).values({ userId: bob.id, messageId: message.id });
       const [neutral] = await toMessages(db, null, [message]);
@@ -203,14 +283,26 @@ describe('services/messages', () => {
 
     it('keeps channel posts anonymous: senderId null, reaction userIds and poll voterIds []', async () => {
       const channelId = await createChannel(alice);
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'activate', chatId: channelId, userIds: [bob.id, carol.id] }));
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, {
+          kind: 'activate',
+          chatId: channelId,
+          userIds: [bob.id, carol.id],
+        }),
+      );
       const poll = buildPollDefinition({ question: 'Q?', options: ['a', 'b'] });
-      const { message } = await send(alice, channelId, { type: 'poll', text: null, metadata: { poll } });
+      const { message } = await send(alice, channelId, {
+        type: 'poll',
+        text: null,
+        metadata: { poll },
+      });
       await db.insert(pollVotes).values([
         { messageId: message.id, userId: bob.id, optionId: poll.options[0]!.id },
         { messageId: message.id, userId: carol.id, optionId: poll.options[0]!.id },
       ]);
-      await db.insert(messageReactions).values({ messageId: message.id, userId: bob.id, emoji: '❤️' });
+      await db
+        .insert(messageReactions)
+        .values({ messageId: message.id, userId: bob.id, emoji: '❤️' });
       const [m] = await toMessages(db, bob.id, [message]);
       expect(m!.senderId).toBeNull();
       expect(m!.reactions).toEqual([{ emoji: '❤️', count: 1, userIds: [] }]);
@@ -223,7 +315,9 @@ describe('services/messages', () => {
       // Same data in a group: voters are listed.
       const groupId = await createGroup(alice, [bob]);
       const g = await send(alice, groupId, { type: 'poll', text: null, metadata: { poll } });
-      await db.insert(pollVotes).values({ messageId: g.message.id, userId: bob.id, optionId: poll.options[1]!.id });
+      await db
+        .insert(pollVotes)
+        .values({ messageId: g.message.id, userId: bob.id, optionId: poll.options[1]!.id });
       const [gm] = await toMessages(db, null, [g.message]);
       expect(gm!.senderId).toBe(alice.id);
       expect(gm!.poll!.options[1]!.voterIds).toEqual([bob.id]);
@@ -236,18 +330,33 @@ describe('services/messages', () => {
       const target = await send(bob, chatId, long);
       const reply = await send(alice, chatId, { text: 'answer', replyToId: target.message.id });
       let [m] = await toMessages(db, null, [reply.message]);
-      expect(m!.replyTo).toMatchObject({ id: target.message.id, chatId, seq: Number(target.message.seq), senderId: bob.id, type: 'text', deleted: false });
+      expect(m!.replyTo).toMatchObject({
+        id: target.message.id,
+        chatId,
+        seq: Number(target.message.seq),
+        senderId: bob.id,
+        type: 'text',
+        deleted: false,
+      });
       expect(m!.replyTo!.text!.endsWith('…')).toBe(true);
       expect(m!.replyTo!.text).not.toContain('@{'); // the token is not split
       expect(previewText('short')).toBe('short');
 
       await transact((tx, fx) => deleteForEveryoneTx(tx, fx, target.message.id));
       [m] = await toMessages(db, null, [reply.message]);
-      expect(m!.replyTo).toMatchObject({ id: target.message.id, deleted: true, text: null, media: null });
+      expect(m!.replyTo).toMatchObject({
+        id: target.message.id,
+        deleted: true,
+        text: null,
+        media: null,
+      });
 
       const t2 = await send(bob, chatId, 'expiring');
       const r2 = await send(alice, chatId, { text: 'reply', replyToId: t2.message.id });
-      await db.update(messages).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(messages.id, t2.message.id));
+      await db
+        .update(messages)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(messages.id, t2.message.id));
       [m] = await toMessages(db, null, [r2.message]);
       expect(m!.replyTo).toBeNull();
       await db.delete(messages).where(eq(messages.id, t2.message.id)); // purged → FK sets null
@@ -260,34 +369,90 @@ describe('services/messages', () => {
       const chatId = await createDirect(alice, bob);
       const [status] = await db
         .insert(statuses)
-        .values({ userId: bob.id, type: 'text', text: 'my status', backgroundColor: '#6D5DFC', font: 1, audience: [alice.id], expiresAt: new Date(Date.now() + 60_000) })
+        .values({
+          userId: bob.id,
+          type: 'text',
+          text: 'my status',
+          backgroundColor: '#6D5DFC',
+          font: 1,
+          audience: [alice.id],
+          expiresAt: new Date(Date.now() + 60_000),
+        })
         .returning();
-      const { message } = await send(alice, chatId, { text: 'nice', metadata: { statusReply: { statusId: status!.id, authorId: bob.id, type: 'text' } } });
+      const { message } = await send(alice, chatId, {
+        text: 'nice',
+        metadata: { statusReply: { statusId: status!.id, authorId: bob.id, type: 'text' } },
+      });
       let [m] = await toMessages(db, null, [message]);
-      expect(m!.statusReply).toEqual({ statusId: status!.id, authorId: bob.id, type: 'text', available: true, text: 'my status', backgroundColor: '#6D5DFC', font: 1, mediaUrl: null });
+      expect(m!.statusReply).toEqual({
+        statusId: status!.id,
+        authorId: bob.id,
+        type: 'text',
+        available: true,
+        text: 'my status',
+        backgroundColor: '#6D5DFC',
+        font: 1,
+        mediaUrl: null,
+      });
       await db.delete(statuses).where(eq(statuses.id, status!.id));
       [m] = await toMessages(db, null, [message]);
-      expect(m!.statusReply).toMatchObject({ available: false, text: null, backgroundColor: null, font: null, mediaUrl: null });
+      expect(m!.statusReply).toMatchObject({
+        available: false,
+        text: null,
+        backgroundColor: null,
+        font: null,
+        mediaUrl: null,
+      });
     });
 
     it('serializes media, location, contact and system payloads; tombstones deleted messages', async () => {
       const chatId = await createGroup(alice, [bob]);
       const [file] = await db
         .insert(media)
-        .values({ uploaderId: alice.id, kind: 'image', mimeType: 'image/png', fileName: 'a.png', size: 10, storageKey: '2026/01/x.png', thumbnailKey: '2026/01/y.jpg', width: 5, height: 6 })
+        .values({
+          uploaderId: alice.id,
+          kind: 'image',
+          mimeType: 'image/png',
+          fileName: 'a.png',
+          size: 10,
+          storageKey: '2026/01/x.png',
+          thumbnailKey: '2026/01/y.jpg',
+          width: 5,
+          height: 6,
+        })
         .returning();
       const img = await send(alice, chatId, { type: 'image', text: 'caption', mediaId: file!.id });
-      const loc = await send(alice, chatId, { type: 'location', text: null, metadata: { location: { latitude: 1, longitude: 2, name: 'Here', address: null } } });
+      const loc = await send(alice, chatId, {
+        type: 'location',
+        text: null,
+        metadata: { location: { latitude: 1, longitude: 2, name: 'Here', address: null } },
+      });
       const card = await buildContactCard(db, alice.id, { userId: bob.id });
       expect(card).toEqual({ userId: bob.id, name: 'Bob', username: bob.username, phone: null });
-      await expect(buildContactCard(db, alice.id, { userId: crypto.randomUUID() })).rejects.toMatchObject({ status: 400 });
-      const contact = await send(alice, chatId, { type: 'contact', text: null, metadata: { contact: card } });
+      await expect(
+        buildContactCard(db, alice.id, { userId: crypto.randomUUID() }),
+      ).rejects.toMatchObject({ status: 400 });
+      const contact = await send(alice, chatId, {
+        type: 'contact',
+        text: null,
+        metadata: { contact: card },
+      });
       const [mi, ml, mc] = await toMessages(db, null, [img.message, loc.message, contact.message]);
-      expect(mi!.media).toMatchObject({ id: file!.id, url: '/uploads/2026/01/x.png', thumbnailUrl: '/uploads/2026/01/y.jpg', mimeType: 'image/png', width: 5, height: 6 });
+      expect(mi!.media).toMatchObject({
+        id: file!.id,
+        url: '/uploads/2026/01/x.png',
+        thumbnailUrl: '/uploads/2026/01/y.jpg',
+        mimeType: 'image/png',
+        width: 5,
+        height: 6,
+      });
       expect(mi!.text).toBe('caption');
       expect(ml!.location).toEqual({ latitude: 1, longitude: 2, name: 'Here', address: null });
       expect(mc!.contact).toEqual(card);
-      const sys = await db.select().from(messages).where(and(eq(messages.chatId, chatId), eq(messages.type, 'system')));
+      const sys = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.chatId, chatId), eq(messages.type, 'system')));
       const [ms] = await toMessages(db, null, [sys[0]!]);
       expect(ms!.system).toMatchObject({ kind: 'group_created', actorId: alice.id });
       expect(ms!.senderId).toBeNull();
@@ -295,7 +460,13 @@ describe('services/messages', () => {
       await transact((tx, fx) => deleteForEveryoneTx(tx, fx, img.message.id));
       const [row] = await db.select().from(messages).where(eq(messages.id, img.message.id));
       const [dm] = await toMessages(db, null, [row!]);
-      expect(dm).toMatchObject({ type: 'image', text: null, media: null, reactions: [], mentions: [] });
+      expect(dm).toMatchObject({
+        type: 'image',
+        text: null,
+        media: null,
+        reactions: [],
+        mentions: [],
+      });
       expect(dm!.deletedAt).not.toBeNull();
     });
   });
@@ -305,15 +476,27 @@ describe('services/messages', () => {
       const chatId = await createGroup(alice, [bob]);
       const early = await send(alice, chatId, 'before carol');
       await transact((tx, fx) =>
-        upsertMembership(tx, fx, { kind: 'activate', chatId, userIds: [carol.id], addedBy: alice.id, systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] } }),
+        upsertMembership(tx, fx, {
+          kind: 'activate',
+          chatId,
+          userIds: [carol.id],
+          addedBy: alice.id,
+          systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] },
+        }),
       );
       const late = await send(alice, chatId, 'after carol');
-      await expect(loadVisibleMessage(db, carol.id, early.message.id)).rejects.toMatchObject({ status: 404 });
+      await expect(loadVisibleMessage(db, carol.id, early.message.id)).rejects.toMatchObject({
+        status: 404,
+      });
       const v = await loadVisibleMessage(db, carol.id, late.message.id, { chatId });
       expect(v.message.id).toBe(late.message.id);
       expect(v.chat.id).toBe(chatId);
-      await expect(loadVisibleMessage(db, carol.id, late.message.id, { chatId: crypto.randomUUID() })).rejects.toMatchObject({ status: 404 });
-      const locked = await db.transaction((tx) => loadVisibleMessage(tx, bob.id, late.message.id, { lock: true }));
+      await expect(
+        loadVisibleMessage(db, carol.id, late.message.id, { chatId: crypto.randomUUID() }),
+      ).rejects.toMatchObject({ status: 404 });
+      const locked = await db.transaction((tx) =>
+        loadVisibleMessage(tx, bob.id, late.message.id, { lock: true }),
+      );
       expect(locked.message.id).toBe(late.message.id);
     });
 
@@ -324,13 +507,24 @@ describe('services/messages', () => {
       const directId = await createDirect(alice, bob);
       const [direct] = await db.select().from(chats).where(eq(chats.id, directId));
       const [group] = await db.select().from(chats).where(eq(chats.id, groupId));
-      expect((await resolveReplyTarget(db, alice.id, group!, aliceInGroup.message.id)).id).toBe(aliceInGroup.message.id);
+      expect((await resolveReplyTarget(db, alice.id, group!, aliceInGroup.message.id)).id).toBe(
+        aliceInGroup.message.id,
+      );
       // Reply privately: bob's group message quoted in the direct chat with bob.
-      expect((await resolveReplyTarget(db, alice.id, direct!, bobInGroup.message.id)).id).toBe(bobInGroup.message.id);
+      expect((await resolveReplyTarget(db, alice.id, direct!, bobInGroup.message.id)).id).toBe(
+        bobInGroup.message.id,
+      );
       // Not the peer's message → 404.
-      await expect(resolveReplyTarget(db, alice.id, direct!, aliceInGroup.message.id)).rejects.toMatchObject({ status: 404 });
-      const [sys] = await db.select().from(messages).where(and(eq(messages.chatId, groupId), eq(messages.type, 'system')));
-      await expect(resolveReplyTarget(db, alice.id, group!, sys!.id)).rejects.toMatchObject({ status: 400 });
+      await expect(
+        resolveReplyTarget(db, alice.id, direct!, aliceInGroup.message.id),
+      ).rejects.toMatchObject({ status: 404 });
+      const [sys] = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.chatId, groupId), eq(messages.type, 'system')));
+      await expect(resolveReplyTarget(db, alice.id, group!, sys!.id)).rejects.toMatchObject({
+        status: 400,
+      });
     });
   });
 
@@ -340,7 +534,8 @@ describe('services/messages', () => {
     beforeAll(async () => {
       chatId = await createGroup(alice, [bob]);
       seqs = [];
-      for (let i = 0; i < 10; i++) seqs.push(Number((await send(i % 2 ? bob : alice, chatId, `p${i}`)).message.seq));
+      for (let i = 0; i < 10; i++)
+        seqs.push(Number((await send(i % 2 ? bob : alice, chatId, `p${i}`)).message.seq));
     });
 
     const texts = (ms: Message[]) => ms.map((m) => m.text);
@@ -380,7 +575,9 @@ describe('services/messages', () => {
       expect(page.messages.map((m) => m.id)).not.toContain(message.id);
       const alicePage = await loadMessagePage(db, alice.id, chatId, { limit: 1 });
       expect(alicePage.messages[0]!.id).toBe(message.id);
-      await expect(loadMessagePage(db, carol.id, chatId, { limit: 5 })).rejects.toMatchObject({ status: 404 });
+      await expect(loadMessagePage(db, carol.id, chatId, { limit: 5 })).rejects.toMatchObject({
+        status: 404,
+      });
       bobSock.disconnect();
     });
   });
@@ -392,7 +589,13 @@ describe('services/messages', () => {
       await db.insert(chatPins).values({ chatId, messageId: old.message.id, pinnedBy: alice.id });
       await db.insert(starredMessages).values({ userId: bob.id, messageId: old.message.id });
       await transact((tx, fx) =>
-        upsertMembership(tx, fx, { kind: 'activate', chatId, userIds: [carol.id], addedBy: alice.id, systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] } }),
+        upsertMembership(tx, fx, {
+          kind: 'activate',
+          chatId,
+          userIds: [carol.id],
+          addedBy: alice.id,
+          systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] },
+        }),
       );
       const bobSock = await t.connect(bob);
       const carolSock = await t.connect(carol);
@@ -405,15 +608,25 @@ describe('services/messages', () => {
       expect(await bobPins).toEqual({ chatId, messageIds: [] });
       await expectNoEvent(carolSock, 'message:updated');
       expect(await db.select().from(chatPins).where(eq(chatPins.chatId, chatId))).toHaveLength(0);
-      expect(await db.select().from(starredMessages).where(eq(starredMessages.messageId, old.message.id))).toHaveLength(0);
+      expect(
+        await db
+          .select()
+          .from(starredMessages)
+          .where(eq(starredMessages.messageId, old.message.id)),
+      ).toHaveLength(0);
       bobSock.disconnect();
       carolSock.disconnect();
     });
 
     it('rejects deleting system messages for everyone', async () => {
       const chatId = await createGroup(alice, [bob]);
-      const [sys] = await db.select().from(messages).where(and(eq(messages.chatId, chatId), eq(messages.type, 'system')));
-      await expect(transact((tx, fx) => deleteForEveryoneTx(tx, fx, sys!.id))).rejects.toMatchObject({ status: 400 });
+      const [sys] = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.chatId, chatId), eq(messages.type, 'system')));
+      await expect(
+        transact((tx, fx) => deleteForEveryoneTx(tx, fx, sys!.id)),
+      ).rejects.toMatchObject({ status: 400 });
     });
   });
 });

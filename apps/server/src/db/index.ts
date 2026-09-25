@@ -44,7 +44,8 @@ function migrationsFolder(): string {
     path.resolve(process.cwd(), 'drizzle'),
   ].filter(Boolean) as string[];
   const found = candidates.find((p) => fs.existsSync(path.join(p, 'meta', '_journal.json')));
-  if (!found) throw new Error(`Drizzle migrations folder not found (tried ${candidates.join(', ')})`);
+  if (!found)
+    throw new Error(`Drizzle migrations folder not found (tried ${candidates.join(', ')})`);
   return found;
 }
 
@@ -89,7 +90,8 @@ export async function initDb(opts: InitDbOptions): Promise<DbHandle> {
       await migrate(database, { migrationsFolder: migrationsFolder() });
     }
     handle = { db: database as unknown as Database, close: () => client.close(), driver: 'pglite' };
-    if (dir !== 'memory') logger.info({ dir }, 'Using embedded PGlite database (set DATABASE_URL for PostgreSQL)');
+    if (dir !== 'memory')
+      logger.info({ dir }, 'Using embedded PGlite database (set DATABASE_URL for PostgreSQL)');
   }
   db = handle.db;
   return handle;

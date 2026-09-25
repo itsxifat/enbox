@@ -15,7 +15,12 @@ import type { Effects } from './effects.js';
 import { createMessage, insertMessage, type InsertedMessage } from './messages.js';
 
 const DIRECT = new Set<SystemEventKind>(['disappearing_changed', 'message_pinned']);
-const CHANNEL = new Set<SystemEventKind>(['channel_created', 'name_changed', 'description_changed', 'avatar_changed']);
+const CHANNEL = new Set<SystemEventKind>([
+  'channel_created',
+  'name_changed',
+  'description_changed',
+  'avatar_changed',
+]);
 const ANNOUNCEMENT = new Set<SystemEventKind>([
   'community_created',
   'name_changed',
@@ -27,7 +32,10 @@ const ANNOUNCEMENT = new Set<SystemEventKind>([
 const GROUP_EXCLUDED = new Set<SystemEventKind>(['channel_created', 'community_created']);
 
 /** Whether a chat may carry a system message of this kind. */
-export function systemMessageAllowed(chat: Pick<ChatRow, 'type' | 'isAnnouncement'>, kind: SystemEventKind): boolean {
+export function systemMessageAllowed(
+  chat: Pick<ChatRow, 'type' | 'isAnnouncement'>,
+  kind: SystemEventKind,
+): boolean {
   switch (chatKindOfRow(chat)) {
     case 'direct':
       return DIRECT.has(kind);
@@ -47,7 +55,9 @@ function actorOf(event: SystemEvent): string | null {
 
 function assertAllowed(chat: Pick<ChatRow, 'type' | 'isAnnouncement' | 'id'>, event: SystemEvent) {
   if (!systemMessageAllowed(chat, event.kind)) {
-    throw new Error(`System message '${event.kind}' is not allowed in ${chatKindOfRow(chat)} chat ${chat.id}`);
+    throw new Error(
+      `System message '${event.kind}' is not allowed in ${chatKindOfRow(chat)} chat ${chat.id}`,
+    );
   }
 }
 
@@ -79,7 +89,17 @@ export async function postSystemMessage(
 }
 
 /** Like postSystemMessage but WITHOUT registering the fan-out (call `.publish(fx)` later). */
-export async function insertSystemMessage(tx: Tx, chat: Pick<ChatRow, 'id' | 'type' | 'isAnnouncement'>, event: SystemEvent): Promise<InsertedMessage> {
+export async function insertSystemMessage(
+  tx: Tx,
+  chat: Pick<ChatRow, 'id' | 'type' | 'isAnnouncement'>,
+  event: SystemEvent,
+): Promise<InsertedMessage> {
   assertAllowed(chat, event);
-  return insertMessage(tx, { chatId: chat.id, senderId: null, type: 'system', metadata: { system: event }, actorId: actorOf(event) });
+  return insertMessage(tx, {
+    chatId: chat.id,
+    senderId: null,
+    type: 'system',
+    metadata: { system: event },
+    actorId: actorOf(event),
+  });
 }

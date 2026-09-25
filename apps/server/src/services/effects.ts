@@ -27,7 +27,13 @@
  * statement of the tx callback, then `fx.flush()` after `db.transaction` resolved. Without a
  * transaction: `await fx.commit()` (prepares with the global db, then flushes).
  */
-import type { ChatInfoChanges, ChatSummary, ID, Message, ServerToClientEvents } from '@enbox/shared';
+import type {
+  ChatInfoChanges,
+  ChatSummary,
+  ID,
+  Message,
+  ServerToClientEvents,
+} from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../db/index.js';
 import type { ChatRow, MessageRow } from '../db/schema.js';
 import { logger } from '../lib/logger.js';
@@ -105,7 +111,12 @@ export class Effects {
   }
 
   /** `emitToChat` after commit (viewer-neutral payloads only). */
-  toChat<E extends ServerEvent>(chatId: ID, event: E, payload: Payload<E>, opts?: ChatEmitOptions): this {
+  toChat<E extends ServerEvent>(
+    chatId: ID,
+    event: E,
+    payload: Payload<E>,
+    opts?: ChatEmitOptions,
+  ): this {
     return this.add(() => emitToChat(chatId, event, payload, opts));
   }
 
@@ -177,7 +188,12 @@ export class Effects {
    * `exceptUserIds`: members who must not hear about it (direct chats: a peer who blocked the actor).
    */
   chatUpdated(chatId: ID, changes: ChatInfoChanges, opts: { exceptUserIds?: ID[] } = {}): this {
-    return this.toChat(chatId, 'chat:updated', { chatId, changes }, opts.exceptUserIds?.length ? { exceptUserIds: [...opts.exceptUserIds] } : undefined);
+    return this.toChat(
+      chatId,
+      'chat:updated',
+      { chatId, changes },
+      opts.exceptUserIds?.length ? { exceptUserIds: [...opts.exceptUserIds] } : undefined,
+    );
   }
 
   /** `chat:updated { memberCount }` → room, with the count as of the end of the tx. */
@@ -220,10 +236,18 @@ export class Effects {
     let hiddenFor = new Map<ID, Set<ID>>();
     return this.add(
       () => {
-        emitToChat(chatId, 'chat:pins', { chatId, messageIds }, { exceptUserIds: [...except, ...hiddenFor.keys()] });
+        emitToChat(
+          chatId,
+          'chat:pins',
+          { chatId, messageIds },
+          { exceptUserIds: [...except, ...hiddenFor.keys()] },
+        );
         for (const [userId, hidden] of hiddenFor) {
           if (except.includes(userId)) continue;
-          emitToUser(userId, 'chat:pins', { chatId, messageIds: messageIds.filter((id) => !hidden.has(id)) });
+          emitToUser(userId, 'chat:pins', {
+            chatId,
+            messageIds: messageIds.filter((id) => !hidden.has(id)),
+          });
         }
       },
       async (dbx) => {
@@ -262,7 +286,13 @@ export class Effects {
     this.steps.push({
       run: () => {
         const p = this.updatedOut.get(messageId);
-        if (p) emitToChat(p.chatId, 'message:updated', { message: p.message }, { exceptUserIds: [...new Set([...p.exceptUserIds, ...extra])] });
+        if (p)
+          emitToChat(
+            p.chatId,
+            'message:updated',
+            { message: p.message },
+            { exceptUserIds: [...new Set([...p.exceptUserIds, ...extra])] },
+          );
       },
     });
     return this;
@@ -300,7 +330,8 @@ export class Effects {
    */
   watermarks(delta: WatermarkDelta): this {
     this.assertOpen();
-    if (delta.members.length === 0 && delta.prevLastSeq === undefined && !delta.prevReadReceipts) return this;
+    if (delta.members.length === 0 && delta.prevLastSeq === undefined && !delta.prevReadReceipts)
+      return this;
     this.watermarkDeltas.push(delta);
     // Deltas of one chat are merged; the chat's emissions happen at its LAST registration
     // (e.g. after the last message:new of a multi-message forward).
@@ -309,7 +340,8 @@ export class Effects {
     this.steps.push({
       run: () => {
         if (this.lastWatermarkStep.get(delta.chatId) !== index) return;
-        for (const w of this.watermarkOut.get(delta.chatId) ?? []) emitToUser(w.userId, 'chat:watermarks', w.payload);
+        for (const w of this.watermarkOut.get(delta.chatId) ?? [])
+          emitToUser(w.userId, 'chat:watermarks', w.payload);
       },
     });
     return this;
@@ -327,16 +359,19 @@ export class Effects {
       const out = await toMessages(dbx, null, this.newMessages, { fresh: true });
       this.newMessageOut = new Map(out.map((m) => [m.id, m]));
     }
-    if (this.updatedIds.length) this.updatedOut = await messageUpdatedPayloads(dbx, this.updatedIds);
+    if (this.updatedIds.length)
+      this.updatedOut = await messageUpdatedPayloads(dbx, this.updatedIds);
     if (this.reads.length) this.readOut = await readStates(dbx, this.reads);
-    if (this.watermarkDeltas.length) this.watermarkOut = await diffWatermarks(dbx, this.watermarkDeltas);
+    if (this.watermarkDeltas.length)
+      this.watermarkOut = await diffWatermarks(dbx, this.watermarkDeltas);
     for (const p of this.prepares) await p(dbx);
     this.state = 'prepared';
   }
 
   /** Emit everything in registration order (synchronously), then fire domain events. */
   flush(): void {
-    if (this.state === 'open') throw new Error('Effects.flush(): call prepare(tx) inside the transaction first');
+    if (this.state === 'open')
+      throw new Error('Effects.flush(): call prepare(tx) inside the transaction first');
     if (this.state === 'flushed') return;
     this.state = 'flushed';
     for (const step of this.steps) {

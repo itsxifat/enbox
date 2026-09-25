@@ -20,7 +20,10 @@ export async function checkPassword(
   password: string,
 ): Promise<boolean> {
   if (!user || user.deletedAt) {
-    await verifyPassword(password, await (dummyHash ??= hashPassword(randomBytes(24).toString('base64url'))));
+    await verifyPassword(
+      password,
+      await (dummyHash ??= hashPassword(randomBytes(24).toString('base64url'))),
+    );
     return false;
   }
   return verifyPassword(password, user.passwordHash);
@@ -31,7 +34,11 @@ export async function checkPassword(
  * `invalidateSessions([s])` → `session:revoked { sessionId: s }` → session:<s> →
  * `disconnectSession(s)`. With `notify: false` (logout) the event is skipped.
  */
-export function revokeSessionsEffect(fx: Effects, sessionIds: string[], opts: { notify?: boolean } = {}): Effects {
+export function revokeSessionsEffect(
+  fx: Effects,
+  sessionIds: string[],
+  opts: { notify?: boolean } = {},
+): Effects {
   const notify = opts.notify ?? true;
   for (const sessionId of sessionIds) {
     fx.add(() => {
@@ -49,7 +56,11 @@ function pgError(err: unknown): { code?: string; constraint?: string; message?: 
   for (let i = 0; i < 3 && e && typeof e === 'object'; i++) {
     const x = e as { code?: unknown; constraint?: unknown; message?: unknown; cause?: unknown };
     if (typeof x.code === 'string' && /^[0-9A-Z]{5}$/.test(x.code)) {
-      return { code: x.code, constraint: typeof x.constraint === 'string' ? x.constraint : undefined, message: typeof x.message === 'string' ? x.message : undefined };
+      return {
+        code: x.code,
+        constraint: typeof x.constraint === 'string' ? x.constraint : undefined,
+        message: typeof x.message === 'string' ? x.message : undefined,
+      };
     }
     e = x.cause;
   }

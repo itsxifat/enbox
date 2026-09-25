@@ -7,4 +7,8 @@
 import { purgeExpiredStatuses } from '../modules/status/service.js';
 import { registerJob } from './index.js';
 
-registerJob({ name: 'status-expiry', intervalMs: 60_000, run: async () => void (await purgeExpiredStatuses()) });
+registerJob({
+  name: 'status-expiry',
+  intervalMs: 60_000,
+  run: async () => void (await purgeExpiredStatuses()),
+});

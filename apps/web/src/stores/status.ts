@@ -407,8 +407,7 @@ export function nextUnseenExpiry(feed: StatusFeed | null, now: number): number |
 export function useHasUnseenStatus(): boolean {
   const [now, setNow] = useState(() => Date.now());
   const has = useStatus(
-    (s) =>
-      !!s.feed?.updates.some((u) => u.statuses.some((st) => !st.viewed && isLive(st, now))),
+    (s) => !!s.feed?.updates.some((u) => u.statuses.some((st) => !st.viewed && isLive(st, now))),
   );
   const next = useStatus((s) => nextUnseenExpiry(s.feed, now));
   useEffect(() => {

@@ -1,4 +1,9 @@
-import { USER_RATE_LIMITS, receiptPayloadSchema, typingPayloadSchema, type TypingState } from '@enbox/shared';
+import {
+  USER_RATE_LIMITS,
+  receiptPayloadSchema,
+  typingPayloadSchema,
+  type TypingState,
+} from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { SERVER_RATE_LIMITS, assertUserLimit, limitUser } from '../../lib/userLimit.js';
 import { emitToChat } from '../../realtime/emit.js';
@@ -22,7 +27,13 @@ onBeforeReady((socket) => markDeliveredOnConnect(socket.data.userId));
  */
 export async function canRelayTyping(userId: string, chatId: string): Promise<boolean> {
   const access = await getChatAccess(db, userId, chatId).catch(() => null);
-  if (!access || access.chat.type === 'channel' || access.membership !== 'active' || !access.permissions.canSend) return false;
+  if (
+    !access ||
+    access.chat.type === 'channel' ||
+    access.membership !== 'active' ||
+    !access.permissions.canSend
+  )
+    return false;
   if (access.chat.type === 'direct' && access.peer && access.peer.id !== userId) {
     if (await blockedEitherWay(db, userId, access.peer.id)) return false;
   }
@@ -38,7 +49,10 @@ function allowTyping(socketId: string, chatId: string, state: TypingState): bool
   const { limit, windowMs } = USER_RATE_LIMITS.typing;
   // Also capped across chats: every distinct chat id costs an access check.
   const any = SERVER_RATE_LIMITS.typingAnyChat;
-  return limitUser(socketId, `typing:${chatId}:${state}`, limit, windowMs) && limitUser(socketId, 'typing:*', any.limit, any.windowMs);
+  return (
+    limitUser(socketId, `typing:${chatId}:${state}`, limit, windowMs) &&
+    limitUser(socketId, 'typing:*', any.limit, any.windowMs)
+  );
 }
 
 /** chats socket handlers (see ClientToServerEvents in @enbox/shared). */

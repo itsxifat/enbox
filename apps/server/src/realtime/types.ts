@@ -1,8 +1,18 @@
 import type { Server, Socket } from 'socket.io';
-import type { ClientToServerEvents, InterServerEvents, ServerToClientEvents, SocketData } from '@enbox/shared';
+import type {
+  ClientToServerEvents,
+  InterServerEvents,
+  ServerToClientEvents,
+  SocketData,
+} from '@enbox/shared';
 
 export type IO = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
-export type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+export type AppSocket = Socket<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>;
 export type ServerEvent = keyof ServerToClientEvents;
 export type ServerPayload<E extends ServerEvent> = Parameters<ServerToClientEvents[E]>[0];
 

@@ -142,10 +142,17 @@ export function takeSocketBindings(socketId: string): { callId: string; userId: 
 }
 
 /** Emit to an arbitrary room (call rooms; emit.ts only covers user/chat/session/socket targets). */
-export function emitToRoom<E extends ServerEvent>(room: string, event: E, payload: ServerPayload<E>): void {
+export function emitToRoom<E extends ServerEvent>(
+  room: string,
+  event: E,
+  payload: ServerPayload<E>,
+): void {
   const io = getIo();
   if (!io) return;
-  (io.to(room) as unknown as { emit: (event: string, payload: unknown) => boolean }).emit(event, payload);
+  (io.to(room) as unknown as { emit: (event: string, payload: unknown) => boolean }).emit(
+    event,
+    payload,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -177,13 +184,21 @@ export function clearRingCheck(callId: string): void {
 }
 
 /** Schedule the reconnect-grace expiry of one participant. */
-export function scheduleGrace(callId: string, userId: string, delayMs: number, fn: () => void): void {
+export function scheduleGrace(
+  callId: string,
+  userId: string,
+  delayMs: number,
+  fn: () => void,
+): void {
   clearGrace(callId, userId);
   const key = graceKey(callId, userId);
-  const timer = setTimeout(() => {
-    graceTimers.delete(key);
-    fn();
-  }, Math.max(0, delayMs));
+  const timer = setTimeout(
+    () => {
+      graceTimers.delete(key);
+      fn();
+    },
+    Math.max(0, delayMs),
+  );
   timer.unref();
   graceTimers.set(key, timer);
 }

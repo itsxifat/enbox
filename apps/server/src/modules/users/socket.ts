@@ -3,12 +3,20 @@ import { assertUserLimit } from '../../lib/userLimit.js';
 import { socketHandler } from '../../realtime/handler.js';
 import { presenceEvents } from '../../realtime/presence.js';
 import type { SocketRegistrar } from '../../realtime/types.js';
-import { forgetPresenceSocket, reevaluatePresence, subscribePresence, unsubscribePresence } from './presence.js';
+import {
+  forgetPresenceSocket,
+  reevaluatePresence,
+  subscribePresence,
+  unsubscribePresence,
+} from './presence.js';
 
 // Online/offline transitions (first socket connected / last one gone) re-evaluate the
 // subject's presence for every subscribed socket (per-viewer privacy, changes only).
 presenceEvents.on('online', (userId) => void reevaluatePresence(userId));
-presenceEvents.on('offline', (userId, lastSeenAt) => void reevaluatePresence(userId, { lastSeenAt }));
+presenceEvents.on(
+  'offline',
+  (userId, lastSeenAt) => void reevaluatePresence(userId, { lastSeenAt }),
+);
 
 /**
  * Users socket handlers (see ClientToServerEvents in @enbox/shared):

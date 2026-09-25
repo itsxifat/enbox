@@ -61,4 +61,8 @@ export async function runDisappearingPurge(opts: { batchSize?: number } = {}): P
   return total;
 }
 
-registerJob({ name: 'disappearing-purge', intervalMs: 60_000, run: async () => void (await runDisappearingPurge()) });
+registerJob({
+  name: 'disappearing-purge',
+  intervalMs: 60_000,
+  run: async () => void (await runDisappearingPurge()),
+});

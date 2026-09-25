@@ -216,31 +216,57 @@ export interface ChannelPreview {
 export interface ApiRoutes {
   // Health
   'GET /api/health': { R: { ok: true; version: string } };
-  'GET /api/config': { R: { vapidPublicKey: string | null; maxUploadBytes: number; version: string } };
+  'GET /api/config': {
+    R: { vapidPublicKey: string | null; maxUploadBytes: number; version: string };
+  };
 
   // Auth & sessions
-  'GET /api/auth/username-available': { Q: UsernameAvailabilityQuery; R: UsernameAvailability } /* public, per-IP rate-limited; malformed → 400 */;
+  'GET /api/auth/username-available': {
+    Q: UsernameAvailabilityQuery;
+    R: UsernameAvailability;
+  } /* public, per-IP rate-limited; malformed → 400 */;
   'POST /api/auth/register': { B: RegisterRequest; R: AuthResponse };
   'POST /api/auth/login': { B: LoginRequest; R: AuthResponse };
-  'POST /api/auth/logout': { R: void } /* deletes the current session (push subscriptions cascade) */;
+  'POST /api/auth/logout': {
+    R: void;
+  } /* deletes the current session (push subscriptions cascade) */;
   'GET /api/auth/sessions': { R: SessionInfo[] };
   'DELETE /api/auth/sessions': { R: void } /* log out all OTHER devices */;
-  'DELETE /api/auth/sessions/:sessionId': { R: void } /* own sessions only (else 404); current = logout */;
-  'POST /api/auth/change-password': { B: ChangePasswordRequest; R: void } /* also revokes all other sessions */;
+  'DELETE /api/auth/sessions/:sessionId': {
+    R: void;
+  } /* own sessions only (else 404); current = logout */;
+  'POST /api/auth/change-password': {
+    B: ChangePasswordRequest;
+    R: void;
+  } /* also revokes all other sessions */;
 
   // Me
   'GET /api/me': { R: UserSelf };
   'PATCH /api/me': { B: UpdateProfileRequest; R: UserSelf };
   'PATCH /api/me/settings': { B: UpdateSettingsRequest; R: UserSettings };
-  'DELETE /api/me': { B: DeleteAccountRequest; R: void } /* soft delete, see ARCHITECTURE "Account deletion" */;
+  'DELETE /api/me': {
+    B: DeleteAccountRequest;
+    R: void;
+  } /* soft delete, see ARCHITECTURE "Account deletion" */;
 
   // Users
-  'GET /api/users/search': { Q: UserSearchQuery; R: UserPublic[] } /* ≤ USER_SEARCH_LIMIT, rate-limited */;
+  'GET /api/users/search': {
+    Q: UserSearchQuery;
+    R: UserPublic[];
+  } /* ≤ USER_SEARCH_LIMIT, rate-limited */;
   'GET /api/users/by-username/:username': { R: UserPublic };
-  'POST /api/users/batch': { B: UsersBatchRequest; R: UserPublic[] } /* unknown ids omitted; deleted users included (isDeleted) */;
-  'POST /api/users/presence': { B: UsersBatchRequest; R: Presence[] } /* one entry per known id; hidden = online null */;
+  'POST /api/users/batch': {
+    B: UsersBatchRequest;
+    R: UserPublic[];
+  } /* unknown ids omitted; deleted users included (isDeleted) */;
+  'POST /api/users/presence': {
+    B: UsersBatchRequest;
+    R: Presence[];
+  } /* one entry per known id; hidden = online null */;
   'GET /api/users/:userId': { R: UserPublic };
-  'GET /api/users/:userId/common-groups': { R: ChatSummary[] } /* active groups shared with that user (no channels) */;
+  'GET /api/users/:userId/common-groups': {
+    R: ChatSummary[];
+  } /* active groups shared with that user (no channels) */;
 
   // Contacts & blocks
   'GET /api/contacts': { R: Contact[] };
@@ -253,28 +279,52 @@ export interface ApiRoutes {
 
   // Media
   /** multipart/form-data: `file` part (+ optional `thumbnail` part) + `UploadMediaMeta` fields. */
-  'POST /api/media': { B: { multipart: UploadMediaMeta & { file: 'binary'; thumbnail?: 'binary' } }; R: MediaAttachment };
+  'POST /api/media': {
+    B: { multipart: UploadMediaMeta & { file: 'binary'; thumbnail?: 'binary' } };
+    R: MediaAttachment;
+  };
 
   // Chats (viewer-specific ChatSummary)
-  'GET /api/chats': { R: ChatSummary[] } /* all chats incl. archived & left groups; excludes hidden (deleted-for-me) */;
-  'POST /api/chats/direct': { B: CreateDirectChatRequest; R: ChatSummary } /* idempotent; userId = me → "Message yourself" */;
-  'GET /api/chats/:chatId': { R: ChatSummary } /* 404 unless you have a (non-hidden) membership row */;
+  'GET /api/chats': {
+    R: ChatSummary[];
+  } /* all chats incl. archived & left groups; excludes hidden (deleted-for-me) */;
+  'POST /api/chats/direct': {
+    B: CreateDirectChatRequest;
+    R: ChatSummary;
+  } /* idempotent; userId = me → "Message yourself" */;
+  'GET /api/chats/:chatId': {
+    R: ChatSummary;
+  } /* 404 unless you have a (non-hidden) membership row */;
   'PATCH /api/chats/:chatId/prefs': { B: UpdateChatPrefsRequest; R: ChatSummary };
   'POST /api/chats/:chatId/read': { B: ReadRequest; R: void };
   'POST /api/chats/:chatId/clear': { R: void } /* clear history for me */;
-  'DELETE /api/chats/:chatId': { R: void } /* delete chat for me (clears + hides); groups only after leaving */;
+  'DELETE /api/chats/:chatId': {
+    R: void;
+  } /* delete chat for me (clears + hides); groups only after leaving */;
   'PUT /api/chats/:chatId/disappearing': { B: SetDisappearingRequest; R: ChatSummary };
-  'GET /api/chats/:chatId/members': { R: ChatMember[] } /* active members; requires permissions.canViewMembers */;
-  'GET /api/chats/:chatId/media/counts': { R: ChatMediaCounts } /* totals per media kind, same visibility as /media */;
+  'GET /api/chats/:chatId/members': {
+    R: ChatMember[];
+  } /* active members; requires permissions.canViewMembers */;
+  'GET /api/chats/:chatId/media/counts': {
+    R: ChatMediaCounts;
+  } /* totals per media kind, same visibility as /media */;
   'GET /api/chats/:chatId/media': { Q: ChatMediaQuery; R: Message[] } /* newest first */;
-  'GET /api/chats/:chatId/pins': { R: Message[] } /* oldest pin first, visible ones; former members: [] */;
+  'GET /api/chats/:chatId/pins': {
+    R: Message[];
+  } /* oldest pin first, visible ones; former members: [] */;
   'POST /api/chats/:chatId/pins': { B: PinMessageRequest; R: Message[] };
   'DELETE /api/chats/:chatId/pins/:messageId': { R: Message[] };
 
   // Messages
   'GET /api/chats/:chatId/messages': { Q: ListMessagesQuery; R: MessagePage };
-  'POST /api/chats/:chatId/messages': { B: SendMessageRequest; R: Message } /* 201 created; 200 = existing (same clientId) */;
-  'GET /api/messages/starred': { Q: StarredMessagesQuery; R: MessageSearchResult[] } /* newest star first; ?chatId= one chat */;
+  'POST /api/chats/:chatId/messages': {
+    B: SendMessageRequest;
+    R: Message;
+  } /* 201 created; 200 = existing (same clientId) */;
+  'GET /api/messages/starred': {
+    Q: StarredMessagesQuery;
+    R: MessageSearchResult[];
+  } /* newest star first; ?chatId= one chat */;
   'POST /api/messages/forward': { B: ForwardRequest; R: Message[] };
   'PATCH /api/messages/:messageId': { B: EditMessageRequest; R: Message };
   'DELETE /api/messages/:messageId': { Q: DeleteMessageQuery; R: void };
@@ -306,34 +356,63 @@ export interface ApiRoutes {
   'GET /api/communities': { R: Community[] };
   'POST /api/communities': { B: CreateCommunityRequest; R: Community };
   'GET /api/communities/:communityId': { R: Community };
-  'PATCH /api/communities/:communityId': { B: UpdateCommunityRequest; R: Community } /* also renames the announcement group */;
-  'DELETE /api/communities/:communityId': { R: void } /* owner deactivates: groups unlinked, announcement group deleted */;
-  'POST /api/communities/:communityId/groups': { B: CreateCommunityGroupRequest; R: AddMembersResult };
+  'PATCH /api/communities/:communityId': {
+    B: UpdateCommunityRequest;
+    R: Community;
+  } /* also renames the announcement group */;
+  'DELETE /api/communities/:communityId': {
+    R: void;
+  } /* owner deactivates: groups unlinked, announcement group deleted */;
+  'POST /api/communities/:communityId/groups': {
+    B: CreateCommunityGroupRequest;
+    R: AddMembersResult;
+  };
   'POST /api/communities/:communityId/groups/link': { B: LinkGroupsRequest; R: Community };
-  'DELETE /api/communities/:communityId/groups/:chatId': { R: Community } /* unlink (not the announcement group) */;
+  'DELETE /api/communities/:communityId/groups/:chatId': {
+    R: Community;
+  } /* unlink (not the announcement group) */;
   'POST /api/communities/:communityId/groups/:chatId/join': { R: ChatSummary };
   'GET /api/communities/:communityId/members': { R: CommunityMember[] } /* owner/admins only */;
-  'POST /api/communities/:communityId/members': { B: AddMembersRequest; R: CommunityAddMembersResult };
-  'DELETE /api/communities/:communityId/members/:userId': { R: void } /* also removes from every linked group */;
+  'POST /api/communities/:communityId/members': {
+    B: AddMembersRequest;
+    R: CommunityAddMembersResult;
+  };
+  'DELETE /api/communities/:communityId/members/:userId': {
+    R: void;
+  } /* also removes from every linked group */;
   'PUT /api/communities/:communityId/members/:userId/role': { B: SetRoleRequest; R: void };
   'POST /api/communities/:communityId/transfer-ownership': { B: TransferOwnershipRequest; R: void };
-  'POST /api/communities/:communityId/leave': { R: void } /* leaves the community and all its groups */;
+  'POST /api/communities/:communityId/leave': {
+    R: void;
+  } /* leaves the community and all its groups */;
   'GET /api/communities/:communityId/invite': { R: { code: string } } /* owner/admins */;
   'POST /api/communities/:communityId/invite/reset': { R: { code: string } } /* owner/admins */;
 
   // Channels (type 'channel')
   'POST /api/channels': { B: CreateChannelRequest; R: ChatSummary };
-  'GET /api/channels/discover': { Q: ChannelDiscoverQuery; R: ChannelDirectoryEntry[] } /* public channels only */;
-  'GET /api/channels/:chatId': { R: ChannelPreview } /* public channels, or channels you follow; else 404 */;
+  'GET /api/channels/discover': {
+    Q: ChannelDiscoverQuery;
+    R: ChannelDirectoryEntry[];
+  } /* public channels only */;
+  'GET /api/channels/:chatId': {
+    R: ChannelPreview;
+  } /* public channels, or channels you follow; else 404 */;
   'PATCH /api/channels/:chatId': { B: UpdateChannelRequest; R: ChatSummary } /* admins */;
   'DELETE /api/channels/:chatId': { R: void } /* owner deletes the channel */;
-  'PUT /api/channels/:chatId/follow': { R: ChatSummary } /* public channels only (private: invite link) */;
-  'DELETE /api/channels/:chatId/follow': { R: void } /* unfollow: the chat disappears; owner → 409 */;
+  'PUT /api/channels/:chatId/follow': {
+    R: ChatSummary;
+  } /* public channels only (private: invite link) */;
+  'DELETE /api/channels/:chatId/follow': {
+    R: void;
+  } /* unfollow: the chat disappears; owner → 409 */;
   'PUT /api/channels/:chatId/admins/:userId': { R: void } /* owner only; target must follow */;
   'DELETE /api/channels/:chatId/admins/:userId': { R: void } /* owner only */;
   'GET /api/channels/:chatId/invite': { R: { code: string } } /* requires permissions.canInvite */;
   'POST /api/channels/:chatId/invite/reset': { R: { code: string } } /* owner/admins */;
-  'POST /api/channels/:chatId/transfer-ownership': { B: TransferOwnershipRequest; R: void } /* owner → an admin */;
+  'POST /api/channels/:chatId/transfer-ownership': {
+    B: TransferOwnershipRequest;
+    R: void;
+  } /* owner → an admin */;
 
   // Status
   'GET /api/status/feed': { R: StatusFeed };
@@ -345,13 +424,23 @@ export interface ApiRoutes {
 
   // Calls
   'GET /api/calls': { Q: CallLogQuery; R: CallLogEntry[] } /* my call log, newest first */;
-  'GET /api/calls/active': { R: Call[] } /* ringing/ongoing calls in my active chats, incl. calls ringing me */;
+  'GET /api/calls/active': {
+    R: Call[];
+  } /* ringing/ongoing calls in my active chats, incl. calls ringing me */;
   'GET /api/calls/ice-servers': { R: { iceServers: IceServerConfig[]; ttlSec: number } };
-  'GET /api/calls/:callId': { R: CallLogEntry } /* a call I participate in and haven't removed from my log; else 404 */;
+  'GET /api/calls/:callId': {
+    R: CallLogEntry;
+  } /* a call I participate in and haven't removed from my log; else 404 */;
   'DELETE /api/calls': { R: void } /* clear my call log */;
   'DELETE /api/calls/:callId': { R: void } /* remove from my call log */;
 
   // Web push
-  'POST /api/push/subscriptions': { B: PushSubscribeRequest; R: void } /* upsert by endpoint, bound to this session */;
-  'DELETE /api/push/subscriptions': { B: PushUnsubscribeRequest; R: void } /* only my own subscription */;
+  'POST /api/push/subscriptions': {
+    B: PushSubscribeRequest;
+    R: void;
+  } /* upsert by endpoint, bound to this session */;
+  'DELETE /api/push/subscriptions': {
+    B: PushUnsubscribeRequest;
+    R: void;
+  } /* only my own subscription */;
 }

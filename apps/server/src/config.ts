@@ -25,7 +25,12 @@ function trustProxy(name: string): boolean | number | string {
 }
 function list(name: string, fallback: string[] = []): string[] {
   const v = str(name);
-  return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : fallback;
+  return v
+    ? v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : fallback;
 }
 
 export interface Config {
@@ -90,7 +95,10 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     rateLimit: str('RATE_LIMIT', env === 'test' ? 'off' : 'on') !== 'off',
     trustProxy: trustProxy('TRUST_PROXY'),
     ice: {
-      stunUrls: list('STUN_URLS', ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']),
+      stunUrls: list('STUN_URLS', [
+        'stun:stun.l.google.com:19302',
+        'stun:stun1.l.google.com:19302',
+      ]),
       turnUrls: list('TURN_URLS'),
       turnUsername: str('TURN_USERNAME'),
       turnCredential: str('TURN_CREDENTIAL'),
@@ -104,7 +112,12 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     },
     version: str('APP_VERSION', '0.1.0')!,
   };
-  return { ...base, ...overrides, ice: { ...base.ice, ...overrides.ice }, vapid: { ...base.vapid, ...overrides.vapid } };
+  return {
+    ...base,
+    ...overrides,
+    ice: { ...base.ice, ...overrides.ice },
+    vapid: { ...base.vapid, ...overrides.vapid },
+  };
 }
 
 /** Process-wide config (set by `initConfig`, defaults to env). */

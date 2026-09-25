@@ -116,10 +116,7 @@ export function ChatListPane() {
   // Sort the main list once per chat-store change; filters and search only filter it.
   const all = useSortedChats({});
   const chats = useMemo(
-    () =>
-      searching
-        ? filterChats(all, { query: matchQuery })
-        : filterChats(all, { filter }),
+    () => (searching ? filterChats(all, { query: matchQuery }) : filterChats(all, { filter })),
     [all, searching, matchQuery, filter],
   );
   const { count: archivedCount, unread: archivedUnread } = useArchivedCounts();

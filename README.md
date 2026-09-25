@@ -17,6 +17,7 @@ mobile-first web app that installs like a native app (PWA).
 ## Features
 
 **Messaging**
+
 - 1:1 chats, "Message yourself", group chats (up to 1,024 members)
 - Text with formatting, links and @mentions; photos & videos (client-side compression,
   thumbnails, lightbox), voice notes (waveform, playback speed), audio, documents,
@@ -30,6 +31,7 @@ mobile-first web app that installs like a native app (PWA).
 - Global and in-chat message search with jump-to-message; starred messages
 
 **Groups, communities & channels**
+
 - Group roles (owner / admins / members), admin-only messaging, edit-info and add-member
   permissions, invite links (with reset), ownership transfer and automatic succession
 - **Communities** (WhatsApp-style): an announcement group plus linked groups; members join
@@ -39,6 +41,7 @@ mobile-first web app that installs like a native app (PWA).
   anonymous polls, public or invite-only
 
 **Calls**
+
 - 1:1 and group voice/video calls over WebRTC (full mesh, up to 8 participants)
 - Multi-device ringing, busy / declined / missed handling, join ongoing group calls,
   invite more people, screen sharing, camera flip, mute, active-speaker highlight,
@@ -46,11 +49,13 @@ mobile-first web app that installs like a native app (PWA).
 - STUN/TURN configuration with short-lived coturn credentials
 
 **Status updates (stories)**
+
 - Text (colours & fonts), photo and video statuses that expire after 24 h
 - Viewer with progress bars, replies (sent as a quoted direct message) and reactions,
   viewer list, privacy (my contacts / my contacts except… / only share with…)
 
 **Accounts & privacy**
+
 - Sign up with username (+ optional phone), log in with username or phone
 - Linked devices (sessions) with remote log-out; password change logs out other devices
 - Privacy controls for last seen & online, profile photo, about, who can add me to groups,
@@ -61,13 +66,13 @@ mobile-first web app that installs like a native app (PWA).
 
 ## Tech stack
 
-| Layer | Technology |
-| --- | --- |
-| Monorepo | npm workspaces: `packages/shared`, `apps/server`, `apps/web` |
-| Contracts | `@enbox/shared` — wire models, zod request schemas, REST route catalogue, Socket.IO event maps |
-| Server | Node 22, Express 5, Socket.IO 4, Drizzle ORM, PostgreSQL (or embedded PGlite for zero-config dev) |
-| Web | React 19, Vite, Tailwind CSS 4, React Router 7, Zustand, WebRTC, PWA (service worker + Web Push) |
-| Tests | Vitest (server integration tests against a real database, web unit tests), Playwright end-to-end |
+| Layer     | Technology                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------- |
+| Monorepo  | npm workspaces: `packages/shared`, `apps/server`, `apps/web`                                      |
+| Contracts | `@enbox/shared` — wire models, zod request schemas, REST route catalogue, Socket.IO event maps    |
+| Server    | Node 22, Express 5, Socket.IO 4, Drizzle ORM, PostgreSQL (or embedded PGlite for zero-config dev) |
+| Web       | React 19, Vite, Tailwind CSS 4, React Router 7, Zustand, WebRTC, PWA (service worker + Web Push)  |
+| Tests     | Vitest (server integration tests against a real database, web unit tests), Playwright end-to-end  |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design: data model, the
 mutation → realtime-event matrix, membership transitions, receipts, privacy rules and the
@@ -93,29 +98,29 @@ Migrations run automatically on startup.
 
 ### Useful scripts
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Server (watch mode) + web client with hot reload |
-| `npm run build` | Build the web client and the server bundle |
-| `npm start` | Run the built server (also serves the built web client) |
-| `npm test` | Server integration tests + web unit tests |
-| `npm run e2e` | Playwright end-to-end tests (boots server + client automatically) |
-| `npm run typecheck` / `npm run lint` | Type checking / ESLint across the monorepo |
-| `npm run db:generate` | Generate a SQL migration after changing `apps/server/src/db/schema.ts` |
+| Command                              | What it does                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| `npm run dev`                        | Server (watch mode) + web client with hot reload                       |
+| `npm run build`                      | Build the web client and the server bundle                             |
+| `npm start`                          | Run the built server (also serves the built web client)                |
+| `npm test`                           | Server integration tests + web unit tests                              |
+| `npm run e2e`                        | Playwright end-to-end tests (boots server + client automatically)      |
+| `npm run typecheck` / `npm run lint` | Type checking / ESLint across the monorepo                             |
+| `npm run db:generate`                | Generate a SQL migration after changing `apps/server/src/db/schema.ts` |
 
 ## Configuration
 
 All server settings are environment variables, documented in [.env.example](.env.example).
 The most important ones:
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string (unset = embedded PGlite) |
-| `PUBLIC_URL` | Public origin of the web app (used in invite links) |
-| `CORS_ORIGINS` | Allowed browser origins |
+| Variable                                | Purpose                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`                          | PostgreSQL connection string (unset = embedded PGlite)                   |
+| `PUBLIC_URL`                            | Public origin of the web app (used in invite links)                      |
+| `CORS_ORIGINS`                          | Allowed browser origins                                                  |
 | `STUN_URLS`, `TURN_URLS`, `TURN_SECRET` | WebRTC ICE servers; configure TURN for reliable calls behind strict NATs |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`) |
-| `REDIS_URL` | Optional Socket.IO Redis adapter |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`)              |
+| `REDIS_URL`                             | Optional Socket.IO Redis adapter                                         |
 
 ## Deployment
 
@@ -138,14 +143,18 @@ app talks to your API origin, then add the Android/iOS platforms.
 
 ## Testing
 
-- **Server:** ~400 integration tests boot the real Express + Socket.IO server against a fresh
+- **Server:** ~470 integration tests boot the real Express + Socket.IO server against a fresh
   in-memory database per file and cover every endpoint, realtime event ordering, privacy
   rules, permissions, concurrency (sequence allocation, idempotent sends) and the call
-  state machine.
+  state machine. PostgreSQL-specific concurrency tests (row locking, deadlock-free lock
+  order) run when `ENBOX_TEST_PG_URL` points at a real database.
 - **Web:** unit tests for stores, realtime merging, rich text, mentions, the WebRTC engine
   (mocked peer connections) and feature logic.
-- **End-to-end:** Playwright drives multiple signed-in browser contexts against the real
-  stack, including WebRTC calls with fake camera/microphone devices.
+- **End-to-end:** 64 Playwright specs drive multiple signed-in browser contexts against the
+  real stack, including WebRTC 1:1 and group calls with fake camera/microphone devices.
+- **Reviews:** the contracts, the server and the web client each went through a multi-lens
+  adversarial review (security, privacy, spec conformance, concurrency, calls, robustness,
+  accessibility, performance); every verified finding was fixed with a regression test.
 
 ## Current limitations and roadmap
 

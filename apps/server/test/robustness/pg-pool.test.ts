@@ -26,7 +26,10 @@ describe('pg driver', () => {
     await new Promise<void>((resolve) => fake.listen(0, '127.0.0.1', resolve));
     const { port } = fake.address() as AddressInfo;
     const adminShutdown = () => {
-      const fields = Buffer.from('SFATAL\0VFATAL\0C57P01\0Mterminating connection due to administrator command\0\0', 'utf8');
+      const fields = Buffer.from(
+        'SFATAL\0VFATAL\0C57P01\0Mterminating connection due to administrator command\0\0',
+        'utf8',
+      );
       const len = Buffer.alloc(4);
       len.writeInt32BE(fields.length + 4);
       for (const c of conns) c.end(Buffer.concat([Buffer.from('E'), len, fields]));
@@ -39,7 +42,8 @@ describe('pg driver', () => {
     process.on('uncaughtException', onUncaught);
     try {
       await initDb({ databaseUrl: `postgres://enbox@127.0.0.1:${port}/enbox`, migrate: false });
-      const pool = (db as unknown as { $client: { connect(): Promise<{ release(): void }> } }).$client;
+      const pool = (db as unknown as { $client: { connect(): Promise<{ release(): void }> } })
+        .$client;
       const client = await pool.connect();
       client.release(); // idle in the pool, like between requests
       adminShutdown();

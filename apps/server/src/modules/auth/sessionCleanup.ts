@@ -15,7 +15,11 @@ const BATCH = 500;
 export async function runSessionCleanup(now: Date = new Date()): Promise<number> {
   let total = 0;
   for (;;) {
-    const expired = db.select({ id: sessions.id }).from(sessions).where(lte(sessions.expiresAt, now)).limit(BATCH);
+    const expired = db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(lte(sessions.expiresAt, now))
+      .limit(BATCH);
     const rows = await db
       .delete(sessions)
       .where(inArray(sessions.id, sql`(${expired})`))

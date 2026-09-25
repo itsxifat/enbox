@@ -16,7 +16,9 @@ import { rawRows } from '../services/sql.js';
 import { removeStoredFiles, uploadTmpDir } from '../services/uploads.js';
 import { registerJob } from './index.js';
 
-export async function runMediaGc(opts: { ttlMs?: number; batchSize?: number } = {}): Promise<number> {
+export async function runMediaGc(
+  opts: { ttlMs?: number; batchSize?: number } = {},
+): Promise<number> {
   const ttlMs = opts.ttlMs ?? ORPHAN_MEDIA_TTL_MS;
   const batch = opts.batchSize ?? 500;
   let total = 0;
@@ -72,7 +74,8 @@ export async function sweepUploadTmp(opts: { maxAgeMs?: number } = {}): Promise<
       await fs.unlink(p);
       removed += 1;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logger.warn({ err, path: p }, 'media gc: failed to remove a temp upload');
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT')
+        logger.warn({ err, path: p }, 'media gc: failed to remove a temp upload');
     }
   }
   if (removed) logger.info({ removed }, 'media gc: stale temp uploads removed');

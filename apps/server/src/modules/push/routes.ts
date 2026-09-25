@@ -28,16 +28,35 @@ export const router = Router();
 router.post('/push/subscriptions', async (req, res) => {
   const { userId, sessionId } = authCtx(req);
   const body = parse(pushSubscribeSchema, req.body ?? {});
-  const values = { userId, sessionId, endpoint: body.endpoint, p256dh: body.keys.p256dh, auth: body.keys.auth };
+  const values = {
+    userId,
+    sessionId,
+    endpoint: body.endpoint,
+    p256dh: body.keys.p256dh,
+    auth: body.keys.auth,
+  };
   try {
     await db.transaction(async (tx) => {
-      await tx.delete(pushSubscriptions).where(and(eq(pushSubscriptions.sessionId, sessionId), ne(pushSubscriptions.endpoint, body.endpoint)));
+      await tx
+        .delete(pushSubscriptions)
+        .where(
+          and(
+            eq(pushSubscriptions.sessionId, sessionId),
+            ne(pushSubscriptions.endpoint, body.endpoint),
+          ),
+        );
       await tx
         .insert(pushSubscriptions)
         .values(values)
         .onConflictDoUpdate({
           target: pushSubscriptions.endpoint,
-          set: { userId, sessionId, p256dh: values.p256dh, auth: values.auth, createdAt: new Date() },
+          set: {
+            userId,
+            sessionId,
+            p256dh: values.p256dh,
+            auth: values.auth,
+            createdAt: new Date(),
+          },
         });
       const excess = await tx
         .select({ id: pushSubscriptions.id })
@@ -45,7 +64,13 @@ router.post('/push/subscriptions', async (req, res) => {
         .where(eq(pushSubscriptions.userId, userId))
         .orderBy(desc(pushSubscriptions.createdAt), desc(pushSubscriptions.id))
         .offset(MAX_PUSH_SUBSCRIPTIONS_PER_USER);
-      if (excess.length) await tx.delete(pushSubscriptions).where(inArray(pushSubscriptions.id, excess.map((r) => r.id)));
+      if (excess.length)
+        await tx.delete(pushSubscriptions).where(
+          inArray(
+            pushSubscriptions.id,
+            excess.map((r) => r.id),
+          ),
+        );
     });
   } catch (err) {
     // The session was revoked while this request was in flight.
@@ -58,6 +83,10 @@ router.post('/push/subscriptions', async (req, res) => {
 router.delete('/push/subscriptions', async (req, res) => {
   const { userId } = authCtx(req);
   const body = parse(pushUnsubscribeSchema, req.body ?? {});
-  await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.endpoint, body.endpoint), eq(pushSubscriptions.userId, userId)));
+  await db
+    .delete(pushSubscriptions)
+    .where(
+      and(eq(pushSubscriptions.endpoint, body.endpoint), eq(pushSubscriptions.userId, userId)),
+    );
   res.status(204).end();
 });

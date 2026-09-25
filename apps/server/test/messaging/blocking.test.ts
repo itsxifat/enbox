@@ -25,9 +25,13 @@ describe('blocking: the blocked party never reaches the blocker', () => {
   });
 
   /** Events of a recorded socket that mention `id` anywhere in their payload. */
-  const mentioning = (log: { event: string; payload: unknown }[], id: string) => log.filter((e) => JSON.stringify(e.payload ?? null).includes(id));
+  const mentioning = (log: { event: string; payload: unknown }[], id: string) =>
+    log.filter((e) => JSON.stringify(e.payload ?? null).includes(id));
 
-  const pair = async (): Promise<[TestUser, TestUser]> => [await t.createUser(), await t.createUser()];
+  const pair = async (): Promise<[TestUser, TestUser]> => [
+    await t.createUser(),
+    await t.createUser(),
+  ];
 
   describe('sends (P1): no chat:watermarks for withheld messages', () => {
     it('a brand-new direct chat the blocker has never seen: no event carries its id', async () => {
@@ -97,7 +101,11 @@ describe('blocking: the blocked party never reaches the blocker', () => {
       const chat = await openDirect(t, a, b);
       const sb = await t.connect(b);
       const lb = recordEvents(sb);
-      await t.api(a).put(`/api/chats/${chat.id}/disappearing`).send({ seconds: 86_400 }).expect(200);
+      await t
+        .api(a)
+        .put(`/api/chats/${chat.id}/disappearing`)
+        .send({ seconds: 86_400 })
+        .expect(200);
       await settle();
       expect((await memberOf(chat.id, b))!.hidden).toBe(true);
       expect(mentioning(lb.log, chat.id)).toEqual([]);
@@ -196,7 +204,11 @@ describe('blocking: the blocked party never reaches the blocker', () => {
       await t.api(a).post(`/api/chats/${d}/pins`).send({ messageId: m1.id }).expect(200);
       await settle();
       // B opens the chat and reads everything B can see.
-      await t.api(b).post(`/api/chats/${d}/read`).send({ seq: (await summaryOf(t, b, d)).lastSeq }).expect((r) => expect(r.status).toBeLessThan(300));
+      await t
+        .api(b)
+        .post(`/api/chats/${d}/read`)
+        .send({ seq: (await summaryOf(t, b, d)).lastSeq })
+        .expect((r) => expect(r.status).toBeLessThan(300));
       const mine = await summaryOf(t, a, d);
       expect(mine.deliveredWatermark).toBeLessThan(m1.seq);
       expect(mine.readWatermark).toBeLessThan(m1.seq);
@@ -210,16 +222,27 @@ describe('blocking: the blocked party never reaches the blocker', () => {
       const d = await activeDirect(t, a, b);
       const beforeBlock = await sendOk(t, a, d, 'typo');
       const bMsg = await sendOk(t, b, d, 'react to me');
-      const poll = await sendOk(t, b, d, { type: 'poll', poll: { question: 'Lunch?', options: ['yes', 'no'] } });
+      const poll = await sendOk(t, b, d, {
+        type: 'poll',
+        poll: { question: 'Lunch?', options: ['yes', 'no'] },
+      });
       await block(b, a);
       const sa = await t.connect(a);
       const sb = await t.connect(b);
       const [la, lb] = [recordEvents(sa), recordEvents(sb)];
 
       await t.api(a).patch(`/api/messages/${beforeBlock.id}`).send({ text: 'fixed' }).expect(200);
-      const reacted = (await t.api(a).put(`/api/messages/${bMsg.id}/reaction`).send({ emoji: '👍' }).expect(200)).body as Message;
+      const reacted = (
+        await t.api(a).put(`/api/messages/${bMsg.id}/reaction`).send({ emoji: '👍' }).expect(200)
+      ).body as Message;
       expect(reacted.reactions).toEqual([{ emoji: '👍', count: 1, userIds: [a.id] }]);
-      const voted = (await t.api(a).put(`/api/messages/${poll.id}/vote`).send({ optionIds: [poll.poll!.options[0]!.id] }).expect(200)).body as Message;
+      const voted = (
+        await t
+          .api(a)
+          .put(`/api/messages/${poll.id}/vote`)
+          .send({ optionIds: [poll.poll!.options[0]!.id] })
+          .expect(200)
+      ).body as Message;
       expect(voted.poll!.options[0]).toMatchObject({ voteCount: 1, voterIds: [a.id] });
       await t.api(a).delete(`/api/messages/${bMsg.id}/reaction`).expect(200);
       await t.api(a).put(`/api/messages/${bMsg.id}/reaction`).send({ emoji: '🎉' }).expect(200);
@@ -232,10 +255,18 @@ describe('blocking: the blocked party never reaches the blocker', () => {
       // Viewer-specific history: the blocker doesn't see the blocked party's reaction/vote.
       const bView = await historyOf(t, b, d);
       expect(bView.find((m) => m.id === bMsg.id)!.reactions).toEqual([]);
-      expect(bView.find((m) => m.id === poll.id)!.poll).toMatchObject({ totalVoters: 0, options: [{ voteCount: 0, voterIds: [] }, { voteCount: 0, voterIds: [] }] });
+      expect(bView.find((m) => m.id === poll.id)!.poll).toMatchObject({
+        totalVoters: 0,
+        options: [
+          { voteCount: 0, voterIds: [] },
+          { voteCount: 0, voterIds: [] },
+        ],
+      });
       // ...while the blocked party's view of the same messages is complete.
       const aView = await historyOf(t, a, d);
-      expect(aView.find((m) => m.id === bMsg.id)!.reactions).toEqual([{ emoji: '🎉', count: 1, userIds: [a.id] }]);
+      expect(aView.find((m) => m.id === bMsg.id)!.reactions).toEqual([
+        { emoji: '🎉', count: 1, userIds: [a.id] },
+      ]);
       expect(aView.find((m) => m.id === poll.id)!.poll!.totalVoters).toBe(1);
 
       // The blocker's own interactions still reach both of them.

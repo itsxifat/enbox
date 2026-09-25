@@ -19,9 +19,22 @@ import {
   type SystemEvent,
 } from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../../db/index.js';
-import { chats, communities, communityMembers, type ChatRow, type CommunityMemberRow } from '../../db/schema.js';
+import {
+  chats,
+  communities,
+  communityMembers,
+  type ChatRow,
+  type CommunityMemberRow,
+} from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
-import { badRequest, conflict, forbidden, limitReached, notFound, notMember } from '../../lib/errors.js';
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  limitReached,
+  notFound,
+  notMember,
+} from '../../lib/errors.js';
 import { parse } from '../../lib/validate.js';
 import { getChat, getChatAccess, getMembership, lockChats } from '../../services/chats.js';
 import {
@@ -48,7 +61,13 @@ import { changeRole, transferOwnership, upsertMembership } from '../../services/
 import { toChatSummary } from '../../services/summaries.js';
 import { postSystemMessage } from '../../services/system.js';
 import { toUserPublicMap } from '../../services/users.js';
-import { assertAddLimit, createGroupTx, joinGroupTx, normDescription, planAdds } from '../groups/service.js';
+import {
+  assertAddLimit,
+  createGroupTx,
+  joinGroupTx,
+  normDescription,
+  planAdds,
+} from '../groups/service.js';
 import './hooks.js';
 
 /**
@@ -63,11 +82,18 @@ const groupParams = idParamSchema('communityId', 'chatId');
 const memberParams = idParamSchema('communityId', 'userId');
 
 /** The caller's community membership: 404 for non-members, 403 when `role` isn't met. */
-async function requireCommunityRole(dbx: DbOrTx, communityId: string, userId: string, role: 'member' | 'admin' | 'owner' = 'member'): Promise<CommunityMemberRow> {
+async function requireCommunityRole(
+  dbx: DbOrTx,
+  communityId: string,
+  userId: string,
+  role: 'member' | 'admin' | 'owner' = 'member',
+): Promise<CommunityMemberRow> {
   const member = await getCommunityMember(dbx, communityId, userId);
   if (!member) throw notFound('Community');
-  if (role === 'admin' && !isAdminRole(member.role)) throw forbidden('Only community admins can do that');
-  if (role === 'owner' && member.role !== 'owner') throw forbidden('Only the community owner can do that');
+  if (role === 'admin' && !isAdminRole(member.role))
+    throw forbidden('Only community admins can do that');
+  if (role === 'owner' && member.role !== 'owner')
+    throw forbidden('Only the community owner can do that');
   return member;
 }
 
@@ -91,10 +117,12 @@ router.post('/communities', async (req, res) => {
     if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);
     // Validate without locks first (never queue on the row lock of a chat I can't manage),
     // then lock (sorted) and re-validate; the community and its announcement group are new rows.
-    for (const id of body.groupIds) await requireLinkableGroup(tx, me, id, (await getChat(tx, id)) ?? undefined);
+    for (const id of body.groupIds)
+      await requireLinkableGroup(tx, me, id, (await getChat(tx, id)) ?? undefined);
     const locked = new Map((await lockChats(tx, body.groupIds)).map((c) => [c.id, c]));
     const groups: ChatRow[] = [];
-    for (const id of body.groupIds) groups.push(await requireLinkableGroup(tx, me, id, locked.get(id)));
+    for (const id of body.groupIds)
+      groups.push(await requireLinkableGroup(tx, me, id, locked.get(id)));
 
     const [community] = await tx
       .insert(communities)
@@ -119,13 +147,34 @@ router.post('/communities', async (req, res) => {
         groupSettings: { ...ANNOUNCEMENT_GROUP_SETTINGS },
       })
       .returning();
-    await tx.update(communities).set({ announcementChatId: ann!.id }).where(eq(communities.id, community!.id));
-    await tx.insert(communityMembers).values({ communityId: community!.id, userId: me, role: 'owner' });
-    await upsertMembership(tx, fx, { kind: 'activate', chatId: ann!.id, userIds: [me], roles: { [me]: 'owner' }, addedBy: me, initial: true });
-    await postSystemMessage(tx, fx, ann!, { kind: 'community_created', actorId: me, name: body.name });
+    await tx
+      .update(communities)
+      .set({ announcementChatId: ann!.id })
+      .where(eq(communities.id, community!.id));
+    await tx
+      .insert(communityMembers)
+      .values({ communityId: community!.id, userId: me, role: 'owner' });
+    await upsertMembership(tx, fx, {
+      kind: 'activate',
+      chatId: ann!.id,
+      userIds: [me],
+      roles: { [me]: 'owner' },
+      addedBy: me,
+      initial: true,
+    });
+    await postSystemMessage(tx, fx, ann!, {
+      kind: 'community_created',
+      actorId: me,
+      name: body.name,
+    });
     communityUpsert(fx, me, community!.id);
 
-    const scope: CommunityScope = { community: { ...community!, announcementChatId: ann!.id }, ann: ann!, groups: [], extra: new Map() };
+    const scope: CommunityScope = {
+      community: { ...community!, announcementChatId: ann!.id },
+      ann: ann!,
+      groups: [],
+      extra: new Map(),
+    };
     for (const group of groups) await linkGroup(tx, fx, scope, group, me);
     if (groups.length) communityUpsertAll(fx, community!.id);
     return community!.id;
@@ -137,13 +186,20 @@ router.post('/communities', async (req, res) => {
  * A group the caller may link: visible (404), a group (404), an active membership (403
  * not_member), admin (403), not an announcement group nor linked to a community (409).
  */
-async function requireLinkableGroup(tx: Tx, userId: string, chatId: string, chat: ChatRow | undefined): Promise<ChatRow> {
+async function requireLinkableGroup(
+  tx: Tx,
+  userId: string,
+  chatId: string,
+  chat: ChatRow | undefined,
+): Promise<ChatRow> {
   if (!chat) throw notFound('Chat');
   const access = await getChatAccess(tx, userId, chatId, { chat });
   if (access.chat.type !== 'group') throw notFound('Chat');
   if (access.membership !== 'active') throw notMember();
-  if (access.chat.isAnnouncement || access.chat.communityId) throw conflict('This group already belongs to a community');
-  if (!isAdminRole(access.member.role)) throw forbidden('You must be an admin of the group to add it to a community');
+  if (access.chat.isAnnouncement || access.chat.communityId)
+    throw conflict('This group already belongs to a community');
+  if (!isAdminRole(access.member.role))
+    throw forbidden('You must be an admin of the group to add it to a community');
   return access.chat;
 }
 
@@ -172,13 +228,18 @@ router.patch('/communities/:communityId', async (req, res) => {
       changes.name = body.name;
       events.push({ kind: 'name_changed', actorId: me, name: body.name });
     }
-    if (body.description !== undefined && normDescription(body.description) !== community.description) {
+    if (
+      body.description !== undefined &&
+      normDescription(body.description) !== community.description
+    ) {
       set.description = normDescription(body.description);
       changes.description = set.description;
       events.push({ kind: 'description_changed', actorId: me });
     }
     if (body.avatarMediaId !== undefined && body.avatarMediaId !== community.avatarMediaId) {
-      const avatar = body.avatarMediaId ? await requireAvatarMedia(tx, body.avatarMediaId, me) : null;
+      const avatar = body.avatarMediaId
+        ? await requireAvatarMedia(tx, body.avatarMediaId, me)
+        : null;
       set.avatarMediaId = avatar?.id ?? null;
       changes.avatarUrl = avatar ? mediaUrl(avatar.storageKey) : null;
       events.push({ kind: 'avatar_changed', actorId: me });
@@ -221,13 +282,19 @@ router.post('/communities/:communityId/groups', async (req, res) => {
   const result = await transact(async (tx, fx) => {
     const scope = await lockCommunityScope(tx, communityId);
     await requireCommunityRole(tx, communityId, me, 'admin');
-    if ((await linkedGroupCount(tx, communityId)) >= MAX_COMMUNITY_GROUPS) throw limitReached(`A community can have at most ${MAX_COMMUNITY_GROUPS} groups`);
+    if ((await linkedGroupCount(tx, communityId)) >= MAX_COMMUNITY_GROUPS)
+      throw limitReached(`A community can have at most ${MAX_COMMUNITY_GROUPS} groups`);
     const created = await createGroupTx(tx, fx, { creatorId: me, body, scope });
     communityUpsertAll(fx, communityId);
     return created;
   });
   const chat = await toChatSummary(db, me, result.chat.id);
-  const out: AddMembersResult = { chat: chat!, added: result.toAdd, needsInvite: result.needsInvite, failed: result.failed };
+  const out: AddMembersResult = {
+    chat: chat!,
+    added: result.toAdd,
+    needsInvite: result.needsInvite,
+    failed: result.failed,
+  };
   res.status(201).json(out);
 });
 
@@ -239,11 +306,13 @@ router.post('/communities/:communityId/groups/link', async (req, res) => {
   await transact(async (tx, fx) => {
     // Unlocked pre-checks (no row locks for callers who may not link), then under the locks.
     await requireCommunityRole(tx, communityId, me, 'admin');
-    for (const id of chatIds) await requireLinkableGroup(tx, me, id, (await getChat(tx, id)) ?? undefined);
+    for (const id of chatIds)
+      await requireLinkableGroup(tx, me, id, (await getChat(tx, id)) ?? undefined);
     const scope = await lockCommunityScope(tx, communityId, { extraChatIds: chatIds });
     await requireCommunityRole(tx, communityId, me, 'admin');
     const groups: ChatRow[] = [];
-    for (const id of chatIds) groups.push(await requireLinkableGroup(tx, me, id, scope.extra.get(id)));
+    for (const id of chatIds)
+      groups.push(await requireLinkableGroup(tx, me, id, scope.extra.get(id)));
     if ((await linkedGroupCount(tx, communityId)) + groups.length > MAX_COMMUNITY_GROUPS) {
       throw limitReached(`A community can have at most ${MAX_COMMUNITY_GROUPS} groups`);
     }
@@ -262,7 +331,8 @@ router.delete('/communities/:communityId/groups/:chatId', async (req, res) => {
     await requireCommunityRole(tx, communityId, me, 'admin');
     const group = scope.extra.get(chatId);
     if (!group || group.communityId !== communityId) throw notFound('Group');
-    if (group.isAnnouncement) throw forbidden("The announcement group can't be removed from its community");
+    if (group.isAnnouncement)
+      throw forbidden("The announcement group can't be removed from its community");
     await unlinkGroup(tx, fx, scope, group, me);
     communityUpsertAll(fx, communityId);
   });
@@ -295,7 +365,11 @@ router.get('/communities/:communityId/members', async (req, res) => {
     .select()
     .from(communityMembers)
     .where(eq(communityMembers.communityId, communityId))
-    .orderBy(sql`case ${communityMembers.role} when 'owner' then 0 when 'admin' then 1 else 2 end`, asc(communityMembers.joinedAt), asc(communityMembers.userId));
+    .orderBy(
+      sql`case ${communityMembers.role} when 'owner' then 0 when 'admin' then 1 else 2 end`,
+      asc(communityMembers.joinedAt),
+      asc(communityMembers.userId),
+    );
   const users = await toUserPublicMap(
     db,
     me,
@@ -318,12 +392,21 @@ router.post('/communities/:communityId/members', async (req, res) => {
   const plan = await transact(async (tx, fx) => {
     const scope = await lockCommunityScope(tx, communityId);
     await requireCommunityRole(tx, communityId, me, 'admin');
-    const plan = await planAdds(tx, { adderId: me, userIds, activeIds: await communityMemberIds(tx, communityId) });
+    const plan = await planAdds(tx, {
+      adderId: me,
+      userIds,
+      activeIds: await communityMemberIds(tx, communityId),
+    });
     assertAddLimit(me, plan.toAdd.length);
     await addCommunityMembers(tx, fx, scope, plan.toAdd, { addedBy: me });
     return plan;
   });
-  const out: CommunityAddMembersResult = { community: await communityOf(me, communityId), added: plan.toAdd, needsInvite: plan.needsInvite, failed: plan.failed };
+  const out: CommunityAddMembersResult = {
+    community: await communityOf(me, communityId),
+    added: plan.toAdd,
+    needsInvite: plan.needsInvite,
+    failed: plan.failed,
+  };
   res.json(out);
 });
 
@@ -359,7 +442,9 @@ router.put('/communities/:communityId/members/:userId/role', async (req, res) =>
     await tx
       .update(communityMembers)
       .set({ role })
-      .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId)));
+      .where(
+        and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId)),
+      );
     communityUpsert(fx, userId, communityId);
     const annRow = await getMembership(tx, scope.ann.id, userId);
     if (annRow && !annRow.leftAt) await changeRole(tx, fx, { chatId: scope.ann.id, userId, role });
@@ -386,7 +471,9 @@ router.post('/communities/:communityId/transfer-ownership', async (req, res) => 
     await tx
       .update(communityMembers)
       .set({ role: 'owner' })
-      .where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId)));
+      .where(
+        and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId)),
+      );
     communityUpsert(fx, [me, userId], communityId);
     await transferOwnership(tx, fx, { chatId: scope.ann.id, fromUserId: me, toUserId: userId });
     fx.membersChanged(scope.ann);
@@ -411,7 +498,10 @@ router.get('/communities/:communityId/invite', async (req, res) => {
   const me = authUserId(req);
   const { communityId } = parse(communityParams, req.params);
   await requireCommunityRole(db, communityId, me, 'admin');
-  const [row] = await db.select({ code: communities.inviteCode }).from(communities).where(eq(communities.id, communityId));
+  const [row] = await db
+    .select({ code: communities.inviteCode })
+    .from(communities)
+    .where(eq(communities.id, communityId));
   if (!row) throw notFound('Community');
   res.json({ code: row.code });
 });
@@ -424,11 +514,19 @@ router.post('/communities/:communityId/invite/reset', async (req, res) => {
     await lockCommunityScope(tx, communityId);
     await requireCommunityRole(tx, communityId, me, 'admin');
     const next = await generateUniqueInviteCode(tx);
-    await tx.update(communities).set({ inviteCode: next, updatedAt: new Date() }).where(eq(communities.id, communityId));
+    await tx
+      .update(communities)
+      .set({ inviteCode: next, updatedAt: new Date() })
+      .where(eq(communities.id, communityId));
     const admins = await tx
       .select({ userId: communityMembers.userId })
       .from(communityMembers)
-      .where(and(eq(communityMembers.communityId, communityId), sql`${communityMembers.role} in ('owner', 'admin')`));
+      .where(
+        and(
+          eq(communityMembers.communityId, communityId),
+          sql`${communityMembers.role} in ('owner', 'admin')`,
+        ),
+      );
     communityUpsert(
       fx,
       admins.map((a) => a.userId),

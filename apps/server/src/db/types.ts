@@ -1,4 +1,11 @@
-import type { CallMessagePayload, ContactCardPayload, ID, LocationPayload, StatusType, SystemEvent } from '@enbox/shared';
+import type {
+  CallMessagePayload,
+  ContactCardPayload,
+  ID,
+  LocationPayload,
+  StatusType,
+  SystemEvent,
+} from '@enbox/shared';
 
 /** Poll definition stored on the message; votes live in `poll_votes`. */
 export interface PollDefinition {

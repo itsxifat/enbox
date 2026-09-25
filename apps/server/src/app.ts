@@ -13,7 +13,25 @@ import { apiLimiter } from './lib/rateLimit.js';
 import { authedRouters, publicRouters } from './modules/index.js';
 
 /** Extensions browsers may render inline from /uploads; everything else is forced to download. */
-const INLINE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.mp4', '.webm', '.ogg', '.oga', '.ogv', '.mov', '.mp3', '.m4a', '.aac', '.wav', '.opus']);
+const INLINE_EXT = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.avif',
+  '.mp4',
+  '.webm',
+  '.ogg',
+  '.oga',
+  '.ogv',
+  '.mov',
+  '.mp3',
+  '.m4a',
+  '.aac',
+  '.wav',
+  '.opus',
+]);
 
 export function createApp() {
   const app = express();
@@ -29,7 +47,12 @@ export function createApp() {
       crossOriginEmbedderPolicy: false,
     }),
   );
-  app.use(cors({ origin: config.corsOrigins.includes('*') ? true : config.corsOrigins, credentials: true }));
+  app.use(
+    cors({
+      origin: config.corsOrigins.includes('*') ? true : config.corsOrigins,
+      credentials: true,
+    }),
+  );
   app.use(compression());
   if (config.env !== 'test') {
     app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
@@ -76,9 +99,15 @@ export function createApp() {
   const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     // Body parser / multer errors carry a status.
     let e = toHttpError(err);
-    const status = (err as { status?: number; statusCode?: number })?.status ?? (err as { statusCode?: number })?.statusCode;
+    const status =
+      (err as { status?: number; statusCode?: number })?.status ??
+      (err as { statusCode?: number })?.statusCode;
     if (!(err instanceof HttpError) && status && status >= 400 && status < 500) {
-      e = new HttpError(status, status === 413 ? 'payload_too_large' : 'validation_error', (err as Error).message);
+      e = new HttpError(
+        status,
+        status === 413 ? 'payload_too_large' : 'validation_error',
+        (err as Error).message,
+      );
     }
     if (e.status >= 500) (req.log ?? logger).error({ err }, 'request failed');
     res.status(e.status).json(e.toBody());

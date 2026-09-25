@@ -34,7 +34,14 @@ import { domainEvents, type DomainEventMap } from '../../services/events.js';
 import { loadMediaMap, mediaUrl } from '../../services/media.js';
 import { toMessages } from '../../services/messages.js';
 import { pairKey, uniq } from '../../services/sql.js';
-import { getUserRow, getUserRows, isContactOf, settingsOf, toUserPublicMap, toUserPublicsForPairs } from '../../services/users.js';
+import {
+  getUserRow,
+  getUserRows,
+  isContactOf,
+  settingsOf,
+  toUserPublicMap,
+  toUserPublicsForPairs,
+} from '../../services/users.js';
 import { deliverPush, getPushSender, trackPush, type PushEntry } from './sender.js';
 
 const PREVIEW_MAX = 120;
@@ -56,8 +63,18 @@ async function chatAvatarUrl(avatarMediaId: string | null): Promise<string | nul
   return row ? mediaUrl(row.storageKey) : null;
 }
 
-export async function onMessageCreated({ message, chat, recipientIds }: DomainEventMap['message.created']): Promise<void> {
-  if (chat.type === 'channel' || message.type === 'system' || message.type === 'call' || !message.senderId) return;
+export async function onMessageCreated({
+  message,
+  chat,
+  recipientIds,
+}: DomainEventMap['message.created']): Promise<void> {
+  if (
+    chat.type === 'channel' ||
+    message.type === 'system' ||
+    message.type === 'call' ||
+    !message.senderId
+  )
+    return;
   if (!getPushSender()) return;
   const subscribed = await subscribedUserIds(recipientIds);
   if (subscribed.length === 0) return;
@@ -66,7 +83,13 @@ export async function onMessageCreated({ message, chat, recipientIds }: DomainEv
     db
       .select({ userId: chatMembers.userId, mutedUntil: chatMembers.mutedUntil })
       .from(chatMembers)
-      .where(and(eq(chatMembers.chatId, chat.id), inArray(chatMembers.userId, subscribed), isNull(chatMembers.leftAt))),
+      .where(
+        and(
+          eq(chatMembers.chatId, chat.id),
+          inArray(chatMembers.userId, subscribed),
+          isNull(chatMembers.leftAt),
+        ),
+      ),
     getUserRows(db, subscribed),
   ]);
   const now = new Date();
@@ -98,7 +121,9 @@ export async function onMessageCreated({ message, chat, recipientIds }: DomainEv
     const nameOf = (id: string) => userDisplayName(publics.get(pairKey(viewerId, id)));
     const sender: UserPublic | undefined = publics.get(pairKey(viewerId, senderId));
     const senderName = nameOf(senderId);
-    const preview = s.notificationPreviews ? truncate(messagePreviewText(msg, nameOf, { viewerId, chatKind }), PREVIEW_MAX) : GENERIC_BODY;
+    const preview = s.notificationPreviews
+      ? truncate(messagePreviewText(msg, nameOf, { viewerId, chatKind }), PREVIEW_MAX)
+      : GENERIC_BODY;
     const direct = chat.type === 'direct';
     const icon = direct ? (sender?.avatarUrl ?? null) : groupIcon;
     const payload: PushPayload = {
@@ -115,14 +140,29 @@ export async function onMessageCreated({ message, chat, recipientIds }: DomainEv
   await deliverPush(entries);
 }
 
-export async function onChatRead({ userId, chatId, clearedUnread }: DomainEventMap['chat.read']): Promise<void> {
+export async function onChatRead({
+  userId,
+  chatId,
+  clearedUnread,
+}: DomainEventMap['chat.read']): Promise<void> {
   if (!clearedUnread || !getPushSender()) return;
-  const [chat] = await db.select({ type: chats.type }).from(chats).where(eq(chats.id, chatId)).limit(1);
+  const [chat] = await db
+    .select({ type: chats.type })
+    .from(chats)
+    .where(eq(chats.id, chatId))
+    .limit(1);
   if (!chat || chat.type === 'channel') return; // channels never notify
   await deliverPush([
     {
       userId,
-      payload: { type: 'dismiss', title: '', body: '', tag: `chat:${chatId}`, url: `/chats/${chatId}`, chatId },
+      payload: {
+        type: 'dismiss',
+        title: '',
+        body: '',
+        tag: `chat:${chatId}`,
+        url: `/chats/${chatId}`,
+        chatId,
+      },
       opts: { ttl: PUSH_MESSAGE_TTL_SEC },
     },
   ]);
@@ -135,7 +175,9 @@ function callKind(callType: 'audio' | 'video'): string {
 export async function onCallRinging(e: DomainEventMap['call.ringing']): Promise<void> {
   if (!getPushSender()) return;
   const silent = new Set(e.silentUserIds);
-  const targets = await subscribedUserIds(e.userIds.filter((id) => id !== e.callerId && !silent.has(id)));
+  const targets = await subscribedUserIds(
+    e.userIds.filter((id) => id !== e.callerId && !silent.has(id)),
+  );
   if (targets.length === 0) return;
   const rows = await getUserRows(db, targets);
   const eligible = targets.filter((id) => {
@@ -143,7 +185,13 @@ export async function onCallRinging(e: DomainEventMap['call.ringing']): Promise<
     return !!row && !row.deletedAt && settingsOf(row).callNotifications;
   });
   if (eligible.length === 0) return;
-  const [chat] = e.isGroup ? await db.select({ name: chats.name, avatarMediaId: chats.avatarMediaId }).from(chats).where(eq(chats.id, e.chatId)).limit(1) : [];
+  const [chat] = e.isGroup
+    ? await db
+        .select({ name: chats.name, avatarMediaId: chats.avatarMediaId })
+        .from(chats)
+        .where(eq(chats.id, e.chatId))
+        .limit(1)
+    : [];
   const groupIcon = chat ? await chatAvatarUrl(chat.avatarMediaId) : null;
   const callers = await toUserPublicsForPairs(
     db,
@@ -193,7 +241,11 @@ export async function onRingStopped(e: DomainEventMap['call.ring-stopped']): Pro
       .where(and(eq(callParticipants.callId, e.callId), eq(callParticipants.userId, e.userId)))
       .limit(1);
     if (p?.hiddenAt) return;
-    if (settingsOf(user).silenceUnknownCallers && !(await isContactOf(db, e.userId, call.initiatorId))) return;
+    if (
+      settingsOf(user).silenceUnknownCallers &&
+      !(await isContactOf(db, e.userId, call.initiatorId))
+    )
+      return;
     const caller = (await toUserPublicMap(db, e.userId, [call.initiatorId])).get(call.initiatorId);
     title = call.isGroup ? (call.chatName ?? 'Group call') : userDisplayName(caller);
   }

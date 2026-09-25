@@ -20,16 +20,32 @@ const MIME: Record<MediaKind, string> = {
 };
 
 /** Insert a media row uploaded by `uploaderId` (no file on disk; enough for message tests). */
-export async function mkMedia(uploaderId: string, kind: MediaKind = 'image', extra: Partial<typeof media.$inferInsert> = {}) {
+export async function mkMedia(
+  uploaderId: string,
+  kind: MediaKind = 'image',
+  extra: Partial<typeof media.$inferInsert> = {},
+) {
   const [row] = await db
     .insert(media)
-    .values({ uploaderId, kind, mimeType: MIME[kind], fileName: `${kind}.bin`, size: 10, storageKey: `test/${randomUUID()}.bin`, ...extra })
+    .values({
+      uploaderId,
+      kind,
+      mimeType: MIME[kind],
+      fileName: `${kind}.bin`,
+      size: 10,
+      storageKey: `test/${randomUUID()}.bin`,
+      ...extra,
+    })
     .returning();
   return row!;
 }
 
 /** Insert a live text status by `authorId` visible to `audience`. */
-export async function mkStatus(authorId: string, audience: string[], opts: { expiresAt?: Date; text?: string } = {}) {
+export async function mkStatus(
+  authorId: string,
+  audience: string[],
+  opts: { expiresAt?: Date; text?: string } = {},
+) {
   const [row] = await db
     .insert(statuses)
     .values({
@@ -49,14 +65,24 @@ let clientSeq = 0;
 export const newClientId = () => `cid-${++clientSeq}-${randomUUID().slice(0, 8)}`;
 
 /** `POST /api/chats/:chatId/messages` (default: a text message with a fresh clientId). */
-export function sendReq(t: TestServer, user: TestUser, chatId: string, body: Record<string, unknown> = {}) {
+export function sendReq(
+  t: TestServer,
+  user: TestUser,
+  chatId: string,
+  body: Record<string, unknown> = {},
+) {
   const merged: Record<string, unknown> = { type: 'text', clientId: newClientId(), ...body };
   if (merged.type === 'text' && !('text' in merged)) merged.text = 'hello';
   return t.api(user).post(`/api/chats/${chatId}/messages`).send(merged);
 }
 
 /** Send and expect 201; returns the Message. */
-export async function sendOk(t: TestServer, user: TestUser, chatId: string, body: Record<string, unknown> | string = {}): Promise<Message> {
+export async function sendOk(
+  t: TestServer,
+  user: TestUser,
+  chatId: string,
+  body: Record<string, unknown> | string = {},
+): Promise<Message> {
   const res = await sendReq(t, user, chatId, typeof body === 'string' ? { text: body } : body);
   if (res.status !== 201) throw new Error(`send failed: ${res.status} ${JSON.stringify(res.body)}`);
   return res.body as Message;
@@ -91,15 +117,33 @@ export function addToGroup(chatId: string, actor: TestUser, users: TestUser[]) {
 /** Make `user` leave (or be removed from) a group through the membership pipeline. */
 export function leaveGroup(chatId: string, user: TestUser, removedBy?: TestUser) {
   return transact((tx, fx) =>
-    upsertMembership(tx, fx, removedBy
-      ? { kind: 'deactivate', chatId, userId: user.id, reason: 'removed', systemEvent: { kind: 'member_removed', actorId: removedBy.id, userId: user.id } }
-      : { kind: 'deactivate', chatId, userId: user.id, reason: 'left', systemEvent: { kind: 'member_left', actorId: user.id } }),
+    upsertMembership(
+      tx,
+      fx,
+      removedBy
+        ? {
+            kind: 'deactivate',
+            chatId,
+            userId: user.id,
+            reason: 'removed',
+            systemEvent: { kind: 'member_removed', actorId: removedBy.id, userId: user.id },
+          }
+        : {
+            kind: 'deactivate',
+            chatId,
+            userId: user.id,
+            reason: 'left',
+            systemEvent: { kind: 'member_left', actorId: user.id },
+          },
+    ),
   );
 }
 
 /** Follow a channel through the membership pipeline. */
 export function follow(chatId: string, users: TestUser[]) {
-  return transact((tx, fx) => upsertMembership(tx, fx, { kind: 'activate', chatId, userIds: users.map((u) => u.id) }));
+  return transact((tx, fx) =>
+    upsertMembership(tx, fx, { kind: 'activate', chatId, userIds: users.map((u) => u.id) }),
+  );
 }
 
 export async function memberOf(chatId: string, user: TestUser) {
@@ -111,11 +155,21 @@ export async function memberOf(chatId: string, user: TestUser) {
 }
 
 /** Fetch the viewer's summary of a chat (expects 200). */
-export async function summaryOf(t: TestServer, user: TestUser, chatId: string): Promise<ChatSummary> {
+export async function summaryOf(
+  t: TestServer,
+  user: TestUser,
+  chatId: string,
+): Promise<ChatSummary> {
   return (await t.api(user).get(`/api/chats/${chatId}`).expect(200)).body as ChatSummary;
 }
 
 /** Fetch the viewer's latest page of a chat (expects 200). */
-export async function historyOf(t: TestServer, user: TestUser, chatId: string, query = ''): Promise<Message[]> {
-  return (await t.api(user).get(`/api/chats/${chatId}/messages${query}`).expect(200)).body.messages as Message[];
+export async function historyOf(
+  t: TestServer,
+  user: TestUser,
+  chatId: string,
+  query = '',
+): Promise<Message[]> {
+  return (await t.api(user).get(`/api/chats/${chatId}/messages${query}`).expect(200)).body
+    .messages as Message[];
 }

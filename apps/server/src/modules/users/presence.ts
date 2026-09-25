@@ -22,7 +22,14 @@ import {
   removePresenceSubscriptions,
 } from '../../realtime/presence.js';
 import { pairKey, uniq } from '../../services/sql.js';
-import { NO_RELATIONSHIP, buildPresence, getUserRow, getUserRows, loadPresences, loadRelationships } from '../../services/users.js';
+import {
+  NO_RELATIONSHIP,
+  buildPresence,
+  getUserRow,
+  getUserRows,
+  loadPresences,
+  loadRelationships,
+} from '../../services/users.js';
 
 /** socketId → subjectId → JSON of the last Presence that socket received. */
 const lastSent = new Map<string, Map<string, string>>();
@@ -40,7 +47,11 @@ function remember(socketId: string, p: Presence): void {
  * are ignored, and so are ids beyond MAX_PRESENCE_SUBSCRIPTIONS) and return their current
  * presence as seen by the viewer.
  */
-export async function subscribePresence(socket: { id: string; disconnected: boolean }, viewerId: string, ids: string[]): Promise<Presence[]> {
+export async function subscribePresence(
+  socket: { id: string; disconnected: boolean },
+  viewerId: string,
+  ids: string[],
+): Promise<Presence[]> {
   const rows = await getUserRows(db, ids);
   if (socket.disconnected) return []; // its subscriptions were already dropped
   const known = uniq(ids).filter((id) => rows.has(id));
@@ -73,7 +84,10 @@ async function evaluate(subjectId: string, override: { lastSeenAt?: Date }): Pro
   if (subs.length === 0) return;
   const row = await getUserRow(db, subjectId);
   if (!row) return;
-  const subject = override.lastSeenAt && (!row.lastSeenAt || row.lastSeenAt < override.lastSeenAt) ? { ...row, lastSeenAt: override.lastSeenAt } : row;
+  const subject =
+    override.lastSeenAt && (!row.lastSeenAt || row.lastSeenAt < override.lastSeenAt)
+      ? { ...row, lastSeenAt: override.lastSeenAt }
+      : row;
   const viewerIds = new Set(subs.map((s) => s.viewerId));
   const rels = await loadRelationships(
     db,
@@ -82,7 +96,11 @@ async function evaluate(subjectId: string, override: { lastSeenAt?: Date }): Pro
   // Re-read the subscribers: sockets may have (un)subscribed during the queries.
   for (const { socketId, viewerId } of presenceSubscribers(subjectId)) {
     if (!viewerIds.has(viewerId)) continue; // subscribed meanwhile: its ack is current
-    const p = buildPresence(viewerId, subject, rels.get(pairKey(viewerId, subjectId)) ?? NO_RELATIONSHIP);
+    const p = buildPresence(
+      viewerId,
+      subject,
+      rels.get(pairKey(viewerId, subjectId)) ?? NO_RELATIONSHIP,
+    );
     const json = JSON.stringify(p);
     if (lastSent.get(socketId)?.get(subjectId) === json) continue;
     remember(socketId, p);
@@ -95,7 +113,10 @@ async function evaluate(subjectId: string, override: { lastSeenAt?: Date }): Pro
  * where the viewer's value changed. Call AFTER commit (reads the global db). `lastSeenAt`
  * overrides a possibly not-yet-written `users.last_seen_at` (disconnect).
  */
-export function reevaluatePresence(subjectId: string, override: { lastSeenAt?: Date } = {}): Promise<void> {
+export function reevaluatePresence(
+  subjectId: string,
+  override: { lastSeenAt?: Date } = {},
+): Promise<void> {
   const prev = queues.get(subjectId) ?? Promise.resolve();
   const next = prev
     .then(() => evaluate(subjectId, override))

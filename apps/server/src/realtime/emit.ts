@@ -26,12 +26,20 @@ function emit<E extends ServerEvent>(target: Emitter, event: E, payload: ServerP
   target.emit(event, payload);
 }
 
-export function emitToUser<E extends ServerEvent>(userId: string, event: E, payload: ServerPayload<E>) {
+export function emitToUser<E extends ServerEvent>(
+  userId: string,
+  event: E,
+  payload: ServerPayload<E>,
+) {
   if (!io) return;
   emit(io.to(rooms.user(userId)) as unknown as Emitter, event, payload);
 }
 
-export function emitToUsers<E extends ServerEvent>(userIds: Iterable<string>, event: E, payload: ServerPayload<E>) {
+export function emitToUsers<E extends ServerEvent>(
+  userIds: Iterable<string>,
+  event: E,
+  payload: ServerPayload<E>,
+) {
   if (!io) return;
   const targets = [...new Set(userIds)].map(rooms.user);
   if (targets.length === 0) return;
@@ -49,7 +57,12 @@ export interface ChatEmitOptions {
 }
 
 /** Emit a viewer-neutral payload to every active member's sockets in a chat room. */
-export function emitToChat<E extends ServerEvent>(chatId: string, event: E, payload: ServerPayload<E>, opts: ChatEmitOptions = {}) {
+export function emitToChat<E extends ServerEvent>(
+  chatId: string,
+  event: E,
+  payload: ServerPayload<E>,
+  opts: ChatEmitOptions = {},
+) {
   if (!io) return;
   let op = io.to(rooms.chat(chatId));
   if (opts.exceptSocketId) op = op.except(opts.exceptSocketId);
@@ -57,12 +70,20 @@ export function emitToChat<E extends ServerEvent>(chatId: string, event: E, payl
   emit(op as unknown as Emitter, event, payload);
 }
 
-export function emitToSocket<E extends ServerEvent>(socketId: string, event: E, payload: ServerPayload<E>) {
+export function emitToSocket<E extends ServerEvent>(
+  socketId: string,
+  event: E,
+  payload: ServerPayload<E>,
+) {
   if (!io) return;
   emit(io.to(socketId) as unknown as Emitter, event, payload);
 }
 
-export function emitToSession<E extends ServerEvent>(sessionId: string, event: E, payload: ServerPayload<E>) {
+export function emitToSession<E extends ServerEvent>(
+  sessionId: string,
+  event: E,
+  payload: ServerPayload<E>,
+) {
   if (!io) return;
   emit(io.to(rooms.session(sessionId)) as unknown as Emitter, event, payload);
 }

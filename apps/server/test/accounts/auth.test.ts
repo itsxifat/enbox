@@ -1,18 +1,31 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_ABOUT, DEFAULT_USER_SETTINGS, type AuthResponse, type SessionInfo } from '@enbox/shared';
+import {
+  DEFAULT_ABOUT,
+  DEFAULT_USER_SETTINGS,
+  type AuthResponse,
+  type SessionInfo,
+} from '@enbox/shared';
 import { config } from '../../src/config.js';
 import { db } from '../../src/db/index.js';
 import { pushSubscriptions, sessions, users } from '../../src/db/schema.js';
 import { runSessionCleanup } from '../../src/modules/auth/sessionCleanup.js';
 import { resolveToken } from '../../src/services/sessions.js';
 import { deletedUsername } from '../../src/services/users.js';
-import { expectNoEvent, startTestServer, waitForEvent, type TestServer, type TestUser } from '../helpers.js';
+import {
+  expectNoEvent,
+  startTestServer,
+  waitForEvent,
+  type TestServer,
+  type TestUser,
+} from '../helpers.js';
 import { recordEvents } from '../services/fixtures.js';
 import { newDevice, waitDisconnect } from './util.js';
 
-const CHROME_WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
-const SAFARI_IOS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+const CHROME_WINDOWS =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+const SAFARI_IOS =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
 describe('auth: register, login, sessions, password', () => {
   let t: TestServer;
@@ -28,7 +41,12 @@ describe('auth: register, login, sessions, password', () => {
     return req.send(body);
   }
 
-  function login(identifier: string, password: string, extra: Record<string, unknown> = {}, ua?: string) {
+  function login(
+    identifier: string,
+    password: string,
+    extra: Record<string, unknown> = {},
+    ua?: string,
+  ) {
     const req = t.api().post('/api/auth/login');
     if (ua) req.set('User-Agent', ua);
     return req.send({ identifier, password, ...extra });
@@ -36,15 +54,35 @@ describe('auth: register, login, sessions, password', () => {
 
   /** A registered user (through the API) as a TestUser. */
   async function registered(username: string, phone?: string): Promise<TestUser> {
-    const res = await register({ username, displayName: username.toUpperCase(), password: 'secret-pass-1', ...(phone ? { phone } : {}) }).expect(201);
+    const res = await register({
+      username,
+      displayName: username.toUpperCase(),
+      password: 'secret-pass-1',
+      ...(phone ? { phone } : {}),
+    }).expect(201);
     const body = res.body as AuthResponse;
     const [s] = await db.select().from(sessions).where(eq(sessions.userId, body.user.id));
-    return { id: body.user.id, username, displayName: body.user.displayName, token: body.token, sessionId: s!.id, password: 'secret-pass-1' };
+    return {
+      id: body.user.id,
+      username,
+      displayName: body.user.displayName,
+      token: body.token,
+      sessionId: s!.id,
+      password: 'secret-pass-1',
+    };
   }
 
   describe('POST /api/auth/register', () => {
     it('creates the account and a session; returns 201 { token, user: UserSelf }', async () => {
-      const res = await register({ username: 'Alice_1', displayName: '  Alice  ', password: 'correct horse', phone: '+1 (555) 010-0001' }, CHROME_WINDOWS).expect(201);
+      const res = await register(
+        {
+          username: 'Alice_1',
+          displayName: '  Alice  ',
+          password: 'correct horse',
+          phone: '+1 (555) 010-0001',
+        },
+        CHROME_WINDOWS,
+      ).expect(201);
       const body = res.body as AuthResponse;
       expect(body.token).toMatch(/^[A-Za-z0-9_-]{40,}$/);
       expect(body.user).toMatchObject({
@@ -58,9 +96,14 @@ describe('auth: register, login, sessions, password', () => {
       expect(Date.parse(body.user.createdAt)).not.toBeNaN();
       const me = await t.api({ token: body.token }).get('/api/me').expect(200);
       expect(me.body.id).toBe(body.user.id);
-      const list = (await t.api({ token: body.token }).get('/api/auth/sessions').expect(200)).body as SessionInfo[];
+      const list = (await t.api({ token: body.token }).get('/api/auth/sessions').expect(200))
+        .body as SessionInfo[];
       expect(list).toHaveLength(1);
-      expect(list[0]).toMatchObject({ deviceName: 'Chrome on Windows', userAgent: CHROME_WINDOWS, current: true });
+      expect(list[0]).toMatchObject({
+        deviceName: 'Chrome on Windows',
+        userAgent: CHROME_WINDOWS,
+        current: true,
+      });
       // Stored as a scrypt hash, never the password.
       const [row] = await db.select().from(users).where(eq(users.id, body.user.id));
       expect(row!.passwordHash).toMatch(/^scrypt\$/);
@@ -68,9 +111,19 @@ describe('auth: register, login, sessions, password', () => {
     });
 
     it('uses an explicit device name and treats a blank phone as absent', async () => {
-      const res = await register({ username: 'bob_1', displayName: 'Bob', password: 'password-1', phone: '', deviceName: ' My laptop ' }, SAFARI_IOS).expect(201);
+      const res = await register(
+        {
+          username: 'bob_1',
+          displayName: 'Bob',
+          password: 'password-1',
+          phone: '',
+          deviceName: ' My laptop ',
+        },
+        SAFARI_IOS,
+      ).expect(201);
       expect(res.body.user.phone).toBeNull();
-      const list = (await t.api({ token: res.body.token }).get('/api/auth/sessions').expect(200)).body as SessionInfo[];
+      const list = (await t.api({ token: res.body.token }).get('/api/auth/sessions').expect(200))
+        .body as SessionInfo[];
       expect(list[0]!.deviceName).toBe('My laptop');
     });
 
@@ -85,17 +138,37 @@ describe('auth: register, login, sessions, password', () => {
       ['missing display name', { displayName: undefined }],
       ['blank display name', { displayName: '   ' }],
     ])('rejects %s with 400 validation_error', async (_label, override) => {
-      const body = { username: 'valid_name', displayName: 'Valid', password: 'password-1', ...override };
+      const body = {
+        username: 'valid_name',
+        displayName: 'Valid',
+        password: 'password-1',
+        ...override,
+      };
       const res = await register(body).expect(400);
       expect(res.body.error.code).toBe('validation_error');
     });
 
     it('rejects a taken username (case-insensitive) or phone (any formatting) with 409', async () => {
       await registered('carol', '+15550100002');
-      const dupName = await register({ username: 'CAROL', displayName: 'C', password: 'password-1' }).expect(409);
-      expect(dupName.body.error).toMatchObject({ code: 'conflict', message: expect.stringMatching(/username/i) });
-      const dupPhone = await register({ username: 'carol2', displayName: 'C', password: 'password-1', phone: '001 555 010 0002' }).expect(409);
-      expect(dupPhone.body.error).toMatchObject({ code: 'conflict', message: expect.stringMatching(/phone/i) });
+      const dupName = await register({
+        username: 'CAROL',
+        displayName: 'C',
+        password: 'password-1',
+      }).expect(409);
+      expect(dupName.body.error).toMatchObject({
+        code: 'conflict',
+        message: expect.stringMatching(/username/i),
+      });
+      const dupPhone = await register({
+        username: 'carol2',
+        displayName: 'C',
+        password: 'password-1',
+        phone: '001 555 010 0002',
+      }).expect(409);
+      expect(dupPhone.body.error).toMatchObject({
+        code: 'conflict',
+        message: expect.stringMatching(/phone/i),
+      });
     });
   });
 
@@ -114,26 +187,54 @@ describe('auth: register, login, sessions, password', () => {
       expect((await check('taken_name').expect(200)).body).toEqual({ available: false });
       expect((await check('TAKEN_NAME').expect(200)).body).toEqual({ available: false });
       // An authenticated caller gets the same answer (the route is public either way).
-      expect((await t.api(holder).get('/api/auth/username-available').query({ username: 'taken_name' }).expect(200)).body).toEqual({ available: false });
+      expect(
+        (
+          await t
+            .api(holder)
+            .get('/api/auth/username-available')
+            .query({ username: 'taken_name' })
+            .expect(200)
+        ).body,
+      ).toEqual({ available: false });
 
       // Account deletion scrubs the name to the reserved `deleted_…` one: the old name is free again.
       await t.api(holder).delete('/api/me').send({ password: holder.password }).expect(204);
       expect((await check('taken_name').expect(200)).body).toEqual({ available: true });
-      expect((await check(deletedUsername(holder.id)).expect(200)).body).toEqual({ available: false });
+      expect((await check(deletedUsername(holder.id)).expect(200)).body).toEqual({
+        available: false,
+      });
       expect((await check('deleted_someone').expect(200)).body).toEqual({ available: false });
 
       // It agrees with register.
-      await register({ username: 'deleted_someone', displayName: 'X', password: 'password-1' }).expect(400);
-      await register({ username: 'taken_name', displayName: 'X', password: 'password-1' }).expect(201);
+      await register({
+        username: 'deleted_someone',
+        displayName: 'X',
+        password: 'password-1',
+      }).expect(400);
+      await register({ username: 'taken_name', displayName: 'X', password: 'password-1' }).expect(
+        201,
+      );
       expect((await check('taken_name').expect(200)).body).toEqual({ available: false });
     });
 
     it('malformed or missing usernames → 400 validation_error', async () => {
-      for (const username of [undefined, '', 'ab', 'a'.repeat(33), '1234', 'has space', 'émile', 'semi;colon']) {
+      for (const username of [
+        undefined,
+        '',
+        'ab',
+        'a'.repeat(33),
+        '1234',
+        'has space',
+        'émile',
+        'semi;colon',
+      ]) {
         const res = await check(username).expect(400);
         expect(res.body.error.code).toBe('validation_error');
       }
-      const twice = await t.api().get('/api/auth/username-available?username=abc1&username=abc2').expect(400);
+      const twice = await t
+        .api()
+        .get('/api/auth/username-available?username=abc1&username=abc2')
+        .expect(400);
       expect(twice.body.error.code).toBe('validation_error');
     });
 
@@ -147,7 +248,11 @@ describe('auth: register, login, sessions, password', () => {
         const limited = await check('probe_again').expect(429);
         expect(limited.body.error.code).toBe('rate_limited');
         // The auth limiter is untouched.
-        await register({ username: 'after_probing', displayName: 'P', password: 'password-1' }).expect(201);
+        await register({
+          username: 'after_probing',
+          displayName: 'P',
+          password: 'password-1',
+        }).expect(201);
       } finally {
         config.rateLimit = false;
       }
@@ -166,17 +271,22 @@ describe('auth: register, login, sessions, password', () => {
       await t.api({ token: res.body.token }).get('/api/me').expect(200);
     });
 
-    it.each(['+15550100003', '+1 (555) 010-0003', '1 555 010 0003', '15550100003', '0015550100003', '+1.555.010.0003'])(
-      'logs in by phone written as %s',
-      async (identifier) => {
-        const res = await login(identifier, 'secret-pass-1').expect(200);
-        expect(res.body.user.id).toBe(dave.id);
-      },
-    );
+    it.each([
+      '+15550100003',
+      '+1 (555) 010-0003',
+      '1 555 010 0003',
+      '15550100003',
+      '0015550100003',
+      '+1.555.010.0003',
+    ])('logs in by phone written as %s', async (identifier) => {
+      const res = await login(identifier, 'secret-pass-1').expect(200);
+      expect(res.body.user.id).toBe(dave.id);
+    });
 
     it('every login is a new session (linked device) with its own device name', async () => {
       const res = await login('dave', 'secret-pass-1', { deviceName: 'Work PC' }).expect(200);
-      const list = (await t.api({ token: res.body.token }).get('/api/auth/sessions').expect(200)).body as SessionInfo[];
+      const list = (await t.api({ token: res.body.token }).get('/api/auth/sessions').expect(200))
+        .body as SessionInfo[];
       expect(list.length).toBeGreaterThan(2);
       expect(list[0]).toMatchObject({ deviceName: 'Work PC', current: true });
       expect(list.filter((s) => s.current)).toHaveLength(1);
@@ -213,20 +323,37 @@ describe('auth: register, login, sessions, password', () => {
       const u = await t.createUser();
       const other = await newDevice(u, 'Tablet');
       const expired = await newDevice(u, 'Old phone');
-      await db.update(sessions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(sessions.id, expired.sessionId));
+      await db
+        .update(sessions)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(sessions.id, expired.sessionId));
       await t.createUser(); // someone else's session
       const list = (await t.api(other).get('/api/auth/sessions').expect(200)).body as SessionInfo[];
       expect(list.map((s) => s.id)).toEqual([other.sessionId, u.sessionId]);
       expect(list[0]).toMatchObject({ current: true, deviceName: 'Tablet', ip: null });
       expect(list[1]).toMatchObject({ current: false, deviceName: 'test' });
-      expect(Object.keys(list[0]!).sort()).toEqual(['createdAt', 'current', 'deviceName', 'id', 'ip', 'lastActiveAt', 'userAgent']);
+      expect(Object.keys(list[0]!).sort()).toEqual([
+        'createdAt',
+        'current',
+        'deviceName',
+        'id',
+        'ip',
+        'lastActiveAt',
+        'userAgent',
+      ]);
     });
 
     it('DELETE /auth/sessions/:id revokes one of my sessions: session:revoked → that device, then disconnect', async () => {
       const u = await t.createUser();
       const phone = await newDevice(u, 'Phone');
       const [sCurrent, sPhone] = [await t.connect(u), await t.connect(phone)];
-      await db.insert(pushSubscriptions).values({ userId: u.id, sessionId: phone.sessionId, endpoint: 'https://fcm.googleapis.com/fcm/send/phone-1', p256dh: 'k', auth: 'a' });
+      await db.insert(pushSubscriptions).values({
+        userId: u.id,
+        sessionId: phone.sessionId,
+        endpoint: 'https://fcm.googleapis.com/fcm/send/phone-1',
+        p256dh: 'k',
+        auth: 'a',
+      });
       const log = recordEvents(sPhone);
       const gone = waitDisconnect(sPhone);
       await t.api(u).delete(`/api/auth/sessions/${phone.sessionId}`).expect(204);
@@ -239,7 +366,12 @@ describe('auth: register, login, sessions, password', () => {
       await t.api(u).get('/api/me').expect(200);
       expect(await resolveToken(phone.token)).toBeNull();
       // Push subscriptions cascade with their session.
-      expect(await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.sessionId, phone.sessionId))).toEqual([]);
+      expect(
+        await db
+          .select()
+          .from(pushSubscriptions)
+          .where(eq(pushSubscriptions.sessionId, phone.sessionId)),
+      ).toEqual([]);
       // A revoked device can't reconnect.
       await expect(t.connect(phone)).rejects.toThrow(/unauthorized/);
     });
@@ -294,7 +426,10 @@ describe('auth: register, login, sessions, password', () => {
       await t
         .api(u)
         .post('/api/push/subscriptions')
-        .send({ endpoint: 'https://fcm.googleapis.com/fcm/send/logout-1', keys: { p256dh: 'p', auth: 'a' } })
+        .send({
+          endpoint: 'https://fcm.googleapis.com/fcm/send/logout-1',
+          keys: { p256dh: 'p', auth: 'a' },
+        })
         .expect(204);
       const log = recordEvents(s);
       const gone = waitDisconnect(s);
@@ -303,7 +438,9 @@ describe('auth: register, login, sessions, password', () => {
       expect(log.names()).not.toContain('session:revoked');
       await t.api(u).get('/api/me').expect(401);
       await t.api(u).post('/api/auth/logout').expect(401);
-      expect(await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, u.id))).toEqual([]);
+      expect(
+        await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, u.id)),
+      ).toEqual([]);
       // Other devices are untouched.
       await expectNoEvent(sOther, 'session:revoked');
       await t.api(other).get('/api/me').expect(200);
@@ -312,7 +449,10 @@ describe('auth: register, login, sessions, password', () => {
     it('the session cleanup job deletes expired sessions', async () => {
       const u = await t.createUser();
       const old = await newDevice(u, 'Expired');
-      await db.update(sessions).set({ expiresAt: new Date(Date.now() - 60_000) }).where(eq(sessions.id, old.sessionId));
+      await db
+        .update(sessions)
+        .set({ expiresAt: new Date(Date.now() - 60_000) })
+        .where(eq(sessions.id, old.sessionId));
       expect(await runSessionCleanup()).toBeGreaterThanOrEqual(1);
       expect(await db.select().from(sessions).where(eq(sessions.id, old.sessionId))).toEqual([]);
       await t.api(old).get('/api/me').expect(401);
@@ -323,9 +463,17 @@ describe('auth: register, login, sessions, password', () => {
   describe('POST /api/auth/change-password', () => {
     it('rejects a wrong current password with 403 (not 401) and validates the new one', async () => {
       const u = await registered('frank');
-      const wrong = await t.api(u).post('/api/auth/change-password').send({ currentPassword: 'nope-nope', newPassword: 'another-pass' }).expect(403);
+      const wrong = await t
+        .api(u)
+        .post('/api/auth/change-password')
+        .send({ currentPassword: 'nope-nope', newPassword: 'another-pass' })
+        .expect(403);
       expect(wrong.body.error.code).toBe('forbidden');
-      await t.api(u).post('/api/auth/change-password').send({ currentPassword: 'secret-pass-1', newPassword: 'short' }).expect(400);
+      await t
+        .api(u)
+        .post('/api/auth/change-password')
+        .send({ currentPassword: 'secret-pass-1', newPassword: 'short' })
+        .expect(400);
       await t.api(u).post('/api/auth/change-password').send({}).expect(400);
       await login('frank', 'secret-pass-1').expect(200);
     });
@@ -337,7 +485,11 @@ describe('auth: register, login, sessions, password', () => {
       const sOther = await t.connect(other);
       const revoked = waitForEvent(sOther, 'session:revoked');
       const gone = waitDisconnect(sOther);
-      await t.api(u).post('/api/auth/change-password').send({ currentPassword: 'secret-pass-1', newPassword: 'brand-new-pass' }).expect(204);
+      await t
+        .api(u)
+        .post('/api/auth/change-password')
+        .send({ currentPassword: 'secret-pass-1', newPassword: 'brand-new-pass' })
+        .expect(204);
       expect(await revoked).toEqual({ sessionId: other.sessionId });
       await gone;
       await expectNoEvent(s, 'session:revoked');

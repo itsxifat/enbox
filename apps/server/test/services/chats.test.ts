@@ -14,10 +14,23 @@ import {
 } from '../../src/services/chats.js';
 import { transact } from '../../src/services/effects.js';
 import { upsertMembership } from '../../src/services/membership.js';
-import { chatSummariesForPairs, toChatSummaries, toChatSummary } from '../../src/services/summaries.js';
+import {
+  chatSummariesForPairs,
+  toChatSummaries,
+  toChatSummary,
+} from '../../src/services/summaries.js';
 import { pairKey } from '../../src/services/sql.js';
 import { startTestServer, type TestServer, type TestUser } from '../helpers.js';
-import { block, countQueries, createChannel, createDirect, createGroup, memberRow, send, setSettings } from './fixtures.js';
+import {
+  block,
+  countQueries,
+  createChannel,
+  createDirect,
+  createGroup,
+  memberRow,
+  send,
+  setSettings,
+} from './fixtures.js';
 
 describe('services/chats + summaries', () => {
   let t: TestServer;
@@ -40,24 +53,45 @@ describe('services/chats + summaries', () => {
       const m2 = await send(alice, chatId, 'm2');
       // carol joins: sees nothing before the join message
       await transact((tx, fx) =>
-        upsertMembership(tx, fx, { kind: 'activate', chatId, userIds: [carol.id], addedBy: alice.id, systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] } }),
+        upsertMembership(tx, fx, {
+          kind: 'activate',
+          chatId,
+          userIds: [carol.id],
+          addedBy: alice.id,
+          systemEvent: { kind: 'members_added', actorId: alice.id, userIds: [carol.id] },
+        }),
       );
       const m3 = await send(alice, chatId, 'm3');
       const m4 = await send(alice, chatId, 'm4 hidden for bob');
       await db.insert(messageHidden).values({ userId: bob.id, messageId: m4.message.id });
       const m5 = await send(alice, chatId, 'm5 expired');
-      await db.update(messages).set({ expiresAt: new Date(Date.now() - 1) }).where(eq(messages.id, m5.message.id));
+      await db
+        .update(messages)
+        .set({ expiresAt: new Date(Date.now() - 1) })
+        .where(eq(messages.id, m5.message.id));
       // bob clears up to m2
-      await db.update(chatMembers).set({ clearedSeq: m2.message.seq }).where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, bob.id)));
+      await db
+        .update(chatMembers)
+        .set({ clearedSeq: m2.message.seq })
+        .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, bob.id)));
       // carol is removed after m3 → window ends at the removal message
       const removal = await transact((tx, fx) =>
-        upsertMembership(tx, fx, { kind: 'deactivate', chatId, userId: carol.id, reason: 'removed', systemEvent: { kind: 'member_removed', actorId: alice.id, userId: carol.id } }),
+        upsertMembership(tx, fx, {
+          kind: 'deactivate',
+          chatId,
+          userId: carol.id,
+          reason: 'removed',
+          systemEvent: { kind: 'member_removed', actorId: alice.id, userId: carol.id },
+        }),
       );
       const m6 = await send(alice, chatId, 'm6 after removal');
 
       const visibleIds = async (userId: string) => {
         const member = await memberRow(chatId, userId);
-        const rows = await db.select({ id: messages.id }).from(messages).where(and(eq(messages.chatId, chatId), visibleTo(windowOf(member))));
+        const rows = await db
+          .select({ id: messages.id })
+          .from(messages)
+          .where(and(eq(messages.chatId, chatId), visibleTo(windowOf(member))));
         return new Set(rows.map((r) => r.id));
       };
       const bobSees = await visibleIds(bob.id);
@@ -75,8 +109,12 @@ describe('services/chats + summaries', () => {
       expect(carolSees.has(m6.message.id)).toBe(false); // after leaving
 
       const carolMember = await memberRow(chatId, carol);
-      expect(await maxVisibleSeq(db, chatId, windowOf(carolMember))).toBe(Number(removal.systemMessage!.seq));
-      expect(await maxVisibleSeq(db, chatId, windowOf(carolMember), Number(m3.message.seq))).toBe(Number(m3.message.seq));
+      expect(await maxVisibleSeq(db, chatId, windowOf(carolMember))).toBe(
+        Number(removal.systemMessage!.seq),
+      );
+      expect(await maxVisibleSeq(db, chatId, windowOf(carolMember), Number(m3.message.seq))).toBe(
+        Number(m3.message.seq),
+      );
     });
   });
 
@@ -96,14 +134,31 @@ describe('services/chats + summaries', () => {
       expect(a.permissions.canSend).toBe(true);
       const b = await getChatAccess(db, bob.id, chatId);
       expect(b.permissions.canSend).toBe(false);
-      expect(() => assertCanSend(b)).toThrow(expect.objectContaining({ status: 403, code: 'forbidden' }));
+      expect(() => assertCanSend(b)).toThrow(
+        expect.objectContaining({ status: 403, code: 'forbidden' }),
+      );
       await expect(getChatAccess(db, carol.id, chatId)).rejects.toMatchObject({ status: 404 });
-      const locked = await db.transaction((tx) => requireActiveMember(tx, alice.id, chatId, { lock: true }));
+      const locked = await db.transaction((tx) =>
+        requireActiveMember(tx, alice.id, chatId, { lock: true }),
+      );
       expect(locked.chat.id).toBe(chatId);
-      await expect(db.transaction((tx) => getChatAccess(tx, alice.id, crypto.randomUUID(), { lock: true }))).rejects.toMatchObject({ status: 404 });
+      await expect(
+        db.transaction((tx) => getChatAccess(tx, alice.id, crypto.randomUUID(), { lock: true })),
+      ).rejects.toMatchObject({ status: 404 });
 
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'deactivate', chatId, userId: bob.id, reason: 'left', systemEvent: { kind: 'member_left', actorId: bob.id } }));
-      await expect(requireActiveMember(db, bob.id, chatId)).rejects.toMatchObject({ status: 403, code: 'not_member' });
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, {
+          kind: 'deactivate',
+          chatId,
+          userId: bob.id,
+          reason: 'left',
+          systemEvent: { kind: 'member_left', actorId: bob.id },
+        }),
+      );
+      await expect(requireActiveMember(db, bob.id, chatId)).rejects.toMatchObject({
+        status: 403,
+        code: 'not_member',
+      });
       const former = await getChatAccess(db, bob.id, chatId);
       expect(former.membership).toBe('left');
       expect(Object.values(former.permissions).every((v) => v === false)).toBe(true);
@@ -112,7 +167,9 @@ describe('services/chats + summaries', () => {
       const dm = await createDirect(alice, carol);
       await block(alice, carol);
       const blockedAccess = await getChatAccess(db, alice.id, dm);
-      expect(() => assertCanSend(blockedAccess)).toThrow(expect.objectContaining({ code: 'blocked' }));
+      expect(() => assertCanSend(blockedAccess)).toThrow(
+        expect.objectContaining({ code: 'blocked' }),
+      );
       const carolAccess = await getChatAccess(db, carol.id, dm, { allowHidden: true });
       expect(() => assertCanSend(carolAccess)).not.toThrow();
       await expect(getChatAccess(db, carol.id, dm)).rejects.toMatchObject({ status: 404 }); // hidden row
@@ -136,7 +193,15 @@ describe('services/chats + summaries', () => {
       expect(s.lastMessage!.text).toBe('two');
       expect(s.lastSeq).toBe(Number(hidden.message.seq));
       expect(s.lastActivityAt).toBe(s.lastMessage!.createdAt);
-      expect(s).toMatchObject({ type: 'group', name: 'Friends', membership: 'active', myRole: 'owner', memberCount: 3, peer: null, isAnnouncement: false });
+      expect(s).toMatchObject({
+        type: 'group',
+        name: 'Friends',
+        membership: 'active',
+        myRole: 'owner',
+        memberCount: 3,
+        peer: null,
+        isAnnouncement: false,
+      });
       expect(s.inviteCode).toMatch(/^[A-Za-z0-9]{22}$/);
 
       const forBob = (await toChatSummary(db, bob.id, chatId))!;
@@ -151,7 +216,13 @@ describe('services/chats + summaries', () => {
       const chatId = await createGroup(alice, [bob]);
       await send(alice, chatId, 'before removal');
       const { systemMessage } = await transact((tx, fx) =>
-        upsertMembership(tx, fx, { kind: 'deactivate', chatId, userId: bob.id, reason: 'removed', systemEvent: { kind: 'member_removed', actorId: alice.id, userId: bob.id } }),
+        upsertMembership(tx, fx, {
+          kind: 'deactivate',
+          chatId,
+          userId: bob.id,
+          reason: 'removed',
+          systemEvent: { kind: 'member_removed', actorId: alice.id, userId: bob.id },
+        }),
       );
       await send(alice, chatId, 'after removal 1');
       await send(alice, chatId, 'after removal 2');
@@ -171,11 +242,16 @@ describe('services/chats + summaries', () => {
       const dan = await t.createUser();
       const dm = await createDirect(dan, alice);
       const group = await createGroup(dan, [alice]);
-      await db.update(chatMembers).set({ isArchived: true }).where(and(eq(chatMembers.chatId, group), eq(chatMembers.userId, dan.id)));
+      await db
+        .update(chatMembers)
+        .set({ isArchived: true })
+        .where(and(eq(chatMembers.chatId, group), eq(chatMembers.userId, dan.id)));
       const aliceList = await toChatSummaries(db, alice.id);
       expect(aliceList.map((c) => c.id)).toContain(group);
       expect(aliceList.map((c) => c.id)).not.toContain(dm); // alice's row is hidden until the first message
-      expect((await toChatSummaries(db, alice.id, [dm], { includeHidden: true })).map((c) => c.id)).toEqual([dm]);
+      expect(
+        (await toChatSummaries(db, alice.id, [dm], { includeHidden: true })).map((c) => c.id),
+      ).toEqual([dm]);
       const danList = await toChatSummaries(db, dan.id);
       expect(danList.map((c) => c.id).sort()).toEqual([dm, group].sort());
       expect(danList.find((c) => c.id === group)!.isArchived).toBe(true);
@@ -183,16 +259,29 @@ describe('services/chats + summaries', () => {
       const times = danList.map((c) => c.lastActivityAt);
       expect([...times].sort().reverse()).toEqual(times);
       // Explicit ids keep the input order.
-      expect((await toChatSummaries(db, dan.id, [group, dm])).map((c) => c.id)).toEqual([group, dm]);
+      expect((await toChatSummaries(db, dan.id, [group, dm])).map((c) => c.id)).toEqual([
+        group,
+        dm,
+      ]);
     });
 
     it('direct chats: peer UserPublic, self chat peer = me, canSend follows blocks/deletion', async () => {
       const erin = await t.createUser({ displayName: 'Erin' });
       const dm = await createDirect(erin, bob);
       let s = (await toChatSummary(db, erin.id, dm))!;
-      expect(s.peer).toMatchObject({ id: bob.id, displayName: 'Bob', isBlocked: false, isDeleted: false });
+      expect(s.peer).toMatchObject({
+        id: bob.id,
+        displayName: 'Bob',
+        isBlocked: false,
+        isDeleted: false,
+      });
       expect(s.name).toBeNull();
-      expect(s.permissions).toMatchObject({ canSend: true, canCall: true, canLeave: false, canInvite: false });
+      expect(s.permissions).toMatchObject({
+        canSend: true,
+        canCall: true,
+        canLeave: false,
+        canInvite: false,
+      });
       await block(erin, bob);
       s = (await toChatSummary(db, erin.id, dm))!;
       expect(s.peer!.isBlocked).toBe(true);
@@ -209,31 +298,63 @@ describe('services/chats + summaries', () => {
 
       const frank = await t.createUser();
       const dm2 = await createDirect(erin, frank);
-      await db.update(users).set({ deletedAt: new Date(), displayName: 'Deleted account' }).where(eq(users.id, frank.id));
+      await db
+        .update(users)
+        .set({ deletedAt: new Date(), displayName: 'Deleted account' })
+        .where(eq(users.id, frank.id));
       const del = (await toChatSummary(db, erin.id, dm2))!;
       expect(del.peer).toMatchObject({ isDeleted: true, displayName: 'Deleted account' });
       expect(del.permissions.canSend).toBe(false);
     });
 
     it('invite code only with canInvite; channel summaries have no ticks and count followers', async () => {
-      const chatId = await createGroup(alice, [bob], { settings: { onlyAdminsCanAddMembers: true } });
+      const chatId = await createGroup(alice, [bob], {
+        settings: { onlyAdminsCanAddMembers: true },
+      });
       expect((await toChatSummary(db, alice.id, chatId))!.inviteCode).not.toBeNull();
       const bobView = (await toChatSummary(db, bob.id, chatId))!;
       expect(bobView.inviteCode).toBeNull();
-      expect(bobView.permissions).toMatchObject({ canInvite: false, canAddMembers: false, canSend: true, canLeave: true });
-      expect(bobView.groupSettings).toEqual({ onlyAdminsCanSend: false, onlyAdminsCanEditInfo: false, onlyAdminsCanAddMembers: true });
+      expect(bobView.permissions).toMatchObject({
+        canInvite: false,
+        canAddMembers: false,
+        canSend: true,
+        canLeave: true,
+      });
+      expect(bobView.groupSettings).toEqual({
+        onlyAdminsCanSend: false,
+        onlyAdminsCanEditInfo: false,
+        onlyAdminsCanAddMembers: true,
+      });
 
       const channelId = await createChannel(alice);
-      await transact((tx, fx) => upsertMembership(tx, fx, { kind: 'activate', chatId: channelId, userIds: [bob.id, carol.id] }));
+      await transact((tx, fx) =>
+        upsertMembership(tx, fx, {
+          kind: 'activate',
+          chatId: channelId,
+          userIds: [bob.id, carol.id],
+        }),
+      );
       await send(alice, channelId, 'post');
       const ch = (await toChatSummary(db, bob.id, channelId))!;
-      expect(ch).toMatchObject({ type: 'channel', memberCount: 3, readWatermark: 0, deliveredWatermark: 0, groupSettings: null, inviteCode: null, myRole: 'member' });
+      expect(ch).toMatchObject({
+        type: 'channel',
+        memberCount: 3,
+        readWatermark: 0,
+        deliveredWatermark: 0,
+        groupSettings: null,
+        inviteCode: null,
+        myRole: 'member',
+      });
       expect(ch.channelSettings).toEqual({ isPublic: true, reactions: 'all' });
       expect(ch.lastMessage!.senderId).toBeNull();
       expect(ch.unreadCount).toBe(1);
       const owner = (await toChatSummary(db, alice.id, channelId))!;
       expect(owner.inviteCode).not.toBeNull();
-      expect(owner.permissions).toMatchObject({ canSend: true, canLeave: false, canManageAdmins: true });
+      expect(owner.permissions).toMatchObject({
+        canSend: true,
+        canLeave: false,
+        canManageAdmins: true,
+      });
     });
 
     it('serializes 200 chats with a fixed, small number of queries', async () => {
@@ -250,13 +371,20 @@ describe('services/chats + summaries', () => {
       expect(queries).toBeLessThanOrEqual(20);
       const small = await countQueries(() => toChatSummaries(db, heavy.id, [result[0]!.id]));
       expect(small.queries).toBeLessThanOrEqual(20);
-      expect(result.filter((c) => c.type === 'group').every((c) => c.unreadCount === 1 && c.memberCount === 3)).toBe(true);
+      expect(
+        result
+          .filter((c) => c.type === 'group')
+          .every((c) => c.unreadCount === 1 && c.memberCount === 3),
+      ).toBe(true);
     }, 60_000);
 
     it('chatSummariesForPairs serializes one chat for many viewers in one batch', async () => {
       const chatId = await createGroup(alice, [bob, carol]);
       await send(bob, chatId, 'hi all');
-      const map = await chatSummariesForPairs(db, [alice, bob, carol].map((u) => ({ chatId, userId: u.id })));
+      const map = await chatSummariesForPairs(
+        db,
+        [alice, bob, carol].map((u) => ({ chatId, userId: u.id })),
+      );
       expect(map.get(pairKey(chatId, alice.id))!.unreadCount).toBe(1);
       expect(map.get(pairKey(chatId, bob.id))!.unreadCount).toBe(0);
       expect(map.get(pairKey(chatId, bob.id))!.myRole).toBe('member');
@@ -267,8 +395,14 @@ describe('services/chats + summaries', () => {
       const chatId = await createGroup(alice, [bob, carol]);
       const m = await send(alice, chatId, 'tick me');
       const seq = Number(m.message.seq);
-      await db.update(chatMembers).set({ lastReadSeq: seq, lastDeliveredSeq: seq }).where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, bob.id)));
-      await db.update(chatMembers).set({ lastDeliveredSeq: seq }).where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, carol.id)));
+      await db
+        .update(chatMembers)
+        .set({ lastReadSeq: seq, lastDeliveredSeq: seq })
+        .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, bob.id)));
+      await db
+        .update(chatMembers)
+        .set({ lastDeliveredSeq: seq })
+        .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, carol.id)));
       const s = (await toChatSummary(db, alice.id, chatId))!;
       expect(s.deliveredWatermark).toBe(seq);
       expect(s.readWatermark).toBeLessThan(seq); // carol hasn't read
@@ -280,4 +414,3 @@ describe('services/chats + summaries', () => {
     });
   });
 });
-

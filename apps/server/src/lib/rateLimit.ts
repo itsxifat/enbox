@@ -11,11 +11,14 @@ function limiter(windowMs: number, limit: number): RequestHandler {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     handler: (_req, res) => {
-      res.status(429).json({ error: { code: 'rate_limited', message: 'Too many requests, slow down' } });
+      res
+        .status(429)
+        .json({ error: { code: 'rate_limited', message: 'Too many requests, slow down' } });
     },
   });
   // Evaluate config lazily so tests can disable rate limiting.
-  return (req, res, next) => (config.rateLimit ? real(req, res, next) : passthrough(req, res, next));
+  return (req, res, next) =>
+    config.rateLimit ? real(req, res, next) : passthrough(req, res, next);
 }
 
 /** Login/register: 20 attempts per 10 minutes per IP. */

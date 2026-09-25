@@ -9,14 +9,24 @@ import type { ChannelDirectoryEntry } from '@enbox/shared';
 import type { DbOrTx, Tx } from '../../db/index.js';
 import { chats, media, type ChatRow } from '../../db/schema.js';
 import { conflict, notFound } from '../../lib/errors.js';
-import { getChatAccess, getMembership, type ChatAccess, type ChatAccessOptions } from '../../services/chats.js';
+import {
+  getChatAccess,
+  getMembership,
+  type ChatAccess,
+  type ChatAccessOptions,
+} from '../../services/chats.js';
 import type { Effects } from '../../services/effects.js';
 import { runChatDeletionHooks } from '../../services/hooks.js';
 import { mediaUrl } from '../../services/media.js';
 import { upsertMembership } from '../../services/membership.js';
 
 /** Guard of `/channels/:chatId/*` for followers: 404 without a row or for non-channels. */
-export async function requireChannelAccess(dbx: DbOrTx, viewerId: string, chatId: string, opts: ChatAccessOptions = {}): Promise<ChatAccess> {
+export async function requireChannelAccess(
+  dbx: DbOrTx,
+  viewerId: string,
+  chatId: string,
+  opts: ChatAccessOptions = {},
+): Promise<ChatAccess> {
   const access = await getChatAccess(dbx, viewerId, chatId, opts);
   if (access.chat.type !== 'channel' || access.membership !== 'active') throw notFound('Channel');
   return access;
@@ -28,10 +38,21 @@ export async function requireChannelAccess(dbx: DbOrTx, viewerId: string, chatId
  * {memberCount}` → R; `chat:members-changed` → admins. `chat` must be locked. 409 when
  * already following.
  */
-export async function followChannelTx(tx: Tx, fx: Effects, chat: ChatRow, userId: string): Promise<void> {
+export async function followChannelTx(
+  tx: Tx,
+  fx: Effects,
+  chat: ChatRow,
+  userId: string,
+): Promise<void> {
   const row = await getMembership(tx, chat.id, userId);
   if (row && !row.leftAt) throw conflict('You already follow this channel');
-  await upsertMembership(tx, fx, { kind: 'activate', chatId: chat.id, userIds: [userId], role: 'member', addedBy: null });
+  await upsertMembership(tx, fx, {
+    kind: 'activate',
+    chatId: chat.id,
+    userIds: [userId],
+    role: 'member',
+    addedBy: null,
+  });
   fx.memberCountChanged(chat.id).membersChanged(chat);
 }
 
@@ -55,8 +76,16 @@ export function containsPattern(q: string): string {
  * Channel directory entries (discovery and previews). `where` narrows the channels; public
  * filtering is the caller's. Sorted by follower count (desc), then newest.
  */
-export async function channelEntries(dbx: DbOrTx, viewerId: string, where: SQL | undefined, limit?: number): Promise<ChannelDirectoryEntry[]> {
-  const followers = sql<number>`(select count(*) from chat_members f where f.chat_id = ${chats.id} and f.left_at is null)`.mapWith(Number);
+export async function channelEntries(
+  dbx: DbOrTx,
+  viewerId: string,
+  where: SQL | undefined,
+  limit?: number,
+): Promise<ChannelDirectoryEntry[]> {
+  const followers =
+    sql<number>`(select count(*) from chat_members f where f.chat_id = ${chats.id} and f.left_at is null)`.mapWith(
+      Number,
+    );
   const following = sql<boolean>`exists (select 1 from chat_members f where f.chat_id = ${chats.id} and f.user_id = ${viewerId} and f.left_at is null)`;
   let q = dbx
     .select({ chat: chats, avatarKey: media.storageKey, followers, following })
@@ -89,7 +118,11 @@ export function channelMatches(q: string): SQL | undefined {
 }
 
 /** The channel directory entry of one channel (null when it doesn't exist). */
-export async function channelEntry(dbx: DbOrTx, viewerId: string, chatId: string): Promise<ChannelDirectoryEntry | null> {
+export async function channelEntry(
+  dbx: DbOrTx,
+  viewerId: string,
+  chatId: string,
+): Promise<ChannelDirectoryEntry | null> {
   const [entry] = await channelEntries(dbx, viewerId, eq(chats.id, chatId), 1);
   return entry ?? null;
 }

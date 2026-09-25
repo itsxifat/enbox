@@ -21,7 +21,17 @@
  * Direct-chat memberships and messages stay (the sender shows as "Deleted account").
  */
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
-import { blocks, callParticipants, calls, chatMembers, chats, communities, communityMembers, statuses, users } from '../../db/schema.js';
+import {
+  blocks,
+  callParticipants,
+  calls,
+  chatMembers,
+  chats,
+  communities,
+  communityMembers,
+  statuses,
+  users,
+} from '../../db/schema.js';
 import { conflict, notFound } from '../../lib/errors.js';
 import { disconnectUser, emitToUsers } from '../../realtime/emit.js';
 import { lockChats } from '../../services/chats.js';
@@ -37,14 +47,26 @@ export async function deleteAccount(userId: string): Promise<void> {
   await transact(async (tx, fx) => {
     // Lock order: communities → chats (sorted) → everything else.
     const communityIds = (
-      await tx.select({ id: communityMembers.communityId }).from(communityMembers).where(eq(communityMembers.userId, userId))
+      await tx
+        .select({ id: communityMembers.communityId })
+        .from(communityMembers)
+        .where(eq(communityMembers.userId, userId))
     ).map((r) => r.id);
     if (communityIds.length) {
-      await tx.select({ id: communities.id }).from(communities).where(inArray(communities.id, communityIds)).orderBy(asc(communities.id)).for('update');
+      await tx
+        .select({ id: communities.id })
+        .from(communities)
+        .where(inArray(communities.id, communityIds))
+        .orderBy(asc(communities.id))
+        .for('update');
     }
     const loadMemberships = () =>
       tx
-        .select({ chatId: chatMembers.chatId, type: chats.type, isAnnouncement: chats.isAnnouncement })
+        .select({
+          chatId: chatMembers.chatId,
+          type: chats.type,
+          isAnnouncement: chats.isAnnouncement,
+        })
         .from(chatMembers)
         .innerJoin(chats, eq(chats.id, chatMembers.chatId))
         .where(and(eq(chatMembers.userId, userId), isNull(chatMembers.leftAt)));
@@ -52,7 +74,10 @@ export async function deleteAccount(userId: string): Promise<void> {
     // Every chat the pipelines and hooks below may lock, in ONE sorted call (the community
     // hook locks the linked groups I never joined; the calls hook the chats of my live calls).
     const communityChats = communityIds.length
-      ? await tx.select({ id: chats.id }).from(chats).where(inArray(chats.communityId, communityIds))
+      ? await tx
+          .select({ id: chats.id })
+          .from(chats)
+          .where(inArray(chats.communityId, communityIds))
       : [];
     const callChats = await tx
       .selectDistinct({ id: calls.chatId })
@@ -65,15 +90,29 @@ export async function deleteAccount(userId: string): Promise<void> {
           inArray(calls.status, ['ringing', 'ongoing']),
         ),
       );
-    const lockedChatIds = new Set([...memberships.map((m) => m.chatId), ...communityChats.map((c) => c.id), ...callChats.map((c) => c.id)]);
+    const lockedChatIds = new Set([
+      ...memberships.map((m) => m.chatId),
+      ...communityChats.map((c) => c.id),
+      ...callChats.map((c) => c.id),
+    ]);
     await lockChats(tx, lockedChatIds);
-    const [me] = await tx.select({ deletedAt: users.deletedAt }).from(users).where(eq(users.id, userId)).for('no key update');
+    const [me] = await tx
+      .select({ deletedAt: users.deletedAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for('no key update');
     if (!me || me.deletedAt) throw notFound('User');
     // Memberships/communities gained after the reads above live in chats outside the locked
     // set: locking them now would break the lock order, so the client retries.
-    const communitiesNow = await tx.select({ id: communityMembers.communityId }).from(communityMembers).where(eq(communityMembers.userId, userId));
+    const communitiesNow = await tx
+      .select({ id: communityMembers.communityId })
+      .from(communityMembers)
+      .where(eq(communityMembers.userId, userId));
     const current = await loadMemberships();
-    if (communitiesNow.some((c) => !communityIds.includes(c.id)) || current.some((m) => !lockedChatIds.has(m.chatId))) {
+    if (
+      communitiesNow.some((c) => !communityIds.includes(c.id)) ||
+      current.some((m) => !lockedChatIds.has(m.chatId))
+    ) {
       throw conflict('Your chats changed while deleting the account, try again');
     }
 
@@ -96,7 +135,9 @@ export async function deleteAccount(userId: string): Promise<void> {
 
     // Audiences resolved before their rows are deleted.
     const savedBy = await usersWhoSaved(tx, userId);
-    const blockedBy = (await tx.select({ id: blocks.blockerId }).from(blocks).where(eq(blocks.blockedId, userId))).map((r) => r.id);
+    const blockedBy = (
+      await tx.select({ id: blocks.blockerId }).from(blocks).where(eq(blocks.blockedId, userId))
+    ).map((r) => r.id);
 
     // (3) + (4): sessions, push subscriptions, contacts, blocks; scrub the row.
     const { sessionIds } = await scrubDeletedUser(tx, userId, { keepStatuses: true });

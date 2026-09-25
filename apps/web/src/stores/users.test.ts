@@ -54,9 +54,7 @@ describe('users store', () => {
 
   it('drops a batch response that lands after a logout (no cross-account profile leak)', async () => {
     let resolve!: (users: UserPublic[]) => void;
-    vi.spyOn(api, 'post').mockReturnValue(
-      new Promise<UserPublic[]>((r) => (resolve = r)) as never,
-    );
+    vi.spyOn(api, 'post').mockReturnValue(new Promise<UserPublic[]>((r) => (resolve = r)) as never);
     const pending = useUsers.getState().fetchUsers(['x']);
     await new Promise((r) => setTimeout(r, 5)); // the batch goes out
     resetSessionState();
@@ -143,9 +141,7 @@ describe('presence subscriptions', () => {
 
   it('an id unmounted before its ack lingers, then is unsubscribed', async () => {
     let ack!: () => void;
-    emit.mockImplementationOnce(
-      () => new Promise((resolve) => (ack = () => resolve([] as never))),
-    );
+    emit.mockImplementationOnce(() => new Promise((resolve) => (ack = () => resolve([] as never))));
     void subscribePresence(['b']);
     await vi.advanceTimersByTimeAsync(PRESENCE_FLUSH_DELAY_MS);
     unsubscribePresence(['b']);

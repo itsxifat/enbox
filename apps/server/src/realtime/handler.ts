@@ -25,13 +25,24 @@ export function socketHandler<S extends z.ZodType, R>(
   return async (raw: unknown, ack?: (res: Ack<R>) => void) => {
     try {
       const payload = parse(schema, raw);
-      const data = await fn(payload, { socket, userId: socket.data.userId, sessionId: socket.data.sessionId });
+      const data = await fn(payload, {
+        socket,
+        userId: socket.data.userId,
+        sessionId: socket.data.sessionId,
+      });
       if (typeof ack === 'function') ack({ ok: true, data });
     } catch (err) {
       const e = toHttpError(err);
       if (e.status >= 500) logger.error({ err }, 'socket handler failed');
       if (typeof ack === 'function') {
-        ack({ ok: false, error: { code: e.code, message: e.message, ...(e.details !== undefined ? { details: e.details } : {}) } });
+        ack({
+          ok: false,
+          error: {
+            code: e.code,
+            message: e.message,
+            ...(e.details !== undefined ? { details: e.details } : {}),
+          },
+        });
       }
     }
   };

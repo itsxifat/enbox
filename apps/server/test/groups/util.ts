@@ -10,16 +10,28 @@ import { toChatSummary } from '../../src/services/summaries.js';
 import type { TestServer, TestSocket, TestUser } from '../helpers.js';
 import { goOffline } from '../services/fixtures.js';
 
-export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+export const PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 /** Assert an API error response. */
-export function expectError(res: { status: number; body: { error?: { code: string } } }, status: number, code: ApiErrorCode): void {
+export function expectError(
+  res: { status: number; body: { error?: { code: string } } },
+  status: number,
+  code: ApiErrorCode,
+): void {
   expect({ status: res.status, code: res.body.error?.code }).toEqual({ status, code });
 }
 
 /** Upload a PNG as `user` and return the media id. */
 export async function uploadImage(t: TestServer, user: TestUser): Promise<string> {
-  const res = await t.api(user).post('/api/media').field('kind', 'image').attach('file', PNG, { filename: 'a.png', contentType: 'image/png' }).expect(201);
+  const res = await t
+    .api(user)
+    .post('/api/media')
+    .field('kind', 'image')
+    .attach('file', PNG, { filename: 'a.png', contentType: 'image/png' })
+    .expect(201);
   return res.body.id as string;
 }
 
@@ -42,13 +54,20 @@ export async function bulkJoin(chatId: string, userIds: string[]): Promise<void>
 }
 
 /** Make users community members directly (capacity tests; no events). */
-export async function bulkCommunityJoin(communityId: string, annChatId: string, userIds: string[]): Promise<void> {
+export async function bulkCommunityJoin(
+  communityId: string,
+  annChatId: string,
+  userIds: string[],
+): Promise<void> {
   if (userIds.length === 0) return;
   await db.insert(communityMembers).values(userIds.map((userId) => ({ communityId, userId })));
   await bulkJoin(annChatId, userIds);
 }
 
-export async function summary(userId: string | { id: string }, chatId: string): Promise<ChatSummary | null> {
+export async function summary(
+  userId: string | { id: string },
+  chatId: string,
+): Promise<ChatSummary | null> {
   return toChatSummary(db, typeof userId === 'string' ? userId : userId.id, chatId);
 }
 

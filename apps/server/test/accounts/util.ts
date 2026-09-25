@@ -24,14 +24,27 @@ export function waitDisconnect(socket: TestSocket, timeoutMs = 3000): Promise<st
 }
 
 /** Give a user an avatar (a media row they uploaded) and profile data; returns the avatar URL. */
-export async function giveProfile(userId: string, opts: { about?: string; lastSeenAt?: Date } = {}): Promise<string> {
+export async function giveProfile(
+  userId: string,
+  opts: { about?: string; lastSeenAt?: Date } = {},
+): Promise<string> {
   const [m] = await db
     .insert(media)
-    .values({ uploaderId: userId, kind: 'image', mimeType: 'image/png', size: 10, storageKey: `2026/01/${crypto.randomUUID()}.png` })
+    .values({
+      uploaderId: userId,
+      kind: 'image',
+      mimeType: 'image/png',
+      size: 10,
+      storageKey: `2026/01/${crypto.randomUUID()}.png`,
+    })
     .returning();
   await db
     .update(users)
-    .set({ avatarMediaId: m!.id, about: opts.about ?? 'about me', lastSeenAt: opts.lastSeenAt ?? new Date('2026-01-01T00:00:00Z') })
+    .set({
+      avatarMediaId: m!.id,
+      about: opts.about ?? 'about me',
+      lastSeenAt: opts.lastSeenAt ?? new Date('2026-01-01T00:00:00Z'),
+    })
     .where(eq(users.id, userId));
   return `/uploads/${m!.storageKey}`;
 }

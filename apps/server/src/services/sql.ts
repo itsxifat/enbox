@@ -13,7 +13,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 export function uuidArray(ids: Iterable<string>): SQL {
   const list = [...ids];
-  for (const id of list) if (!UUID_RE.test(id)) throw new Error(`uuidArray: invalid uuid ${JSON.stringify(id)}`);
+  for (const id of list)
+    if (!UUID_RE.test(id)) throw new Error(`uuidArray: invalid uuid ${JSON.stringify(id)}`);
   return sql`${`{${list.join(',')}}`}::uuid[]`;
 }
 

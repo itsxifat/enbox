@@ -62,7 +62,11 @@ const viewerOf = new Map<string, string>();
  * Record that `socketId` watches these subjects (call after the privacy check). Ids beyond
  * MAX_PRESENCE_SUBSCRIPTIONS per socket are ignored. Returns the ids actually subscribed.
  */
-export function addPresenceSubscriptions(socketId: string, viewerId: string, subjectIds: Iterable<string>): string[] {
+export function addPresenceSubscriptions(
+  socketId: string,
+  viewerId: string,
+  subjectIds: Iterable<string>,
+): string[] {
   viewerOf.set(socketId, viewerId);
   let mine = bySocket.get(socketId);
   if (!mine) bySocket.set(socketId, (mine = new Set()));

@@ -24,12 +24,28 @@ describe('contacts and blocks', () => {
       const phone = uniquePhone();
       const byPhone = await t.createUser({ displayName: 'By Phone', phone });
 
-      const r1 = (await t.api(me).post('/api/contacts').send({ userId: byId.id, name: ' Buddy ' }).expect(201)).body as Contact;
-      expect(r1).toMatchObject({ name: 'Buddy', user: { id: byId.id, isContact: true, contactName: 'Buddy', phone: null } });
+      const r1 = (
+        await t.api(me).post('/api/contacts').send({ userId: byId.id, name: ' Buddy ' }).expect(201)
+      ).body as Contact;
+      expect(r1).toMatchObject({
+        name: 'Buddy',
+        user: { id: byId.id, isContact: true, contactName: 'Buddy', phone: null },
+      });
       expect(Date.parse(r1.createdAt)).not.toBeNaN();
-      const r2 = (await t.api(me).post('/api/contacts').send({ username: 'BY_USERNAME' }).expect(201)).body as Contact;
-      expect(r2).toMatchObject({ name: null, user: { id: byName.id, isContact: true, contactName: null } });
-      const r3 = (await t.api(me).post('/api/contacts').send({ phone: `${phone.slice(0, 2)} ${phone.slice(2, 5)}-${phone.slice(5)}` }).expect(201)).body as Contact;
+      const r2 = (
+        await t.api(me).post('/api/contacts').send({ username: 'BY_USERNAME' }).expect(201)
+      ).body as Contact;
+      expect(r2).toMatchObject({
+        name: null,
+        user: { id: byName.id, isContact: true, contactName: null },
+      });
+      const r3 = (
+        await t
+          .api(me)
+          .post('/api/contacts')
+          .send({ phone: `${phone.slice(0, 2)} ${phone.slice(2, 5)}-${phone.slice(5)}` })
+          .expect(201)
+      ).body as Contact;
       expect(r3.user.id).toBe(byPhone.id);
 
       const list = (await t.api(me).get('/api/contacts').expect(200)).body as Contact[];
@@ -41,9 +57,13 @@ describe('contacts and blocks', () => {
       const me = await t.createUser();
       const u = await t.createUser();
       await t.api(me).post('/api/contacts').send({ userId: u.id }).expect(201);
-      const again = (await t.api(me).post('/api/contacts').send({ userId: u.id, name: 'Renamed' }).expect(200)).body as Contact;
+      const again = (
+        await t.api(me).post('/api/contacts').send({ userId: u.id, name: 'Renamed' }).expect(200)
+      ).body as Contact;
       expect(again.name).toBe('Renamed');
-      expect((await t.api(me).post('/api/contacts').send({ userId: u.id }).expect(200)).body.name).toBe('Renamed');
+      expect(
+        (await t.api(me).post('/api/contacts').send({ userId: u.id }).expect(200)).body.name,
+      ).toBe('Renamed');
       expect(await db.select().from(contacts).where(eq(contacts.ownerId, me.id))).toHaveLength(1);
     });
 
@@ -51,7 +71,11 @@ describe('contacts and blocks', () => {
       const me = await t.createUser();
       const u = await t.createUser();
       await t.api(me).post('/api/contacts').send({}).expect(400);
-      await t.api(me).post('/api/contacts').send({ userId: u.id, username: u.username }).expect(400);
+      await t
+        .api(me)
+        .post('/api/contacts')
+        .send({ userId: u.id, username: u.username })
+        .expect(400);
       await t.api(me).post('/api/contacts').send({ userId: 'nope' }).expect(400);
       await t.api(me).post('/api/contacts').send({ userId: u.id, name: '' }).expect(400);
       await t.api(me).post('/api/contacts').send({ userId: crypto.randomUUID() }).expect(404);
@@ -68,13 +92,17 @@ describe('contacts and blocks', () => {
       const friend = await t.createUser();
       const sMe = await t.connect(me);
       const sFriend = await t.connect(friend);
-      expect(((await t.api(friend).get(`/api/users/${me.id}`).expect(200)).body as UserPublic).phone).toBeNull();
+      expect(
+        ((await t.api(friend).get(`/api/users/${me.id}`).expect(200)).body as UserPublic).phone,
+      ).toBeNull();
       const mine = waitForEvent(sMe, 'contacts:changed');
       const theirs = waitForEvent(sFriend, 'user:changed');
       await t.api(me).post('/api/contacts').send({ userId: friend.id }).expect(201);
       expect(await mine).toEqual({});
       expect(await theirs).toEqual({ userId: me.id });
-      expect(((await t.api(friend).get(`/api/users/${me.id}`).expect(200)).body as UserPublic).phone).toMatch(/^\+1555/);
+      expect(
+        ((await t.api(friend).get(`/api/users/${me.id}`).expect(200)).body as UserPublic).phone,
+      ).toMatch(/^\+1555/);
       await expectNoEvent(sFriend, 'contacts:changed');
     });
 
@@ -85,11 +113,18 @@ describe('contacts and blocks', () => {
       const sMe = await t.connect(me);
       const sFriend = await t.connect(friend);
       const changed = waitForEvent(sMe, 'contacts:changed');
-      const r = (await t.api(me).patch(`/api/contacts/${friend.id}`).send({ name: 'Bestie' }).expect(200)).body as Contact;
+      const r = (
+        await t.api(me).patch(`/api/contacts/${friend.id}`).send({ name: 'Bestie' }).expect(200)
+      ).body as Contact;
       expect(r).toMatchObject({ name: 'Bestie', user: { contactName: 'Bestie' } });
       await changed;
       await expectNoEvent(sFriend, 'user:changed');
-      expect(((await t.api(me).patch(`/api/contacts/${friend.id}`).send({ name: null }).expect(200)).body as Contact).name).toBeNull();
+      expect(
+        (
+          (await t.api(me).patch(`/api/contacts/${friend.id}`).send({ name: null }).expect(200))
+            .body as Contact
+        ).name,
+      ).toBeNull();
       await t.api(me).patch(`/api/contacts/${friend.id}`).send({}).expect(400);
       await t.api(me).patch(`/api/contacts/${crypto.randomUUID()}`).send({ name: 'x' }).expect(404);
       await t.api(friend).patch(`/api/contacts/${me.id}`).send({ name: 'x' }).expect(404);
@@ -108,7 +143,9 @@ describe('contacts and blocks', () => {
       expect(await theirs).toEqual({ userId: me.id });
       await t.api(me).delete(`/api/contacts/${friend.id}`).expect(404);
       expect((await t.api(me).get('/api/contacts').expect(200)).body).toEqual([]);
-      expect(((await t.api(friend).get(`/api/users/${me.id}`).expect(200)).body as UserPublic).phone).toBeNull();
+      expect(
+        ((await t.api(friend).get(`/api/users/${me.id}`).expect(200)).body as UserPublic).phone,
+      ).toBeNull();
     });
   });
 
@@ -131,9 +168,16 @@ describe('contacts and blocks', () => {
 
       await t.api(me).put(`/api/blocks/${peer.id}`).expect(204);
       await settle();
-      expect(log.names().filter((n) => n !== 'presence:update')).toEqual(['blocks:changed', 'chat:upsert']);
+      expect(log.names().filter((n) => n !== 'presence:update')).toEqual([
+        'blocks:changed',
+        'chat:upsert',
+      ]);
       const chat = log.of('chat:upsert')[0]!.chat as ChatSummary;
-      expect(chat).toMatchObject({ id: chatId, peer: { id: peer.id, isBlocked: true }, permissions: { canSend: false, canCall: false } });
+      expect(chat).toMatchObject({
+        id: chatId,
+        peer: { id: peer.id, isBlocked: true },
+        permissions: { canSend: false, canCall: false },
+      });
       expect(peerLog.names().filter((n) => n !== 'presence:update')).toEqual(['user:changed']); // never blocks:changed / chat:upsert
       expect(peerLog.of('user:changed')).toEqual([{ userId: me.id }]);
       expect(blockedEvents).toContainEqual({ blockerId: me.id, blockedId: peer.id });
@@ -189,9 +233,21 @@ describe('contacts and blocks', () => {
       await t.api(me).delete(`/api/blocks/${peer.id}`).expect(204);
       expect(await theirs).toEqual({ userId: me.id });
       await settle();
-      expect(log.names().filter((n) => n !== 'presence:update')).toEqual(['blocks:changed', 'chat:upsert']);
-      expect(log.of('chat:upsert')[0]!.chat).toMatchObject({ id: chatId, peer: { isBlocked: false }, permissions: { canSend: true } });
-      expect(await db.select().from(blocks).where(and(eq(blocks.blockerId, me.id), eq(blocks.blockedId, peer.id)))).toEqual([]);
+      expect(log.names().filter((n) => n !== 'presence:update')).toEqual([
+        'blocks:changed',
+        'chat:upsert',
+      ]);
+      expect(log.of('chat:upsert')[0]!.chat).toMatchObject({
+        id: chatId,
+        peer: { isBlocked: false },
+        permissions: { canSend: true },
+      });
+      expect(
+        await db
+          .select()
+          .from(blocks)
+          .where(and(eq(blocks.blockerId, me.id), eq(blocks.blockedId, peer.id))),
+      ).toEqual([]);
       log.clear();
       await t.api(me).delete(`/api/blocks/${peer.id}`).expect(204);
       await settle();

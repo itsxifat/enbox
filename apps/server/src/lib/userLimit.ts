@@ -48,7 +48,13 @@ function sweep(now: number) {
  * Count one action (`cost` units) for `subjectId`/`key`. Returns false (and does not count)
  * when it would exceed `limit` within the current `windowMs` window.
  */
-export function limitUser(subjectId: string, key: string, limit: number, windowMs: number, cost = 1): boolean {
+export function limitUser(
+  subjectId: string,
+  key: string,
+  limit: number,
+  windowMs: number,
+  cost = 1,
+): boolean {
   if (!config.rateLimit) return true;
   const now = Date.now();
   sweep(now);

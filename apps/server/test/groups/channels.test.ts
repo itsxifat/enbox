@@ -6,7 +6,14 @@ import { chatMembers, chats, messageReactions } from '../../src/db/schema.js';
 import { PUBLIC_WINDOW } from '../../src/services/chats.js';
 import { loadMessagePage } from '../../src/services/messages.js';
 import { startTestServer, type TestServer, type TestUser } from '../helpers.js';
-import { createDirect, createGroup, memberRow, recordEvents, send, settle } from '../services/fixtures.js';
+import {
+  createDirect,
+  createGroup,
+  memberRow,
+  recordEvents,
+  send,
+  settle,
+} from '../services/fixtures.js';
 import { connectAll, expectError, summary, systemKinds, uploadImage } from './util.js';
 
 describe('channels module', () => {
@@ -23,16 +30,30 @@ describe('channels module', () => {
   const api = (u: TestUser) => t.api(u);
   const token = () => Math.random().toString(36).slice(2, 8);
 
-  async function createChannel(by: TestUser, body: Record<string, unknown> = {}): Promise<ChatSummary> {
-    return (await api(by).post('/api/channels').send({ name: 'News', ...body }).expect(201)).body as ChatSummary;
+  async function createChannel(
+    by: TestUser,
+    body: Record<string, unknown> = {},
+  ): Promise<ChatSummary> {
+    return (
+      await api(by)
+        .post('/api/channels')
+        .send({ name: 'News', ...body })
+        .expect(201)
+    ).body as ChatSummary;
   }
-  const follow = (u: TestUser, chatId: string) => api(u).put(`/api/channels/${chatId}/follow`).expect(200);
+  const follow = (u: TestUser, chatId: string) =>
+    api(u).put(`/api/channels/${chatId}/follow`).expect(200);
 
   describe('POST /channels', () => {
     it('creates the channel with the owner as its only follower and a channel_created message', async () => {
       const conns = await connectAll(t, owner);
       const rec = recordEvents(conns.sockets[0]!);
-      const ch = await createChannel(owner, { name: 'Daily', description: 'News daily', isPublic: false, reactions: 'quick' });
+      const ch = await createChannel(owner, {
+        name: 'Daily',
+        description: 'News daily',
+        isPublic: false,
+        reactions: 'quick',
+      });
       expect(ch).toMatchObject({
         type: 'channel',
         name: 'Daily',
@@ -46,15 +67,34 @@ describe('channels module', () => {
         deliveredWatermark: 0,
       });
       expect(ch.inviteCode).toMatch(/^[A-Za-z0-9]{22}$/);
-      expect(ch.permissions).toMatchObject({ canSend: true, canEditInfo: true, canManageAdmins: true, canInvite: true, canLeave: false, canViewMembers: true, canCall: false });
+      expect(ch.permissions).toMatchObject({
+        canSend: true,
+        canEditInfo: true,
+        canManageAdmins: true,
+        canInvite: true,
+        canLeave: false,
+        canViewMembers: true,
+        canCall: false,
+      });
       await settle();
       const r = rec.log.filter((e) => ['chat:upsert', 'message:new'].includes(e.event));
       expect(r.map((e) => e.event)).toEqual(['chat:upsert', 'message:new']);
-      expect(r[1]!.payload.message).toMatchObject({ senderId: null, system: { kind: 'channel_created', actorId: owner.id, name: 'Daily' } });
+      expect(r[1]!.payload.message).toMatchObject({
+        senderId: null,
+        system: { kind: 'channel_created', actorId: owner.id, name: 'Daily' },
+      });
       const defaults = await createChannel(owner);
       expect(defaults.channelSettings).toEqual({ isPublic: true, reactions: 'all' });
-      expectError(await api(owner).post('/api/channels').send({ name: 'X', reactions: 'some' }), 400, 'validation_error');
-      expectError(await api(owner).post('/api/channels').send({ name: '' }), 400, 'validation_error');
+      expectError(
+        await api(owner).post('/api/channels').send({ name: 'X', reactions: 'some' }),
+        400,
+        'validation_error',
+      );
+      expectError(
+        await api(owner).post('/api/channels').send({ name: '' }),
+        400,
+        'validation_error',
+      );
       await conns.close();
     });
   });
@@ -63,7 +103,8 @@ describe('channels module', () => {
     it('private channel: outsiders get 404 everywhere; followers 403 on admin routes; admins 403 on owner routes', async () => {
       const [follower, admin, outsider] = await makeUsers(3);
       const ch = await createChannel(owner, { name: 'Guarded', isPublic: false });
-      for (const u of [follower!, admin!]) await api(u).post(`/api/invites/${ch.inviteCode}/join`).expect(200);
+      for (const u of [follower!, admin!])
+        await api(u).post(`/api/invites/${ch.inviteCode}/join`).expect(200);
       await api(owner).put(`/api/channels/${ch.id}/admins/${admin!.id}`).expect(204);
       const base = `/api/channels/${ch.id}`;
       const routes = [
@@ -90,8 +131,17 @@ describe('channels module', () => {
           expectError(body ? await a.send(body) : await a, 403, 'forbidden');
         }
       }
-      expect((await summary(follower!, ch.id))!.permissions).toMatchObject({ canViewMembers: false, canSend: false, canPin: false, canDeleteForEveryoneAsAdmin: false });
-      expect((await summary(admin!, ch.id))!.permissions).toMatchObject({ canViewMembers: true, canSend: true, canManageAdmins: false });
+      expect((await summary(follower!, ch.id))!.permissions).toMatchObject({
+        canViewMembers: false,
+        canSend: false,
+        canPin: false,
+        canDeleteForEveryoneAsAdmin: false,
+      });
+      expect((await summary(admin!, ch.id))!.permissions).toMatchObject({
+        canViewMembers: true,
+        canSend: true,
+        canManageAdmins: false,
+      });
     });
   });
 
@@ -101,34 +151,60 @@ describe('channels module', () => {
       const [f1, f2] = await makeUsers(2);
       const a = await createChannel(owner, { name: `${k} Cooking Tips` });
       const b = await createChannel(owner, { name: `Daily ${k} cooking` });
-      const c = await createChannel(owner, { name: 'Gardening', description: `all about ${k.toUpperCase()} COOKING soil` });
+      const c = await createChannel(owner, {
+        name: 'Gardening',
+        description: `all about ${k.toUpperCase()} COOKING soil`,
+      });
       await createChannel(owner, { name: `${k} Secret cooking`, isPublic: false });
       const pct = await createChannel(owner, { name: `${k} 100% juice` });
       await follow(f1!, b.id);
       await follow(f2!, b.id);
       await follow(f1!, c.id);
 
-      const res = await api(f1!).get('/api/channels/discover').query({ q: `${k} cook` }).expect(200);
+      const res = await api(f1!)
+        .get('/api/channels/discover')
+        .query({ q: `${k} cook` })
+        .expect(200);
       expect((res.body as ChannelDirectoryEntry[]).map((e) => e.id)).toEqual([b.id, c.id, a.id]); // name or description, any case; never private
-      const tips = await api(f1!).get('/api/channels/discover').query({ q: `${k} COOKING tips` }).expect(200);
+      const tips = await api(f1!)
+        .get('/api/channels/discover')
+        .query({ q: `${k} COOKING tips` })
+        .expect(200);
       expect((tips.body as ChannelDirectoryEntry[]).map((e) => e.id)).toEqual([a.id]);
       const res2 = await api(f1!).get('/api/channels/discover').query({ q: k }).expect(200);
       const list = res2.body as ChannelDirectoryEntry[];
       expect(list.map((e) => e.id)).toEqual([b.id, c.id, pct.id, a.id]); // followers desc, then newest
-      expect(list[0]).toMatchObject({ name: `Daily ${k} cooking`, followerCount: 3, isFollowing: true, isPublic: true, avatarUrl: null, description: null });
+      expect(list[0]).toMatchObject({
+        name: `Daily ${k} cooking`,
+        followerCount: 3,
+        isFollowing: true,
+        isPublic: true,
+        avatarUrl: null,
+        description: null,
+      });
       expect(list[1]).toMatchObject({ followerCount: 2, isFollowing: true });
       expect(list[3]).toMatchObject({ followerCount: 1, isFollowing: false });
       expect(typeof list[0]!.createdAt).toBe('string');
 
       const pctRes = await api(f1!).get('/api/channels/discover').query({ q: '100%' }).expect(200);
       expect((pctRes.body as ChannelDirectoryEntry[]).map((e) => e.id)).toEqual([pct.id]);
-      const none = await api(f1!).get('/api/channels/discover').query({ q: `${k}_` }).expect(200);
+      const none = await api(f1!)
+        .get('/api/channels/discover')
+        .query({ q: `${k}_` })
+        .expect(200);
       expect(none.body).toEqual([]);
-      const limited = await api(f1!).get('/api/channels/discover').query({ q: k, limit: 2 }).expect(200);
+      const limited = await api(f1!)
+        .get('/api/channels/discover')
+        .query({ q: k, limit: 2 })
+        .expect(200);
       expect(limited.body).toHaveLength(2);
       const all = await api(f1!).get('/api/channels/discover').query({ q: '' }).expect(200);
       expect((all.body as ChannelDirectoryEntry[]).every((e) => e.isPublic)).toBe(true);
-      expectError(await api(f1!).get('/api/channels/discover').query({ limit: 0 }), 400, 'validation_error');
+      expectError(
+        await api(f1!).get('/api/channels/discover').query({ limit: 0 }),
+        400,
+        'validation_error',
+      );
     });
   });
 
@@ -138,13 +214,28 @@ describe('channels module', () => {
       const ch = await createChannel(owner, { name: 'Previewable' });
       await follow(follower!, ch.id);
       const post = await send(owner, ch.id, 'first post');
-      await db.insert(messageReactions).values({ messageId: post.message.id, userId: follower!.id, emoji: '👍' });
+      await db
+        .insert(messageReactions)
+        .values({ messageId: post.message.id, userId: follower!.id, emoji: '👍' });
       const res = await api(outsider!).get(`/api/channels/${ch.id}`).expect(200);
       const body = res.body as ChannelPreview;
-      expect(body.channel).toMatchObject({ id: ch.id, name: 'Previewable', followerCount: 2, isFollowing: false, isPublic: true });
-      expect(body.messages.map((m) => m.system?.kind ?? m.text)).toEqual(['channel_created', 'first post']);
-      expect(body.messages[1]).toMatchObject({ senderId: null, reactions: [{ emoji: '👍', count: 1, userIds: [] }] });
-      const mine = (await api(follower!).get(`/api/channels/${ch.id}`).expect(200)).body as ChannelPreview;
+      expect(body.channel).toMatchObject({
+        id: ch.id,
+        name: 'Previewable',
+        followerCount: 2,
+        isFollowing: false,
+        isPublic: true,
+      });
+      expect(body.messages.map((m) => m.system?.kind ?? m.text)).toEqual([
+        'channel_created',
+        'first post',
+      ]);
+      expect(body.messages[1]).toMatchObject({
+        senderId: null,
+        reactions: [{ emoji: '👍', count: 1, userIds: [] }],
+      });
+      const mine = (await api(follower!).get(`/api/channels/${ch.id}`).expect(200))
+        .body as ChannelPreview;
       expect(mine.channel.isFollowing).toBe(true);
       expect(mine.messages[1]).toMatchObject({ myReaction: '👍', senderId: null });
     });
@@ -154,22 +245,50 @@ describe('channels module', () => {
       const ch = await createChannel(owner, { name: 'With users' });
       await follow(mentioned!, ch.id); // mentions are kept for active members only
       await send(owner, ch.id, { text: `hello @{${mentioned!.id}}` });
-      await send(owner, ch.id, { type: 'contact', text: null, metadata: { contact: { userId: carded!.id, name: 'Card', username: null, phone: null } } });
-      const body = (await api(outsider!).get(`/api/channels/${ch.id}`).expect(200)).body as ChannelPreview;
-      expect(body.messages.map((m) => m.system?.kind ?? m.type)).toEqual(['channel_created', 'text', 'contact']);
+      await send(owner, ch.id, {
+        type: 'contact',
+        text: null,
+        metadata: { contact: { userId: carded!.id, name: 'Card', username: null, phone: null } },
+      });
+      const body = (await api(outsider!).get(`/api/channels/${ch.id}`).expect(200))
+        .body as ChannelPreview;
+      expect(body.messages.map((m) => m.system?.kind ?? m.type)).toEqual([
+        'channel_created',
+        'text',
+        'contact',
+      ]);
       expect(body.messages.every((m) => m.senderId === null)).toBe(true);
       // Exactly the referenced users, as the viewer sees them (the creator only as the system actor).
-      const page = await loadMessagePage(db, outsider!.id, ch.id, { limit: 50 }, { window: PUBLIC_WINDOW, chatType: 'channel' });
+      const page = await loadMessagePage(
+        db,
+        outsider!.id,
+        ch.id,
+        { limit: 50 },
+        { window: PUBLIC_WINDOW, chatType: 'channel' },
+      );
       expect(body.users.map((u) => u.id).sort()).toEqual(page.users.map((u) => u.id).sort());
-      expect(body.users.map((u) => u.id).sort()).toEqual([owner.id, mentioned!.id, carded!.id].sort());
-      expect(body.users.find((u) => u.id === owner.id)).toMatchObject({ displayName: 'Owner', isContact: false, isBlocked: false });
+      expect(body.users.map((u) => u.id).sort()).toEqual(
+        [owner.id, mentioned!.id, carded!.id].sort(),
+      );
+      expect(body.users.find((u) => u.id === owner.id)).toMatchObject({
+        displayName: 'Owner',
+        isContact: false,
+        isBlocked: false,
+      });
       // Followers get the same side-loading.
       await follow(outsider!, ch.id);
-      const followed = (await api(outsider!).get(`/api/channels/${ch.id}`).expect(200)).body as ChannelPreview;
-      expect(followed.users.map((u) => u.id).sort()).toEqual([owner.id, mentioned!.id, carded!.id].sort());
+      const followed = (await api(outsider!).get(`/api/channels/${ch.id}`).expect(200))
+        .body as ChannelPreview;
+      expect(followed.users.map((u) => u.id).sort()).toEqual(
+        [owner.id, mentioned!.id, carded!.id].sort(),
+      );
       // An empty-ish preview still carries the (creator) user of channel_created.
       const bare = await createChannel(owner, { name: 'Bare' });
-      expect(((await api(outsider!).get(`/api/channels/${bare.id}`).expect(200)).body as ChannelPreview).users.map((u) => u.id)).toEqual([owner.id]);
+      expect(
+        (
+          (await api(outsider!).get(`/api/channels/${bare.id}`).expect(200)).body as ChannelPreview
+        ).users.map((u) => u.id),
+      ).toEqual([owner.id]);
     });
 
     it('private: 404 to non-followers, visible to followers; non-channels and unknown ids → 404', async () => {
@@ -178,7 +297,9 @@ describe('channels module', () => {
       expectError(await api(outsider!).get(`/api/channels/${ch.id}`), 404, 'not_found');
       const code = (await api(owner).get(`/api/channels/${ch.id}/invite`).expect(200)).body.code;
       await api(follower!).post(`/api/invites/${code}/join`).expect(200);
-      expect((await api(follower!).get(`/api/channels/${ch.id}`).expect(200)).body.channel).toMatchObject({ isPublic: false, isFollowing: true });
+      expect(
+        (await api(follower!).get(`/api/channels/${ch.id}`).expect(200)).body.channel,
+      ).toMatchObject({ isPublic: false, isFollowing: true });
       const group = await createGroup(owner, []);
       const direct = await createDirect(owner, outsider!);
       expectError(await api(owner).get(`/api/channels/${group}`), 404, 'not_found');
@@ -197,23 +318,52 @@ describe('channels module', () => {
       const conns = await connectAll(t, owner, early!, late!);
       const [ownerRec, earlyRec, lateRec] = conns.sockets.map((s) => recordEvents(s));
       const res = await follow(late!, ch.id);
-      expect(res.body).toMatchObject({ id: ch.id, membership: 'active', myRole: 'member', memberCount: 3, unreadCount: 0, lastReadSeq: res.body.lastSeq });
-      expect(res.body.permissions).toMatchObject({ canSend: false, canViewMembers: false, canLeave: true, canInvite: false, canEditInfo: false });
+      expect(res.body).toMatchObject({
+        id: ch.id,
+        membership: 'active',
+        myRole: 'member',
+        memberCount: 3,
+        unreadCount: 0,
+        lastReadSeq: res.body.lastSeq,
+      });
+      expect(res.body.permissions).toMatchObject({
+        canSend: false,
+        canViewMembers: false,
+        canLeave: true,
+        canInvite: false,
+        canEditInfo: false,
+      });
       expect(res.body.inviteCode).toBeNull();
       await settle();
-      expect(lateRec!.names().filter((n) => n !== 'presence:update')).toEqual(['chat:upsert', 'chat:updated']);
-      expect(ownerRec!.names().filter((n) => ['chat:updated', 'chat:members-changed'].includes(n))).toEqual(['chat:updated', 'chat:members-changed']);
-      expect(earlyRec!.names().filter((n) => ['chat:updated', 'chat:members-changed'].includes(n))).toEqual(['chat:updated']);
-      expect(ownerRec!.of('chat:updated')[0]).toEqual({ chatId: ch.id, changes: { memberCount: 3 } });
+      expect(lateRec!.names().filter((n) => n !== 'presence:update')).toEqual([
+        'chat:upsert',
+        'chat:updated',
+      ]);
+      expect(
+        ownerRec!.names().filter((n) => ['chat:updated', 'chat:members-changed'].includes(n)),
+      ).toEqual(['chat:updated', 'chat:members-changed']);
+      expect(
+        earlyRec!.names().filter((n) => ['chat:updated', 'chat:members-changed'].includes(n)),
+      ).toEqual(['chat:updated']);
+      expect(ownerRec!.of('chat:updated')[0]).toEqual({
+        chatId: ch.id,
+        changes: { memberCount: 3 },
+      });
       const page = await loadMessagePage(db, late!.id, ch.id, { limit: 50 });
-      expect(page.messages.map((m) => m.system?.kind ?? m.text)).toEqual(['channel_created', 'p1', 'p2']);
+      expect(page.messages.map((m) => m.system?.kind ?? m.text)).toEqual([
+        'channel_created',
+        'p1',
+        'p2',
+      ]);
       expect(Number((await memberRow(ch.id, late!)).joinedSeq)).toBe(0);
 
       // New posts reach followers with the channel identity.
       lateRec!.clear();
       await send(owner, ch.id, 'p3');
       await settle();
-      expect(lateRec!.of('message:new').map((p) => [p.message.text, p.message.senderId])).toEqual([['p3', null]]);
+      expect(lateRec!.of('message:new').map((p) => [p.message.text, p.message.senderId])).toEqual([
+        ['p3', null],
+      ]);
 
       // Following again is idempotent (no events).
       lateRec!.clear();
@@ -240,8 +390,15 @@ describe('channels module', () => {
       await settle();
       expect(followerRec!.names().filter((n) => n !== 'presence:update')).toEqual(['chat:removed']);
       expect(followerRec!.of('chat:removed')).toEqual([{ chatId: ch.id }]);
-      expect(ownerRec!.names().filter((n) => ['chat:updated', 'chat:members-changed'].includes(n))).toEqual(['chat:updated', 'chat:members-changed']);
-      expect(await db.select().from(chatMembers).where(and(eq(chatMembers.chatId, ch.id), eq(chatMembers.userId, follower!.id)))).toEqual([]);
+      expect(
+        ownerRec!.names().filter((n) => ['chat:updated', 'chat:members-changed'].includes(n)),
+      ).toEqual(['chat:updated', 'chat:members-changed']);
+      expect(
+        await db
+          .select()
+          .from(chatMembers)
+          .where(and(eq(chatMembers.chatId, ch.id), eq(chatMembers.userId, follower!.id))),
+      ).toEqual([]);
       expect(await summary(follower!, ch.id)).toBeNull();
       followerRec!.clear();
       await send(owner, ch.id, 'after unfollow');
@@ -259,26 +416,64 @@ describe('channels module', () => {
       const [follower, outsider] = await makeUsers(2);
       const ch = await createChannel(owner, { name: 'Editable' });
       await follow(follower!, ch.id);
-      expectError(await api(follower!).patch(`/api/channels/${ch.id}`).send({ name: 'Mine' }), 403, 'forbidden');
-      expectError(await api(outsider!).patch(`/api/channels/${ch.id}`).send({ name: 'Mine' }), 404, 'not_found');
+      expectError(
+        await api(follower!).patch(`/api/channels/${ch.id}`).send({ name: 'Mine' }),
+        403,
+        'forbidden',
+      );
+      expectError(
+        await api(outsider!).patch(`/api/channels/${ch.id}`).send({ name: 'Mine' }),
+        404,
+        'not_found',
+      );
       const avatar = await uploadImage(t, owner);
       const conns = await connectAll(t, follower!);
       const rec = recordEvents(conns.sockets[0]!);
-      const res = await api(owner).patch(`/api/channels/${ch.id}`).send({ name: 'Edited', description: 'Desc', avatarMediaId: avatar, reactions: 'none' }).expect(200);
-      expect(res.body).toMatchObject({ name: 'Edited', description: 'Desc', channelSettings: { isPublic: true, reactions: 'none' } });
+      const res = await api(owner)
+        .patch(`/api/channels/${ch.id}`)
+        .send({ name: 'Edited', description: 'Desc', avatarMediaId: avatar, reactions: 'none' })
+        .expect(200);
+      expect(res.body).toMatchObject({
+        name: 'Edited',
+        description: 'Desc',
+        channelSettings: { isPublic: true, reactions: 'none' },
+      });
       await settle();
       const r = rec.log.filter((e) => ['message:new', 'chat:updated'].includes(e.event));
-      expect(r.map((e) => (e.event === 'message:new' ? e.payload.message.system.kind : e.event))).toEqual(['name_changed', 'description_changed', 'avatar_changed', 'chat:updated']);
-      expect(r[3]!.payload.changes).toEqual({ name: 'Edited', description: 'Desc', avatarUrl: res.body.avatarUrl, channelSettings: { isPublic: true, reactions: 'none' } });
+      expect(
+        r.map((e) => (e.event === 'message:new' ? e.payload.message.system.kind : e.event)),
+      ).toEqual(['name_changed', 'description_changed', 'avatar_changed', 'chat:updated']);
+      expect(r[3]!.payload.changes).toEqual({
+        name: 'Edited',
+        description: 'Desc',
+        avatarUrl: res.body.avatarUrl,
+        channelSettings: { isPublic: true, reactions: 'none' },
+      });
 
       rec.clear();
       await api(owner).patch(`/api/channels/${ch.id}`).send({ isPublic: false }).expect(200);
       await settle();
-      expect(rec.log.filter((e) => ['message:new', 'chat:updated'].includes(e.event)).map((e) => e.event)).toEqual(['chat:updated']);
-      expect(rec.of('chat:updated')[0]!.changes).toEqual({ channelSettings: { isPublic: false, reactions: 'none' } });
-      expect(await systemKinds(ch.id)).toEqual(['channel_created', 'name_changed', 'description_changed', 'avatar_changed']);
+      expect(
+        rec.log
+          .filter((e) => ['message:new', 'chat:updated'].includes(e.event))
+          .map((e) => e.event),
+      ).toEqual(['chat:updated']);
+      expect(rec.of('chat:updated')[0]!.changes).toEqual({
+        channelSettings: { isPublic: false, reactions: 'none' },
+      });
+      expect(await systemKinds(ch.id)).toEqual([
+        'channel_created',
+        'name_changed',
+        'description_changed',
+        'avatar_changed',
+      ]);
       // Now private: gone from discovery, 404 for outsiders; followers keep it.
-      expect(((await api(outsider!).get('/api/channels/discover').query({ q: 'Edited' }).expect(200)).body as ChannelDirectoryEntry[]).map((e) => e.id)).not.toContain(ch.id);
+      expect(
+        (
+          (await api(outsider!).get('/api/channels/discover').query({ q: 'Edited' }).expect(200))
+            .body as ChannelDirectoryEntry[]
+        ).map((e) => e.id),
+      ).not.toContain(ch.id);
       expectError(await api(outsider!).get(`/api/channels/${ch.id}`), 404, 'not_found');
       await api(follower!).get(`/api/channels/${ch.id}`).expect(200);
       await conns.close();
@@ -312,20 +507,48 @@ describe('channels module', () => {
       const ch = await createChannel(owner, { name: 'Staffed' });
       await follow(target!, ch.id);
       await follow(follower!, ch.id);
-      expectError(await api(owner).put(`/api/channels/${ch.id}/admins/${outsider!.id}`), 404, 'not_found');
-      expectError(await api(follower!).put(`/api/channels/${ch.id}/admins/${target!.id}`), 403, 'forbidden');
+      expectError(
+        await api(owner).put(`/api/channels/${ch.id}/admins/${outsider!.id}`),
+        404,
+        'not_found',
+      );
+      expectError(
+        await api(follower!).put(`/api/channels/${ch.id}/admins/${target!.id}`),
+        403,
+        'forbidden',
+      );
       const conns = await connectAll(t, target!, follower!);
       const [tRec, fRec] = conns.sockets.map((s) => recordEvents(s));
       await api(owner).put(`/api/channels/${ch.id}/admins/${target!.id}`).expect(204);
       await settle();
-      expect(tRec!.names().filter((n) => ['chat:upsert', 'chat:members-changed', 'message:new'].includes(n))).toEqual(['chat:upsert', 'chat:members-changed']);
-      expect(tRec!.of('chat:upsert')[0]!.chat).toMatchObject({ myRole: 'admin', permissions: { canSend: true, canViewMembers: true, canInvite: true, canManageAdmins: false } });
+      expect(
+        tRec!
+          .names()
+          .filter((n) => ['chat:upsert', 'chat:members-changed', 'message:new'].includes(n)),
+      ).toEqual(['chat:upsert', 'chat:members-changed']);
+      expect(tRec!.of('chat:upsert')[0]!.chat).toMatchObject({
+        myRole: 'admin',
+        permissions: {
+          canSend: true,
+          canViewMembers: true,
+          canInvite: true,
+          canManageAdmins: false,
+        },
+      });
       expect(fRec!.names().filter((n) => n !== 'presence:update')).toEqual([]); // no system message, nothing to followers
       // Admins cannot manage admins.
-      expectError(await api(target!).put(`/api/channels/${ch.id}/admins/${follower!.id}`), 403, 'forbidden');
+      expectError(
+        await api(target!).put(`/api/channels/${ch.id}/admins/${follower!.id}`),
+        403,
+        'forbidden',
+      );
       await api(owner).delete(`/api/channels/${ch.id}/admins/${target!.id}`).expect(204);
       expect((await memberRow(ch.id, target!)).role).toBe('member');
-      expectError(await api(owner).delete(`/api/channels/${ch.id}/admins/${owner.id}`), 400, 'validation_error');
+      expectError(
+        await api(owner).delete(`/api/channels/${ch.id}/admins/${owner.id}`),
+        400,
+        'validation_error',
+      );
       expect(await systemKinds(ch.id)).toEqual(['channel_created']);
       await conns.close();
     });
@@ -336,9 +559,15 @@ describe('channels module', () => {
       await follow(admin!, ch.id);
       await follow(follower!, ch.id);
       await api(owner).put(`/api/channels/${ch.id}/admins/${admin!.id}`).expect(204);
-      expect((await api(admin!).get(`/api/channels/${ch.id}/invite`).expect(200)).body).toEqual({ code: ch.inviteCode });
+      expect((await api(admin!).get(`/api/channels/${ch.id}/invite`).expect(200)).body).toEqual({
+        code: ch.inviteCode,
+      });
       expectError(await api(follower!).get(`/api/channels/${ch.id}/invite`), 403, 'forbidden');
-      expectError(await api(follower!).post(`/api/channels/${ch.id}/invite/reset`), 403, 'forbidden');
+      expectError(
+        await api(follower!).post(`/api/channels/${ch.id}/invite/reset`),
+        403,
+        'forbidden',
+      );
       const conns = await connectAll(t, owner, admin!, follower!);
       const [oRec, aRec, fRec] = conns.sockets.map((s) => recordEvents(s));
       const { body } = await api(admin!).post(`/api/channels/${ch.id}/invite/reset`).expect(200);
@@ -356,11 +585,26 @@ describe('channels module', () => {
       const ch = await createChannel(owner, { name: 'Inherited' });
       await follow(heir!, ch.id);
       await follow(follower!, ch.id);
-      expectError(await api(follower!).post(`/api/channels/${ch.id}/transfer-ownership`).send({ userId: heir!.id }), 403, 'forbidden');
-      expectError(await api(owner).post(`/api/channels/${ch.id}/transfer-ownership`).send({ userId: outsider!.id }), 404, 'not_found');
+      expectError(
+        await api(follower!)
+          .post(`/api/channels/${ch.id}/transfer-ownership`)
+          .send({ userId: heir!.id }),
+        403,
+        'forbidden',
+      );
+      expectError(
+        await api(owner)
+          .post(`/api/channels/${ch.id}/transfer-ownership`)
+          .send({ userId: outsider!.id }),
+        404,
+        'not_found',
+      );
       const conns = await connectAll(t, owner, heir!, follower!);
       const [oRec, hRec, fRec] = conns.sockets.map((s) => recordEvents(s));
-      await api(owner).post(`/api/channels/${ch.id}/transfer-ownership`).send({ userId: heir!.id }).expect(204);
+      await api(owner)
+        .post(`/api/channels/${ch.id}/transfer-ownership`)
+        .send({ userId: heir!.id })
+        .expect(204);
       await settle();
       expect(oRec!.of('chat:upsert').map((p) => p.chat.myRole)).toEqual(['admin']);
       expect(hRec!.of('chat:upsert').map((p) => p.chat.myRole)).toEqual(['owner']);

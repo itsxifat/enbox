@@ -69,7 +69,9 @@ export const users = pgTable(
     phone: text('phone'),
     passwordHash: text('password_hash').notNull(),
     about: text('about').notNull(),
-    avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, { onDelete: 'set null' }),
+    avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
     /** Partial overrides; read through `resolveUserSettings()` (merges DEFAULT_USER_SETTINGS). */
     settings: jsonb('settings').$type<Partial<UserSettings>>().notNull().default({}),
     lastSeenAt: ts('last_seen_at'),
@@ -84,7 +86,9 @@ export const users = pgTable(
     index('users_username_prefix_idx').on(t.username.op('text_pattern_ops')),
     uniqueIndex('users_phone_uq').on(t.phone),
     index('users_display_name_idx').on(sql`lower(${t.displayName})`),
-    index('users_avatar_idx').on(t.avatarMediaId).where(sql`${t.avatarMediaId} is not null`),
+    index('users_avatar_idx')
+      .on(t.avatarMediaId)
+      .where(sql`${t.avatarMediaId} is not null`),
   ],
 );
 
@@ -104,7 +108,10 @@ export const sessions = pgTable(
     lastActiveAt: ts('last_active_at').notNull().defaultNow(),
     expiresAt: ts('expires_at').notNull(),
   },
-  (t) => [uniqueIndex('sessions_token_hash_uq').on(t.tokenHash), index('sessions_user_idx').on(t.userId)],
+  (t) => [
+    uniqueIndex('sessions_token_hash_uq').on(t.tokenHash),
+    index('sessions_user_idx').on(t.userId),
+  ],
 );
 
 export const contacts = pgTable(
@@ -119,7 +126,10 @@ export const contacts = pgTable(
     name: text('name'),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.ownerId, t.contactId] }), index('contacts_contact_idx').on(t.contactId)],
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.contactId] }),
+    index('contacts_contact_idx').on(t.contactId),
+  ],
 );
 
 export const blocks = pgTable(
@@ -133,7 +143,10 @@ export const blocks = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.blockerId, t.blockedId] }), index('blocks_blocked_idx').on(t.blockedId)],
+  (t) => [
+    primaryKey({ columns: [t.blockerId, t.blockedId] }),
+    index('blocks_blocked_idx').on(t.blockedId),
+  ],
 );
 
 export const pushSubscriptions = pgTable(
@@ -168,7 +181,9 @@ export const media = pgTable(
   'media',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    uploaderId: uuid('uploader_id').references((): AnyPgColumn => users.id, { onDelete: 'set null' }),
+    uploaderId: uuid('uploader_id').references((): AnyPgColumn => users.id, {
+      onDelete: 'set null',
+    }),
     kind: text('kind').$type<MediaKind>().notNull(),
     /** Sniffed type (never the client's claim). */
     mimeType: text('mime_type').notNull(),
@@ -212,13 +227,17 @@ export const communities = pgTable(
      * transaction and never null while the community exists (nullable only because of the
      * circular FK; deactivation deletes the chat first).
      */
-    announcementChatId: uuid('announcement_chat_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
+    announcementChatId: uuid('announcement_chat_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('communities_invite_code_uq').on(t.inviteCode),
-    index('communities_avatar_idx').on(t.avatarMediaId).where(sql`${t.avatarMediaId} is not null`),
+    index('communities_avatar_idx')
+      .on(t.avatarMediaId)
+      .where(sql`${t.avatarMediaId} is not null`),
   ],
 );
 
@@ -239,7 +258,9 @@ export const communityMembers = pgTable(
     primaryKey({ columns: [t.communityId, t.userId] }),
     index('community_members_user_idx').on(t.userId),
     /** Exactly one owner per community. */
-    uniqueIndex('community_members_owner_uq').on(t.communityId).where(sql`${t.role} = 'owner'`),
+    uniqueIndex('community_members_owner_uq')
+      .on(t.communityId)
+      .where(sql`${t.role} = 'owner'`),
   ],
 );
 
@@ -258,7 +279,9 @@ export const chats = pgTable(
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     /** `directChatKey(a, b)` for direct chats (`a:a` for "Message yourself"); one chat per pair. */
     directKey: text('direct_key'),
-    communityId: uuid('community_id').references((): AnyPgColumn => communities.id, { onDelete: 'set null' }),
+    communityId: uuid('community_id').references((): AnyPgColumn => communities.id, {
+      onDelete: 'set null',
+    }),
     isAnnouncement: boolean('is_announcement').notNull().default(false),
     /** Groups only, always complete (DEFAULT_GROUP_SETTINGS merged at creation). */
     groupSettings: jsonb('group_settings').$type<GroupSettings>(),
@@ -277,16 +300,28 @@ export const chats = pgTable(
     uniqueIndex('chats_invite_code_uq').on(t.inviteCode),
     index('chats_community_idx').on(t.communityId),
     /** One announcement group per community. */
-    uniqueIndex('chats_community_announcement_uq').on(t.communityId).where(sql`${t.isAnnouncement}`),
+    uniqueIndex('chats_community_announcement_uq')
+      .on(t.communityId)
+      .where(sql`${t.isAnnouncement}`),
     /** Channel discovery. */
-    index('chats_channels_idx').on(t.createdAt).where(sql`${t.type} = 'channel'`),
-    index('chats_avatar_idx').on(t.avatarMediaId).where(sql`${t.avatarMediaId} is not null`),
+    index('chats_channels_idx')
+      .on(t.createdAt)
+      .where(sql`${t.type} = 'channel'`),
+    index('chats_avatar_idx')
+      .on(t.avatarMediaId)
+      .where(sql`${t.avatarMediaId} is not null`),
     check('chats_type_ck', sql`${t.type} in ('direct', 'group', 'channel')`),
     check('chats_direct_key_ck', sql`(${t.type} = 'direct') = (${t.directKey} is not null)`),
     check('chats_group_settings_ck', sql`(${t.type} = 'group') = (${t.groupSettings} is not null)`),
-    check('chats_channel_settings_ck', sql`(${t.type} = 'channel') = (${t.channelSettings} is not null)`),
+    check(
+      'chats_channel_settings_ck',
+      sql`(${t.type} = 'channel') = (${t.channelSettings} is not null)`,
+    ),
     check('chats_community_ck', sql`${t.communityId} is null or ${t.type} = 'group'`),
-    check('chats_announcement_ck', sql`not ${t.isAnnouncement} or (${t.communityId} is not null and ${t.inviteCode} is null)`),
+    check(
+      'chats_announcement_ck',
+      sql`not ${t.isAnnouncement} or (${t.communityId} is not null and ${t.inviteCode} is null)`,
+    ),
   ],
 );
 
@@ -330,11 +365,20 @@ export const chatMembers = pgTable(
   (t) => [
     primaryKey({ columns: [t.chatId, t.userId] }),
     index('chat_members_user_idx').on(t.userId),
-    index('chat_members_user_active_idx').on(t.userId).where(sql`${t.leftAt} is null`),
-    index('chat_members_chat_active_idx').on(t.chatId).where(sql`${t.leftAt} is null`),
+    index('chat_members_user_active_idx')
+      .on(t.userId)
+      .where(sql`${t.leftAt} is null`),
+    index('chat_members_chat_active_idx')
+      .on(t.chatId)
+      .where(sql`${t.leftAt} is null`),
     /** Exactly one active owner per group/channel. */
-    uniqueIndex('chat_members_owner_uq').on(t.chatId).where(sql`${t.role} = 'owner' and ${t.leftAt} is null`),
-    check('chat_members_left_ck', sql`(${t.leftAt} is null) = (${t.leftSeq} is null) and (${t.leftAt} is null) = (${t.leftReason} is null)`),
+    uniqueIndex('chat_members_owner_uq')
+      .on(t.chatId)
+      .where(sql`${t.role} = 'owner' and ${t.leftAt} is null`),
+    check(
+      'chat_members_left_ck',
+      sql`(${t.leftAt} is null) = (${t.leftSeq} is null) and (${t.leftAt} is null) = (${t.leftReason} is null)`,
+    ),
     check('chat_members_left_role_ck', sql`${t.leftAt} is null or ${t.role} = 'member'`),
   ],
 );
@@ -355,10 +399,15 @@ export const messages = pgTable(
     text: text('text'),
     mediaId: uuid('media_id').references(() => media.id, { onDelete: 'set null' }),
     metadata: jsonb('metadata').$type<MessageMetadata>().notNull().default({}),
-    replyToId: uuid('reply_to_id').references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
+    replyToId: uuid('reply_to_id').references((): AnyPgColumn => messages.id, {
+      onDelete: 'set null',
+    }),
     forwardCount: integer('forward_count').notNull().default(0),
     /** Derived from the text's mention tokens (active members, ≤ MAX_MENTIONS). */
-    mentions: uuid('mentions').array().notNull().default(sql`'{}'::uuid[]`),
+    mentions: uuid('mentions')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     editedAt: ts('edited_at'),
     deletedAt: ts('deleted_at'),
     expiresAt: ts('expires_at'),
@@ -370,9 +419,15 @@ export const messages = pgTable(
       .on(t.chatId, t.senderId, t.clientId)
       .where(sql`${t.clientId} is not null`),
     index('messages_sender_idx').on(t.senderId),
-    index('messages_expires_idx').on(t.expiresAt).where(sql`${t.expiresAt} is not null`),
-    index('messages_reply_to_idx').on(t.replyToId).where(sql`${t.replyToId} is not null`),
-    index('messages_media_idx').on(t.mediaId).where(sql`${t.mediaId} is not null`),
+    index('messages_expires_idx')
+      .on(t.expiresAt)
+      .where(sql`${t.expiresAt} is not null`),
+    index('messages_reply_to_idx')
+      .on(t.replyToId)
+      .where(sql`${t.replyToId} is not null`),
+    index('messages_media_idx')
+      .on(t.mediaId)
+      .where(sql`${t.mediaId} is not null`),
     check('messages_system_sender_ck', sql`(${t.type} = 'system') = (${t.senderId} is null)`),
   ],
 );
@@ -389,7 +444,10 @@ export const messageHidden = pgTable(
       .references(() => messages.id, { onDelete: 'cascade' }),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.messageId] }), index('message_hidden_message_idx').on(t.messageId)],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.messageId] }),
+    index('message_hidden_message_idx').on(t.messageId),
+  ],
 );
 
 export const messageReactions = pgTable(
@@ -418,7 +476,10 @@ export const starredMessages = pgTable(
       .references(() => messages.id, { onDelete: 'cascade' }),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.messageId] }), index('starred_messages_message_idx').on(t.messageId)],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.messageId] }),
+    index('starred_messages_message_idx').on(t.messageId),
+  ],
 );
 
 export const chatPins = pgTable(
@@ -434,7 +495,10 @@ export const chatPins = pgTable(
     pinnedBy: uuid('pinned_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.chatId, t.messageId] }), index('chat_pins_message_idx').on(t.messageId)],
+  (t) => [
+    primaryKey({ columns: [t.chatId, t.messageId] }),
+    index('chat_pins_message_idx').on(t.messageId),
+  ],
 );
 
 export const pollVotes = pgTable(
@@ -469,7 +533,10 @@ export const statuses = pgTable(
     font: integer('font'),
     mediaId: uuid('media_id').references(() => media.id, { onDelete: 'set null' }),
     /** Audience snapshot at post time (author's contacts per status privacy, minus blocks/deleted). */
-    audience: uuid('audience').array().notNull().default(sql`'{}'::uuid[]`),
+    audience: uuid('audience')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     createdAt: createdAt(),
     expiresAt: ts('expires_at').notNull(),
   },
@@ -478,7 +545,9 @@ export const statuses = pgTable(
     index('statuses_expires_idx').on(t.expiresAt),
     /** Feed lookup: `audience @> ARRAY[$viewer]::uuid[]`. */
     index('statuses_audience_gin').using('gin', t.audience),
-    index('statuses_media_idx').on(t.mediaId).where(sql`${t.mediaId} is not null`),
+    index('statuses_media_idx')
+      .on(t.mediaId)
+      .where(sql`${t.mediaId} is not null`),
   ],
 );
 
@@ -494,7 +563,10 @@ export const statusViews = pgTable(
     viewedAt: ts('viewed_at').notNull().defaultNow(),
     reaction: text('reaction'),
   },
-  (t) => [primaryKey({ columns: [t.statusId, t.viewerId] }), index('status_views_viewer_idx').on(t.viewerId)],
+  (t) => [
+    primaryKey({ columns: [t.statusId, t.viewerId] }),
+    index('status_views_viewer_idx').on(t.viewerId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -515,7 +587,9 @@ export const calls = pgTable(
     isGroup: boolean('is_group').notNull().default(false),
     status: text('status').$type<CallStatus>().notNull().default('ringing'),
     /** The chat message that records this call in history. */
-    messageId: uuid('message_id').references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
+    messageId: uuid('message_id').references((): AnyPgColumn => messages.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     answeredAt: ts('answered_at'),
     endedAt: ts('ended_at'),
@@ -523,10 +597,16 @@ export const calls = pgTable(
   (t) => [
     index('calls_chat_idx').on(t.chatId, t.createdAt),
     /** One live call per chat (also serializes concurrent call:start). */
-    uniqueIndex('calls_chat_live_uq').on(t.chatId).where(sql`${t.status} in ('ringing', 'ongoing')`),
+    uniqueIndex('calls_chat_live_uq')
+      .on(t.chatId)
+      .where(sql`${t.status} in ('ringing', 'ongoing')`),
     /** Timeout job and crash recovery. */
-    index('calls_live_idx').on(t.createdAt).where(sql`${t.status} in ('ringing', 'ongoing')`),
-    index('calls_message_idx').on(t.messageId).where(sql`${t.messageId} is not null`),
+    index('calls_live_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} in ('ringing', 'ongoing')`),
+    index('calls_message_idx')
+      .on(t.messageId)
+      .where(sql`${t.messageId} is not null`),
   ],
 );
 
@@ -559,7 +639,9 @@ export const callParticipants = pgTable(
     /** Call log: my calls by time. */
     index('call_participants_user_idx').on(t.userId, t.invitedAt),
     /** A user is joined to at most one call ("busy" otherwise). */
-    uniqueIndex('call_participants_one_joined_uq').on(t.userId).where(sql`${t.status} = 'joined'`),
+    uniqueIndex('call_participants_one_joined_uq')
+      .on(t.userId)
+      .where(sql`${t.status} = 'joined'`),
   ],
 );
 
@@ -608,7 +690,10 @@ export const communitiesRelations = relations(communities, ({ one, many }) => ({
 }));
 
 export const communityMembersRelations = relations(communityMembers, ({ one }) => ({
-  community: one(communities, { fields: [communityMembers.communityId], references: [communities.id] }),
+  community: one(communities, {
+    fields: [communityMembers.communityId],
+    references: [communities.id],
+  }),
   user: one(users, { fields: [communityMembers.userId], references: [users.id] }),
 }));
 
