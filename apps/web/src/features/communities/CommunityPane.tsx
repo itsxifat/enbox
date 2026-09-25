@@ -503,7 +503,8 @@ function CommunityHome({ community: c }: { community: Community }) {
 
 function UnlinkButton({ onClick, name }: { onClick: () => void; name: string }) {
   return (
-    <span className="absolute top-1/2 right-3 -translate-y-1/2 opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
+    // Touch screens have no hover: keep it visible there (it's a real tap target).
+    <span className="absolute top-1/2 right-3 -translate-y-1/2 transition-opacity group-focus-within/row:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100">
       <IconButton
         icon={Unlink}
         label={`Remove ${name} from community`}

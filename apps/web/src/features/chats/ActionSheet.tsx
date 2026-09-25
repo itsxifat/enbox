@@ -43,7 +43,7 @@ export function ActionSheet({ open, onClose, title, header, items, ...aria }: Ac
                 }}
                 className={cn(
                   'flex w-full items-center gap-4 px-6 py-3 text-left text-[15px] outline-none',
-                  'hover:bg-hover focus-visible:bg-hover active:bg-hover disabled:opacity-45',
+                  'hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand active:bg-hover disabled:opacity-45',
                   entry.danger ? 'text-danger' : 'text-fg',
                 )}
               >

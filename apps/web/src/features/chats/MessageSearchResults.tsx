@@ -20,8 +20,9 @@ import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
 import { nameOf, useUsers } from '@/stores/users';
 import { splitHighlight } from '@/features/conversation/lib/richText';
-import { messageLink } from './links';
+import { chatPath } from './links';
 import { PreviewLine, mentionName, previewParts } from './preview';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 
 /** Cut long texts around the first match so it stays visible in one line. */
 export function snippetAround(text: string, query: string, before = 24): string {
@@ -61,7 +62,9 @@ function ResultRow({ r, query }: { r: MessageSearchResult; query: string }) {
     m.senderId === me ? 'You' : chat.type === 'group' && m.senderId ? nameOf(m.senderId) : null;
   return (
     <ListItem
-      onClick={() => navigate(messageLink(r.chat.id, m.seq, m.id))}
+      onClick={() =>
+        navigate(chatPath(r.chat, { seq: m.seq, messageId: m.id }), { state: IN_APP_NAV })
+      }
       leading={<ChatAvatar chat={chat} size="lg" />}
       title={chatTitle(chat, me)}
       meta={formatChatListTime(m.createdAt)}

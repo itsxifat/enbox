@@ -129,3 +129,42 @@ test('followers vote in polls; quick-only reactions and unfollow', async ({ brow
 
   await Promise.all([a.context.close(), b.context.close()]);
 });
+
+test('followers star posts from the feed; search results open the channel feed', async ({
+  browser,
+}) => {
+  const [alice, bob] = await Promise.all([registerUser(), registerUser()]);
+  const channel = await apiAs<{ id: string; name: string }>(alice, 'POST', '/api/channels', {
+    name: `Stars ${uniqueName('ch')}`,
+  });
+  const word = uniqueName('zephyr');
+  await apiAs(alice, 'POST', `/api/chats/${channel.id}/messages`, {
+    type: 'text',
+    clientId: randomUUID(),
+    text: `Launch notes ${word}`,
+  });
+  await apiAs(bob, 'PUT', `/api/channels/${channel.id}/follow`);
+
+  // Star from the feed (followers get the options button too).
+  const b = await openAs(browser, bob, `/updates/channels/${channel.id}`);
+  const post = b.page.getByTestId('channel-post').filter({ hasText: word });
+  await post.hover();
+  await post.getByRole('button', { name: 'Post options' }).click();
+  await b.page.getByRole('menuitem', { name: 'Star' }).click();
+
+  // Channel info → Starred messages lists it (GET /api/messages/starred?chatId=).
+  await b.page.getByRole('button', { name: 'Channel options' }).click();
+  await b.page.getByRole('menuitem', { name: 'Channel info' }).click();
+  const info = b.page.getByRole('dialog', { name: 'Channel info' });
+  await info.getByRole('button', { name: /Starred messages/ }).click();
+  await expect(info.getByText(`Launch notes ${word}`)).toBeVisible();
+
+  // Global message search: a channel post opens the channel feed at that post.
+  await b.page.goto('/chats');
+  await b.page.getByRole('searchbox', { name: 'Search chats and messages' }).fill(word);
+  await b.page.getByRole('button', { name: new RegExp(word) }).click();
+  await expect(b.page).toHaveURL(new RegExp(`/updates/channels/${channel.id}$`));
+  await expect(b.page.getByTestId('channel-feed').getByText(`Launch notes ${word}`)).toBeVisible();
+
+  await b.context.close();
+});

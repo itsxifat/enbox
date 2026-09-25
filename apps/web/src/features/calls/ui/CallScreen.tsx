@@ -62,6 +62,15 @@ export function CallScreen({ active }: { active: ActiveCall }) {
         ? (active.endReason ?? 'Call ended')
         : phaseLabel(phase, { outgoing: active.outgoing, isGroup: call.isGroup });
 
+  const spokenStatus =
+    phase === 'connected'
+      ? 'Connected'
+      : phase === 'reconnecting'
+        ? '' // the banner below announces it
+        : ended
+          ? (active.endReason ?? 'Call ended')
+          : phaseLabel(phase, { outgoing: active.outgoing, isGroup: call.isGroup });
+
   // Escape minimizes (only when no menu/dialog is open above the call: overlay stack).
   useOverlay(!ended, () => useCalls.getState().setMinimized(true));
   const root = useRef<HTMLDivElement>(null);
@@ -90,7 +99,7 @@ export function CallScreen({ active }: { active: ActiveCall }) {
       data-phase={phase}
       data-call-id={call.id || undefined}
       className={cn(
-        'fixed inset-0 z-[45] flex animate-fade-in flex-col text-white outline-none',
+        'fixed inset-0 z-[45] flex animate-fade-in flex-col text-white outline-none px-safe',
         CALL_BG,
       )}
     >
@@ -118,10 +127,14 @@ export function CallScreen({ active }: { active: ActiveCall }) {
                 <p
                   className="truncate text-[13px] text-white/75 tabular-nums"
                   data-testid={phase === 'connected' ? 'call-timer' : 'call-status'}
-                  aria-live="polite"
+                  role={duration ? 'timer' : undefined}
                 >
                   {status}
                 </p>
+                {/* Announce phase changes only: the ticking timer above is not a live region. */}
+                <span className="sr-only" aria-live="polite">
+                  {spokenStatus}
+                </span>
               </div>
               {call.isGroup ? (
                 <div className="flex items-center">

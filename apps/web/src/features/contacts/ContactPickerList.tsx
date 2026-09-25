@@ -90,7 +90,7 @@ export function ContactPickerList({
                     role="checkbox"
                     aria-checked={isSel}
                     onClick={() => onToggle(u, !isSel)}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                   >
                     {row}
                     <span
@@ -107,7 +107,7 @@ export function ContactPickerList({
                   <button
                     type="button"
                     onClick={() => onToggle(u, true)}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                   >
                     {row}
                   </button>

@@ -19,7 +19,7 @@ export function AppShell() {
   const desktop = useIsDesktop();
   const { detail, hideTabs } = useRouteHandle();
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-app text-fg">
+    <div className="flex h-dvh flex-col overflow-hidden bg-app px-safe text-fg">
       <ConnectionBanner />
       <div className="flex min-h-0 flex-1">
         {desktop ? <NavRail /> : null}

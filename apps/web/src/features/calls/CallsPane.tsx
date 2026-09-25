@@ -46,6 +46,7 @@ import {
   type LogFilter,
 } from './logic';
 import { CallChatAvatar, DirectionIcon, durationText, outcomeText, removeEntries } from './ui/log';
+import { canCallBack } from './callBack';
 
 export function CallsPane() {
   const navigate = useNavigate();
@@ -218,6 +219,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
   const time = formatRelativeShort(head.call.createdAt);
   const callBack = (type: 'audio' | 'video') =>
     void useCalls.getState().startCall(head.chat.id, type);
+  const callable = canCallBack(useChats((s) => s.byId[head.chat.id]));
 
   return (
     <>
@@ -269,19 +271,21 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
               </span>
             </span>
           </div>
-          <button
-            type="button"
-            aria-label={`${head.call.type === 'video' ? 'Video' : 'Voice'} call ${title}`}
-            title={`${head.call.type === 'video' ? 'Video' : 'Voice'} call`}
-            onClick={() => callBack(head.call.type)}
-            className="pointer-events-auto relative flex size-10 shrink-0 items-center justify-center rounded-full text-brand-ink transition-colors hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-brand"
-          >
-            {head.call.type === 'video' ? (
-              <Video size={21} aria-hidden />
-            ) : (
-              <Phone size={20} aria-hidden />
-            )}
-          </button>
+          {callable ? (
+            <button
+              type="button"
+              aria-label={`${head.call.type === 'video' ? 'Video' : 'Voice'} call ${title}`}
+              title={`${head.call.type === 'video' ? 'Video' : 'Voice'} call`}
+              onClick={() => callBack(head.call.type)}
+              className="pointer-events-auto relative flex size-10 shrink-0 items-center justify-center rounded-full text-brand-ink transition-colors hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-brand"
+            >
+              {head.call.type === 'video' ? (
+                <Video size={21} aria-hidden />
+              ) : (
+                <Phone size={20} aria-hidden />
+              )}
+            </button>
+          ) : null}
         </div>
       </div>
       <Menu
@@ -289,8 +293,8 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
         anchor={menu}
         onClose={() => setMenu(null)}
         items={[
-          { label: 'Voice call', icon: Phone, onSelect: () => callBack('audio') },
-          { label: 'Video call', icon: Video, onSelect: () => callBack('video') },
+          callable && { label: 'Voice call', icon: Phone, onSelect: () => callBack('audio') },
+          callable && { label: 'Video call', icon: Video, onSelect: () => callBack('video') },
           { label: 'Call info', onSelect: () => navigate(`/calls/${head.call.id}`) },
           'separator',
           {

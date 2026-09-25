@@ -15,6 +15,8 @@ import {
   Pencil,
   RotateCcw,
   SmilePlus,
+  Star,
+  StarOff,
   Trash2,
   UserRound,
 } from 'lucide-react';
@@ -37,7 +39,8 @@ import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
 import { fitWithin } from '@/lib/media';
 import { getMyId } from '@/stores/auth';
-import { useMessages, type ClientMessage } from '@/stores/messages';
+import type { ClientMessage } from '@/stores/messages';
+import { isActionable, retry, setStarred } from '@/features/conversation/actions';
 import { nameOf } from '@/stores/users';
 import { deletePost, editPost, reactToPost, voteInPoll } from './channelApi';
 import { ReactionPicker } from './ReactionPicker';
@@ -69,6 +72,8 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
   const canReact = ctx.reactions !== 'none' && !m.deletedAt && !m.pending && !m.failed && !!chat;
   const canEdit = !!chat && !m.pending && canEditMessage(m, chat, me);
   const canDelete = !!chat && !m.pending && canDeleteForEveryone(m, chat, me);
+  // Any follower can star a visible post (the channel info "Starred messages" page lists them).
+  const canStar = !!chat && isActionable(m) && !m.deletedAt;
   const text = m.text ? renderMentions(m.text, (id) => nameOf(id)) : '';
 
   const react = (emoji: string | null) => {
@@ -89,6 +94,11 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
       icon: Copy,
       onSelect: () => void copyText(text).then((ok) => ok && toast.success('Copied')),
     },
+    canStar && {
+      label: m.starred ? 'Unstar' : 'Star',
+      icon: m.starred ? StarOff : Star,
+      onSelect: () => void setStarred([m], !m.starred),
+    },
     canEdit && { label: 'Edit', icon: Pencil, onSelect: () => setEditing(true) },
     canDelete && {
       label: 'Delete for everyone',
@@ -106,8 +116,8 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
     },
   ];
   const hasMenu = items.some(Boolean);
-  // Admins get a visible options button; everyone can right-click / long-press.
-  const showMore = canEdit || canDelete;
+  // Followers get the options button too (Star, Copy text), not only admins (Edit, Delete).
+  const showMore = !!chat && hasMenu;
 
   const onContextMenu = (e: MouseEvent) => {
     if (!hasMenu) return;
@@ -120,6 +130,8 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
       className="group/post relative flex max-w-full flex-col items-start self-start"
       aria-label="Post"
       data-testid="channel-post"
+      data-message-id={m.id}
+      data-seq={m.seq || undefined}
     >
       <div className="flex max-w-full items-end gap-1.5">
         <div
@@ -152,12 +164,7 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
             {m.failed ? (
               <button
                 type="button"
-                onClick={() =>
-                  void useMessages
-                    .getState()
-                    .retryMessage(m.chatId, m.clientId!)
-                    .catch((e: unknown) => toast.error(e))
-                }
+                onClick={() => retry(m.chatId, m)}
                 className="flex items-center gap-1 font-medium text-danger"
               >
                 <AlertCircle size={12} aria-hidden /> Failed · Retry

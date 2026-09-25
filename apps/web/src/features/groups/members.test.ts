@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MemberRole } from '@enbox/shared';
-import { makeUser } from '@/test/factories';
-import { roleLabel, sortMembers } from './members';
+import { makeChat, makeUser } from '@/test/factories';
+import { canTransferGroupOwnership, roleLabel, sortMembers } from './members';
 import { MUTE_OPTIONS, muteUntil } from './shared/chatActions';
 
 const m = (name: string, role: MemberRole, id?: string) => ({
@@ -47,5 +47,17 @@ describe('mute durations', () => {
     expect(muteUntil('1w', now)).toBe('2025-03-08T10:00:00.000Z');
     expect(muteUntil('always', now)).toMatch(/^9999-/);
     expect(MUTE_OPTIONS.map((o) => o.value)).toEqual(['8h', '1w', 'always']);
+  });
+});
+
+describe('canTransferGroupOwnership', () => {
+  const owner = makeChat({ myRole: 'owner', membership: 'active', isAnnouncement: false });
+  it('lets the owner hand over a regular group to a live account', () => {
+    expect(canTransferGroupOwnership(owner, makeUser())).toBe(true);
+    expect(canTransferGroupOwnership(owner, makeUser({ isDeleted: true }))).toBe(false);
+    expect(canTransferGroupOwnership({ ...owner, myRole: 'admin' }, makeUser())).toBe(false);
+  });
+  it('is never offered in announcement groups (managed from the community)', () => {
+    expect(canTransferGroupOwnership({ ...owner, isAnnouncement: true }, makeUser())).toBe(false);
   });
 });

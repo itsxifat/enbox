@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BellOff, Phone, PhoneOff, Video, X } from 'lucide-react';
 import { chatTitle, userDisplayName, type IncomingCallPayload } from '@enbox/shared';
 import { Portal } from '@/components/ui';
+import { useFocusTrap } from '@/components/ui/overlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
 import { useCalls } from '@/stores/calls';
@@ -36,26 +37,44 @@ function describe(p: IncomingCallPayload) {
 const accept = () => void useCalls.getState().acceptIncoming();
 const decline = () => useCalls.getState().declineIncoming();
 
+/** Someone is typing: never move focus away from a text field (Enter/Space would answer). */
+function isEditing(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  return el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+}
+
 export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }) {
   const desktop = useIsDesktop();
   const d = describe(payload);
-  const acceptRef = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const declineRef = useRef<HTMLButtonElement>(null);
 
+  // Desktop: the card announces itself (alertdialog). Focus goes to the card itself — never
+  // to Accept, so a stray Enter/Space can't answer — and only when the user isn't typing.
   useEffect(() => {
     if (!desktop) return;
-    const raf = requestAnimationFrame(() => acceptRef.current?.focus({ preventScroll: true }));
+    const raf = requestAnimationFrame(() => {
+      if (!isEditing(document.activeElement)) cardRef.current?.focus({ preventScroll: true });
+    });
     return () => cancelAnimationFrame(raf);
   }, [payload.call.id, desktop]);
+
+  // Phone: the ringing screen covers the app, so keep keyboard / screen-reader focus inside it
+  // (starting on Decline) and give it back when the call UI goes away.
+  useFocusTrap(rootRef, !desktop, declineRef);
 
   if (desktop) {
     return (
       <Portal>
         <div
+          ref={cardRef}
+          tabIndex={-1}
           role="alertdialog"
           aria-label={`Incoming ${d.video ? 'video' : 'voice'} call from ${d.title}`}
           data-testid="incoming-call"
           className={cn(
-            'fixed top-5 right-5 z-[58] w-[360px] animate-slide-down overflow-hidden rounded-3xl text-white shadow-2xl ring-1 ring-white/10',
+            'fixed top-5 right-5 z-[58] w-[360px] animate-slide-down overflow-hidden rounded-3xl text-white shadow-2xl ring-1 ring-white/10 outline-none',
             CALL_BG,
           )}
         >
@@ -91,7 +110,6 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
               <PhoneOff size={18} aria-hidden /> Decline
             </button>
             <button
-              ref={acceptRef}
               type="button"
               onClick={accept}
               className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#22c55e] text-[15px] font-semibold hover:bg-[#16a34a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
@@ -107,10 +125,16 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
   return (
     <Portal>
       <div
+        ref={rootRef}
+        tabIndex={-1}
         role="alertdialog"
+        aria-modal="true"
         aria-label={`Incoming ${d.video ? 'video' : 'voice'} call from ${d.title}`}
         data-testid="incoming-call"
-        className={cn('fixed inset-0 z-[58] flex animate-fade-in flex-col text-white', CALL_BG)}
+        className={cn(
+          'fixed inset-0 z-[58] flex animate-fade-in flex-col text-white outline-none px-safe',
+          CALL_BG,
+        )}
       >
         <div className="flex flex-1 flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+64px)] text-center">
           <p className="flex items-center gap-1.5 text-[14px] text-white/70">
@@ -142,6 +166,7 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
         </div>
         <div className="flex items-start justify-around px-10 pt-6 pb-[max(48px,calc(env(safe-area-inset-bottom)+32px))]">
           <CallButton
+            ref={declineRef}
             icon={PhoneOff}
             label="Decline"
             caption="Decline"
@@ -150,7 +175,6 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
             onClick={decline}
           />
           <CallButton
-            ref={acceptRef}
             icon={d.video ? Video : Phone}
             label="Accept"
             caption="Accept"

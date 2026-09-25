@@ -6,8 +6,8 @@
  *   (read receipts / unread suppression) like the conversation view.
  * - Anyone else: a preview (GET /api/channels/:id → header + recent posts) with Follow.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   Bell,
   BellOff,
@@ -64,12 +64,39 @@ export function ChannelPane() {
   return <ChannelPreviewView key={chatId} chatId={chatId} />;
 }
 
+/** A post to scroll to (search results, starred messages: `?m=<seq>&mid=<id>`). */
+export interface FeedJump {
+  seq: number;
+  messageId?: string;
+}
+
+function jumpFromParams(params: URLSearchParams): FeedJump | null {
+  const seq = Number(params.get('m'));
+  if (!Number.isInteger(seq) || seq <= 0) return null;
+  return { seq, messageId: params.get('mid') ?? undefined };
+}
+
+function findPost(root: HTMLElement, t: FeedJump): HTMLElement | null {
+  if (t.messageId) {
+    const el = root.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(t.messageId)}"]`);
+    if (el) return el;
+  }
+  const posts = Array.from(root.querySelectorAll<HTMLElement>('[data-seq]'));
+  return posts.find((el) => Number(el.dataset.seq) >= t.seq) ?? null;
+}
+
 function Feed({
   items,
   ctx,
   hasMore,
   loadingMore,
   onLoadMore,
+  hasMoreAfter = false,
+  loadingNewer = false,
+  onLoadNewer,
+  onLatest,
+  jump,
+  onJumped,
   empty,
 }: {
   items: ClientMessage[];
@@ -77,11 +104,20 @@ function Feed({
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore?: () => void;
+  /** The loaded window ends before the newest post (after a jump). */
+  hasMoreAfter?: boolean;
+  loadingNewer?: boolean;
+  onLoadNewer?: () => void;
+  /** "Scroll to latest" when newer posts aren't loaded. */
+  onLatest?: () => void;
+  jump?: FeedJump | null;
+  onJumped?: () => void;
   empty?: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
+  const bottom = useRef<HTMLDivElement>(null);
+  const stick = useRef(!jump);
   const [far, setFar] = useState(false);
   const prevHeight = useRef(0);
   const lastId = items[items.length - 1]?.id;
@@ -100,6 +136,23 @@ function Feed({
     prevHeight.current = el.scrollHeight;
   }, [lastId, firstId, items.length]);
 
+  // Scroll to the linked post once it is rendered, and flash it.
+  useLayoutEffect(() => {
+    const root = scroller.current;
+    if (!jump || !root || !items.length) return;
+    const el = findPost(root, jump);
+    if (!el) return;
+    stick.current = false;
+    el.scrollIntoView?.({ block: 'center' });
+    prevHeight.current = root.scrollHeight;
+    const bubble = el.querySelector<HTMLElement>('[id^="post-"]') ?? el;
+    bubble.animate?.(
+      [{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }],
+      { duration: 1600, easing: 'ease-out' },
+    );
+    onJumped?.();
+  }, [jump, items, onJumped]);
+
   useEffect(() => {
     const el = top.current;
     if (!el || !hasMore || !onLoadMore) return;
@@ -109,6 +162,16 @@ function Feed({
     io.observe(el);
     return () => io.disconnect();
   }, [hasMore, onLoadMore]);
+
+  useEffect(() => {
+    const el = bottom.current;
+    if (!el || !hasMoreAfter || !onLoadNewer) return;
+    const io = new IntersectionObserver((e) => {
+      if (e[0]?.isIntersecting) onLoadNewer();
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMoreAfter, onLoadNewer]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -138,9 +201,12 @@ function Feed({
               ) : null;
             return <FeedItem key={m.id} day={day} m={m} ctx={ctx} />;
           })}
+          <div ref={bottom} className="flex justify-center text-brand-ink">
+            {loadingNewer ? <Spinner size={18} /> : null}
+          </div>
         </div>
       </div>
-      {far ? (
+      {far || hasMoreAfter ? (
         <IconButton
           icon={ChevronDown}
           label="Scroll to latest"
@@ -148,6 +214,8 @@ function Feed({
           size="md"
           className="absolute right-4 bottom-4 animate-pop shadow-elevated"
           onClick={() => {
+            stick.current = true;
+            if (hasMoreAfter && onLatest) return onLatest();
             const el = scroller.current;
             if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
           }}
@@ -189,6 +257,11 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
   const [info, setInfo] = useState(false);
   const muted = isMuted(chat.mutedUntil);
   const admin = chat.permissions.canSend;
+  const [params, setParams] = useSearchParams();
+  const [jump, setJump] = useState<FeedJump | null>(null);
+  /** A `?m=` link is loading its window: don't load the latest page over it. */
+  const jumping = useRef(false);
+  const onJumped = useCallback(() => setJump(null), []);
 
   useEffect(() => {
     useChats.getState().setOpenChat(chat.id);
@@ -197,8 +270,37 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
     };
   }, [chat.id]);
 
+  // `?m=<seq>&mid=<id>` (search results, starred): load that post's window, then scroll to it.
+  const target = jumpFromParams(params);
+  const targetKey = target ? `${target.seq}:${target.messageId ?? ''}` : null;
   useEffect(() => {
-    if (!msgs.loaded && !msgs.loadingLatest && !msgs.error)
+    if (!target) return;
+    const next = new URLSearchParams(params);
+    next.delete('m');
+    next.delete('mid');
+    setParams(next, { replace: true });
+    const s = useMessages.getState().byChat[chat.id];
+    const loaded = s?.items.some(
+      (m) => m.id === target.messageId || (m.seq === target.seq && m.seq > 0),
+    );
+    if (loaded) {
+      setJump(target);
+      return;
+    }
+    jumping.current = true;
+    void useMessages
+      .getState()
+      .loadAround(chat.id, target.seq)
+      .then(() => setJump(target))
+      .catch((e: unknown) => toast.error(e))
+      .finally(() => {
+        jumping.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetKey, chat.id]);
+
+  useEffect(() => {
+    if (!msgs.loaded && !msgs.loadingLatest && !msgs.error && !jumping.current)
       void useMessages
         .getState()
         .loadLatest(chat.id)
@@ -322,6 +424,22 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
               .loadOlder(chat.id)
               .catch(() => undefined)
           }
+          hasMoreAfter={msgs.hasMoreAfter && msgs.loaded}
+          loadingNewer={msgs.loadingAfter}
+          onLoadNewer={() =>
+            void useMessages
+              .getState()
+              .loadNewer(chat.id)
+              .catch(() => undefined)
+          }
+          onLatest={() =>
+            void useMessages
+              .getState()
+              .loadLatest(chat.id)
+              .catch(() => undefined)
+          }
+          jump={jump}
+          onJumped={onJumped}
         />
       )}
       {admin ? (

@@ -52,7 +52,7 @@ export function AboutPage() {
                   aria-pressed={selected}
                   className={cn(
                     'flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-left text-[15.5px] text-fg hover:bg-hover lg:px-5',
-                    'outline-none focus-visible:bg-hover',
+                    'outline-none focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
                   )}
                 >
                   <span className="min-w-0 flex-1">{p}</span>

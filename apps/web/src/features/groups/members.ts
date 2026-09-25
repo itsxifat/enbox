@@ -3,7 +3,13 @@
  * `chat:members-changed` (and reconnects), and sort WhatsApp-style (you, owner, admins, A→Z).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { userDisplayName, type ChatMember, type ID, type MemberRole } from '@enbox/shared';
+import {
+  userDisplayName,
+  type ChatMember,
+  type ChatSummary,
+  type ID,
+  type MemberRole,
+} from '@enbox/shared';
 import { useBus } from '@/hooks/useBus';
 import { errorMessage } from '@/lib/api';
 import { fetchMembers } from './shared/chatActions';
@@ -24,6 +30,22 @@ export function sortMembers<T extends { user: ChatMember['user']; role: MemberRo
       sensitivity: 'base',
     });
   });
+}
+
+/**
+ * "Make X the group owner": owners only, never for a deleted account, and not in a
+ * community's announcement group (managed from the community: the server answers 403).
+ */
+export function canTransferGroupOwnership(
+  chat: Pick<ChatSummary, 'myRole' | 'isAnnouncement' | 'membership'>,
+  user: Pick<ChatMember['user'], 'isDeleted'>,
+): boolean {
+  return (
+    chat.membership === 'active' &&
+    chat.myRole === 'owner' &&
+    !chat.isAnnouncement &&
+    !user.isDeleted
+  );
 }
 
 export function roleLabel(

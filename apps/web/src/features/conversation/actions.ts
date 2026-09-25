@@ -62,6 +62,59 @@ export function canReact(chat: ChatSummary, m: ClientMessage): boolean {
   return true;
 }
 
+/** Reply (menu, swipe): the server refuses replies to system and call messages. */
+export function canReply(chat: ChatSummary, m: ClientMessage): boolean {
+  return (
+    isActionable(m) &&
+    !m.deletedAt &&
+    m.type !== 'system' &&
+    m.type !== 'call' &&
+    chat.permissions.canSend &&
+    chat.membership === 'active'
+  );
+}
+
+/** What we know about the sender of a group message, for the private actions below. */
+export interface SenderInfo {
+  /** The sender's account was deleted (cached profile). */
+  deleted: boolean;
+  /** Whether the sender is still an active member; null when the member list isn't loaded. */
+  member: boolean | null;
+}
+
+function otherGroupSender(chat: ChatSummary, m: ClientMessage, meId: ID | null | undefined) {
+  return chat.type === 'group' && !!m.senderId && m.senderId !== meId && isActionable(m);
+}
+
+/**
+ * "Reply privately": the server accepts a private reply only while both the sender and I
+ * are active members of the group (and the sender's account exists).
+ */
+export function canReplyPrivately(
+  chat: ChatSummary,
+  m: ClientMessage,
+  meId: ID | null | undefined,
+  sender: SenderInfo,
+): boolean {
+  return (
+    otherGroupSender(chat, m, meId) &&
+    !m.deletedAt &&
+    chat.membership === 'active' &&
+    !sender.deleted &&
+    sender.member !== false
+  );
+}
+
+/** "Message X": opening a direct chat with a deleted account fails. */
+export function canMessageSender(
+  chat: ChatSummary,
+  m: ClientMessage,
+  meId: ID | null | undefined,
+  sender: SenderInfo,
+): boolean {
+  return otherGroupSender(chat, m, meId) && !sender.deleted;
+}
+
 export function canForward(m: ClientMessage): boolean {
   return isActionable(m) && !m.deletedAt && m.type !== 'system' && m.type !== 'call';
 }

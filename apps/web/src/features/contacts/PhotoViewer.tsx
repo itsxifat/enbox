@@ -30,7 +30,7 @@ export function PhotoViewer({ open, onClose, src, title, subtitle, video }: Phot
         aria-modal="true"
         aria-label={`${title} photo`}
         tabIndex={-1}
-        className="fixed inset-0 z-[70] flex animate-fade-in flex-col bg-black/92 text-white outline-none"
+        className="fixed inset-0 z-[70] flex animate-fade-in flex-col bg-black/92 text-white outline-none px-safe"
       >
         <div className="flex h-16 shrink-0 items-center gap-3 px-3 pt-safe">
           <div className="min-w-0 flex-1 pl-2">

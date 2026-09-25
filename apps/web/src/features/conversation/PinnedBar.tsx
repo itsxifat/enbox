@@ -21,24 +21,32 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
   const known = useChats((s) => s.pins[chat.id] !== undefined);
   const items = useMessages((s) => s.byChat[chat.id]?.items);
   const [fetched, setFetched] = useState<Message[]>([]);
+  const [synced, setSynced] = useState(false);
   const [index, setIndex] = useState(0);
   const active = chat.membership === 'active';
 
-  // Seed on open and refetch whenever the pinned set changes to one we can't render.
+  // The cached ids may be stale (pins changed while this chat wasn't open, or offline): load
+  // the list once per open, and again whenever the pinned set has ids we can't render.
+  // Former members get [] from the server (and no bar).
   const missing = ids.some((id) => !fetched.some((m) => m.id === id));
+  const needFetch = !synced || !known || missing;
+  const idsKey = ids.join(',');
   useEffect(() => {
-    if (!active || (known && !missing)) return;
+    if (!needFetch) return;
     let cancelled = false;
+    const before = useChats.getState().pins[chat.id];
     api
       .get<Message[]>(`/api/chats/${chat.id}/pins`)
       .then((list) => {
         if (cancelled) return;
         setFetched(list);
+        setSynced(true);
         void useUsers
           .getState()
           .fetchUsers(list.map((m) => m.senderId).filter((x): x is string => !!x))
           .catch(() => undefined);
-        if (!known)
+        // A chat:pins that arrived during the request is newer than this list: keep it.
+        if (useChats.getState().pins[chat.id] === before)
           useChats.getState().setPins(
             chat.id,
             list.map((m) => m.id),
@@ -48,7 +56,7 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
     return () => {
       cancelled = true;
     };
-  }, [chat.id, active, known, missing]);
+  }, [chat.id, needFetch, idsKey]);
 
   const pins = useMemo(
     () =>
@@ -85,7 +93,7 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
           useConversationUi.getState().requestJump(chat.id, m.seq, m.id);
           setIndex((x) => x + 1);
         }}
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left outline-none hover:bg-hover focus-visible:bg-hover"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
         aria-label={`Pinned message ${i + 1} of ${pins.length}. Go to message`}
       >
         <Pin size={16} className="shrink-0 rotate-45 text-muted" aria-hidden />

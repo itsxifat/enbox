@@ -60,6 +60,11 @@ import { MediaGalleryView } from '@/features/groups/shared/MediaGallery';
 import { RichText } from '@/features/groups/shared/RichText';
 import { afterPaint, shareLink } from '@/features/groups/shared/share';
 import { StarredView } from '@/features/groups/shared/StarredView';
+import {
+  mediaTotal,
+  useChatMediaCounts,
+  useStarredCount,
+} from '@/features/groups/shared/mediaCounts';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { formatCount, formatShortDate } from '@/lib/format';
 import { getMyId } from '@/stores/auth';
@@ -139,6 +144,8 @@ function ChannelInfoMain({
   const desktop = useIsDesktop();
   const navigate = useNavigate();
   const p = chat.permissions;
+  const mediaCounts = useChatMediaCounts(chat.id);
+  const starredCount = useStarredCount(chat.id);
   const owner = chat.myRole === 'owner';
   const isPublic = chat.channelSettings?.isPublic ?? false;
   const muted = isMuted(chat.mutedUntil);
@@ -284,7 +291,7 @@ function ChannelInfoMain({
               <button
                 type="button"
                 onClick={() => setEdit('description')}
-                className="block w-full px-5 py-2 text-left hover:bg-hover"
+                className="block w-full px-5 py-2 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
               >
                 <span className="text-[15px] font-medium text-brand-ink">
                   Add channel description
@@ -298,8 +305,18 @@ function ChannelInfoMain({
         ) : null}
 
         <InfoSection>
-          <InfoRow icon={ImageIcon} label="Media, links and docs" onClick={() => go('media')} />
-          <InfoRow icon={Star} label="Starred messages" onClick={() => go('starred')} />
+          <InfoRow
+            icon={ImageIcon}
+            label="Media, links and docs"
+            value={mediaCounts ? String(mediaTotal(mediaCounts)) : undefined}
+            onClick={() => go('media')}
+          />
+          <InfoRow
+            icon={Star}
+            label="Starred messages"
+            value={starredCount ? String(starredCount) : undefined}
+            onClick={() => go('starred')}
+          />
         </InfoSection>
 
         <InfoSection>

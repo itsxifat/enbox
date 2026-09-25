@@ -20,7 +20,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
   soft: 'bg-brand-soft text-brand-ink hover:brightness-[0.97] dark:hover:brightness-110',
   outline: 'border border-line-strong bg-transparent text-brand-ink hover:bg-hover',
   ghost: 'bg-transparent text-fg hover:bg-hover',
-  danger: 'bg-danger text-white shadow-sm hover:brightness-110 active:brightness-95',
+  danger: 'bg-danger-fill text-white shadow-sm hover:brightness-110 active:brightness-95',
 };
 
 const SIZES: Record<ButtonSize, string> = {
@@ -99,7 +99,7 @@ const ICON_BTN_VARIANTS: Record<IconButtonVariant, string> = {
   ghost: 'text-muted hover:bg-hover hover:text-fg',
   solid: 'bg-surface-2 text-fg hover:bg-line',
   brand: 'bg-brand text-on-brand shadow-sm hover:bg-brand-strong',
-  danger: 'bg-danger text-white shadow-sm hover:brightness-110',
+  danger: 'bg-danger-fill text-white shadow-sm hover:brightness-110',
   success: 'bg-success text-white shadow-sm hover:brightness-110',
   /** Translucent, for use over media / call video. */
   glass: 'bg-black/35 text-white backdrop-blur hover:bg-black/50',

@@ -112,7 +112,7 @@ export function MediaPreviewDialog({
         aria-modal="true"
         aria-label="Send photos and videos"
         tabIndex={-1}
-        className="fixed inset-0 z-50 flex animate-fade-in flex-col bg-[#0b0b10] text-white outline-none"
+        className="fixed inset-0 z-50 flex animate-fade-in flex-col bg-[#0b0b10] text-white outline-none px-safe"
       >
         <header className="flex h-16 shrink-0 items-center gap-2 px-2 pt-safe">
           <IconButton icon={X} label="Cancel" variant="glass" onClick={onClose} />

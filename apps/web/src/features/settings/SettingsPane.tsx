@@ -20,7 +20,7 @@ export function SettingsPane() {
             to="/settings/profile"
             aria-current={section === 'profile' ? 'page' : undefined}
             className={cn(
-              'mx-2 mb-2 flex items-center gap-4 rounded-2xl px-3 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover',
+              'mx-2 mb-2 flex items-center gap-4 rounded-2xl px-3 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
               section === 'profile' && 'bg-selected hover:bg-selected',
             )}
             data-testid="settings-profile-card"
@@ -45,7 +45,7 @@ export function SettingsPane() {
                   to={`/settings/${s.id}`}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'flex items-center gap-4 rounded-xl px-3 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover',
+                    'flex items-center gap-4 rounded-xl px-3 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
                     active && 'bg-selected hover:bg-selected',
                   )}
                 >
@@ -69,7 +69,7 @@ export function SettingsPane() {
             <button
               type="button"
               onClick={() => void confirmLogout()}
-              className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover"
+              className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
             >
               <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
                 <LogOut size={20} strokeWidth={1.8} aria-hidden />

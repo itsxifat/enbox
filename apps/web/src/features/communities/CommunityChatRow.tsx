@@ -9,6 +9,7 @@ import { formatChatListTime } from '@/lib/format';
 import { getMyId } from '@/stores/auth';
 import { isChatUnread, useChat } from '@/stores/chats';
 import { nameOf, useUsers } from '@/stores/users';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 
 export function CommunityChatRow({
   chatId,
@@ -123,7 +124,12 @@ export function CommunityChatRow({
   );
   if (end) return <div className={classes}>{body}</div>;
   return (
-    <Link to={`/chats/${chatId}`} className={cn(classes, 'hover:bg-hover focus-visible:bg-hover')}>
+    // Tagged in-app: the chat's Back arrow returns to this community page, not the chat list.
+    <Link
+      to={`/chats/${chatId}`}
+      state={IN_APP_NAV}
+      className={cn(classes, 'hover:bg-hover focus-visible:bg-hover')}
+    >
       {body}
     </Link>
   );

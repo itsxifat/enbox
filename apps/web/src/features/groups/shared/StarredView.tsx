@@ -1,4 +1,4 @@
-/** Starred messages of one chat (filtered from `GET /api/messages/starred`). */
+/** Starred messages of one chat (`GET /api/messages/starred?chatId=`). */
 import { useEffect, useState } from 'react';
 import { Star } from 'lucide-react';
 import {
@@ -10,10 +10,11 @@ import {
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { EmptyState, ListItemSkeleton } from '@/components/ui';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { formatChatListTime } from '@/lib/format';
 import { getMyId } from '@/stores/auth';
 import { nameOf, useUsers } from '@/stores/users';
+import { fetchStarred } from './mediaCounts';
 
 export function StarredView({ chat, onBack }: { chat: ChatSummary; onBack: () => void }) {
   const [items, setItems] = useState<MessageSearchResult[] | null>(null);
@@ -23,11 +24,9 @@ export function StarredView({ chat, onBack }: { chat: ChatSummary; onBack: () =>
 
   useEffect(() => {
     let alive = true;
-    api
-      .get<MessageSearchResult[]>('/api/messages/starred')
-      .then((list) => {
+    fetchStarred(chat.id)
+      .then((mine) => {
         if (!alive) return;
-        const mine = list.filter((r) => r.chat.id === chat.id);
         const ids = mine.map((r) => r.message.senderId).filter((x): x is string => !!x);
         void useUsers
           .getState()

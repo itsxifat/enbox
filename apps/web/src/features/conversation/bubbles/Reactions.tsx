@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
 import type { ClientMessage } from '@/stores/messages';
 import { useUserName } from '@/stores/users';
-import { react } from '../actions';
+import { canReact, react } from '../actions';
 
 export function ReactionPill({
   reactions,
@@ -101,6 +101,8 @@ export function ReactionsDialog({
     return out.sort((a, b) => (a.userId === me ? -1 : b.userId === me ? 1 : 0));
   }, [m.reactions, me]);
   const shown = tab === 'all' ? entries : entries.filter((e) => e.emoji === tab);
+  // Former members (and anyone else who can't react any more) can't remove theirs either.
+  const removable = canReact(chat, m);
   return (
     <Modal
       open={open}
@@ -136,7 +138,7 @@ export function ReactionsDialog({
               userId={e.userId}
               emoji={e.emoji}
               onRemove={
-                e.userId === me
+                e.userId === me && removable
                   ? () => {
                       onClose();
                       void react(chat, m, null);

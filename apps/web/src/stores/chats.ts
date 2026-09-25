@@ -157,7 +157,13 @@ export const useChats = create<ChatsState>((set, get) => ({
   patchChat(id, partial) {
     const current = get().byId[id];
     if (!current) return;
-    set((s) => ({ byId: { ...s.byId, [id]: { ...current, ...partial } } }));
+    const merged = { ...current, ...partial };
+    // A direct chat's permissions derive from its peer (deleted / blocked): `user:changed`
+    // and block syncs patch only `peer`, with no chat:upsert, so recompute them here.
+    if ('peer' in partial && !('permissions' in partial) && merged.type === 'direct') {
+      merged.permissions = computeChatPermissions(merged, useAuth.getState().user?.id ?? '');
+    }
+    set((s) => ({ byId: { ...s.byId, [id]: merged } }));
   },
 
   applyChatUpdate(id, changes) {
