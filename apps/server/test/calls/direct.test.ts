@@ -345,25 +345,61 @@ describe('calls: 1:1 signaling', () => {
     await until(() => ra1.of('call:ended').length === 1, 3000, 'ended');
   });
 
-  it('call:rejoin from the same session takes over even while the old socket is connected', async () => {
+  it('call:rejoin from the same session is refused (409) while the call socket is still connected — a second tab cannot steal the call', async () => {
     const { alice, bob, chatId } = await pair();
     const a1 = await t.connect(alice);
     const b1 = await t.connect(bob);
     const ra1 = recordEvents(a1);
     const call = await ackCall(a1, 'call:start', { chatId, type: 'audio' });
     await ackCall(b1, 'call:accept', { callId: call.id });
-    const b1bis = await t.connect(bob); // same token → same session (page reload)
+    const b1bis = await t.connect(bob); // same token → same session (second tab)
     const [rb1, rb1bis] = [b1, b1bis].map(recordEvents);
     ra1.clear();
-    await ackCall(b1bis, 'call:rejoin', { callId: call.id });
-    await until(() => ra1.of('call:participant-joined').length === 1, 3000, 'participant-joined');
+
+    const err = await ackError(b1bis, 'call:rejoin', { callId: call.id, videoOff: false });
+    expect(err.code).toBe('conflict');
+    // Nothing changed: no newcomer, the call socket and its media state stay with the first tab.
+    await settle(150);
+    expect(ra1.of('call:participant-joined')).toHaveLength(0);
+    expect(ra1.of('call:updated')).toHaveLength(0);
+    expect(await partOf(call.id, bob.id)).toMatchObject({ status: 'joined', sessionId: bob.sessionId, disconnectedAt: null, videoOff: true });
     send(a1, 'call:signal', { callId: call.id, toUserId: bob.id, signal: { type: 'offer', sdp: 'x' } });
-    await until(() => rb1bis.of('call:signal').length === 1, 3000, 'signal');
-    expect(rb1.of('call:signal')).toHaveLength(0);
-    // The old socket going away does not affect the call.
+    await until(() => rb1.of('call:signal').length === 1, 3000, 'signal to the call socket');
+    expect(rb1bis.of('call:signal')).toHaveLength(0);
+    // The call socket itself may re-send call:rejoin (idempotent, nothing emitted).
+    expect((await ackCall(b1, 'call:rejoin', { callId: call.id })).status).toBe('ongoing');
+    await settle(100);
+    expect(ra1.of('call:participant-joined')).toHaveLength(0);
+
+    send(b1, 'call:leave', { callId: call.id });
+    await until(async () => (await callRow(call.id)).status === 'ended', 3000, 'ended');
+  });
+
+  it('call:rejoin from the same session is allowed once the call socket is gone (within the grace)', async () => {
+    const { alice, bob, chatId } = await pair();
+    const a1 = await t.connect(alice);
+    const b1 = await t.connect(bob);
+    const ra1 = recordEvents(a1);
+    const call = await ackCall(a1, 'call:start', { chatId, type: 'audio' });
+    await ackCall(b1, 'call:accept', { callId: call.id });
+    const b1bis = await t.connect(bob); // same session: e.g. the reloaded page
+    const rb1bis = recordEvents(b1bis);
+    expect((await ackError(b1bis, 'call:rejoin', { callId: call.id })).code).toBe('conflict');
+
+    ra1.clear();
     b1.disconnect();
-    await settle(250);
-    expect((await partOf(call.id, bob.id)).disconnectedAt).toBeNull();
+    await until(async () => (await partOf(call.id, bob.id)).disconnectedAt !== null, 3000, 'disconnected_at');
+    const rejoined = await ackCall(b1bis, 'call:rejoin', { callId: call.id, videoOff: false });
+    expect(rejoined.participants.find((p) => p.userId === bob.id)).toMatchObject({ status: 'joined', videoOff: false });
+    await until(() => ra1.of('call:participant-joined').length === 1, 3000, 'participant-joined');
+    expect(ra1.of('call:participant-joined')[0]).toEqual({ callId: call.id, userId: bob.id });
+    expect(await partOf(call.id, bob.id)).toMatchObject({ disconnectedAt: null, sessionId: bob.sessionId });
+    send(a1, 'call:signal', { callId: call.id, toUserId: bob.id, signal: { type: 'offer', sdp: 'x' } });
+    await until(() => rb1bis.of('call:signal').length === 1, 3000, 'signal to the new call socket');
+    // The new call socket holds it now: a third tab of the same session is refused in turn.
+    const b1ter = await t.connect(bob);
+    expect((await ackError(b1ter, 'call:rejoin', { callId: call.id })).code).toBe('conflict');
+    await settle(150);
     expect((await callRow(call.id)).status).toBe('ongoing');
     send(b1bis, 'call:leave', { callId: call.id });
     await until(async () => (await callRow(call.id)).status === 'ended', 3000, 'ended');

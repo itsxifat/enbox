@@ -167,8 +167,14 @@ export interface ServerToClientEvents {
   // --- Status (user:<id> of the audience / author) ---
   'status:new': (payload: { status: Status; user: UserPublic }) => void;
   'status:deleted': (payload: { statusId: ID; userId: ID }) => void;
-  /** To the author: someone viewed (or reacted to) a status (not for viewers with read receipts off). */
-  'status:viewed': (payload: { statusId: ID; viewer: StatusViewer }) => void;
+  /**
+   * To the author: someone viewed (or reacted to) a status (not for viewers with read
+   * receipts off). `firstView`: this event records a NEW view (a first view, or a reaction
+   * without a prior view) — false when it only updates the reaction of an existing view, so
+   * clients add the viewer on true and replace their entry on false. `viewCount`: the
+   * status's current `Status.viewCount` (views counted by the read-receipts rule).
+   */
+  'status:viewed': (payload: { statusId: ID; viewer: StatusViewer; firstView: boolean; viewCount: number }) => void;
 
   // --- Calls ---
   /**
@@ -233,8 +239,12 @@ export interface ClientToServerEvents {
   'call:join': (payload: CallJoinPayload, ack: AckFn<{ call: Call }>) => void;
   /**
    * Reclaim my call after a reconnect/reload (my participant is `joined` and its call socket
-   * disconnected less than CALL_RECONNECT_GRACE_MS ago, or it is this same session). Acts as
-   * a newcomer: peers get `call:participant-joined`, I offer to everyone joined.
+   * disconnected less than CALL_RECONNECT_GRACE_MS ago, or it is this same session). Only
+   * once the previous call socket is gone: while it is still connected → ack `conflict`
+   * (another device, or another tab sharing this session's token, can't take the call over;
+   * a reloaded page retries until the server has seen its old socket close). From the call
+   * socket itself: an idempotent no-op. Acts as a newcomer: peers get
+   * `call:participant-joined`, I offer to everyone joined.
    */
   'call:rejoin': (payload: CallJoinPayload, ack: AckFn<{ call: Call }>) => void;
   /** Leave (or cancel, if I started it and it is still ringing). Call socket only. */

@@ -4,12 +4,13 @@
  * Normative: docs/ARCHITECTURE.md "Chats", "Permissions matrix", mutation → event matrix.
  * Built on the domain primitives in src/services (see services/README.md).
  */
-import { and, asc, count, desc, eq, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
   MAX_PINNED_CHATS,
   MAX_PINNED_MESSAGES,
   directChatKey,
+  type ChatMediaCounts,
   type ChatMember,
   type ChatSummary,
   type Message,
@@ -43,6 +44,7 @@ import { getUserRow, requireUser, settingsOf, toUserPublicMap } from '../../serv
 
 export type ChatPrefsPatch = z.output<typeof updateChatPrefsSchema>;
 export type ChatMediaQuery = z.output<typeof chatMediaQuerySchema>;
+export type ChatMediaKind = ChatMediaQuery['kind'];
 /** The chat part of a `MessageSearchResult` (search, starred list). */
 export type ChatPreview = MessageSearchResult['chat'];
 
@@ -294,7 +296,10 @@ export async function listMembers(me: string, chatId: string): Promise<ChatMembe
 /** Messages containing a link (`http(s)://…` or `www.…`). */
 const LINK_PATTERN = '(https?://|www\\.)[^[:space:]]+';
 
-function mediaKindCondition(kind: ChatMediaQuery['kind']): SQL {
+/** The gallery kinds, in `ChatMediaCounts` order. */
+const MEDIA_KINDS: readonly ChatMediaKind[] = ['media', 'docs', 'links', 'voice'];
+
+function mediaKindCondition(kind: ChatMediaKind): SQL {
   switch (kind) {
     case 'media':
       return and(inArray(messages.type, ['image', 'video']), sql`${messages.mediaId} is not null`)!;
@@ -308,6 +313,14 @@ function mediaKindCondition(kind: ChatMediaQuery['kind']): SQL {
 }
 
 /**
+ * THE gallery condition (list and counts): messages of the chat visible to the viewer
+ * (former members: their window), not deleted, of `kind`.
+ */
+function chatMediaWhere(access: ChatAccess, kind: SQL): SQL {
+  return and(eq(messages.chatId, access.chat.id), visibleTo(access.window), isNull(messages.deletedAt), kind)!;
+}
+
+/**
  * `GET /chats/:chatId/media`: the shared-media gallery, newest first (`before` = exclusive
  * seq cursor; fewer than `limit` results = end). Kinds: `media` = images/videos, `docs` =
  * files and audio files, `voice` = voice notes, `links` = messages whose text/caption has a
@@ -318,18 +331,25 @@ export async function listChatMedia(me: string, chatId: string, query: ChatMedia
   const rows = await db
     .select()
     .from(messages)
-    .where(
-      and(
-        eq(messages.chatId, chatId),
-        visibleTo(access.window),
-        isNull(messages.deletedAt),
-        mediaKindCondition(query.kind),
-        query.before !== undefined ? lt(messages.seq, query.before) : undefined,
-      ),
-    )
+    .where(and(chatMediaWhere(access, mediaKindCondition(query.kind)), query.before !== undefined ? lt(messages.seq, query.before) : undefined))
     .orderBy(desc(messages.seq))
     .limit(query.limit);
   return toMessages(db, me, rows, { chatTypes: new Map([[chatId, access.chat.type]]) });
+}
+
+/**
+ * `GET /chats/:chatId/media/counts`: per kind, how many messages `GET /chats/:chatId/media`
+ * would list in total (same conditions; a message may count in two kinds, e.g. an image
+ * whose caption has a link). One query.
+ */
+export async function chatMediaCounts(me: string, chatId: string): Promise<ChatMediaCounts> {
+  const access = await getChatAccess(db, me, chatId);
+  const countOf = (kind: ChatMediaKind) => sql<number>`(count(*) filter (where ${mediaKindCondition(kind)}))::int`.mapWith(Number);
+  const [row] = await db
+    .select({ media: countOf('media'), docs: countOf('docs'), links: countOf('links'), voice: countOf('voice') })
+    .from(messages)
+    .where(chatMediaWhere(access, or(...MEDIA_KINDS.map(mediaKindCondition))!));
+  return { media: row?.media ?? 0, docs: row?.docs ?? 0, links: row?.links ?? 0, voice: row?.voice ?? 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -352,9 +372,15 @@ async function visiblePins(dbx: DbOrTx, viewerId: string, access: ChatAccess): P
   );
 }
 
-/** `GET /chats/:chatId/pins` (active members; former → 403 not_member). */
+/**
+ * `GET /chats/:chatId/pins`: the pinned messages visible to me (404 without a non-hidden
+ * row). Former members get `[]`: pins are live chat state, and they stopped receiving
+ * `chat:pins` when they left the room — showing today's pins would reveal pin changes made
+ * after they left (even on messages inside their window).
+ */
 export async function listPins(me: string, chatId: string): Promise<Message[]> {
-  const access = await requireActiveMember(db, me, chatId);
+  const access = await getChatAccess(db, me, chatId);
+  if (access.membership !== 'active') return [];
   return visiblePins(db, me, access);
 }
 

@@ -71,8 +71,10 @@ apps/web/src/
 - **Routes**: register literal segments before param routes (`/users/search`,
   `/users/by-username/:username`, `/users/batch`, `/users/presence` before `/users/:userId`;
   `/messages/starred`, `/messages/forward` before `/messages/:messageId`; `/channels/discover`
-  before `/channels/:chatId`; `/calls/active`, `/calls/ice-servers` before `/calls/:callId`).
-  `ApiRoutes` lists every endpoint in that order.
+  before `/channels/:chatId`; `/calls/active`, `/calls/ice-servers` before `/calls/:callId`;
+  `/chats/:chatId/media/counts` before `/chats/:chatId/media`). `ApiRoutes` lists every
+  endpoint in that order. Public (unauthenticated) routes: `/health`, `/config`,
+  `/auth/register`, `/auth/login`, `/auth/username-available`.
 - **Route type guards**: `/groups/:chatId/*` accept only `type='group'`; announcement groups
   → `403 forbidden` ("Manage it from the community"). `/channels/:chatId/*` accept only
   channels. Any other type mismatch → `404`.
@@ -119,7 +121,7 @@ apps/web/src/
 - **Client IPs**: Express `trust proxy` comes from `TRUST_PROXY` (default off: the socket
   address is the client IP). Set it only behind a reverse proxy you control; otherwise a
   spoofed `X-Forwarded-For` would dodge every per-IP limit.
-- **Rate limits**: per IP (`lib/rateLimit.ts`: auth, invites, uploads, general API) and per
+- **Rate limits**: per IP (`lib/rateLimit.ts`: auth, username checks, invites, uploads, general API) and per
   user/socket (`lib/userLimit.ts`: `limitUser(subjectId, key, limit, windowMs)` /
   `assertUserLimit(subjectId, key, USER_RATE_LIMITS.x)` → `429 rate_limited`). See "Rate limits".
 
@@ -151,7 +153,8 @@ Message m (seq s) is **visible** to member M when all hold:
 no `message_hidden` row for (M, m), and `expires_at is null or expires_at > now()`.
 Channel followers have `joined_seq = 0` (full history). One SQL fragment
 (`visibleTo(member)` in services) is used by every listing: history paging, search,
-`/chats/:id/media`, pins, starred, `ChatSummary.lastMessage`, unread counts, and by
+`/chats/:id/media` (and its totals, `/chats/:id/media/counts`), pins, starred,
+`ChatSummary.lastMessage`, unread counts, and by
 `loadVisibleMessage(dbx, viewerId, messageId, { chatId? })` for every endpoint addressed by
 message id (edit, delete, react, star, vote, info, forward sources, reply targets, pins) —
 404 unless visible (and in `chatId` when given). Mutations additionally require an active
@@ -163,8 +166,12 @@ blocked the sender (see Blocking).
 ### Former members
 For `membership !== 'active'` the viewer's window ends at `left_seq`: `lastSeq = left_seq`,
 `lastMessage` = last visible message, `lastActivityAt` = its time (else `left_at`), unread
-counts only inside the window, `inviteCode = null`, all permissions false. Members, pins,
-invite, calls and message mutations → `403 not_member`; `/calls/active` excludes those chats.
+counts only inside the window, `inviteCode = null`, all permissions false. Members, invite,
+calls and message/pin mutations → `403 not_member`; `/calls/active` excludes those chats.
+Reads of their history window keep working (history, search, media and its counts, starred,
+`?chatId=` filters). `GET /chats/:id/pins` → `200 []`: pins are live chat state they stopped
+following when they left the room (no `chat:pins` after leaving), so even pins on messages
+inside their window are not shown — they would reveal pin changes made after they left.
 
 ### Watermarks (read/delivered)
 - `last_read_seq` / `last_delivered_seq` are **monotonic** (`GREATEST`) and **clamped** to
@@ -317,7 +324,7 @@ acting device also receives the events (clients dedupe).
 | `POST /channels/:c/invite/reset` | `chat:upsert` → U(each admin) |
 | `POST /status` | `status:new` → U(each audience member), U(me) (≤ 30 posts/h per user) |
 | `DELETE /status/:s` | `status:deleted` → U(audience), U(me) |
-| `POST /status/:s/view`, `PUT …/reaction` | `status:viewed` → U(author) (not when the viewer has read receipts off) |
+| `POST /status/:s/view`, `PUT …/reaction` | `status:viewed { statusId, viewer, firstView, viewCount }` → U(author) (not when the viewer has read receipts off; a repeated plain view emits nothing) |
 | `chat:typing` | `chat:typing` → R except my sockets (see Typing) |
 | `presence:subscribe` | ack with per-viewer presence; later `presence:update` per socket (see Presence) |
 | call events | see "Calls" |
@@ -415,6 +422,18 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 - **Message yourself**: `userId = me` creates a self chat with ONE member row; `peer` = me;
   watermarks = lastSeq (no other members); no calls.
 - Deleted peers: `peer.isDeleted`; sending/calling → `403 forbidden`.
+
+### Chat info
+- `ChatSummary.createdBy` = `chats.created_by` for groups (announcement groups: the
+  community's creator) and channels, viewer-neutral (former members too); always `null` for
+  direct chats. A deleted creator keeps their id (`UserPublic.isDeleted`). It never changes,
+  so no `chat:updated` carries it.
+- Media gallery (`GET /chats/:c/media?kind=`, newest first, `before` seq cursor): `media` =
+  images/videos, `docs` = files and audio files, `voice` = voice notes, `links` = messages
+  whose text/caption contains `http(s)://…` or `www.…`; only visible, not deleted messages
+  (former members: their window). `GET /chats/:c/media/counts` → `ChatMediaCounts` = the
+  total each kind would list, from the same conditions in one query (an image with a link in
+  its caption counts in `media` and `links`, as it is listed in both).
 
 ### Delete / clear / prefs
 - Clear chat: `cleared_seq = chats.last_seq`; my starred rows in that range are removed.
@@ -525,8 +544,10 @@ Mentions are re-derived; `edited_at` set; `message:updated`.
 `GET /chats/:c/messages` → `MessagePage { messages (ascending), hasMoreBefore, hasMoreAfter,
 users }`. At most one cursor (exclusive seqs): none = latest page; `before`; `after`;
 `around=N` = ⌈limit/2⌉ at or below N plus the rest above. `users` side-loads every user
-referenced by the page (`referencedUserIds`). Search, starred and media lists return full
-messages; clients resolve users with `POST /api/users/batch`.
+referenced by the page (`referencedUserIds`); so does `ChannelPreview.users`. Search, starred
+and media lists return full messages; clients resolve users with `POST /api/users/batch`.
+`GET /messages/starred?chatId=` narrows the starred list to one chat (same order, cap and
+visibility; 404 unless the caller has a non-hidden row, like `GET /search/messages?chatId=`).
 
 ## Groups
 
@@ -584,7 +605,8 @@ messages; clients resolve users with `POST /api/users/batch`.
   `name_changed`, `description_changed`, `avatar_changed`).
 - Followers see all history (`joined_seq = 0`) without an unread backlog.
 - Public channels (`isPublic`): listed in `GET /channels/discover`, previewable by anyone
-  with `GET /channels/:id` (`ChannelPreview`: entry + latest page) and followable by id.
+  with `GET /channels/:id` (`ChannelPreview`: entry + latest page + the users it references)
+  and followable by id.
   Private channels: 404 to non-followers; joinable only via invite link.
 - Unfollow deletes the row and removes the chat from the follower's list. The owner cannot
   unfollow (transfer or delete). Only the owner manages admins; targets must follow.
@@ -625,6 +647,11 @@ messages; clients resolve users with `POST /api/users/batch`.
 ## Accounts, sessions and deletion
 
 - Usernames: lowercase, 3–32 chars, at least one letter, `deleted_` prefix reserved.
+  `GET /auth/username-available?username=` (public, per-IP limiter) validates the format
+  (`usernameAvailabilityQuerySchema`, malformed → 400) and answers `{ available }`: false
+  when any account holds it (deleted accounts keep their scrubbed `deleted_…` name, their old
+  name is free again) or when it has the reserved prefix — i.e. exactly when register would
+  refuse it (register still answers `409` if someone takes it first).
   Phones: canonical E.164 with '+' (`phoneSchema`). Login identifier (`parseLoginIdentifier`):
   starts with '+' or only digits/separators → phone, else username. Deleted users cannot
   log in (same error as a wrong password).
@@ -661,6 +688,11 @@ messages; clients resolve users with `POST /api/users/batch`.
   user. The feed shows at most the latest 100 live statuses per other author.
 - Viewers with `readReceipts` off: the view is recorded (`viewed: true` for them) but they
   are excluded from `viewCount`/viewers and trigger no `status:viewed`.
+- `status:viewed` → author: `viewer` (`StatusViewer`), `firstView` (true when this request
+  recorded a new view row — a first view, or a reaction without a prior view; false when it
+  only changed the reaction of an existing view) and `viewCount` (the status's current
+  `Status.viewCount`, read at commit: views by non-deleted viewers with read receipts on now).
+  Clients add the viewer on `firstView`, replace the entry otherwise, and take `viewCount`.
 - Status media must be the author's upload of the matching kind. Deleting/expiring a status
   nulls its media reference for GC; replies then resolve to `available: false`.
 
@@ -720,7 +752,11 @@ messages; clients resolve users with `POST /api/users/batch`.
 - **Reconnect**: when the call socket disconnects, set `disconnected_at` (emit nothing).
   `call:rejoin` within CALL_RECONNECT_GRACE_MS (or from the same session) clears it,
   re-binds the new socket and acts as a newcomer (`call:participant-joined`; peers close
-  the old connection and wait for the offer). After the grace the calls job marks the
+  the old connection and wait for the offer). Only once the previous call socket is gone:
+  while it is still connected, a rejoin from any other socket — another device, or another
+  tab sharing the same session token — → `409 conflict` and changes nothing (a rejoin from
+  the call socket itself is an idempotent no-op). A reloaded page whose old socket the
+  server hasn't seen close yet retries until it has. After the grace the calls job marks the
   participant `left` (`call:participant-left`) and applies the end rules.
 - **Late devices**: after `ready` the server re-emits `call:incoming` for live calls where
   the user is still invited/ringing; the final check and emit run in the call's queue, so a
@@ -742,7 +778,9 @@ messages; clients resolve users with `POST /api/users/batch`.
   initiator, never trigger a message push, can't be edited, forwarded or deleted for
   everyone. Clients derive per-viewer text with `callOutcome()` / `messagePreviewText`.
 - Call log (`GET /calls`): calls I participate in (not `hidden_at`), newest first, with
-  `callOutcome(call, me, myStatus)`. `GET /calls/ice-servers` returns STUN/TURN; with
+  `callOutcome(call, me, myStatus)`. `GET /calls/:callId` returns one `CallLogEntry` with the
+  same serialization (404 unless I have a participant row that isn't hidden — removed from my
+  log, or a callee who blocked the caller). `GET /calls/ice-servers` returns STUN/TURN; with
   `TURN_SECRET` it mints coturn REST credentials (HMAC-SHA1, time-limited).
 
 ## Media
@@ -801,7 +839,7 @@ messages; clients resolve users with `POST /api/users/batch`.
 
 | Scope | Limit |
 | --- | --- |
-| Per IP (lib/rateLimit.ts) | auth 20/10 min (login, register, change password, delete account), invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
+| Per IP (lib/rateLimit.ts) | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
 | Per user (`USER_RATE_LIMITS`) | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact) |
 | Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h |
 | Per socket | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min; server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`) |

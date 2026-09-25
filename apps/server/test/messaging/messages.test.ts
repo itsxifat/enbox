@@ -331,6 +331,43 @@ describe('messages module (REST)', () => {
       expect(((await t.api(bob).get('/api/messages/starred').expect(200)).body as MessageSearchResult[]).map((r) => r.message.id)).toEqual([m2.id]);
       as.disconnect();
     });
+
+    it('?chatId= narrows the starred list to one chat (same order, visibility and previews); 404 without a visible row', async () => {
+      const u = await t.createUser();
+      const g = await createGroup(alice, [u], { name: 'Filter group' });
+      const d = await activeDirect(t, u, carol);
+      const g1 = await sendOk(t, alice, g, 'g one');
+      const d1 = await sendOk(t, carol, d, 'd one');
+      const g2 = await sendOk(t, alice, g, 'g two');
+      for (const m of [g1, d1, g2]) {
+        await t.api(u).put(`/api/messages/${m.id}/star`).expect(204);
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const starred = async (query = '') => ((await t.api(u).get(`/api/messages/starred${query}`).expect(200)).body as MessageSearchResult[]).map((r) => r.message.id);
+      expect(await starred()).toEqual([g2.id, d1.id, g1.id]);
+      expect(await starred(`?chatId=${g}`)).toEqual([g2.id, g1.id]);
+      expect(await starred(`?chatId=${g.toUpperCase()}`)).toEqual([g2.id, g1.id]); // ids are normalised
+      expect(await starred(`?chatId=${d}`)).toEqual([d1.id]);
+      expect(await starred('?chatId=')).toEqual([g2.id, d1.id, g1.id]); // blank = absent
+      const one = (await t.api(u).get(`/api/messages/starred?chatId=${d}`).expect(200)).body as MessageSearchResult[];
+      expect(one[0]).toMatchObject({ message: { id: d1.id, starred: true }, chat: { id: d, type: 'direct', peer: { id: carol.id } } });
+
+      expect((await t.api(u).get('/api/messages/starred?chatId=nope').expect(400)).body.error.code).toBe('validation_error');
+      expect((await t.api(u).get(`/api/messages/starred?chatId=${crypto.randomUUID()}`).expect(404)).body.error.code).toBe('not_found');
+      const foreign = await createGroup(alice, [bob]);
+      await t.api(u).get(`/api/messages/starred?chatId=${foreign}`).expect(404);
+
+      // Former members: only stars inside their window (up to left_seq).
+      await leaveGroup(g, u);
+      await sendOk(t, alice, g, 'after leaving');
+      expect(await starred(`?chatId=${g}`)).toEqual([g2.id, g1.id]);
+      await t.api(alice).delete(`/api/messages/${g2.id}?for=everyone`).expect(204);
+      expect(await starred(`?chatId=${g}`)).toEqual([g1.id]);
+      // A chat deleted for me (hidden row) → 404, like search.
+      await t.api(u).delete(`/api/chats/${g}`).expect(204);
+      await t.api(u).get(`/api/messages/starred?chatId=${g}`).expect(404);
+      expect(await starred()).toEqual([d1.id]);
+    });
   });
 
   describe('GET /messages/:messageId/info', () => {

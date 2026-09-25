@@ -1,7 +1,15 @@
 import { createHmac } from 'node:crypto';
 import { Router } from 'express';
 import { and, desc, eq, inArray, isNull, lt, ne, notInArray, sql } from 'drizzle-orm';
-import { callLogQuerySchema, callOutcome, idParamSchema, type CallLogEntry, type IceServerConfig, type UserPublic } from '@enbox/shared';
+import {
+  callLogQuerySchema,
+  callOutcome,
+  idParamSchema,
+  type CallLogEntry,
+  type CallParticipantStatus,
+  type IceServerConfig,
+  type UserPublic,
+} from '@enbox/shared';
 import { config } from '../../config.js';
 import { db } from '../../db/index.js';
 import { callParticipants, calls, chatMembers, chats, media } from '../../db/schema.js';
@@ -19,6 +27,8 @@ import { LIVE_CALL_STATUSES, isLive, loadCallRows, toCall } from './service.js';
  *
  * - GET /calls: my call log (participant rows not hidden), newest first, `before` cursor
  *   (ISO, exclusive), direction/outcome from the shared `callOutcome(call, me, myStatus)`.
+ * - GET /calls/:callId: one entry of that log (same serialization); 404 unless I have a
+ *   participant row that is not hidden.
  * - GET /calls/active: live calls in chats where I'm an active member (incl. calls ringing
  *   me), except calls where my participant row is hidden (a callee who blocked the caller).
  * - GET /calls/ice-servers: STUN + TURN; with TURN_SECRET, coturn REST credentials
@@ -27,21 +37,16 @@ import { LIVE_CALL_STATUSES, isLive, loadCallRows, toCall } from './service.js';
  */
 export const router = Router();
 
-router.get('/calls', async (req, res) => {
-  const me = authUserId(req);
-  const q = parse(callLogQuerySchema, req.query);
-  const rows = await db
-    .select({ callId: calls.id, chatId: calls.chatId, myStatus: callParticipants.status })
-    .from(callParticipants)
-    .innerJoin(calls, eq(calls.id, callParticipants.callId))
-    .where(and(eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt), q.before ? lt(calls.createdAt, storableDate(q.before, 'before')) : undefined))
-    .orderBy(desc(calls.createdAt), desc(calls.id))
-    .limit(q.limit);
-  if (rows.length === 0) {
-    res.json([]);
-    return;
-  }
+/** A row of my call log: one of my (not hidden) participant rows. */
+interface LogRow {
+  callId: string;
+  chatId: string;
+  myStatus: CallParticipantStatus;
+}
 
+/** `CallLogEntry[]` for my log rows (input order; a fixed number of queries). */
+async function toCallLogEntries(me: string, rows: LogRow[]): Promise<CallLogEntry[]> {
+  if (rows.length === 0) return [];
   const loaded = await loadCallRows(
     db,
     rows.map((r) => r.callId),
@@ -85,7 +90,22 @@ router.get('/calls', async (req, res) => {
       },
     });
   }
-  res.json(out);
+  return out;
+}
+
+const logRowFields = { callId: calls.id, chatId: calls.chatId, myStatus: callParticipants.status };
+
+router.get('/calls', async (req, res) => {
+  const me = authUserId(req);
+  const q = parse(callLogQuerySchema, req.query);
+  const rows = await db
+    .select(logRowFields)
+    .from(callParticipants)
+    .innerJoin(calls, eq(calls.id, callParticipants.callId))
+    .where(and(eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt), q.before ? lt(calls.createdAt, storableDate(q.before, 'before')) : undefined))
+    .orderBy(desc(calls.createdAt), desc(calls.id))
+    .limit(q.limit);
+  res.json(await toCallLogEntries(me, rows));
 });
 
 router.get('/calls/active', async (req, res) => {
@@ -128,6 +148,21 @@ router.get('/calls/ice-servers', (req, res) => {
   }
   res.set('Cache-Control', 'no-store');
   res.json({ iceServers, ttlSec: ice.turnTtlSec });
+});
+
+// After the literal `/calls/active` and `/calls/ice-servers` (docs "Routes").
+router.get('/calls/:callId', async (req, res) => {
+  const me = authUserId(req);
+  const { callId } = parse(idParamSchema('callId'), req.params);
+  const rows = await db
+    .select(logRowFields)
+    .from(callParticipants)
+    .innerJoin(calls, eq(calls.id, callParticipants.callId))
+    .where(and(eq(callParticipants.callId, callId), eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt)))
+    .limit(1);
+  const [entry] = await toCallLogEntries(me, rows);
+  if (!entry) throw notFound('Call');
+  res.json(entry);
 });
 
 router.delete('/calls', async (req, res) => {

@@ -14,7 +14,9 @@
  * - Route registration: literal segments must be registered before param routes
  *   (`/users/search` before `/users/:userId`, `/messages/starred` before
  *   `/messages/:messageId`, `/channels/discover` before `/channels/:chatId`,
- *   `/calls/active` before `/calls/:callId`). The catalogue lists them in that order.
+ *   `/calls/active`, `/calls/ice-servers` before `/calls/:callId`,
+ *   `/chats/:chatId/media/counts` before `/chats/:chatId/media`). The catalogue lists them
+ *   in that order.
  */
 import type {
   Call,
@@ -69,6 +71,7 @@ import type {
   RegisterRequest,
   SearchMessagesQuery,
   SendMessageRequest,
+  StarredMessagesQuery,
   SetDisappearingRequest,
   SetRoleRequest,
   StatusReactRequest,
@@ -83,6 +86,7 @@ import type {
   UpdateSettingsRequest,
   UploadMediaMeta,
   UserSearchQuery,
+  UsernameAvailabilityQuery,
   UsersBatchRequest,
 } from './schemas.js';
 
@@ -112,6 +116,30 @@ export interface ApiErrorBody {
 export interface AuthResponse {
   token: string;
   user: UserSelf;
+}
+
+/**
+ * `GET /api/auth/username-available`: whether `POST /api/auth/register` could take this
+ * username right now (false when taken — deleted accounts included — or reserved). Advisory
+ * only: registration still answers `409 conflict` when someone takes it first.
+ */
+export interface UsernameAvailability {
+  available: boolean;
+}
+
+/**
+ * `GET /api/chats/:chatId/media/counts`: how many messages each `GET /api/chats/:chatId/media`
+ * kind would list in total (same kind definitions and visibility rules, no paging).
+ */
+export interface ChatMediaCounts {
+  /** Images and videos. */
+  media: number;
+  /** Files and audio files. */
+  docs: number;
+  /** Messages whose text/caption contains a link. */
+  links: number;
+  /** Voice notes. */
+  voice: number;
 }
 
 /** A page of chat history. See `listMessagesQuerySchema` for cursor semantics. */
@@ -171,6 +199,12 @@ export interface ChannelPreview {
   channel: ChannelDirectoryEntry;
   /** Latest page, ascending by seq (same serialization as for followers). */
   messages: Message[];
+  /**
+   * Every user referenced by `messages` (system actors, mentions, contact cards, … — see
+   * `referencedUserIds()`; post senders are always null in channels), as seen by the viewer,
+   * like `MessagePage.users`.
+   */
+  users: UserPublic[];
 }
 
 /**
@@ -185,6 +219,7 @@ export interface ApiRoutes {
   'GET /api/config': { R: { vapidPublicKey: string | null; maxUploadBytes: number; version: string } };
 
   // Auth & sessions
+  'GET /api/auth/username-available': { Q: UsernameAvailabilityQuery; R: UsernameAvailability } /* public, per-IP rate-limited; malformed → 400 */;
   'POST /api/auth/register': { B: RegisterRequest; R: AuthResponse };
   'POST /api/auth/login': { B: LoginRequest; R: AuthResponse };
   'POST /api/auth/logout': { R: void } /* deletes the current session (push subscriptions cascade) */;
@@ -230,15 +265,16 @@ export interface ApiRoutes {
   'DELETE /api/chats/:chatId': { R: void } /* delete chat for me (clears + hides); groups only after leaving */;
   'PUT /api/chats/:chatId/disappearing': { B: SetDisappearingRequest; R: ChatSummary };
   'GET /api/chats/:chatId/members': { R: ChatMember[] } /* active members; requires permissions.canViewMembers */;
+  'GET /api/chats/:chatId/media/counts': { R: ChatMediaCounts } /* totals per media kind, same visibility as /media */;
   'GET /api/chats/:chatId/media': { Q: ChatMediaQuery; R: Message[] } /* newest first */;
-  'GET /api/chats/:chatId/pins': { R: Message[] };
+  'GET /api/chats/:chatId/pins': { R: Message[] } /* oldest pin first, visible ones; former members: [] */;
   'POST /api/chats/:chatId/pins': { B: PinMessageRequest; R: Message[] };
   'DELETE /api/chats/:chatId/pins/:messageId': { R: Message[] };
 
   // Messages
   'GET /api/chats/:chatId/messages': { Q: ListMessagesQuery; R: MessagePage };
   'POST /api/chats/:chatId/messages': { B: SendMessageRequest; R: Message } /* 201 created; 200 = existing (same clientId) */;
-  'GET /api/messages/starred': { R: MessageSearchResult[] } /* newest star first */;
+  'GET /api/messages/starred': { Q: StarredMessagesQuery; R: MessageSearchResult[] } /* newest star first; ?chatId= one chat */;
   'POST /api/messages/forward': { B: ForwardRequest; R: Message[] };
   'PATCH /api/messages/:messageId': { B: EditMessageRequest; R: Message };
   'DELETE /api/messages/:messageId': { Q: DeleteMessageQuery; R: void };
@@ -311,6 +347,7 @@ export interface ApiRoutes {
   'GET /api/calls': { Q: CallLogQuery; R: CallLogEntry[] } /* my call log, newest first */;
   'GET /api/calls/active': { R: Call[] } /* ringing/ongoing calls in my active chats, incl. calls ringing me */;
   'GET /api/calls/ice-servers': { R: { iceServers: IceServerConfig[]; ttlSec: number } };
+  'GET /api/calls/:callId': { R: CallLogEntry } /* a call I participate in and haven't removed from my log; else 404 */;
   'DELETE /api/calls': { R: void } /* clear my call log */;
   'DELETE /api/calls/:callId': { R: void } /* remove from my call log */;
 

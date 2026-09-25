@@ -274,23 +274,36 @@ export async function deleteStatus(me: string, statusId: string): Promise<void> 
   });
 }
 
-/** Register `status:viewed` → author unless the viewer has read receipts off. */
+/**
+ * Register `status:viewed` → author unless the viewer has read receipts off. `firstView`:
+ * this call recorded a new view row (false: a reaction update on an existing view).
+ * `viewCount` (the author's `Status.viewCount`) is read in the prepare step, i.e. as committed.
+ */
 async function notifyAuthor(
   tx: Tx,
   fx: Effects,
   authorId: string,
   viewerId: string,
   view: { statusId: string; viewedAt: Date; reaction: string | null },
+  firstView: boolean,
 ): Promise<void> {
   const viewer = await getUserRow(tx, viewerId);
   if (!viewer || !settingsOf(viewer).readReceipts) return;
   let user: UserPublic | null = null;
+  let viewCount = 0;
   fx.add(
     () => {
-      if (user) emitToUser(authorId, 'status:viewed', { statusId: view.statusId, viewer: { user, viewedAt: view.viewedAt.toISOString(), reaction: view.reaction } });
+      if (!user) return;
+      emitToUser(authorId, 'status:viewed', {
+        statusId: view.statusId,
+        viewer: { user, viewedAt: view.viewedAt.toISOString(), reaction: view.reaction },
+        firstView,
+        viewCount,
+      });
     },
     async (dbx) => {
       user = await toUserPublic(dbx, authorId, viewerId);
+      viewCount = (await viewCounts(dbx, [view.statusId])).get(view.statusId) ?? 0;
     },
   );
 }
@@ -301,21 +314,34 @@ export async function viewStatus(me: string, statusId: string): Promise<void> {
     const status = await requireVisibleStatus(tx, me, statusId, { lock: true });
     if (status.userId === me) return;
     const [view] = await tx.insert(statusViews).values({ statusId, viewerId: me, viewedAt: new Date() }).onConflictDoNothing().returning();
-    if (view) await notifyAuthor(tx, fx, status.userId, me, view);
+    if (view) await notifyAuthor(tx, fx, status.userId, me, view, true);
   });
 }
 
-/** `PUT /status/:id/reaction` (audience only): records a view with my reaction (replacing it). */
+/**
+ * `PUT /status/:id/reaction` (audience only): records a view with my reaction (replacing it).
+ * Insert-or-nothing first, then update: `firstView` is exact even when two devices race (the
+ * loser's insert waits for the winner's row and then updates it).
+ */
 export async function reactToStatus(me: string, statusId: string, emoji: string): Promise<void> {
   await transact(async (tx, fx) => {
     const status = await requireVisibleStatus(tx, me, statusId, { lock: true });
     if (status.userId === me) throw forbidden("You can't react to your own status");
-    const [view] = await tx
+    const [inserted] = await tx
       .insert(statusViews)
       .values({ statusId, viewerId: me, viewedAt: new Date(), reaction: emoji })
-      .onConflictDoUpdate({ target: [statusViews.statusId, statusViews.viewerId], set: { reaction: emoji } })
+      .onConflictDoNothing()
       .returning();
-    await notifyAuthor(tx, fx, status.userId, me, view!);
+    const view =
+      inserted ??
+      (
+        await tx
+          .update(statusViews)
+          .set({ reaction: emoji })
+          .where(and(eq(statusViews.statusId, statusId), eq(statusViews.viewerId, me)))
+          .returning()
+      )[0];
+    if (view) await notifyAuthor(tx, fx, status.userId, me, view, !!inserted);
   });
 }
 

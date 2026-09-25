@@ -85,12 +85,14 @@ function optionalQueryString(max: number) {
   return z.preprocess((v: string | null | undefined) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().max(max).optional());
 }
 
-export const usernameSchema = z
+/** Username shape only (trimmed, lowercased, USERNAME_REGEX) — `usernameSchema` adds the reserved-prefix rule. */
+export const usernameFormatSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(USERNAME_REGEX, 'Use 3–32 lowercase letters, numbers, dots or underscores, with at least one letter')
-  .refine((s) => !s.startsWith(DELETED_USERNAME_PREFIX), 'This username is reserved');
+  .regex(USERNAME_REGEX, 'Use 3–32 lowercase letters, numbers, dots or underscores, with at least one letter');
+/** A username a user may take: the format, and not the reserved `deleted_` prefix (scrubbed accounts). */
+export const usernameSchema = usernameFormatSchema.refine((s) => !s.startsWith(DELETED_USERNAME_PREFIX), 'This username is reserved');
 export const passwordSchema = z
   .string()
   .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
@@ -163,6 +165,14 @@ export function parseLoginIdentifier(identifier: string): { kind: 'phone'; phone
   }
   return s ? { kind: 'username', username: s.toLowerCase() } : null;
 }
+
+/**
+ * `GET /api/auth/username-available?username=` (public, per-IP rate-limited). Malformed →
+ * 400; a well-formed but reserved (`deleted_…`) or taken username → `{ available: false }`.
+ */
+export const usernameAvailabilityQuerySchema = z.object({
+  username: usernameFormatSchema,
+});
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(256),
@@ -390,6 +400,11 @@ export const chatMediaQuerySchema = z.object({
   kind: z.enum(['media', 'docs', 'links', 'voice']).default('media'),
   before: optionalInt(z.number().int().positive()),
   limit: intWithDefault(z.number().int().min(1).max(MAX_MESSAGES_PAGE_SIZE), 60),
+});
+
+/** `GET /api/messages/starred`: optionally only the stars of one chat (404 unless I have a non-hidden row). */
+export const starredMessagesQuerySchema = z.object({
+  chatId: z.preprocess(blankToUndefined, idSchema.optional()),
 });
 
 export const searchMessagesQuerySchema = z.object({
@@ -677,6 +692,7 @@ export const callMediaStateSchema = z.object({
 
 export type RegisterRequest = z.input<typeof registerSchema>;
 export type LoginRequest = z.input<typeof loginSchema>;
+export type UsernameAvailabilityQuery = z.input<typeof usernameAvailabilityQuerySchema>;
 export type ChangePasswordRequest = z.input<typeof changePasswordSchema>;
 export type DeleteAccountRequest = z.input<typeof deleteAccountSchema>;
 export type UpdateProfileRequest = z.input<typeof updateProfileSchema>;
@@ -697,6 +713,7 @@ export type ForwardRequest = z.input<typeof forwardSchema>;
 export type PollVoteRequest = z.input<typeof pollVoteSchema>;
 export type ListMessagesQuery = z.input<typeof listMessagesQuerySchema>;
 export type ChatMediaQuery = z.input<typeof chatMediaQuerySchema>;
+export type StarredMessagesQuery = z.input<typeof starredMessagesQuerySchema>;
 export type SearchMessagesQuery = z.input<typeof searchMessagesQuerySchema>;
 export type PinMessageRequest = z.input<typeof pinMessageSchema>;
 export type UploadMediaMeta = z.input<typeof uploadMediaMetaSchema>;

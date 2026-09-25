@@ -2,20 +2,23 @@ import { Router, type Request } from 'express';
 import { and, asc, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import {
   DEFAULT_ABOUT,
+  DELETED_USERNAME_PREFIX,
   changePasswordSchema,
   idParamSchema,
   loginSchema,
   parseLoginIdentifier,
   registerSchema,
+  usernameAvailabilityQuerySchema,
   type AuthResponse,
   type SessionInfo,
+  type UsernameAvailability,
 } from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { sessions, users } from '../../db/schema.js';
 import { authCtx } from '../../http/auth.js';
 import { hashPassword } from '../../lib/crypto.js';
 import { conflict, forbidden, notFound, unauthorized } from '../../lib/errors.js';
-import { authLimiter } from '../../lib/rateLimit.js';
+import { authLimiter, usernameCheckLimiter } from '../../lib/rateLimit.js';
 import { parse } from '../../lib/validate.js';
 import { Effects, transact } from '../../services/effects.js';
 import { createSession } from '../../services/sessions.js';
@@ -24,7 +27,8 @@ import { checkPassword, isUniqueViolation, revokeSessionsEffect } from './servic
 
 /**
  * Auth module (docs "Accounts, sessions and deletion").
- * publicRouter (no auth, per-IP `authLimiter`): POST /auth/register, POST /auth/login
+ * publicRouter (no auth): POST /auth/register, POST /auth/login (per-IP `authLimiter`),
+ *                         GET /auth/username-available (per-IP `usernameCheckLimiter`)
  * router (authenticated): POST /auth/logout, GET/DELETE /auth/sessions[/:sessionId],
  *                         POST /auth/change-password
  *
@@ -47,6 +51,23 @@ function clientInfo(req: Request) {
 function invalidCredentials() {
   return unauthorized('Incorrect username, phone number or password');
 }
+
+/**
+ * Register form helper: `{ available }` for a well-formed username (malformed → 400). False
+ * when any account holds it — deleted accounts included (their scrubbed `deleted_…` names) —
+ * or when it is reserved (`deleted_` prefix), i.e. exactly when register would refuse it.
+ */
+publicRouter.get('/auth/username-available', usernameCheckLimiter, async (req, res) => {
+  const { username } = parse(usernameAvailabilityQuerySchema, req.query);
+  let available = !username.startsWith(DELETED_USERNAME_PREFIX);
+  if (available) {
+    const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+    available = !taken;
+  }
+  const response: UsernameAvailability = { available };
+  res.set('Cache-Control', 'no-store');
+  res.json(response);
+});
 
 publicRouter.post('/auth/register', authLimiter, async (req, res) => {
   const body = parse(registerSchema, req.body ?? {});

@@ -210,6 +210,7 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       mutedUntil: member.mutedUntil?.toISOString() ?? null,
       markedUnread: member.markedUnread,
       createdAt: chat.createdAt.toISOString(),
+      createdBy: chat.type === 'direct' ? null : chat.createdBy,
       lastActivityAt: lastMessage?.createdAt ?? (active ? member.joinedAt : (member.leftAt ?? member.joinedAt)).toISOString(),
     };
     return summary;

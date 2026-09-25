@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { ChannelDirectoryEntry, ChannelPreview, ChatSummary } from '@enbox/shared';
 import { db } from '../../src/db/index.js';
 import { chatMembers, chats, messageReactions } from '../../src/db/schema.js';
+import { PUBLIC_WINDOW } from '../../src/services/chats.js';
 import { loadMessagePage } from '../../src/services/messages.js';
 import { startTestServer, type TestServer, type TestUser } from '../helpers.js';
 import { createDirect, createGroup, memberRow, recordEvents, send, settle } from '../services/fixtures.js';
@@ -146,6 +147,29 @@ describe('channels module', () => {
       const mine = (await api(follower!).get(`/api/channels/${ch.id}`).expect(200)).body as ChannelPreview;
       expect(mine.channel.isFollowing).toBe(true);
       expect(mine.messages[1]).toMatchObject({ myReaction: '👍', senderId: null });
+    });
+
+    it('side-loads the users the page references (system actors, mentions, contact cards) like MessagePage', async () => {
+      const [outsider, mentioned, carded] = await makeUsers(3);
+      const ch = await createChannel(owner, { name: 'With users' });
+      await follow(mentioned!, ch.id); // mentions are kept for active members only
+      await send(owner, ch.id, { text: `hello @{${mentioned!.id}}` });
+      await send(owner, ch.id, { type: 'contact', text: null, metadata: { contact: { userId: carded!.id, name: 'Card', username: null, phone: null } } });
+      const body = (await api(outsider!).get(`/api/channels/${ch.id}`).expect(200)).body as ChannelPreview;
+      expect(body.messages.map((m) => m.system?.kind ?? m.type)).toEqual(['channel_created', 'text', 'contact']);
+      expect(body.messages.every((m) => m.senderId === null)).toBe(true);
+      // Exactly the referenced users, as the viewer sees them (the creator only as the system actor).
+      const page = await loadMessagePage(db, outsider!.id, ch.id, { limit: 50 }, { window: PUBLIC_WINDOW, chatType: 'channel' });
+      expect(body.users.map((u) => u.id).sort()).toEqual(page.users.map((u) => u.id).sort());
+      expect(body.users.map((u) => u.id).sort()).toEqual([owner.id, mentioned!.id, carded!.id].sort());
+      expect(body.users.find((u) => u.id === owner.id)).toMatchObject({ displayName: 'Owner', isContact: false, isBlocked: false });
+      // Followers get the same side-loading.
+      await follow(outsider!, ch.id);
+      const followed = (await api(outsider!).get(`/api/channels/${ch.id}`).expect(200)).body as ChannelPreview;
+      expect(followed.users.map((u) => u.id).sort()).toEqual([owner.id, mentioned!.id, carded!.id].sort());
+      // An empty-ish preview still carries the (creator) user of channel_created.
+      const bare = await createChannel(owner, { name: 'Bare' });
+      expect(((await api(outsider!).get(`/api/channels/${bare.id}`).expect(200)).body as ChannelPreview).users.map((u) => u.id)).toEqual([owner.id]);
     });
 
     it('private: 404 to non-followers, visible to followers; non-channels and unknown ids → 404', async () => {

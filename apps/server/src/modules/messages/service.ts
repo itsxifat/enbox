@@ -22,6 +22,7 @@ import {
   type listMessagesQuerySchema,
   type searchMessagesQuerySchema,
   type sendMessageSchema,
+  type starredMessagesQuerySchema,
 } from '@enbox/shared';
 import { db, type Tx } from '../../db/index.js';
 import { chatMembers, messageReactions, messages, pollVotes, starredMessages, type MessageRow } from '../../db/schema.js';
@@ -61,6 +62,7 @@ export type SendMessageBody = z.output<typeof sendMessageSchema>;
 export type ForwardBody = z.output<typeof forwardSchema>;
 export type ListMessagesQuery = z.output<typeof listMessagesQuerySchema>;
 export type SearchMessagesQuery = z.output<typeof searchMessagesQuerySchema>;
+export type StarredMessagesQuery = z.output<typeof starredMessagesQuerySchema>;
 
 /** Max rows of `GET /messages/starred` (the contract has no cursor). */
 export const STARRED_LIST_LIMIT = 500;
@@ -452,15 +454,23 @@ export async function messageInfo(me: string, messageId: string): Promise<Messag
 
 /**
  * `GET /messages/starred`: my starred messages that are still visible to me, newest star
- * first (≤ STARRED_LIST_LIMIT), with chat previews.
+ * first (≤ STARRED_LIST_LIMIT), with chat previews. `chatId`: only that chat's (404 unless
+ * I have a non-hidden row, like search; former members: their window).
  */
-export async function listStarred(me: string): Promise<MessageSearchResult[]> {
+export async function listStarred(me: string, opts: StarredMessagesQuery = {}): Promise<MessageSearchResult[]> {
+  if (opts.chatId) await getChatAccess(db, me, opts.chatId);
   const rows = await db
     .select({ message: messages })
     .from(starredMessages)
     .innerJoin(messages, eq(messages.id, starredMessages.messageId))
     .innerJoin(chatMembers, and(eq(chatMembers.chatId, messages.chatId), eq(chatMembers.userId, starredMessages.userId)))
-    .where(and(eq(starredMessages.userId, me), memberVisibleSql('messages', 'chat_members')))
+    .where(
+      and(
+        eq(starredMessages.userId, me),
+        opts.chatId ? eq(messages.chatId, opts.chatId) : undefined,
+        memberVisibleSql('messages', 'chat_members'),
+      ),
+    )
     .orderBy(desc(starredMessages.createdAt), desc(messages.seq))
     .limit(STARRED_LIST_LIMIT);
   return toSearchResults(

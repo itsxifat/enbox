@@ -190,6 +190,32 @@ describe('chats module (REST)', () => {
     });
   });
 
+  describe('ChatSummary.createdBy', () => {
+    it('the creator of groups, channels and announcement groups for every viewer (also former members); null for direct chats', async () => {
+      const g = await createGroup(alice, [bob, carol]);
+      for (const u of [alice, bob, carol]) expect((await summaryOf(t, u, g)).createdBy).toBe(alice.id);
+      await leaveGroup(g, carol);
+      expect((await summaryOf(t, carol, g)).createdBy).toBe(alice.id);
+      // Groups created through the API.
+      const created = await t.api(bob).post('/api/groups').send({ name: 'Via API', memberIds: [dave.id] }).expect(201);
+      expect(created.body.chat.createdBy).toBe(bob.id);
+      expect((await summaryOf(t, dave, created.body.chat.id)).createdBy).toBe(bob.id);
+
+      const ch = await createChannel(dave);
+      await follow(ch, [alice]);
+      expect((await summaryOf(t, alice, ch)).createdBy).toBe(dave.id);
+      const { announcementChatId } = await createCommunity(carol);
+      expect((await summaryOf(t, carol, announcementChatId)).createdBy).toBe(carol.id);
+
+      const d = await activeDirect(t, alice, bob);
+      expect((await summaryOf(t, alice, d)).createdBy).toBeNull();
+      expect((await summaryOf(t, bob, d)).createdBy).toBeNull();
+      const list = (await t.api(bob).get('/api/chats').expect(200)).body as ChatSummary[];
+      expect(list.find((c) => c.id === g)!.createdBy).toBe(alice.id);
+      expect(list.find((c) => c.id === d)!.createdBy).toBeNull();
+    });
+  });
+
   describe('PATCH /chats/:chatId/prefs', () => {
     it('pins at most MAX_PINNED_CHATS chats (409 limit_reached), emits chat:upsert to me', async () => {
       const u = await t.createUser();
@@ -465,6 +491,54 @@ describe('chats module (REST)', () => {
     });
   });
 
+  describe('GET /chats/:chatId/media/counts', () => {
+    it('counts every gallery kind with exactly the /media definitions and visibility', async () => {
+      const g = await createGroup(alice, [bob]);
+      await sendOk(t, alice, g, { type: 'image', mediaId: (await mkMedia(alice.id, 'image')).id, text: 'see https://example.com' });
+      await sendOk(t, bob, g, { type: 'video', mediaId: (await mkMedia(bob.id, 'video')).id });
+      await sendOk(t, alice, g, { type: 'file', mediaId: (await mkMedia(alice.id, 'file')).id });
+      await sendOk(t, alice, g, { type: 'audio', mediaId: (await mkMedia(alice.id, 'audio')).id });
+      await sendOk(t, bob, g, { type: 'voice', mediaId: (await mkMedia(bob.id, 'voice')).id });
+      await sendOk(t, alice, g, 'read www.enbox.dev/docs today');
+      await sendOk(t, alice, g, 'no links here');
+      const gone = await sendOk(t, alice, g, { type: 'image', mediaId: (await mkMedia(alice.id, 'image')).id });
+      await t.api(alice).delete(`/api/messages/${gone.id}?for=everyone`).expect(204);
+      const hidden = await sendOk(t, alice, g, { type: 'file', mediaId: (await mkMedia(alice.id, 'file')).id, text: 'http://hidden.example' });
+      await t.api(bob).delete(`/api/messages/${hidden.id}?for=me`).expect(204);
+
+      const counts = async (u: TestUser) => (await t.api(u).get(`/api/chats/${g}/media/counts`).expect(200)).body;
+      const listed = async (u: TestUser) => {
+        const out: Record<string, number> = {};
+        for (const kind of ['media', 'docs', 'links', 'voice']) {
+          out[kind] = ((await t.api(u).get(`/api/chats/${g}/media?kind=${kind}&limit=200`).expect(200)).body as Message[]).length;
+        }
+        return out;
+      };
+      // An image with a linked caption counts as media AND as a link, like the lists.
+      expect(await counts(bob)).toEqual({ media: 2, docs: 2, links: 2, voice: 1 });
+      expect(await counts(bob)).toEqual(await listed(bob));
+      expect(await counts(alice)).toEqual({ media: 2, docs: 3, links: 3, voice: 1 }); // not hidden for her
+      expect(await counts(alice)).toEqual(await listed(alice));
+
+      // Joined later: nothing from before; former members: their window only.
+      await addToGroup(g, alice, [carol]);
+      expect(await counts(carol)).toEqual({ media: 0, docs: 0, links: 0, voice: 0 });
+      await sendOk(t, alice, g, { type: 'image', mediaId: (await mkMedia(alice.id, 'image')).id });
+      await leaveGroup(g, carol);
+      await sendOk(t, alice, g, { type: 'voice', mediaId: (await mkMedia(alice.id, 'voice')).id });
+      expect(await counts(carol)).toEqual({ media: 1, docs: 0, links: 0, voice: 0 });
+      expect(await counts(carol)).toEqual(await listed(carol));
+      expect(await counts(bob)).toEqual({ media: 3, docs: 2, links: 2, voice: 2 });
+
+      // The literal segment doesn't shadow the gallery, and access rules are the gallery's.
+      await t.api(bob).get(`/api/chats/${g}/media?kind=voice`).expect(200);
+      await t.api(dave).get(`/api/chats/${g}/media/counts`).expect(404);
+      await t.api(bob).get(`/api/chats/${crypto.randomUUID()}/media/counts`).expect(404);
+      expect((await t.api(bob).get('/api/chats/nope/media/counts').expect(400)).body.error.code).toBe('validation_error');
+      await t.api().get(`/api/chats/${g}/media/counts`).expect(401);
+    });
+  });
+
   describe('pins', () => {
     it('pin: system message then chat:pins; the oldest pin is replaced beyond MAX_PINNED_MESSAGES', async () => {
       const g = await createGroup(alice, [bob]);
@@ -529,8 +603,9 @@ describe('chats module (REST)', () => {
       await t.api(alice).post(`/api/chats/${g}/pins`).send({ messageId: m.id }).expect(200);
       await t.api(bob).delete(`/api/chats/${g}/pins/${m.id}`).expect(403);
       await leaveGroup(g, carol);
-      const former = await t.api(carol).get(`/api/chats/${g}/pins`).expect(403);
-      expect(former.body.error.code).toBe('not_member');
+      // Former members read no pins (live chat state they no longer follow) and can't change them.
+      expect((await t.api(carol).get(`/api/chats/${g}/pins`).expect(200)).body).toEqual([]);
+      expect((await t.api(carol).post(`/api/chats/${g}/pins`).send({ messageId: m.id }).expect(403)).body.error.code).toBe('not_member');
       await t.api(dave).get(`/api/chats/${g}/pins`).expect(404);
 
       const ch = await createChannel(alice);
@@ -552,6 +627,28 @@ describe('chats module (REST)', () => {
       await t.api(dave).post(`/api/chats/${d}/pins`).send({ messageId: dm.id }).expect(200);
       expect((await historyOf(t, carol, d)).at(-1)!.system).toMatchObject({ kind: 'message_pinned', actorId: dave.id });
       bobSock.disconnect();
+    });
+
+    it('former members get [] (no 403), even for pins inside their window; hidden rows and outsiders 404', async () => {
+      const g = await createGroup(alice, [bob, carol]);
+      const inWindow = await sendOk(t, bob, g, 'pinned before carol left');
+      await t.api(alice).post(`/api/chats/${g}/pins`).send({ messageId: inWindow.id }).expect(200);
+      expect(((await t.api(carol).get(`/api/chats/${g}/pins`).expect(200)).body as Message[]).map((m) => m.id)).toEqual([inWindow.id]);
+      await leaveGroup(g, carol, alice); // removed by an admin
+      expect((await summaryOf(t, carol, g)).membership).toBe('removed');
+      // Pin changes after she left (even on a message she can still read) never reach her.
+      const alsoInWindow = (await historyOf(t, carol, g)).find((m) => m.type === 'text')!;
+      expect(alsoInWindow.id).toBe(inWindow.id);
+      const later = await sendOk(t, bob, g, 'after carol left');
+      await t.api(alice).post(`/api/chats/${g}/pins`).send({ messageId: later.id }).expect(200);
+      expect((await t.api(carol).get(`/api/chats/${g}/pins`).expect(200)).body).toEqual([]);
+      // Her history stays readable up to left_seq.
+      expect((await historyOf(t, carol, g)).map((m) => m.id)).toContain(inWindow.id);
+      expect(((await t.api(bob).get(`/api/chats/${g}/pins`).expect(200)).body as Message[]).map((m) => m.id)).toEqual([inWindow.id, later.id]);
+      // Deleted for her (hidden row) → 404; invalid id → 400.
+      await t.api(carol).delete(`/api/chats/${g}`).expect(204);
+      await t.api(carol).get(`/api/chats/${g}/pins`).expect(404);
+      await t.api(carol).get('/api/chats/nope/pins').expect(400);
     });
 
     it('pins are filtered by the viewer’s visibility', async () => {

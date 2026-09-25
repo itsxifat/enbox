@@ -12,8 +12,10 @@ import { createStatus, deleteStatus, deleteUserStatusesTx, loadStatusFeed, loadS
  * - GET /status/feed → StatusFeed
  * - POST /status → 201 Status (text/image/video; audience snapshot; `status:new`; ≤ 30/h per user)
  * - DELETE /status/:statusId → 204 (author; `status:deleted`)
- * - POST /status/:statusId/view → 204 (audience; `status:viewed` unless read receipts off)
- * - PUT /status/:statusId/reaction → 204 (audience only)
+ * - POST /status/:statusId/view → 204 (audience; first view → `status:viewed { firstView: true,
+ *   viewCount }` unless read receipts off)
+ * - PUT /status/:statusId/reaction → 204 (audience only; `status:viewed`, `firstView` false when
+ *   it only updates an existing view)
  * - GET /status/:statusId/viewers → StatusViewer[] (author only)
  */
 export const router = Router();

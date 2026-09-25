@@ -1,6 +1,7 @@
 /**
  * Concurrency regressions that only real PostgreSQL can interleave (PGlite runs one
- * transaction at a time): review findings C4, C5, C6, C7, C8, C9 and CALLS-3.
+ * transaction at a time): review findings C4, C5, C6, C7, C8, C9 and CALLS-3, the
+ * `status:viewed` firstView race, plus a PostgreSQL check of the media-counts SQL.
  *
  * Skipped unless ENBOX_TEST_PG_URL points at a database whose role may CREATE DATABASE, e.g.
  *   ENBOX_TEST_PG_URL=postgres://enbox:enbox@127.0.0.1:5432/postgres npm test -w @enbox/server
@@ -388,6 +389,48 @@ describe.skipIf(!PG_ADMIN_URL)('concurrency on PostgreSQL', () => {
       out[action] = await status;
     }
     expect(out).toEqual({ view: 404, reaction: 404 });
+  });
+
+  // -------------------------------------------------------------------------
+  // status:viewed firstView: a reaction racing another device's first view
+  // -------------------------------------------------------------------------
+  it('STATUS-VIEWED: a reaction racing a first view from another device reports firstView exactly once', async () => {
+    const [author, viewer] = (await mkUsers(2)) as [TestUser, TestUser];
+    const sa = await t.connect(author);
+    const rec = recordEvents(sa);
+    const out: Record<string, unknown> = {};
+    for (const outcome of ['commit', 'rollback'] as const) {
+      const st = await mkStatus(author.id, [viewer.id]);
+      const r = await raw();
+      await r.query('begin');
+      // The other device's first view, in flight (uncommitted).
+      await r.query('insert into status_views (status_id, viewer_id, viewed_at) values ($1, $2, now())', [st.id, viewer.id]);
+      const req = t.api(viewer).put(`/api/status/${st.id}/reaction`).send({ emoji: '👍' }).then((res) => res.status);
+      await lockWaiters('%insert into "status_views"%');
+      await r.query(outcome);
+      expect(await req).toBe(204);
+      await until(() => rec.of('status:viewed').some((e) => e.statusId === st.id), 3000, 'status:viewed');
+      const evt = rec.of('status:viewed').find((e) => e.statusId === st.id)!;
+      out[outcome] = { firstView: evt.firstView, viewCount: evt.viewCount, reaction: evt.viewer.reaction };
+    }
+    // Committed: the reaction only updated that view. Rolled back: the reaction recorded it.
+    expect(out).toEqual({
+      commit: { firstView: false, viewCount: 1, reaction: '👍' },
+      rollback: { firstView: true, viewCount: 1, reaction: '👍' },
+    });
+    sa.disconnect();
+  });
+
+  it('PG-SQL: media counts (count … filter) match the gallery lists on PostgreSQL', async () => {
+    const [a, b] = (await mkUsers(2)) as [TestUser, TestUser];
+    const g = await createGroup(a, [b]);
+    await sendOk(t, a, g, 'see https://example.com');
+    await sendOk(t, a, g, 'www.enbox.dev');
+    await sendOk(t, b, g, 'plain');
+    const counts = (await t.api(b).get(`/api/chats/${g}/media/counts`).expect(200)).body;
+    expect(counts).toEqual({ media: 0, docs: 0, links: 2, voice: 0 });
+    const links = (await t.api(b).get(`/api/chats/${g}/media?kind=links`).expect(200)).body as Message[];
+    expect(links).toHaveLength(counts.links);
   });
 
   // -------------------------------------------------------------------------

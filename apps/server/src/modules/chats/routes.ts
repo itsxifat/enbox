@@ -13,6 +13,7 @@ import { parse } from '../../lib/validate.js';
 import { transact } from '../../services/effects.js';
 import { advanceRead } from '../../services/watermarks.js';
 import {
+  chatMediaCounts,
   clearChat,
   deleteChatForMe,
   getChat,
@@ -29,7 +30,7 @@ import {
 
 /**
  * Chats module — owns: /chats, /chats/direct, /chats/:chatId, /chats/:chatId/{prefs,read,
- * clear,disappearing,members,media,pins}. Paths are relative to /api (see ApiRoutes in
+ * clear,disappearing,members,media,media/counts,pins}. Paths are relative to /api (see ApiRoutes in
  * @enbox/shared); mounted behind requireAuth. `/chats/:chatId/messages` lives in the
  * messages module. Business rules: ./service.ts.
  */
@@ -95,6 +96,13 @@ router.get('/chats/:chatId/members', async (req, res) => {
   const me = authUserId(req);
   const { chatId } = parse(chatParams, req.params);
   res.json(await listMembers(me, chatId));
+});
+
+// Literal segment first (docs "Routes"): the counts of the gallery below.
+router.get('/chats/:chatId/media/counts', async (req, res) => {
+  const me = authUserId(req);
+  const { chatId } = parse(chatParams, req.params);
+  res.json(await chatMediaCounts(me, chatId));
 });
 
 router.get('/chats/:chatId/media', async (req, res) => {

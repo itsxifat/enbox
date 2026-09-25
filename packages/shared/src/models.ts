@@ -291,6 +291,12 @@ export interface ChatSummary {
   markedUnread: boolean;
 
   createdAt: ISODate;
+  /**
+   * Who created the group/channel (announcement groups: the community's creator);
+   * viewer-neutral. Always null for direct chats. A deleted creator keeps their id (render
+   * with `UserPublic.isDeleted`); null when unknown.
+   */
+  createdBy: ID | null;
   /** lastMessage.createdAt, else when the viewer joined (former members: left_at); list sort key. */
   lastActivityAt: ISODate;
 }

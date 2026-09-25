@@ -252,6 +252,47 @@ describe('status updates', () => {
       await setSettings(dave, { readReceipts: true });
     });
 
+    it('status:viewed carries firstView (new view vs reaction update) and the author’s current viewCount', async () => {
+      const s = (await post(alice, { type: 'text', text: 'counted' })).body as Status;
+      const events = () => ra.of('status:viewed').filter((e) => e.statusId === s.id);
+
+      // A first view: firstView, counted.
+      await t.api(bob).post(`/api/status/${s.id}/view`).expect(204);
+      await until(() => events().length === 1);
+      expect(events()[0]).toMatchObject({ viewer: { user: { id: bob.id }, reaction: null }, firstView: true, viewCount: 1 });
+      // A reaction on that view: an update, the count is unchanged.
+      await t.api(bob).put(`/api/status/${s.id}/reaction`).send({ emoji: '❤️' }).expect(204);
+      await until(() => events().length === 2);
+      expect(events()[1]).toMatchObject({ viewer: { user: { id: bob.id }, reaction: '❤️' }, firstView: false, viewCount: 1 });
+
+      // A viewer with read receipts off: recorded silently and not counted.
+      await setSettings(dave, { readReceipts: false });
+      try {
+        await t.api(dave).post(`/api/status/${s.id}/view`).expect(204);
+        // A reaction without a prior view records a NEW view.
+        await t.api(carol).put(`/api/status/${s.id}/reaction`).send({ emoji: '👍' }).expect(204);
+        await until(() => events().length === 3);
+        expect(events()[2]).toMatchObject({ viewer: { user: { id: carol.id }, reaction: '👍' }, firstView: true, viewCount: 2 });
+        await t.api(carol).put(`/api/status/${s.id}/reaction`).send({ emoji: '😂' }).expect(204);
+        await until(() => events().length === 4);
+        expect(events()[3]).toMatchObject({ viewer: { user: { id: carol.id }, reaction: '😂' }, firstView: false, viewCount: 2 });
+        await settle(100);
+        expect(events().map((e) => e.viewer.user.id)).not.toContain(dave.id);
+      } finally {
+        await setSettings(dave, { readReceipts: true });
+      }
+      // viewCount is the current count by the read-receipts rule: dave's recorded view counts
+      // again now, and it matches Status.viewCount in the author's feed.
+      await t.api(bob).put(`/api/status/${s.id}/reaction`).send({ emoji: '🎉' }).expect(204);
+      await until(() => events().length === 5);
+      expect(events()[4]).toMatchObject({ firstView: false, viewCount: 3 });
+      expect((await feed(alice)).mine.find((x) => x.id === s.id)!.viewCount).toBe(3);
+      // A repeated plain view emits nothing.
+      await t.api(bob).post(`/api/status/${s.id}/view`).expect(204);
+      await settle(100);
+      expect(events()).toHaveLength(5);
+    });
+
     it('viewers: author only (audience 403, others 404)', async () => {
       const s = (await post(alice, { type: 'text', text: 'who' })).body as Status;
       expect((await t.api(alice).get(`/api/status/${s.id}/viewers`).expect(200)).body).toEqual([]);

@@ -7,7 +7,7 @@ import { resetCallState, setCallTimings } from '../../src/modules/calls/state.js
 import { transact } from '../../src/services/effects.js';
 import { upsertMembership } from '../../src/services/membership.js';
 import { startTestServer, type TestServer, type TestSocket, type TestUser } from '../helpers.js';
-import { createDirect, createGroup, recordEvents } from '../services/fixtures.js';
+import { block, createDirect, createGroup, recordEvents } from '../services/fixtures.js';
 import { ackCall, ackError, callRow, send, until } from './helpers.js';
 
 describe('calls: REST', () => {
@@ -144,6 +144,48 @@ describe('calls: REST', () => {
       await t.api(carol).delete(`/api/calls/${ids.answered}`).expect(404);
       await t.api(alice).delete(`/api/calls/${crypto.randomUUID()}`).expect(404);
       expect((await t.api(alice).delete('/api/calls/not-a-uuid').expect(400)).body.error.code).toBe('validation_error');
+    });
+
+    it('GET /calls/:callId returns my log entry (same serialization); hidden / not mine / unknown → 404', async () => {
+      const log = (await t.api(alice).get('/api/calls').expect(200)).body as CallLogEntry[];
+      expect(log.length).toBeGreaterThan(3);
+      for (const entry of log) {
+        expect((await t.api(alice).get(`/api/calls/${entry.call.id}`).expect(200)).body).toEqual(entry);
+      }
+      // Per viewer: direction/outcome and the chat pick are mine.
+      expect((await t.api(bob).get(`/api/calls/${ids.answered}`).expect(200)).body).toMatchObject({
+        direction: 'incoming',
+        outcome: 'answered',
+        chat: { id: ab, type: 'direct', peer: { id: alice.id } },
+      });
+      expect((await t.api(carol).get(`/api/calls/${ids.group}`).expect(200)).body).toMatchObject({ direction: 'outgoing', outcome: 'answered', chat: { name: 'Trio' } });
+      expect((await t.api(alice).get(`/api/calls/${ids.live}`).expect(200)).body).toMatchObject({ outcome: 'ongoing', call: { status: 'ringing' } });
+      // Removed from my log (the previous test hid `declined` for alice): 404 for me, still there for bob.
+      expect((await t.api(alice).get(`/api/calls/${ids.declined}`).expect(404)).body.error.code).toBe('not_found');
+      expect((await t.api(bob).get(`/api/calls/${ids.declined}`).expect(200)).body).toMatchObject({ direction: 'outgoing', outcome: 'declined' });
+      // Not a participant (bob was not in dave's call), unknown, malformed, anonymous.
+      await t.api(bob).get(`/api/calls/${ids.busy}`).expect(404);
+      await t.api(dave).get(`/api/calls/${ids.group}`).expect(404);
+      await t.api(alice).get(`/api/calls/${crypto.randomUUID()}`).expect(404);
+      expect((await t.api(alice).get('/api/calls/not-a-uuid').expect(400)).body.error.code).toBe('validation_error');
+      await t.api().get(`/api/calls/${ids.answered}`).expect(401);
+      // The literal routes still win over the param route.
+      expect(Array.isArray((await t.api(alice).get('/api/calls/active').expect(200)).body)).toBe(true);
+      expect((await t.api(alice).get('/api/calls/ice-servers').expect(200)).body).toHaveProperty('iceServers');
+    });
+
+    it('GET /calls/:callId: a callee who blocked the caller (hidden participant) gets 404', async () => {
+      const [eve, frank] = await Promise.all([t.createUser({ displayName: 'Eve' }), t.createUser({ displayName: 'Frank' })]);
+      const chatId = await createDirect(frank, eve);
+      await block(eve, frank);
+      const f = await t.connect(frank);
+      const call = await ackCall(f, 'call:start', { chatId, type: 'audio' });
+      expect((await t.api(frank).get(`/api/calls/${call.id}`).expect(200)).body).toMatchObject({ direction: 'outgoing', call: { id: call.id } });
+      await t.api(eve).get(`/api/calls/${call.id}`).expect(404);
+      send(f, 'call:leave', { callId: call.id });
+      await waitStatus(call.id, 'cancelled');
+      await t.api(eve).get(`/api/calls/${call.id}`).expect(404);
+      f.disconnect();
     });
 
     it('DELETE /calls clears my ended calls (live calls stay)', async () => {

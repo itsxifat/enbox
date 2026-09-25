@@ -89,7 +89,8 @@ router.get('/channels/discover', async (req, res) => {
   res.json(await channelEntries(db, me, and(isPublicChannel, q ? channelMatches(q) : undefined), limit));
 });
 
-// GET /channels/:chatId → ChannelPreview (public channels, or channels I follow; else 404)
+// GET /channels/:chatId → ChannelPreview (public channels, or channels I follow; else 404);
+// `users` side-loads the users the page references, like MessagePage.
 router.get('/channels/:chatId', async (req, res) => {
   const me = authUserId(req);
   const { chatId } = parse(chatParams, req.params);
@@ -100,7 +101,7 @@ router.get('/channels/:chatId', async (req, res) => {
   const channel = await channelEntry(db, me, chatId);
   if (!channel) throw notFound('Channel');
   const page = await loadMessagePage(db, me, chatId, { limit: MESSAGES_PAGE_SIZE }, following ? {} : { window: PUBLIC_WINDOW, chatType: 'channel' });
-  const out: ChannelPreview = { channel, messages: page.messages };
+  const out: ChannelPreview = { channel, messages: page.messages, users: page.users };
   res.json(out);
 });
 

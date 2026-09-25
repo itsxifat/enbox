@@ -143,12 +143,15 @@ export function delayNextTxResult(match: (text: string, params: unknown[]) => bo
 export function recordChatLocks() {
   const client = rootClient();
   const original = client.transaction;
-  const batches: string[][] = [];
+  /** Chat-lock batches in order, tagged with the transaction that took them. */
+  const batches: { tx: number; ids: string[] }[] = [];
+  let txSeq = 0;
   client.transaction = function (this: unknown, cb: (tx: TxClient) => Promise<unknown>) {
+    const txId = ++txSeq;
     return original.call(this, (tx) => {
       const query = tx.query.bind(tx);
       tx.query = ((q: string, params?: unknown[], opts?: unknown) => {
-        if (/from "chats"/i.test(q) && /for update/i.test(q)) batches.push((params ?? []).map(String));
+        if (/from "chats"/i.test(q) && /for update/i.test(q)) batches.push({ tx: txId, ids: (params ?? []).map(String) });
         return query(q, params, opts);
       }) as AnyFn;
       return cb(tx);
@@ -157,22 +160,28 @@ export function recordChatLocks() {
   return {
     batches,
     restore: () => void (client.transaction = original),
-    /** Chat ids newly locked while a higher id was already held (normative order: sorted). */
+    /**
+     * Chat ids newly locked while a higher id was already held BY THE SAME TRANSACTION
+     * (normative order: sorted). Locks from other, concurrent transactions (e.g. post-commit
+     * listeners) are independent and must not be mixed in.
+     */
     violations(): string[] {
-      const held = new Set<string>();
+      const heldByTx = new Map<number, Set<string>>();
       const out: string[] = [];
-      for (const batch of batches) {
-        for (const id of batch) {
+      for (const { tx, ids } of batches) {
+        let held = heldByTx.get(tx);
+        if (!held) heldByTx.set(tx, (held = new Set()));
+        for (const id of ids) {
           if (held.has(id)) continue;
           const higher = [...held].filter((h) => h > id);
-          if (higher.length) out.push(`${id} locked after ${higher.join(',')}`);
+          if (higher.length) out.push(`${id} locked after ${higher.join(',')} (tx ${tx})`);
           held.add(id);
         }
       }
       return out;
     },
     held(): Set<string> {
-      return new Set(batches.flat());
+      return new Set(batches.flatMap((b) => b.ids));
     },
   };
 }

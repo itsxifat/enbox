@@ -88,6 +88,15 @@ export function boundSocketId(callId: string, userId: string): string | undefine
   return byCall.get(callId)?.get(userId);
 }
 
+/**
+ * Whether the socket with this id is still connected to this process (a bound call socket
+ * is unbound synchronously on disconnect, so a binding normally implies it; a socket this
+ * process doesn't know counts as gone).
+ */
+export function isSocketConnected(socketId: string): boolean {
+  return getIo()?.sockets.sockets.get(socketId)?.connected ?? false;
+}
+
 /** Whether `socket` is `userId`'s call socket for `callId` (room-based, so it holds for this socket). */
 export function isCallSocket(socket: AppSocket, callId: string, userId: string): boolean {
   return socket.rooms.has(rooms.callMember(callId, userId));

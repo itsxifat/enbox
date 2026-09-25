@@ -52,6 +52,7 @@ import {
   clearRingCheck,
   emitToRoom,
   isCallSocket,
+  isSocketConnected,
   releaseCall,
   releaseCallSocket,
   scheduleGrace,
@@ -688,8 +689,10 @@ export async function joinCall(actor: Actor, input: { callId: string; audioMuted
 
 /**
  * `call:rejoin`: reclaim my joined participant after a reconnect — within
- * CALL_RECONNECT_GRACE_MS of the call socket's disconnect, or from the same session. Acts as
- * a newcomer (`call:participant-joined`).
+ * CALL_RECONNECT_GRACE_MS of the call socket's disconnect, or from the same session — once
+ * the previous call socket is gone: while it is still connected → 409 conflict (another
+ * device, or another tab sharing this session's token, can't take the call over). Acts as a
+ * newcomer (`call:participant-joined`).
  */
 export async function rejoinCall(actor: Actor, input: { callId: string; audioMuted?: boolean; videoOff?: boolean }): Promise<{ call: Call }> {
   const { userId, sessionId, socket } = actor;
@@ -698,7 +701,9 @@ export async function rejoinCall(actor: Actor, input: { callId: string; audioMut
     if (!mine || mine.hiddenAt) throw notFound('Call');
     if (!isLive(ctx.call.status)) throw expired('This call has ended');
     if (mine.status !== 'joined') throw conflict('You are no longer in this call');
-    if (boundSocketId(ctx.call.id, userId) === socket.id) return;
+    const bound = boundSocketId(ctx.call.id, userId);
+    if (bound === socket.id) return;
+    if (bound && isSocketConnected(bound)) throw conflict('This call is active in another tab or on another device');
     const sameSession = mine.sessionId === sessionId;
     const inGrace = !!mine.disconnectedAt && Date.now() - mine.disconnectedAt.getTime() <= callTimings.reconnectGraceMs;
     if (!sameSession && !inGrace) {

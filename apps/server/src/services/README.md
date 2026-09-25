@@ -135,7 +135,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - Semantics: lastMessage = last VISIBLE message (viewer-neutral serialization); unread/mention
   counts; watermarks = min over other active members (none → lastSeq; direct + receipts off
   → read 0; channels 0/0); former members clamped to `left_seq`, `inviteCode` only with
-  `canInvite`, `lastActivityAt` = last message time, else joined_at (former: left_at).
+  `canInvite`, `lastActivityAt` = last message time, else joined_at (former: left_at),
+  `createdBy` = chats.created_by (viewer-neutral; null for direct chats).
 
 ### messages.ts
 - `createMessage(tx, fx, input): { message, created, chat }` — THE send transaction (lock,

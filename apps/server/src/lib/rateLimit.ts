@@ -20,6 +20,8 @@ function limiter(windowMs: number, limit: number): RequestHandler {
 
 /** Login/register: 20 attempts per 10 minutes per IP. */
 export const authLimiter = limiter(10 * 60_000, 20);
+/** Public username availability checks (register form): 120 per 10 minutes per IP (anti enumeration). */
+export const usernameCheckLimiter = limiter(10 * 60_000, 120);
 /** Invite lookups/joins: 60 per 10 minutes per IP (anti brute-force). */
 export const inviteLimiter = limiter(10 * 60_000, 60);
 /** Uploads: 120 per 10 minutes per IP. */

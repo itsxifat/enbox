@@ -9,6 +9,7 @@ import {
   reactSchema,
   searchMessagesQuerySchema,
   sendMessageSchema,
+  starredMessagesQuerySchema,
 } from '@enbox/shared';
 import { authUserId } from '../../http/auth.js';
 import { parse } from '../../lib/validate.js';
@@ -55,7 +56,9 @@ router.post('/chats/:chatId/messages', async (req, res) => {
 });
 
 router.get('/messages/starred', async (req, res) => {
-  res.json(await listStarred(authUserId(req)));
+  const me = authUserId(req);
+  const query = parse(starredMessagesQuerySchema, req.query);
+  res.json(await listStarred(me, query));
 });
 
 // 201 when at least one copy was created; 200 for a pure retry.

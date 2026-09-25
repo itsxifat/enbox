@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { DEFAULT_ABOUT, DEFAULT_USER_SETTINGS, type AuthResponse, type SessionInfo } from '@enbox/shared';
+import { config } from '../../src/config.js';
 import { db } from '../../src/db/index.js';
 import { pushSubscriptions, sessions, users } from '../../src/db/schema.js';
 import { runSessionCleanup } from '../../src/modules/auth/sessionCleanup.js';
 import { resolveToken } from '../../src/services/sessions.js';
+import { deletedUsername } from '../../src/services/users.js';
 import { expectNoEvent, startTestServer, waitForEvent, type TestServer, type TestUser } from '../helpers.js';
 import { recordEvents } from '../services/fixtures.js';
 import { newDevice, waitDisconnect } from './util.js';
@@ -94,6 +96,61 @@ describe('auth: register, login, sessions, password', () => {
       expect(dupName.body.error).toMatchObject({ code: 'conflict', message: expect.stringMatching(/username/i) });
       const dupPhone = await register({ username: 'carol2', displayName: 'C', password: 'password-1', phone: '001 555 010 0002' }).expect(409);
       expect(dupPhone.body.error).toMatchObject({ code: 'conflict', message: expect.stringMatching(/phone/i) });
+    });
+  });
+
+  describe('GET /api/auth/username-available', () => {
+    const check = (username: string | undefined) => {
+      const req = t.api().get('/api/auth/username-available');
+      return username === undefined ? req : req.query({ username });
+    };
+
+    it('public: { available } for well-formed names — false when taken (any case), held by a deleted account, or reserved', async () => {
+      const fresh = await check('  Fresh.Name_1 ').expect(200);
+      expect(fresh.body).toEqual({ available: true });
+      expect(fresh.headers['cache-control']).toBe('no-store');
+
+      const holder = await registered('taken_name');
+      expect((await check('taken_name').expect(200)).body).toEqual({ available: false });
+      expect((await check('TAKEN_NAME').expect(200)).body).toEqual({ available: false });
+      // An authenticated caller gets the same answer (the route is public either way).
+      expect((await t.api(holder).get('/api/auth/username-available').query({ username: 'taken_name' }).expect(200)).body).toEqual({ available: false });
+
+      // Account deletion scrubs the name to the reserved `deleted_…` one: the old name is free again.
+      await t.api(holder).delete('/api/me').send({ password: holder.password }).expect(204);
+      expect((await check('taken_name').expect(200)).body).toEqual({ available: true });
+      expect((await check(deletedUsername(holder.id)).expect(200)).body).toEqual({ available: false });
+      expect((await check('deleted_someone').expect(200)).body).toEqual({ available: false });
+
+      // It agrees with register.
+      await register({ username: 'deleted_someone', displayName: 'X', password: 'password-1' }).expect(400);
+      await register({ username: 'taken_name', displayName: 'X', password: 'password-1' }).expect(201);
+      expect((await check('taken_name').expect(200)).body).toEqual({ available: false });
+    });
+
+    it('malformed or missing usernames → 400 validation_error', async () => {
+      for (const username of [undefined, '', 'ab', 'a'.repeat(33), '1234', 'has space', 'émile', 'semi;colon']) {
+        const res = await check(username).expect(400);
+        expect(res.body.error.code).toBe('validation_error');
+      }
+      const twice = await t.api().get('/api/auth/username-available?username=abc1&username=abc2').expect(400);
+      expect(twice.body.error.code).toBe('validation_error');
+    });
+
+    it('is rate-limited per IP by its own limiter (not the login/register budget)', async () => {
+      config.rateLimit = true;
+      try {
+        const statuses: number[] = [];
+        for (let i = 0; i < 125; i++) statuses.push((await check(`probe${i}`)).status);
+        expect(statuses.slice(0, 120).every((s) => s === 200)).toBe(true);
+        expect(statuses.slice(120)).toEqual([429, 429, 429, 429, 429]);
+        const limited = await check('probe_again').expect(429);
+        expect(limited.body.error.code).toBe('rate_limited');
+        // The auth limiter is untouched.
+        await register({ username: 'after_probing', displayName: 'P', password: 'password-1' }).expect(201);
+      } finally {
+        config.rateLimit = false;
+      }
     });
   });
 
