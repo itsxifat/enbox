@@ -3,3 +3,4 @@
  */
 import './mediaGc.js';
 import '../modules/auth/sessionCleanup.js';
+import './disappearingPurge.js';

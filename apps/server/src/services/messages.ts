@@ -522,7 +522,11 @@ export async function toMessages(dbx: DbOrTx, viewerId: string | null, rows: Mes
         allowMultiple: md.poll.allowMultiple,
         totalVoters: totalVoters.get(row.id) ?? 0,
       };
-      if (viewerId) poll.myOptionIds = myVotes.get(row.id) ?? [];
+      if (viewerId) {
+        // Report my votes in option order (deterministic for clients and tests).
+        const mine = new Set(myVotes.get(row.id) ?? []);
+        poll.myOptionIds = md.poll.options.filter((o) => mine.has(o.id)).map((o) => o.id);
+      }
     }
 
     const reactions: ReactionSummary[] = deleted
