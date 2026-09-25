@@ -24,3 +24,4 @@ data-e2e-*/
 
 # scratch repro tests written by review agents (converted into regression tests, then deleted)
 apps/server/test/_verify/
+apps/web/src/_verify/
