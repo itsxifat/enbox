@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { loginSchema } from '@enbox/shared';
+import { AlertCircle } from 'lucide-react';
+import { loginSchema, parseLoginIdentifier } from '@enbox/shared';
 import { Button, Input } from '@/components/ui';
 import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { validate, type FieldErrors } from '@/lib/forms';
@@ -23,6 +24,8 @@ export function LoginPage() {
     setFormError(null);
     const errs: FieldErrors = {};
     if (!identifier.trim()) errs.identifier = 'Enter your username or phone number';
+    else if (!parseLoginIdentifier(identifier))
+      errs.identifier = 'Enter a valid phone number with country code, e.g. +1 555 123 4567';
     if (!password) errs.password = 'Enter your password';
     const r = validate(loginSchema, { identifier, password });
     if (Object.keys(errs).length || !r.ok) {
@@ -33,13 +36,14 @@ export function LoginPage() {
     setBusy(true);
     try {
       await login(r.data);
-      // <PublicOnly/> redirects once the store is authenticated.
+      // <PublicOnly/> redirects to `next` once the store is authenticated.
     } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.code === 'unauthorized')) {
-        setFormError('Incorrect username, phone or password.');
+      if (err instanceof ApiError && err.status === 401) {
+        setFormError(err.message || 'Incorrect username, phone number or password.');
       } else if (err instanceof ApiError && err.code === 'validation_error') {
-        setErrors(fieldErrors(err));
-        setFormError(Object.keys(fieldErrors(err)).length ? null : err.message);
+        const fe = fieldErrors(err);
+        setErrors(fe);
+        setFormError(Object.keys(fe).length ? null : err.message);
       } else {
         setFormError(errorMessage(err));
       }
@@ -53,7 +57,11 @@ export function LoginPage() {
   return (
     <AuthLayout
       title="Welcome back"
-      subtitle="Log in to continue to Enbox."
+      subtitle={
+        next?.startsWith('/join/')
+          ? 'Log in to join the conversation you were invited to.'
+          : 'Log in to continue to Enbox.'
+      }
       footer={
         <>
           New to Enbox?{' '}
@@ -63,7 +71,7 @@ export function LoginPage() {
         </>
       }
     >
-      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4" aria-label="Log in">
         <Input
           label="Username or phone"
           name="identifier"
@@ -72,6 +80,7 @@ export function LoginPage() {
           autoCorrect="off"
           spellCheck={false}
           autoFocus
+          placeholder="username or +1 555 123 4567"
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value)}
           error={errors.identifier}
@@ -87,8 +96,9 @@ export function LoginPage() {
         {formError ? (
           <p
             role="alert"
-            className="rounded-xl bg-danger-soft px-3.5 py-2.5 text-[14px] text-danger"
+            className="flex items-start gap-2 rounded-xl bg-danger-soft px-3.5 py-2.5 text-[14px] text-danger"
           >
+            <AlertCircle size={18} className="mt-px shrink-0" aria-hidden />
             {formError}
           </p>
         ) : null}

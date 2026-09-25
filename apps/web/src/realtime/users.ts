@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import type { UserSelf } from '@enbox/shared';
 import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
+import { useContacts } from '@/stores/contacts';
 import { useUsers } from '@/stores/users';
 
 export function registerUserHandlers(socket: AppSocket): void {
@@ -52,3 +53,27 @@ export async function resyncUsers(info: ReadyInfo): Promise<void> {
     if (user) useAuth.getState().setUser(user);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Contacts & blocks (agent 1): keep saved names and blocked flags live on every device.
+// `contacts:changed` / `blocks:changed` only say *that* something changed, so refetch and
+// patch the users store + direct-chat peers (see stores/contacts.ts).
+// ---------------------------------------------------------------------------
+
+let contactsSyncInstalled = false;
+
+/** Install the bus listeners (idempotent). Runs once when this module loads. */
+export function installContactsSync(): void {
+  if (contactsSyncInstalled) return;
+  contactsSyncInstalled = true;
+  bus.on('contacts:changed', () => void useContacts.getState().syncContacts());
+  bus.on('blocks:changed', () => void useContacts.getState().syncBlocks());
+  bus.on('realtime:ready', ({ reconnect }) => {
+    if (!reconnect) return;
+    const s = useContacts.getState();
+    if (s.loaded) void s.syncContacts();
+    if (s.blockedLoaded) void s.syncBlocks();
+  });
+}
+
+installContactsSync();
