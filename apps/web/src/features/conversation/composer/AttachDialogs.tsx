@@ -26,7 +26,7 @@ import {
 } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { toast } from '@/stores/ui';
-import { MapPreview } from '../bubbles/CardBodies';
+import { MapPreview, ShowMapButton } from '../bubbles/CardBodies';
 
 // ---------------------------------------------------------------------------
 // Location
@@ -108,7 +108,10 @@ export function LocationDialog({
         <div className="flex flex-col gap-3 pb-2">
           <div className="relative h-44 overflow-hidden rounded-2xl">
             {geo.status === 'ok' ? (
-              <MapPreview lat={geo.lat} lon={geo.lon} className="h-full w-full" />
+              <>
+                <MapPreview lat={geo.lat} lon={geo.lon} className="h-full w-full" />
+                <ShowMapButton lat={geo.lat} lon={geo.lon} className="absolute right-2 bottom-2" />
+              </>
             ) : (
               <div className="flex h-full items-center justify-center bg-surface-2 text-brand-ink">
                 <Spinner size={26} />

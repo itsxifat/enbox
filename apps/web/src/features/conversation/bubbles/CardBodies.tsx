@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideo,
+  Map as MapIcon,
   MapPin,
   Phone,
   PhoneIncoming,
@@ -34,6 +35,7 @@ import { toast } from '@/stores/ui';
 import { useUser, useUsers } from '@/stores/users';
 import { openDirectChat } from '../actions';
 import { ProgressRing } from './MediaBody';
+import { tileKey, useTileRevealed } from './mapTiles';
 import { cancelUpload } from '../lib/sendMedia';
 
 // ---------------------------------------------------------------------------
@@ -142,6 +144,11 @@ export function mapsUrl(lat: number, lon: number): string {
   return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
 }
 
+/**
+ * Map preview of a coordinate: stylised streets, plus the OpenStreetMap tile once the viewer
+ * asked for it (`ShowMapButton`, see mapTiles.ts — loading it tells OSM the viewer's IP and
+ * the area).
+ */
 export function MapPreview({
   lat,
   lon,
@@ -153,6 +160,7 @@ export function MapPreview({
 }) {
   const [failed, setFailed] = useState(false);
   const t = osmTile(lat, lon);
+  const [revealed] = useTileRevealed(tileKey(t));
   return (
     <span
       className={cn('relative block overflow-hidden bg-[#e8e4da] dark:bg-[#2a2d33]', className)}
@@ -182,7 +190,7 @@ export function MapPreview({
         <rect x="20" y="10" width="50" height="30" rx="6" fill="#d6d0c4" />
         <rect x="110" y="95" width="45" height="40" rx="6" fill="#d6d0c4" />
       </svg>
-      {!failed ? (
+      {revealed && !failed ? (
         <img
           src={`https://tile.openstreetmap.org/${t.z}/${t.x}/${t.y}.png`}
           alt=""
@@ -203,21 +211,62 @@ export function MapPreview({
   );
 }
 
+/**
+ * "Show map" over a MapPreview (a sibling of the preview's link, not inside it): loads the
+ * OpenStreetMap tile on request. Renders nothing once the tile is shown.
+ */
+export function ShowMapButton({
+  lat,
+  lon,
+  className,
+}: {
+  lat: number;
+  lon: number;
+  className?: string;
+}) {
+  const [revealed, reveal] = useTileRevealed(tileKey(osmTile(lat, lon)));
+  if (revealed) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        reveal();
+      }}
+      title="Loads a map image from OpenStreetMap"
+      className={cn(
+        'flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-[12px] font-semibold text-white backdrop-blur-sm hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white',
+        className,
+      )}
+    >
+      <MapIcon size={13} aria-hidden />
+      Show map
+    </button>
+  );
+}
+
 export function LocationBody({ m, rounded }: { m: ClientMessage; rounded: string }) {
   const loc = m.location!;
   const url = mapsUrl(loc.latitude, loc.longitude);
   return (
     <div className="flex w-[min(300px,70vw)] flex-col">
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        aria-label={`Open ${loc.name ?? 'location'} in maps`}
-        className={cn('block overflow-hidden', rounded)}
-      >
-        <MapPreview lat={loc.latitude} lon={loc.longitude} className="h-36 w-full" />
-      </a>
+      <div className={cn('relative overflow-hidden', rounded)}>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Open ${loc.name ?? 'location'} in maps`}
+          className="block"
+        >
+          <MapPreview lat={loc.latitude} lon={loc.longitude} className="h-36 w-full" />
+        </a>
+        <ShowMapButton
+          lat={loc.latitude}
+          lon={loc.longitude}
+          className="absolute right-2 bottom-2"
+        />
+      </div>
       <div className="flex items-start gap-2 px-1.5 pt-2 pb-0.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] font-medium">{loc.name ?? 'Shared location'}</p>

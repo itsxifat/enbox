@@ -85,8 +85,8 @@ describe('status store realtime', () => {
     expect(useStatus.getState().feed!.updates).toEqual([]);
   });
 
-  it('applyViewed counts first views and refetches viewers for reactions', async () => {
-    vi.useFakeTimers();
+  it('applyViewed takes the server count and never refetches viewers', () => {
+    const get = vi.spyOn(api, 'get');
     const s = useStatus.getState();
     s.applyNew(
       status('m1', { userId: me.id, viewed: true, viewCount: 0 }),
@@ -97,22 +97,59 @@ describe('status store realtime', () => {
       viewedAt: '2099-01-01T10:00:00.000Z',
       reaction: null,
     };
-    s.applyViewed('m1', viewer);
+    s.applyViewed('m1', viewer, { firstView: true, viewCount: 1 });
     expect(useStatus.getState().feed!.mine[0]!.viewCount).toBe(1);
-    const get = vi.spyOn(api, 'get').mockResolvedValue([{ ...viewer, reaction: '😍' }] as never);
-    s.applyViewed('m1', { ...viewer, reaction: '😍' });
-    await vi.advanceTimersByTimeAsync(400);
-    expect(get).toHaveBeenCalledWith('/api/status/m1/viewers');
+    // A reaction to a view already counted (viewers list not loaded): no refetch, same count.
+    s.applyViewed('m1', { ...viewer, reaction: '😍' }, { firstView: false, viewCount: 1 });
     expect(useStatus.getState().feed!.mine[0]!.viewCount).toBe(1);
-    expect(useStatus.getState().viewers.m1!.items[0]!.reaction).toBe('😍');
-    // Once loaded, later events upsert into the list.
-    s.applyViewed('m1', {
+    // A reaction that is also the first view of someone else.
+    s.applyViewed(
+      'm1',
+      { user: makeUser({ id: 'v2' }), viewedAt: '2099-01-01T10:05:00.000Z', reaction: '🔥' },
+      { firstView: true, viewCount: 2 },
+    );
+    expect(useStatus.getState().feed!.mine[0]!.viewCount).toBe(2);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('applyViewed adds new viewers first and replaces reactions in place', async () => {
+    const v1 = {
+      user: makeUser({ id: 'v1' }),
+      viewedAt: '2099-01-01T10:00:00.000Z',
+      reaction: null,
+    };
+    const v2 = {
       user: makeUser({ id: 'v2' }),
+      viewedAt: '2099-01-01T09:00:00.000Z',
+      reaction: null,
+    };
+    const s = useStatus.getState();
+    s.applyNew(
+      status('m2', { userId: me.id, viewed: true, viewCount: 2 }),
+      makeUser({ id: me.id }),
+    );
+    vi.spyOn(api, 'get').mockResolvedValue([v1, v2] as never);
+    await s.loadViewers('m2');
+    // v2 reacts: stays in place (its view time didn't change).
+    s.applyViewed('m2', { ...v2, reaction: '👍' }, { firstView: false, viewCount: 2 });
+    let items = useStatus.getState().viewers.m2!.items;
+    expect(items.map((v) => [v.user.id, v.reaction])).toEqual([
+      ['v1', null],
+      ['v2', '👍'],
+    ]);
+    // v3 views: added first; the count comes from the server.
+    const v3 = {
+      user: makeUser({ id: 'v3' }),
       viewedAt: '2099-01-01T11:00:00.000Z',
       reaction: null,
-    });
-    expect(useStatus.getState().feed!.mine[0]!.viewCount).toBe(2);
-    vi.useRealTimers();
+    };
+    s.applyViewed('m2', v3, { firstView: true, viewCount: 3 });
+    items = useStatus.getState().viewers.m2!.items;
+    expect(items.map((v) => v.user.id)).toEqual(['v3', 'v1', 'v2']);
+    expect(useStatus.getState().feed!.mine[0]!.viewCount).toBe(3);
+    // A duplicate first-view event does not duplicate the entry.
+    s.applyViewed('m2', v3, { firstView: true, viewCount: 3 });
+    expect(useStatus.getState().viewers.m2!.items).toHaveLength(3);
   });
 
   it('markViewed is optimistic and posts once per status', () => {

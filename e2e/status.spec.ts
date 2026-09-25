@@ -59,6 +59,8 @@ test('text status: realtime unseen ring, view count, reply as a direct message, 
     })
     .toEqual({ author: a.user.id, text: 'Hello from my status', available: true });
 
+  // The reaction updates B's existing view (status:viewed firstView=false): still 1 view.
+  await expect(A.page.getByTestId('status-views')).toContainText('1 view');
   // A sees the reaction in the viewers list…
   await A.page.getByTestId('status-views').click();
   await expect(A.page.getByTestId('status-viewers')).toContainText('Ben Viewer');

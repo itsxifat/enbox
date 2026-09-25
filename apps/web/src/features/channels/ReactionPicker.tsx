@@ -80,6 +80,9 @@ export function ReactionPicker({
             <EmojiPicker
               onEmojiClick={(d) => pick(d.emoji)}
               theme={theme as never}
+              // Native emoji (EmojiStyle.NATIVE): the default style loads images from a CDN,
+              // which the production CSP (first-party images only) blocks.
+              emojiStyle={'native' as never}
               lazyLoadEmojis
               width={320}
               height={380}

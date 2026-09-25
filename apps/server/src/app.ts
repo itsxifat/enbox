@@ -66,7 +66,11 @@ export function createApp() {
   const indexHtml = path.join(config.webDistDir, 'index.html');
   if (fs.existsSync(indexHtml)) {
     app.use(express.static(config.webDistDir, { index: false, maxAge: '1h' }));
-    app.get(/^\/(?!api\/|uploads\/|socket\.io\/).*/, (_req, res) => res.sendFile(indexHtml));
+    // `root` keeps the dotfile check to the relative path, so a dist dir that lives under a
+    // dot-directory (e.g. `.cache/…`) still serves.
+    app.get(/^\/(?!api\/|uploads\/|socket\.io\/).*/, (_req, res) =>
+      res.sendFile('index.html', { root: config.webDistDir }),
+    );
   }
 
   const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {

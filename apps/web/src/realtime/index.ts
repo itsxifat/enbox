@@ -33,13 +33,14 @@ let running = false;
 let cleanups: (() => void)[] = [];
 
 async function resync(info: ReadyInfo): Promise<void> {
-  // Chats first (drives the UI), the rest in parallel.
-  await resyncChats(info);
+  // Calls right away: a call rejoin must land within the server's reconnect grace, so it
+  // can't wait behind the chat reload. Otherwise chats first (drives the UI), the rest in
+  // parallel.
   await Promise.allSettled([
-    resyncUsers(info),
-    resyncCommunities(info),
-    resyncStatus(info),
     resyncCalls(info),
+    resyncChats(info).then(() =>
+      Promise.allSettled([resyncUsers(info), resyncCommunities(info), resyncStatus(info)]),
+    ),
   ]);
 }
 

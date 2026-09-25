@@ -9,10 +9,17 @@
  * - accept / join / rejoin: media → ack → offer to every OTHER `joined` participant.
  * - peers: `call:participant-joined` → drop any old connection and wait for their offer;
  *   `call:participant-left` → close; `call:signal` → engine; `call:media` → flags.
- * - socket drop → reconnecting; next `ready` → `GET /api/calls/active` → `call:rejoin`.
- * - page reload while in a call → auto-rejoin (this tab only, via sessionStorage).
+ * - my own participant leaving `joined` (forced leave, grace expired) ends the call here.
+ * - socket drop → reconnecting; next `ready` → `GET /api/calls/active` → `call:rejoin`,
+ *   retried while the server still sees the old call socket (`conflict`) or the ack is lost.
+ * - an accept/join/start ack lost to a socket drop is resolved on the next `ready` (rejoin
+ *   if the server joined me, redo the accept/join otherwise).
+ * - page reload while in a call → auto-rejoin (this tab only, via sessionStorage). The tab
+ *   does not leave on `pagehide` (a reload fires it too): a closed tab is released by the
+ *   server after CALL_RECONNECT_GRACE_MS.
  */
 import {
+  CALL_RECONNECT_GRACE_MS,
   MAX_CALL_PARTICIPANTS,
   type Call,
   type CallParticipant,
@@ -23,7 +30,13 @@ import { api, isApiError, type ApiResponse } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { playSound } from '@/lib/notify';
 import { registerSessionReset } from '@/lib/session';
-import { emitWithAck, sendEvent, useConnection, type ReadyInfo } from '@/lib/socket';
+import {
+  emitWithAck,
+  isSocketConnected,
+  sendEvent,
+  useConnection,
+  type ReadyInfo,
+} from '@/lib/socket';
 import { getMyId } from '@/stores/auth';
 import { type ActiveCall, useCalls } from '@/stores/calls';
 import { getChat } from '@/stores/chats';
@@ -51,6 +64,8 @@ import {
 // Session state (module scope: one call at a time)
 // ---------------------------------------------------------------------------
 
+type EnterMode = 'accept' | 'join' | 'rejoin';
+
 let engine: CallEngine | null = null;
 /** Incremented for every new call attempt; async steps of an older attempt abort. */
 let attempt = 0;
@@ -60,11 +75,32 @@ let starting = false;
 let reconnecting = false;
 /** Hang up pressed before the start ack arrived. */
 let cancelRequested = false;
+/**
+ * The start/accept/join ack was lost because the socket dropped (unknown outcome): the next
+ * `ready` decides (rejoin if the server joined me, else redo it).
+ */
+let lostEnter: 'start' | 'accept' | 'join' | null = null;
+/** The attempt a rejoin loop is running for (one loop at a time). */
+let rejoiningAttempt: number | null = null;
+/** Give up rejoining after this (epoch ms). */
+let rejoinDeadline = 0;
+/** Newest camera action (toggle / flip): an older one finishing late is discarded. */
+let videoOp = 0;
 let offs: (() => void)[] = [];
 let endTimer: ReturnType<typeof setTimeout> | null = null;
 let logRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const CURRENT_CALL_KEY = 'enbox.calls.current';
+
+/**
+ * How long a reconnecting/reloaded client keeps retrying `call:rejoin`. Longer than the
+ * server's grace: the grace only starts once the server has seen the old socket close, which
+ * can take a ping timeout after a network drop. The server's answer (my participant no longer
+ * `joined`) ends the retries earlier.
+ */
+export const REJOIN_WINDOW_MS = CALL_RECONNECT_GRACE_MS * 3;
+/** A page reload auto-rejoins only if the page went away less than this ago. */
+const RELOAD_REJOIN_MS = CALL_RECONNECT_GRACE_MS * 2;
 
 const store = () => useCalls.getState();
 const active = () => store().active;
@@ -75,24 +111,52 @@ function selfId(): ID {
   return id;
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+interface RememberedCall {
+  callId: ID;
+  /** Epoch ms of the last write (the `pagehide` of a reload writes it last). */
+  at: number;
+}
+
 function rememberCall(callId: ID | null): void {
   try {
-    if (callId) sessionStorage.setItem(CURRENT_CALL_KEY, callId);
+    if (callId)
+      sessionStorage.setItem(CURRENT_CALL_KEY, JSON.stringify({ callId, at: Date.now() }));
     else sessionStorage.removeItem(CURRENT_CALL_KEY);
   } catch {
     /* storage disabled */
   }
 }
 
-function rememberedCall(): ID | null {
+function rememberedCall(): RememberedCall | null {
   try {
-    return sessionStorage.getItem(CURRENT_CALL_KEY);
+    const raw = sessionStorage.getItem(CURRENT_CALL_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<RememberedCall> | null;
+    if (v && typeof v.callId === 'string' && typeof v.at === 'number')
+      return { callId: v.callId, at: v.at };
   } catch {
-    return null;
+    /* storage disabled / legacy value */
+  }
+  return null;
+}
+
+/** This document was loaded by a reload (F5 / location.reload()), not a new navigation. */
+function isReloadNavigation(): boolean {
+  try {
+    const nav = performance.getEntriesByType?.('navigation')[0] as
+      PerformanceNavigationTiming | undefined;
+    return nav?.type === 'reload';
+  } catch {
+    return false;
   }
 }
 
+/** Patch the active call. An ended call only takes the patch that ends it. */
 function patch(partial: Partial<ActiveCall>): void {
+  const a = active();
+  if (!a || (a.phase === 'ended' && partial.phase === undefined)) return;
   store().patchActive(partial);
 }
 
@@ -140,6 +204,16 @@ function clearEndTimer(): void {
   endTimer = null;
 }
 
+/** Reset the per-attempt flags (a new attempt starts, or the call is over). */
+function resetFlags(): void {
+  attempt++;
+  starting = false;
+  reconnecting = false;
+  cancelRequested = false;
+  lostEnter = null;
+  rejoinDeadline = 0;
+}
+
 // ---------------------------------------------------------------------------
 // Engine & media
 // ---------------------------------------------------------------------------
@@ -149,6 +223,7 @@ function createEngine(iceServers: RTCIceServer[]): CallEngine {
   const e = new CallEngine({
     selfId: selfId(),
     iceServers,
+    refreshIceServers: () => getIceServers(),
     sendSignal: (toUserId, signal) => {
       const callId = active()?.call.id;
       if (callId && engine === e) sendEvent('call:signal', { callId, toUserId, signal });
@@ -208,16 +283,28 @@ async function hasMultipleCameras(): Promise<boolean> {
   return (await listDevices('videoinput')).length > 1;
 }
 
+/** The media flags as the server should see them. */
+function mediaFlags(a: ActiveCall): { audioMuted: boolean; videoOff: boolean } {
+  // Peers render our video while the camera OR a screen share is on.
+  return { audioMuted: a.audioMuted, videoOff: a.videoOff && !a.screenSharing };
+}
+
 function broadcastMedia(): void {
   const a = active();
   if (!a?.call.id || a.phase === 'ended') return;
-  sendEvent('call:media', {
-    callId: a.call.id,
-    audioMuted: a.audioMuted,
-    // Peers render our video while the camera OR a screen share is on.
-    videoOff: a.videoOff && !a.screenSharing,
-    screenSharing: a.screenSharing,
-  });
+  sendEvent('call:media', { callId: a.call.id, ...mediaFlags(a), screenSharing: a.screenSharing });
+}
+
+/**
+ * After a start/accept/join/rejoin ack: toggles made while it was pending went nowhere (no
+ * call id yet, or not the call socket yet), so send the current flags if they differ.
+ */
+function syncMediaAfterAck(sent: { audioMuted: boolean; videoOff: boolean }): void {
+  const a = active();
+  if (!a || a.phase === 'ended') return;
+  const now = mediaFlags(a);
+  if (a.screenSharing || now.audioMuted !== sent.audioMuted || now.videoOff !== sent.videoOff)
+    broadcastMedia();
 }
 
 // ---------------------------------------------------------------------------
@@ -237,11 +324,15 @@ function onBeforeUnload(e: BeforeUnloadEvent): void {
   e.returnValue = '';
 }
 
+/**
+ * Reload or close: `pagehide` can't tell them apart, so never leave here. Stamp the
+ * remembered call instead: a reload rejoins it (rejoinAfterReload), a closed tab is released
+ * by the server once CALL_RECONNECT_GRACE_MS passed without a rejoin.
+ */
 function onPageHide(e: PageTransitionEvent): void {
   const a = active();
   if (e.persisted || !a?.call.id || a.phase === 'ended') return;
-  sendEvent('call:leave', { callId: a.call.id });
-  rememberCall(null);
+  rememberCall(a.call.id);
 }
 
 function installListeners(): void {
@@ -311,6 +402,7 @@ function dropPeer(userId: ID): void {
 function onSocketDown(): void {
   const a = active();
   if (!a || a.phase === 'ended' || !a.call.id) return;
+  if (!reconnecting || !rejoinDeadline) rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
   reconnecting = true;
   recompute();
 }
@@ -320,11 +412,19 @@ function applyCall(call: Call): void {
   const a = active();
   if (!a || (a.call.id && a.call.id !== call.id)) return;
   store().setLiveCall(call);
+  if (a.phase === 'ended') return;
   if (isTerminal(call)) {
     finish(call);
     return;
   }
   const me = selfId();
+  // The call goes on without me (removed from the group, left on the server after the
+  // reconnect grace…): the server won't tell me more (it released my call socket first).
+  // While an accept/join ack is pending my status is legitimately not `joined` yet.
+  if (!starting && !lostEnter && participantOf(call, me)?.status !== 'joined') {
+    finish(call, { reason: 'Call ended' });
+    return;
+  }
   let connections = a.connections;
   for (const id of Object.keys(connections)) {
     if (participantOf(call, id)?.status !== 'joined') {
@@ -335,14 +435,7 @@ function applyCall(call: Call): void {
   }
   // Keep my own flags authoritative locally (the server copy may lag behind a toggle).
   const participants = call.participants.map((p) =>
-    p.userId === me
-      ? {
-          ...p,
-          audioMuted: a.audioMuted,
-          videoOff: a.videoOff && !a.screenSharing,
-          screenSharing: a.screenSharing,
-        }
-      : p,
+    p.userId === me ? { ...p, ...mediaFlags(a), screenSharing: a.screenSharing } : p,
   );
   patch({ call: { ...call, participants }, connections });
   recompute();
@@ -355,10 +448,7 @@ function finish(call: Call | null, opts: { reason?: string; local?: boolean } = 
     if (call) store().setLiveCall(call);
     return;
   }
-  attempt++;
-  starting = false;
-  reconnecting = false;
-  cancelRequested = false;
+  resetFlags();
   engine?.close();
   engine = null;
   removeListeners();
@@ -384,10 +474,12 @@ function finish(call: Call | null, opts: { reason?: string; local?: boolean } = 
     !final.isGroup &&
     (final.status === 'missed' || final.status === 'declined');
   clearEndTimer();
-  const ended = active();
+  // Compare state, not identity: late patches (acks, device probes) replace the object.
   endTimer = setTimeout(
     () => {
-      if (store().active === ended) store().setActive(null);
+      endTimer = null;
+      const cur = store().active;
+      if (cur?.phase === 'ended' && cur.call.id === final.id) store().setActive(null);
     },
     opts.local ? 900 : retryable ? 8_000 : 2_200,
   );
@@ -401,10 +493,7 @@ function scheduleLogRefresh(): void {
 }
 
 function teardown(): void {
-  attempt++;
-  starting = false;
-  reconnecting = false;
-  cancelRequested = false;
+  resetFlags();
   engine?.close();
   engine = null;
   removeListeners();
@@ -417,18 +506,13 @@ function teardown(): void {
 // Entering a call
 // ---------------------------------------------------------------------------
 
-type EnterMode = 'accept' | 'join' | 'rejoin';
-
 /** Ack of accept/join/rejoin, then offer to every other joined participant. */
 async function enterCall(callId: ID, mode: EnterMode, my: number): Promise<void> {
   const a = active();
   if (!a) return;
   const event = mode === 'accept' ? 'call:accept' : mode === 'join' ? 'call:join' : 'call:rejoin';
-  const res = await emitWithAck(event, {
-    callId,
-    audioMuted: a.audioMuted,
-    videoOff: a.videoOff && !a.screenSharing,
-  });
+  const sent = mediaFlags(a);
+  const res = await emitWithAck(event, { callId, ...sent });
   if (my !== attempt) {
     // Hung up meanwhile.
     sendEvent('call:leave', { callId });
@@ -436,6 +520,8 @@ async function enterCall(callId: ID, mode: EnterMode, my: number): Promise<void>
   }
   starting = false;
   reconnecting = false;
+  lostEnter = null;
+  rejoinDeadline = 0;
   rememberCall(callId);
   const me = selfId();
   const connections: ActiveCall['connections'] = {};
@@ -445,7 +531,7 @@ async function enterCall(callId: ID, mode: EnterMode, my: number): Promise<void>
   }
   patch({ call: { ...res.call, id: callId }, connections });
   applyCall(res.call);
-  if (a.screenSharing) broadcastMedia();
+  syncMediaAfterAck(sent);
 }
 
 function enterErrorMessage(e: unknown): string {
@@ -475,6 +561,8 @@ async function prepareMedia(
       return null;
     }
     const e = createEngine(ice);
+    // Mute pressed while the media was being acquired: apply it before any link exists.
+    e.setMuted(active()?.audioMuted ?? false);
     e.setMicrophone(media.mic);
     e.setCamera(media.camera);
     patch({
@@ -495,6 +583,50 @@ async function liveCallsNow(): Promise<Call[]> {
   const calls = await api.get<ApiResponse<'GET /api/calls/active'>>('/api/calls/active');
   store().setLiveCalls(calls);
   return calls;
+}
+
+/**
+ * The accept/join ack failed. A `timeout` is an unknown outcome (the server may have joined
+ * me): on a live socket, undo it (a leave counts once a late accept binds this socket; a
+ * decline covers an accept that never ran); after a socket drop, let the next `ready`
+ * decide (reconcile). Anything else: nothing happened server-side.
+ */
+function onEnterFailed(e: unknown, callId: ID, mode: 'accept' | 'join', my: number): void {
+  if (my !== attempt) return;
+  if (isApiError(e) && e.code === 'timeout') {
+    if (!isSocketConnected()) {
+      starting = false;
+      reconnecting = true;
+      lostEnter = mode;
+      if (!rejoinDeadline) rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+      rememberCall(callId);
+      recompute();
+      return;
+    }
+    sendEvent('call:leave', { callId });
+    if (mode === 'accept') sendEvent('call:decline', { callId });
+    teardown();
+    toast.error(enterErrorMessage(e));
+    return;
+  }
+  teardown();
+  if (e instanceof MediaAccessError) {
+    if (mode === 'accept') sendEvent('call:decline', { callId });
+    toast.error(e.message);
+  } else {
+    toast.error(enterErrorMessage(e));
+  }
+}
+
+/** My live call in `chatId` that I started and am joined to (a start whose ack was lost). */
+function myStartedCall(calls: Call[], chatId: ID, me: ID): Call | undefined {
+  return calls.find(
+    (c) =>
+      c.chatId === chatId &&
+      c.initiatorId === me &&
+      !isTerminal(c) &&
+      participantOf(c, me)?.status === 'joined',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -549,10 +681,9 @@ export async function startCall(chatId: ID, type: CallType, userIds?: ID[]): Pro
     return;
   }
 
-  const my = ++attempt;
+  resetFlags();
+  const my = attempt;
   starting = true;
-  reconnecting = false;
-  cancelRequested = false;
   clearEndTimer();
   const now = new Date().toISOString();
   const isGroup = chat?.type === 'group';
@@ -580,12 +711,12 @@ export async function startCall(chatId: ID, type: CallType, userIds?: ID[]): Pro
     const media = await prepareMedia(my, type, isGroup);
     if (!media) return;
     const a = active()!;
+    const sent = mediaFlags(a);
     const res = await emitWithAck('call:start', {
       chatId,
       type,
       ...(userIds?.length ? { userIds } : {}),
-      audioMuted: a.audioMuted,
-      videoOff: a.videoOff,
+      ...sent,
     });
     if (my !== attempt || cancelRequested) {
       sendEvent('call:leave', { callId: res.call.id });
@@ -595,15 +726,46 @@ export async function startCall(chatId: ID, type: CallType, userIds?: ID[]): Pro
     rememberCall(res.call.id);
     patch({ call: res.call });
     applyCall(res.call);
+    syncMediaAfterAck(sent);
   } catch (e) {
     if (my !== attempt) return;
     if (isApiError(e) && e.code === 'conflict') {
       await resolveStartConflict(chatId, my);
       return;
     }
+    if (isApiError(e) && e.code === 'timeout') {
+      // Unknown outcome: the server may have created the call (lost ack).
+      if (!isSocketConnected()) {
+        // Adopt (and rejoin) or drop it on the next `ready` (reconcile).
+        starting = false;
+        reconnecting = true;
+        lostEnter = 'start';
+        rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+        recompute();
+        return;
+      }
+      teardown();
+      toast.error(enterErrorMessage(e));
+      void leaveOrphanedStart(chatId, me);
+      return;
+    }
     teardown();
     if (e instanceof MediaAccessError) toast.error(e.message);
     else toast.error(isApiError(e) && e.code === 'forbidden' ? e.message : enterErrorMessage(e));
+  }
+}
+
+/** A `call:start` that timed out on a live socket may still commit: leave that call. */
+async function leaveOrphanedStart(chatId: ID, me: ID): Promise<void> {
+  for (const wait of [0, 5_000]) {
+    if (wait) await sleep(wait);
+    if (active()) return; // a new call started meanwhile
+    const calls = await liveCallsNow().catch(() => null);
+    const orphan = calls && myStartedCall(calls, chatId, me);
+    if (orphan && !active()) {
+      sendEvent('call:leave', { callId: orphan.id });
+      return;
+    }
   }
 }
 
@@ -625,6 +787,8 @@ function participantStub(
 
 /** `call:start` → conflict: the chat already has a live call (accept/join it) or I'm busy. */
 async function resolveStartConflict(chatId: ID, my: number): Promise<void> {
+  let mode: 'accept' | 'join' | null = null;
+  let callId: ID | null = null;
   try {
     const calls = await liveCallsNow();
     if (my !== attempt) return;
@@ -635,11 +799,15 @@ async function resolveStartConflict(chatId: ID, my: number): Promise<void> {
       // 1:1 cross-call: they called me at the same time — answer theirs.
       store().setIncoming(null);
       patch({ call: live, outgoing: false });
+      mode = 'accept';
+      callId = live.id;
       await enterCall(live.id, 'accept', my);
       return;
     }
     if (live && live.isGroup && mine?.status !== 'joined') {
       patch({ call: live, outgoing: false });
+      mode = 'join';
+      callId = live.id;
       await enterCall(live.id, 'join', my);
       return;
     }
@@ -651,6 +819,10 @@ async function resolveStartConflict(chatId: ID, my: number): Promise<void> {
     );
   } catch (e) {
     if (my !== attempt) return;
+    if (mode && callId) {
+      onEnterFailed(e, callId, mode, my);
+      return;
+    }
     teardown();
     toast.error(enterErrorMessage(e));
   }
@@ -666,9 +838,9 @@ export async function acceptIncoming(): Promise<void> {
   }
   clearEndTimer();
   store().setIncoming(null);
-  const my = ++attempt;
+  resetFlags();
+  const my = attempt;
   starting = true;
-  reconnecting = false;
   store().setActive(newActive(inc.call, { outgoing: false, videoOff: inc.call.type === 'audio' }));
   installListeners();
   try {
@@ -676,14 +848,7 @@ export async function acceptIncoming(): Promise<void> {
     if (!media) return;
     await enterCall(inc.call.id, 'accept', my);
   } catch (e) {
-    if (my !== attempt) return;
-    teardown();
-    if (e instanceof MediaAccessError) {
-      sendEvent('call:decline', { callId: inc.call.id });
-      toast.error(e.message);
-    } else {
-      toast.error(enterErrorMessage(e));
-    }
+    onEnterFailed(e, inc.call.id, 'accept', my);
   }
 }
 
@@ -718,11 +883,11 @@ export async function joinCall(callId: ID): Promise<void> {
   }
   const me = selfId();
   const mine = participantOf(call, me);
-  const mode: EnterMode = mine && isPendingStatus(mine.status) ? 'accept' : 'join';
+  const mode = mine && isPendingStatus(mine.status) ? 'accept' : 'join';
   if (s.incoming?.call.id === callId) s.setIncoming(null);
-  const my = ++attempt;
+  resetFlags();
+  const my = attempt;
   starting = true;
-  reconnecting = false;
   store().setActive(newActive(call, { outgoing: false, videoOff: call.type === 'audio' }));
   installListeners();
   try {
@@ -730,9 +895,7 @@ export async function joinCall(callId: ID): Promise<void> {
     if (!media) return;
     await enterCall(call.id, mode, my);
   } catch (e) {
-    if (my !== attempt) return;
-    teardown();
-    toast.error(e instanceof MediaAccessError ? e.message : enterErrorMessage(e));
+    onEnterFailed(e, call.id, mode, my);
   }
 }
 
@@ -744,9 +907,23 @@ export function leaveCall(): void {
     store().setActive(null);
     return;
   }
-  if (a.call.id) sendEvent('call:leave', { callId: a.call.id });
-  else cancelRequested = true;
-  const unanswered = a.outgoing && !a.connectedAt && !joinedOthers(a.call, getMyId() ?? '').length;
+  const me = getMyId() ?? '';
+  if (a.call.id) {
+    sendEvent('call:leave', { callId: a.call.id });
+    // Hanging up an accept still acquiring media / waiting for its ack: the server ignores the
+    // leave while I'm only ringing, so decline too (a no-op once the accept joined me, where
+    // the leave counts instead). Stops the caller's and my other devices' ringing.
+    const mine = participantOf(a.call, me);
+    if (
+      (starting || lostEnter === 'accept') &&
+      !a.outgoing &&
+      mine &&
+      isPendingStatus(mine.status)
+    ) {
+      sendEvent('call:decline', { callId: a.call.id });
+    }
+  } else cancelRequested = true;
+  const unanswered = a.outgoing && !a.connectedAt && !joinedOthers(a.call, me).length;
   finish(null, { local: true, reason: unanswered ? 'Call cancelled' : 'Call ended' });
 }
 
@@ -766,6 +943,7 @@ export function toggleMute(): void {
   const a = active();
   if (!a || a.phase === 'ended') return;
   const audioMuted = !a.audioMuted;
+  // No engine yet (media still being acquired): prepareMedia applies the flag.
   engine?.setMuted(audioMuted);
   patch({ audioMuted });
   broadcastMedia();
@@ -775,6 +953,7 @@ export async function toggleVideo(): Promise<void> {
   const a = active();
   if (!a || a.phase === 'ended' || !engine) return;
   const e = engine;
+  const op = ++videoOp;
   if (!a.videoOff) {
     e.setCamera(null);
     patch({ videoOff: true });
@@ -783,16 +962,18 @@ export async function toggleVideo(): Promise<void> {
   }
   try {
     const track = await getCameraTrack({ facingMode: a.facingMode, compact: a.call.isGroup });
-    if (engine !== e || active()?.phase === 'ended') {
+    if (op !== videoOp || engine !== e || active()?.phase === 'ended') {
       track.stop();
       return;
     }
     e.setCamera(track);
     patch({ videoOff: false, mediaError: null });
     broadcastMedia();
-    void hasMultipleCameras().then((canFlip) => patch({ canFlip }));
+    void hasMultipleCameras().then((canFlip) => {
+      if (engine === e) patch({ canFlip });
+    });
   } catch (err) {
-    toast.error(err);
+    if (op === videoOp && engine === e) toast.error(err);
   }
 }
 
@@ -800,10 +981,15 @@ export async function flipCamera(): Promise<void> {
   const a = active();
   if (!a || a.videoOff || !engine) return;
   const e = engine;
+  const op = ++videoOp;
   const facingMode = a.facingMode === 'user' ? 'environment' : 'user';
+  // Superseded by a newer camera action, or the camera was turned off meanwhile.
+  const stale = () =>
+    op !== videoOp || engine !== e || active()?.phase === 'ended' || !!active()?.videoOff;
   try {
     // Desktop: cycle through cameras by id; phones: toggle front/back.
     const cams = await listDevices('videoinput');
+    if (stale()) return;
     let deviceId: string | undefined;
     if (cams.length > 1 && cams.every((c) => c.deviceId)) {
       const current = e.currentCameraDeviceId();
@@ -815,7 +1001,7 @@ export async function flipCamera(): Promise<void> {
     const track = await getCameraTrack(
       deviceId ? { deviceId, compact: a.call.isGroup } : { facingMode, compact: a.call.isGroup },
     );
-    if (engine !== e) {
+    if (stale()) {
       track.stop();
       return;
     }
@@ -829,6 +1015,7 @@ export async function flipCamera(): Promise<void> {
             : facingMode,
     });
   } catch (err) {
+    if (op !== videoOp || engine !== e) return;
     toast.error(err);
     patch({ videoOff: true });
     broadcastMedia();
@@ -861,8 +1048,10 @@ export async function toggleScreenShare(): Promise<void> {
 }
 
 export async function setOutputDevice(deviceId: string): Promise<void> {
-  await engine?.setOutputDevice(deviceId);
-  patch({ outputDeviceId: deviceId });
+  const e = engine;
+  if (!e) return;
+  await e.setOutputDevice(deviceId);
+  if (engine === e) patch({ outputDeviceId: deviceId });
 }
 
 export function resumeAudio(): void {
@@ -878,54 +1067,163 @@ export async function reconcile(calls: Call[], info: Pick<ReadyInfo, 'reconnect'
   const a = active();
   const me = getMyId();
   if (!me) return;
-  if (a && a.phase !== 'ended' && a.call.id) {
+  if (a && a.phase !== 'ended') {
+    if (!a.call.id) {
+      // A `call:start` whose ack was lost to a socket drop: adopt the call if it exists.
+      if (lostEnter !== 'start' || !reconnecting) return;
+      const started = myStartedCall(calls, a.call.chatId, me);
+      if (!started) {
+        finish(null, { local: true, reason: "Can't connect the call" });
+        return;
+      }
+      lostEnter = null;
+      rememberCall(started.id);
+      patch({ call: started });
+      await rejoin(started);
+      return;
+    }
     const live = calls.find((c) => c.id === a.call.id);
     if (!live) {
       finish(null, { reason: 'Call ended' });
       return;
     }
-    if (!reconnecting && !info.reconnect) {
+    // Only a client that lost its call socket rejoins: a second rejoin from the bound socket
+    // is a no-op on the server but would rebuild every peer connection here.
+    if (!reconnecting) {
       applyCall(live);
       return;
     }
-    if (participantOf(live, me)?.status !== 'joined') {
-      finish(null, { reason: 'Call ended' });
+    if (rejoiningAttempt === attempt) return; // the running rejoin loop carries on
+    const mine = participantOf(live, me);
+    if (mine?.status === 'joined') {
+      lostEnter = null;
+      await rejoin(live);
       return;
     }
-    await rejoin(live);
+    const redo =
+      lostEnter === 'accept' && mine && isPendingStatus(mine.status)
+        ? 'accept'
+        : lostEnter === 'join' && live.isGroup
+          ? 'join'
+          : null;
+    if (!redo) {
+      finish(live, { reason: 'Call ended' });
+      return;
+    }
+    // The accept/join never reached the server: do it now.
+    const my = attempt;
+    lostEnter = null;
+    reconnecting = false;
+    starting = true;
+    recompute();
+    try {
+      await enterCall(live.id, redo, my);
+    } catch (e) {
+      onEnterFailed(e, live.id, redo, my);
+    }
     return;
   }
   if (!a && !info.reconnect) {
     // Page reload: this tab was in a call it hasn't left (sessionStorage) → rejoin.
     const remembered = rememberedCall();
-    const live = remembered ? calls.find((c) => c.id === remembered) : undefined;
-    if (live && participantOf(live, me)?.status === 'joined') await rejoinAfterReload(live);
-    else if (remembered) rememberCall(null);
+    if (!remembered) {
+      rememberCall(null); // legacy / unreadable value
+      return;
+    }
+    const live = calls.find((c) => c.id === remembered.callId);
+    const fresh = isReloadNavigation() && Date.now() - remembered.at < RELOAD_REJOIN_MS;
+    if (live && fresh && participantOf(live, me)?.status === 'joined')
+      await rejoinAfterReload(live);
+    else rememberCall(null);
   }
+}
+
+/**
+ * `GET /api/calls/active` failed after a reconnect: rejoin the active call anyway and let the
+ * ack decide (realtime/calls.ts retries the full resync meanwhile).
+ */
+export function reconcileWithoutList(): void {
+  const a = active();
+  if (!a || a.phase === 'ended' || !a.call.id || !reconnecting || lostEnter) return;
+  if (rejoiningAttempt === attempt) return;
+  void rejoin(a.call);
 }
 
 /** Socket came back: close peer connections and act as a newcomer (`call:rejoin`). */
 async function rejoin(call: Call): Promise<void> {
   const my = attempt;
-  reconnecting = true;
-  engine?.closePeers();
-  patch({ connections: {} });
-  recompute();
+  if (rejoiningAttempt === my) return;
+  rejoiningAttempt = my;
   try {
-    await enterCall(call.id, 'rejoin', my);
-  } catch (e) {
+    reconnecting = true;
+    if (!rejoinDeadline) rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
+    engine?.closePeers();
+    patch({ connections: {} });
+    recompute();
+    // New links (and TURN allocations) after a long call need current credentials.
+    await engine?.refreshIceServers();
     if (my !== attempt) return;
-    finish(null, {
-      reason: isApiError(e) && e.code === 'expired' ? 'Call ended' : 'Connection lost',
-    });
+    await rejoinLoop(call.id, my);
+  } finally {
+    if (rejoiningAttempt === my) rejoiningAttempt = null;
+  }
+}
+
+/**
+ * `call:rejoin` until it sticks. `conflict` while the server still sees my old call socket
+ * (the grace starts once it has seen it close) → retry with backoff, as long as the server
+ * still lists me as joined; a lost ack → retry on this socket, or on the next `ready` if the
+ * socket dropped again. Ends the call on definitive errors or after REJOIN_WINDOW_MS.
+ */
+async function rejoinLoop(callId: ID, my: number): Promise<void> {
+  let delay = 500;
+  for (;;) {
+    try {
+      await enterCall(callId, 'rejoin', my);
+      return;
+    } catch (e) {
+      if (my !== attempt) return;
+      const code = isApiError(e) ? e.code : null;
+      const retryable = code === 'conflict' || code === 'timeout' || code === 'network_error';
+      if (!retryable || Date.now() > rejoinDeadline) {
+        finish(null, {
+          reason:
+            code === 'expired' || code === 'conflict' || code === 'not_found'
+              ? 'Call ended'
+              : code === 'limit_reached'
+                ? enterErrorMessage(e)
+                : 'Connection lost',
+        });
+        return;
+      }
+      // Offline again: the next `ready` reconciles (resyncCalls → reconcile).
+      if (!isSocketConnected()) return;
+      await sleep(delay);
+      delay = Math.min(delay * 2, 3_000);
+      if (my !== attempt || !isSocketConnected()) return;
+      if (code === 'conflict') {
+        // "You are no longer in this call" is a conflict too: check before retrying.
+        const calls = await liveCallsNow().catch(() => null);
+        if (my !== attempt) return;
+        if (calls) {
+          const live = calls.find((c) => c.id === callId);
+          if (!live || participantOf(live, selfId())?.status !== 'joined') {
+            finish(live ?? null, { reason: 'Call ended' });
+            return;
+          }
+        }
+      }
+    }
   }
 }
 
 async function rejoinAfterReload(call: Call): Promise<void> {
   const me = selfId();
   const mine = participantOf(call, me);
-  const my = ++attempt;
+  resetFlags();
+  const my = attempt;
   reconnecting = true;
+  rejoinDeadline = Date.now() + REJOIN_WINDOW_MS;
   const a = newActive(call, {
     outgoing: call.initiatorId === me,
     videoOff: mine?.videoOff ?? true,
@@ -935,15 +1233,16 @@ async function rejoinAfterReload(call: Call): Promise<void> {
   store().setActive(a);
   installListeners();
   try {
+    // prepareMedia applies the current mute flag (the user may toggle it meanwhile).
     const media = await prepareMedia(my, a.videoOff ? 'audio' : 'video', call.isGroup);
     if (!media) return;
-    engine?.setMuted(a.audioMuted);
-    await enterCall(call.id, 'rejoin', my);
   } catch (e) {
     if (my !== attempt) return;
     teardown();
-    if (!(isApiError(e) && e.code === 'conflict')) toast.error(enterErrorMessage(e));
+    toast.error(e instanceof MediaAccessError ? e.message : enterErrorMessage(e));
+    return;
   }
+  await rejoin(call);
 }
 
 /** Logout / account switch: drop everything without events. */
@@ -951,6 +1250,7 @@ export function resetCallSession(): void {
   const a = active();
   if (a?.call.id && a.phase !== 'ended') sendEvent('call:leave', { callId: a.call.id });
   teardown();
+  videoOp++;
   if (logRefreshTimer) clearTimeout(logRefreshTimer);
 }
 

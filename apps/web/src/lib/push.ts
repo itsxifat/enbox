@@ -5,7 +5,12 @@
  *   const result = await enablePush();          // from a user gesture (asks permission)
  *   await syncPushSubscription();              // silent: re-register if already granted
  *   await disablePush();                       // unsubscribe + DELETE on the server
+ *
+ * The device pref `desktopNotifications` ("Desktop alerts") controls the subscription: the
+ * service worker can't read it and the server pushes to every subscription, so turning it
+ * off unsubscribes, and the silent sync never re-subscribes while it is off.
  */
+import { useUi } from '@/stores/ui';
 import type { ApiResponse } from './api';
 import { api } from './api';
 import { notificationPermission, requestNotificationPermission } from './notify';
@@ -81,22 +86,33 @@ export async function enablePush(): Promise<PushResult> {
   return subscribe();
 }
 
-/** Silently (re)register the subscription if permission was already granted. */
+/**
+ * Silently (re)register the subscription if permission was already granted — unless the
+ * user turned "Desktop alerts" off on this device.
+ */
 export async function syncPushSubscription(): Promise<PushResult> {
   if (!pushSupported()) return 'unsupported';
+  if (!useUi.getState().prefs.desktopNotifications) return 'denied';
   if (notificationPermission() !== 'granted') return 'denied';
   return subscribe();
 }
 
-/** Unsubscribe this device (best effort; used on logout and from settings). */
+/**
+ * Unsubscribe this device (best effort; used on logout and from settings). The browser
+ * subscription goes first, so nothing more is delivered even if the DELETE never completes
+ * (the server drops the row when the push service answers 404/410).
+ */
 export async function disablePush(): Promise<void> {
   if (!pushSupported()) return;
   try {
     const reg = await navigator.serviceWorker.getRegistration();
     const sub = await reg?.pushManager.getSubscription();
     if (!sub) return;
-    await api.delete('/api/push/subscriptions', { endpoint: sub.endpoint }).catch(() => undefined);
-    await sub.unsubscribe();
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe().catch(() => false);
+    await api
+      .delete('/api/push/subscriptions', { endpoint }, { timeoutMs: 4_000 })
+      .catch(() => undefined);
   } catch {
     /* ignore */
   }

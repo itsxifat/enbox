@@ -16,7 +16,7 @@ const ME = '00000000-0000-4000-8000-000000000001';
 const P1 = '00000000-0000-4000-8000-000000000002';
 const P2 = '00000000-0000-4000-8000-000000000003';
 
-function setup() {
+function setup(extra: { refreshIceServers?: () => Promise<RTCIceServer[]> } = {}) {
   const sent: { to: string; signal: CallSignal }[] = [];
   const states: [string, string][] = [];
   const sinks: {
@@ -30,6 +30,7 @@ function setup() {
   const engine = new CallEngine({
     selfId: ME,
     iceServers: [],
+    refreshIceServers: extra.refreshIceServers,
     sendSignal: (to, signal) => sent.push({ to, signal }),
     events: {
       onPeerState: (id, s) => states.push([id, s]),
@@ -170,6 +171,27 @@ describe('CallEngine', () => {
     engine.resumeAudio();
     await flush();
     expect(blocked).toEqual([true, false]);
+  });
+
+  it('an ICE restart first refreshes the TURN credentials of every link', async () => {
+    const fresh: RTCIceServer[] = [{ urls: 'turn:t.example', username: 'new', credential: 'c' }];
+    const refreshIceServers = vi.fn(() => Promise.resolve(fresh));
+    const { engine } = setup({ refreshIceServers });
+    engine.connectTo(P1);
+    engine.connectTo(P2);
+    await flush();
+    const [pc1, pc2] = FakePeerConnection.instances;
+    pc1!.setIceState('failed');
+    pc2!.setIceState('failed');
+    await flush();
+    expect(refreshIceServers).toHaveBeenCalledTimes(1); // deduped across links
+    expect(pc1!.config.iceServers).toEqual(fresh);
+    expect(pc2!.config.iceServers).toEqual(fresh);
+    expect(pc1!.restartIceCalls).toBe(1);
+    expect(pc2!.restartIceCalls).toBe(1);
+    // Later links start with the fresh servers too.
+    engine.connectTo('00000000-0000-4000-8000-000000000004');
+    expect(FakePeerConnection.instances[2]!.config.iceServers).toEqual(fresh);
   });
 
   it('close() stops local capture, closes connections and ignores later signals', async () => {

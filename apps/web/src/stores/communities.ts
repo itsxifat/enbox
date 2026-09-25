@@ -75,19 +75,21 @@ export const useCommunities = create<CommunitiesState>((set, get) => ({
   async loadCommunities() {
     if (loadingPromise) return loadingPromise;
     set({ loading: true });
-    loadingPromise = api
+    const p: Promise<void> = api
       .get<Community[]>('/api/communities')
       .then((list) => {
         set({ byId: Object.fromEntries(list.map((c) => [c.id, c])), loaded: true, loading: false });
       })
       .catch((e: unknown) => {
-        set({ loading: false });
+        // Not after a logout meanwhile (the store was reset; api throws 'aborted').
+        if (loadingPromise === p) set({ loading: false });
         throw e;
       })
       .finally(() => {
-        loadingPromise = null;
+        if (loadingPromise === p) loadingPromise = null;
       });
-    return loadingPromise;
+    loadingPromise = p;
+    return p;
   },
 
   async refreshCommunity(id) {

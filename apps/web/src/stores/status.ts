@@ -29,6 +29,12 @@ import { useAuth } from './auth';
 
 export type StatusFeed = ApiResponse<'GET /api/status/feed'>;
 
+/** The counters of a `status:viewed` event. */
+export interface StatusViewedInfo {
+  firstView: boolean;
+  viewCount: number;
+}
+
 export interface PostingStatus {
   id: string;
   type: Status['type'];
@@ -54,7 +60,11 @@ export interface StatusState {
   loadFeed(): Promise<void>;
   applyNew(status: Status, user: UserPublic): void;
   applyDeleted(statusId: ID, userId: ID): void;
-  applyViewed(statusId: ID, viewer: StatusViewer): void;
+  /**
+   * `status:viewed` (author only): `firstView` → a new viewer (added), else an updated
+   * reaction of a known view (replaced in place); `viewCount` is the server's current count.
+   */
+  applyViewed(statusId: ID, viewer: StatusViewer, info?: StatusViewedInfo): void;
   markViewed(statusId: ID): void;
   postText(input: { text: string; backgroundColor: string; font: number }): Promise<Status>;
   postMedia(input: {
@@ -104,8 +114,6 @@ function isLive(s: Pick<Status, 'expiresAt'>, now: number): boolean {
 
 /** status ids whose view we already POSTed (or are posting). */
 const viewedSent = new Set<ID>();
-/** Refetch-viewers timers (reaction events may or may not be first views). */
-const viewerRefetch = new Map<ID, ReturnType<typeof setTimeout>>();
 
 export const useStatus = create<StatusState>((set, get) => {
   const patchFeed = (fn: (feed: StatusFeed) => StatusFeed) => {
@@ -195,33 +203,23 @@ export const useStatus = create<StatusState>((set, get) => {
       set({ feed: { mine: feed.mine.filter((s) => s.id !== statusId), updates }, viewers });
     },
 
-    applyViewed(statusId, viewer) {
+    applyViewed(statusId, viewer, info) {
       const current = get().viewers[statusId];
-      const known = current?.items.some((v) => v.user.id === viewer.user.id) ?? false;
-      if (current?.loaded) {
-        const items = [viewer, ...current.items.filter((v) => v.user.id !== viewer.user.id)];
+      const same = (v: StatusViewer) => v.user.id === viewer.user.id;
+      const known = current?.items.some(same) ?? false;
+      // Without the server's flag (older payloads), a viewer we don't list yet is a new view.
+      const firstView = info?.firstView ?? !known;
+      if (current) {
+        // Replace a known entry in place (a reaction keeps its view time), add a new one first.
+        const items = known
+          ? current.items.map((v) => (same(v) ? viewer : v))
+          : [viewer, ...current.items];
         set({ viewers: { ...get().viewers, [statusId]: { ...current, items } } });
-        patchMine(statusId, (s) => ({ ...s, viewCount: items.length }));
-        return;
       }
-      if (viewer.reaction === null) {
-        // First view (a plain view is only reported once).
-        patchMine(statusId, (s) => ({ ...s, viewCount: (s.viewCount ?? 0) + 1 }));
-        return;
-      }
-      if (!known) {
-        // A reaction: may or may not be the first view — ask the server.
-        clearTimeout(viewerRefetch.get(statusId));
-        viewerRefetch.set(
-          statusId,
-          setTimeout(() => {
-            viewerRefetch.delete(statusId);
-            void get()
-              .loadViewers(statusId)
-              .catch(() => undefined);
-          }, 300),
-        );
-      }
+      patchMine(statusId, (s) => ({
+        ...s,
+        viewCount: info ? info.viewCount : firstView ? (s.viewCount ?? 0) + 1 : s.viewCount,
+      }));
     },
 
     markViewed(statusId) {
@@ -375,8 +373,6 @@ export function selfPublic(
 
 registerSessionReset(() => {
   viewedSent.clear();
-  for (const t of viewerRefetch.values()) clearTimeout(t);
-  viewerRefetch.clear();
   useStatus.setState({
     feed: null,
     loaded: false,
