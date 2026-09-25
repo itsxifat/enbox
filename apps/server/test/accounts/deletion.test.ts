@@ -119,11 +119,13 @@ describe('DELETE /api/me (account deletion)', () => {
       expect(await db.select().from(statuses).where(eq(statuses.userId, alice.id))).toEqual([]);
     });
 
-    it('runs the registered deletion hooks inside the transaction, after the scrub, with statuses still present', () => {
+    it('runs the registered deletion hooks inside the transaction, after the scrub (status hook removes statuses)', () => {
       expect(hookSaw).not.toBeNull();
       expect(hookSaw!.deletedAt).toBeInstanceOf(Date);
       expect(hookSaw!.sessions).toBe(0);
-      expect(hookSaw!.statuses).toBe(1);
+      // Statuses are still present when the hooks start; the status module's own hook
+      // (registered before this probe) has already deleted them — and emitted status:deleted.
+      expect(hookSaw!.statuses).toBe(0);
     });
 
     it('leaves every group through the normal pipeline, with ownership succession', async () => {
