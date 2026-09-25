@@ -67,7 +67,7 @@ function ActionRow({
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover"
+      className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand text-on-brand">
         <Icon size={22} aria-hidden />
@@ -105,7 +105,7 @@ function PersonRow({
         type="button"
         onClick={onOpen}
         disabled={busy}
-        className="flex min-w-0 flex-1 items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover"
+        className="flex min-w-0 flex-1 items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
         aria-label={`Chat with ${name}`}
       >
         <UserAvatar user={user} size="lg" />
@@ -292,7 +292,7 @@ export function NewChatPane() {
                   type="button"
                   onClick={() => void open(me.id)}
                   disabled={!!opening}
-                  className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover"
+                  className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                 >
                   <Avatar src={me.avatarUrl} name={me.displayName} colorSeed={me.id} size="lg" />
                   <span className="flex min-w-0 flex-1 flex-col">

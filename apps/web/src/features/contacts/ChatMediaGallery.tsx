@@ -217,7 +217,7 @@ export function ChatMediaGallery({
                     download={m.media.fileName ?? true}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-3 px-4 py-2.5 outline-none hover:bg-hover focus-visible:bg-hover"
+                    className="flex items-center gap-3 px-4 py-2.5 outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                   >
                     <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
                       <FileText size={20} aria-hidden />
@@ -244,7 +244,7 @@ export function ChatMediaGallery({
                     href={url}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="flex items-center gap-3 px-4 py-2.5 outline-none hover:bg-hover focus-visible:bg-hover"
+                    className="flex items-center gap-3 px-4 py-2.5 outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                   >
                     <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-muted">
                       <Link2 size={20} aria-hidden />

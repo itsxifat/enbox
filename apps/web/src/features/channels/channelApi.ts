@@ -14,6 +14,7 @@ import type {
 import { api } from '@/lib/api';
 import { useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
+import { useUsers } from '@/stores/users';
 
 const chats = () => useChats.getState();
 
@@ -27,8 +28,14 @@ export function discoverChannels(
   });
 }
 
-export function previewChannel(chatId: ID, signal?: AbortSignal): Promise<ChannelPreview> {
-  return api.get<ChannelPreview>(`/api/channels/${chatId}`, { signal });
+/**
+ * Non-follower preview. The users its posts reference (system actors, mentions, contact
+ * cards) are side-loaded like `MessagePage.users`: put them in the users store so names render.
+ */
+export async function previewChannel(chatId: ID, signal?: AbortSignal): Promise<ChannelPreview> {
+  const preview = await api.get<ChannelPreview>(`/api/channels/${chatId}`, { signal });
+  if (preview.users?.length) useUsers.getState().upsertUsers(preview.users);
+  return preview;
 }
 
 export async function createChannel(body: CreateChannelRequest): Promise<ChatSummary> {

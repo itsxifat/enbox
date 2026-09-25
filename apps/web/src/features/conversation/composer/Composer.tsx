@@ -122,6 +122,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const mediaInput = useRef<HTMLInputElement>(null);
   const docInput = useRef<HTMLInputElement>(null);
   const audioInput = useRef<HTMLInputElement>(null);
+  const sendButton = useRef<HTMLButtonElement>(null);
   const stash = useRef<{ text: string; refs: MentionRef[] } | null>(null);
   const hold = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
@@ -253,14 +254,35 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     });
   };
 
+  /**
+   * After sending something that doesn't consume the typed text (documents, audio files,
+   * location, contact, poll): the reply was used, but the text and its draft stay.
+   */
+  const clearAfterAttachmentSend = () => {
+    setMention(null);
+    useConversationUi.getState().setReply(chat.id, null);
+    typing.stop();
+    useConversationUi.getState().requestBottom();
+  };
+
+  /** After sending the typed text itself (as a message, or as captions). */
   const clearAfterSend = () => {
     setText('');
     refs.current = [];
-    setMention(null);
-    useConversationUi.getState().setReply(chat.id, null);
     useDrafts.getState().clearDraft(chat.id);
-    typing.stop();
-    useConversationUi.getState().requestBottom();
+    clearAfterAttachmentSend();
+  };
+
+  /**
+   * Keyboard users who send with the Send button keep their place: the button is swapped for
+   * the mic once the text is gone, so move focus back to the field instead of <body>.
+   */
+  const keepFocus = (el: HTMLElement) => {
+    if (document.activeElement !== el) return;
+    requestAnimationFrame(() => {
+      if (!el.isConnected || document.activeElement === document.body)
+        ta.current?.focus({ preventScroll: true });
+    });
   };
 
   const replyFields = (m: ClientMessage | undefined) =>
@@ -384,7 +406,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     )
       return;
     const r = replyFields(reply);
-    clearAfterSend();
+    clearAfterAttachmentSend();
     const jobs: (() => Promise<void>)[] = [];
     for (const [i, f] of list.entries()) {
       const durationMs =
@@ -651,7 +673,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
             label={editing ? 'Save edit' : 'Send'}
             variant="brand"
             size="lg"
-            onClick={() => (voice ? void finishRecording() : send())}
+            ref={sendButton}
+            onClick={(e) => {
+              keepFocus(e.currentTarget);
+              if (voice) void finishRecording();
+              else send();
+            }}
             className="mb-0 shrink-0 animate-pop"
           />
         ) : (
@@ -669,7 +696,10 @@ export function Composer({ chat }: { chat: ChatSummary }) {
             onKeyDown={(e) => {
               if ((e.key === 'Enter' || e.key === ' ') && !voice) {
                 e.preventDefault();
-                void startRecording(true);
+                // The mic is swapped for the recorder's Send button: keep keyboard focus.
+                void startRecording(true).then(() =>
+                  requestAnimationFrame(() => sendButton.current?.focus()),
+                );
               }
             }}
             className={cn(
@@ -684,7 +714,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       </div>
 
       {emojiOpen && !voice ? (
-        <div className="-mx-2 mt-2 h-[300px] overflow-hidden border-t border-line sm:-mx-3 sm:h-[340px]">
+        <div className="-mx-2 mt-2 h-[min(300px,40dvh)] overflow-hidden border-t border-line sm:-mx-3 sm:h-[min(340px,42dvh)]">
           <Suspense
             fallback={
               <div className="flex h-full items-center justify-center text-brand-ink">
@@ -749,7 +779,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         onSend={(location) => {
           setDialog(null);
           const r = replyFields(reply);
-          clearAfterSend();
+          clearAfterAttachmentSend();
           void sendQueued(
             chat.id,
             { type: 'location', location, replyToId: r.replyToId },
@@ -763,7 +793,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         onSend={(c) => {
           setDialog(null);
           const r = replyFields(reply);
-          clearAfterSend();
+          clearAfterAttachmentSend();
           void sendQueued(
             chat.id,
             { type: 'contact', contact: { userId: c.user.id }, replyToId: r.replyToId },
@@ -787,7 +817,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         onSend={(poll) => {
           setDialog(null);
           const r = replyFields(reply);
-          clearAfterSend();
+          clearAfterAttachmentSend();
           void sendQueued(
             chat.id,
             { type: 'poll', poll, replyToId: r.replyToId },

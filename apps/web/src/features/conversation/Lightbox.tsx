@@ -117,6 +117,15 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // ←/→ on a video/audio's own controls (seek), a slider or a field isn't navigation.
+      const t = e.target as HTMLElement | null;
+      if (
+        e.defaultPrevented ||
+        t?.closest?.(
+          'video, audio, input, textarea, select, [role="slider"], [contenteditable="true"]',
+        )
+      )
+        return;
       if (e.key === 'ArrowLeft') go(-1);
       else if (e.key === 'ArrowRight') go(1);
     };
@@ -177,7 +186,7 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
         aria-modal="true"
         aria-label="Media viewer"
         tabIndex={-1}
-        className="fixed inset-0 z-[70] flex animate-fade-in flex-col bg-black/95 text-white outline-none"
+        className="fixed inset-0 z-[70] flex animate-fade-in flex-col bg-black/95 text-white outline-none px-safe"
       >
         <header className="flex h-16 shrink-0 items-center gap-3 px-2 pt-safe sm:px-4">
           <IconButton icon={X} label="Close" variant="glass" onClick={close} />

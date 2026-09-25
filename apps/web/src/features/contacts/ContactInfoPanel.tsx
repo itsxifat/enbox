@@ -37,7 +37,6 @@ import {
   type ChatSummary,
   type ID,
   type Message,
-  type MessageSearchResult,
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
@@ -62,9 +61,14 @@ import { useCalls } from '@/stores/calls';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { usePresence, useUsers } from '@/stores/users';
+import { StarredView } from '@/features/groups/shared/StarredView';
+import {
+  mediaTotal,
+  useChatMediaCounts,
+  useStarredCount,
+} from '@/features/groups/shared/mediaCounts';
 import {
   ChatMediaGallery,
-  MEDIA_PAGE,
   MediaLightbox,
   MediaThumb,
   fetchChatMedia,
@@ -127,7 +131,10 @@ function Row({
     <button
       type="button"
       onClick={onClick}
-      className={cn(cls, 'hover:bg-hover focus-visible:bg-hover')}
+      className={cn(
+        cls,
+        'hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
+      )}
       data-testid={testId}
     >
       {body}
@@ -152,7 +159,7 @@ function QuickAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-24 flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover"
+      className="flex w-24 flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <Icon size={22} strokeWidth={1.9} aria-hidden />
       <span className="text-[13px] font-medium text-fg">{label}</span>
@@ -259,7 +266,7 @@ async function clearChat(chat: ChatSummary): Promise<void> {
 export function ContactInfoPanel({ chatId, onClose }: InfoPanelProps) {
   const chat = useChat(chatId);
   const desktop = useIsDesktop();
-  const [view, setView] = useState<{ gallery: MediaTab } | null>(null);
+  const [view, setView] = useState<{ gallery: MediaTab } | 'starred' | null>(null);
   if (!chat) {
     return (
       <div className="flex min-h-full flex-col bg-surface">
@@ -272,6 +279,7 @@ export function ContactInfoPanel({ chatId, onClose }: InfoPanelProps) {
       </div>
     );
   }
+  if (view === 'starred') return <StarredView chat={chat} onBack={() => setView(null)} />;
   if (view) {
     return (
       <div className="flex min-h-full flex-col bg-surface">
@@ -291,6 +299,7 @@ export function ContactInfoPanel({ chatId, onClose }: InfoPanelProps) {
       onClose={onClose}
       desktop={desktop}
       openGallery={(tab) => setView({ gallery: tab })}
+      openStarred={() => setView('starred')}
     />
   );
 }
@@ -300,11 +309,13 @@ function ContactInfo({
   onClose,
   desktop,
   openGallery,
+  openStarred,
 }: {
   chat: ChatSummary;
   onClose: () => void;
   desktop: boolean;
   openGallery: (tab: MediaTab) => void;
+  openStarred: () => void;
 }) {
   const navigate = useNavigate();
   const me = useMe();
@@ -319,12 +330,11 @@ function ContactInfo({
   const presence = usePresence(!self && !deleted ? peerId : null);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [editing, setEditing] = useState<UserPublic | null>(null);
-  const [media, setMedia] = useState<{ items: Message[]; counts: Record<MediaTab, number> } | null>(
-    null,
-  );
+  const [media, setMedia] = useState<Message[] | null>(null);
+  const counts = useChatMediaCounts(chat.id);
   const [lightbox, setLightbox] = useState<Message | null>(null);
   const [common, setCommon] = useState<ChatSummary[] | null>(null);
-  const [starred, setStarred] = useState<number | null>(null);
+  const starred = useStarredCount(chat.id);
   const [deleting, setDeleting] = useState(false);
 
   // Fresh profile (about/phone/presence may have changed since the chat list loaded).
@@ -336,16 +346,12 @@ function ContactInfo({
       .catch(() => undefined);
   }, [peerId, self]);
 
-  // Media strip + counts.
+  // Media strip (the latest photos & videos); totals come from /media/counts.
   useEffect(() => {
     let alive = true;
-    const kinds: MediaTab[] = ['media', 'docs', 'links'];
-    Promise.all(kinds.map((k) => fetchChatMedia(chat.id, k).catch(() => [] as Message[])))
-      .then(([m, d, l]) => {
-        if (!alive) return;
-        setMedia({ items: m!, counts: { media: m!.length, docs: d!.length, links: l!.length } });
-      })
-      .catch(() => undefined);
+    fetchChatMedia(chat.id, 'media', undefined, 4)
+      .catch(() => [] as Message[])
+      .then((items) => alive && setMedia(items));
     return () => {
       alive = false;
     };
@@ -364,23 +370,10 @@ function ContactInfo({
     };
   }, [peerId, self, deleted]);
 
-  // Starred messages in this chat.
-  useEffect(() => {
-    let alive = true;
-    api
-      .get<MessageSearchResult[]>('/api/messages/starred')
-      .then((list) => alive && setStarred(list.filter((r) => r.chat.id === chat.id).length))
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [chat.id]);
-
   const name = self ? `${me?.displayName ?? 'You'} (You)` : userDisplayName(user);
   const avatarSrc = self ? me?.avatarUrl : user?.avatarUrl;
   const lastSeen = self || deleted ? '' : formatLastSeen(presence);
-  const mediaTotal = media ? media.counts.media + media.counts.docs + media.counts.links : null;
-  const capped = media && Object.values(media.counts).some((n) => n >= MEDIA_PAGE);
+  const total = counts ? mediaTotal(counts) : null;
 
   const deleteChat = async () => {
     const ok = await confirm({
@@ -530,19 +523,15 @@ function ContactInfo({
           onClick={() => openGallery('media')}
           end={
             <span className="flex items-center gap-1 text-[14px] text-muted">
-              {mediaTotal === null ? (
-                <Spinner size={14} label={null} />
-              ) : (
-                `${mediaTotal}${capped ? '+' : ''}`
-              )}
+              {total === null ? <Spinner size={14} label={null} /> : String(total)}
               <ChevronRight size={18} className="text-subtle" aria-hidden />
             </span>
           }
           testId="media-row"
         />
-        {media && media.items.length ? (
+        {media && media.length ? (
           <div className="grid grid-cols-4 gap-1.5 px-4 pb-3">
-            {media.items.slice(0, 4).map((m) => (
+            {media.slice(0, 4).map((m) => (
               <MediaThumb key={m.id} m={m} onOpen={setLightbox} />
             ))}
           </div>
@@ -556,13 +545,10 @@ function ContactInfo({
         <Row
           icon={Star}
           title="Starred messages"
-          onClick={() => {
-            onClose();
-            void navigate('/starred');
-          }}
+          onClick={openStarred}
           end={
             <span className="flex items-center gap-1 text-[14px] text-muted">
-              {starred ?? ''}
+              {starred || ''}
               <ChevronRight size={18} className="text-subtle" aria-hidden />
             </span>
           }
@@ -621,7 +607,7 @@ function ContactInfo({
                       onClose();
                       void navigate(`/chats/${g.id}`);
                     }}
-                    className="flex w-full items-center gap-4 px-5 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover"
+                    className="flex w-full items-center gap-4 px-5 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                   >
                     <ChatAvatar chat={g} size="md" />
                     <span className="flex min-w-0 flex-1 flex-col">

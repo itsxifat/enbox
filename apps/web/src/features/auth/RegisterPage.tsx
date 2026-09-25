@@ -3,15 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { AlertCircle, CircleCheck } from 'lucide-react';
 import { DISPLAY_NAME_MAX_LENGTH, PASSWORD_MIN_LENGTH, registerSchema } from '@enbox/shared';
 import { safeNext } from '@/app/guards';
-import { Button, Input } from '@/components/ui';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { Button, Input, Spinner } from '@/components/ui';
 import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { validate, type FieldErrors } from '@/lib/forms';
 import { useAuth } from '@/stores/auth';
 import { AuthLayout } from './AuthLayout';
 import { PasswordInput } from './PasswordInput';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
-import { canonicalPhone, normalizeUsernameInput, usernameIssue } from './validation';
+import { useUsernameAvailability } from './usernameAvailability';
+import { canonicalPhone, normalizeUsernameInput } from './validation';
 
 /** Where to land after registering: the welcome/onboarding page, then `next`. */
 export function welcomePath(next: string | null): string {
@@ -20,7 +20,7 @@ export function welcomePath(next: string | null): string {
 }
 
 /**
- * /register — display name, username (live format check), password (strength meter),
+ * /register — display name, username (live format + availability check), password (strength meter),
  * optional phone. On success <PublicOnly/> redirects to `/welcome` (profile photo + about),
  * which then continues to the original `?next=`.
  */
@@ -39,15 +39,21 @@ export function RegisterPage() {
   /** Usernames the server told us are taken (instant feedback when typed again). */
   const [taken, setTaken] = useState<string[]>([]);
 
-  const debouncedUsername = useDebouncedValue(username, 300);
+  // Live format check + availability (GET /api/auth/username-available, debounced).
+  const availability = useUsernameAvailability(username, { delayMs: 300 });
   const liveUsernameIssue =
-    debouncedUsername === username && username ? usernameIssue(username) : null;
+    availability.state === 'invalid'
+      ? availability.message
+      : availability.state === 'taken'
+        ? 'This username is taken'
+        : null;
   const usernameError =
     errors.username ??
     (taken.includes(username) ? 'This username is taken' : null) ??
     liveUsernameIssue ??
     undefined;
-  const usernameOk = !!username && !usernameError && debouncedUsername === username;
+  const usernameOk = !usernameError && availability.state === 'available';
+  const checking = !usernameError && availability.state === 'checking';
   const phoneError =
     errors.phone ??
     (phoneTouched && phone.trim() && !canonicalPhone(phone)
@@ -64,7 +70,8 @@ export function RegisterPage() {
     const errs: FieldErrors = r.ok ? {} : { ...r.errors };
     if (!displayName.trim()) errs.displayName = 'Enter your name';
     if (!username.trim()) errs.username = 'Choose a username';
-    if (taken.includes(username)) errs.username = 'This username is taken';
+    if (taken.includes(username) || availability.state === 'taken')
+      errs.username = 'This username is taken';
     if (!password) errs.password = 'Choose a password';
     if (!r.ok || Object.keys(errs).length) {
       setErrors(errs);
@@ -162,10 +169,26 @@ export function RegisterPage() {
           error={usernameError}
           rightSlot={
             usernameOk ? (
-              <CircleCheck size={18} className="mr-2.5 text-success" aria-label="Valid username" />
+              <CircleCheck
+                size={18}
+                className="mr-2.5 text-success"
+                aria-label="Username available"
+              />
+            ) : checking ? (
+              <span className="mr-2.5 flex text-muted">
+                <Spinner size={16} label="Checking availability" />
+              </span>
             ) : undefined
           }
-          hint="3–32 lowercase letters, numbers, dots or underscores. People can find you by it."
+          hint={
+            usernameOk ? (
+              <span className="text-success" data-testid="username-availability">
+                {availability.message}
+              </span>
+            ) : (
+              '3–32 lowercase letters, numbers, dots or underscores. People can find you by it.'
+            )
+          }
         />
         <div className="flex flex-col gap-2">
           <PasswordInput

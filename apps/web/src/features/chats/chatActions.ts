@@ -89,8 +89,7 @@ export const MUTE_CHOICES = [
 export async function muteChat(chat: ChatSummary): Promise<void> {
   const choice = await choose({
     title: 'Mute notifications',
-    message:
-      'Other members won’t see that you muted this chat. You’ll still be notified if you are mentioned.',
+    message: 'Other members won’t see that you muted this chat.',
     options: MUTE_CHOICES.map((c) => ({ value: c.value, label: c.label })),
   });
   if (!choice) return;

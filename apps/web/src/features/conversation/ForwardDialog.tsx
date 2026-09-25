@@ -13,6 +13,7 @@ import { useChats, useSortedChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { toast } from '@/stores/ui';
 import { useConversationUi } from './state';
+import { chatPath } from '@/features/chats/links';
 
 export function ForwardDialog() {
   const messages = useConversationUi((s) => s.forward);
@@ -82,7 +83,8 @@ function ForwardDialogInner({
         .getState()
         .clearSelect(useConversationUi.getState().forward?.[0]?.chatId ?? '');
       onClose();
-      if (target) navigate(`/chats/${target}`);
+      const targetChat = target ? useChats.getState().byId[target] : undefined;
+      if (targetChat) navigate(chatPath(targetChat));
     } catch (e) {
       toast.error(e);
     } finally {

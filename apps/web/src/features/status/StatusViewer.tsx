@@ -51,6 +51,7 @@ import {
   toast,
   useOverlay,
 } from '@/components/ui';
+import { useFocusTrap } from '@/components/ui/overlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -189,13 +190,19 @@ function ViewerFrame({
 }) {
   const desktop = useIsDesktop();
   useOverlay(true, onClose);
+  // Modal: move focus in (to the viewer itself, so nothing is activated or paused by it),
+  // keep Tab inside, and give focus back to the Updates row on close.
+  const frame = useRef<HTMLDivElement>(null);
+  useFocusTrap(frame, true, frame);
   return (
     <div
+      ref={frame}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label="Status"
       data-testid="status-viewer"
-      className="fixed inset-0 z-[44] flex animate-fade-in items-center justify-center bg-[#0b0a10] text-white"
+      className="fixed inset-0 z-[44] flex animate-fade-in items-center justify-center bg-[#0b0a10] text-white outline-none px-safe"
     >
       {desktop ? (
         <>
@@ -801,7 +808,16 @@ function ReplyBar({
   };
 
   return (
-    <div className="bg-gradient-to-t from-black/70 via-black/40 to-transparent px-3 pt-8 pb-[max(12px,env(safe-area-inset-bottom))]">
+    <div
+      className="bg-gradient-to-t from-black/70 via-black/40 to-transparent px-3 pt-8 pb-[max(12px,env(safe-area-inset-bottom))]"
+      // Focus anywhere in the reply bar (input or a quick reaction) counts as replying, so
+      // Shift+Tab from the input onto a reaction doesn't unmount the reactions under focus.
+      onFocus={() => onFocusChange(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null) && !text.trim())
+          onFocusChange(false);
+      }}
+    >
       {focused ? (
         <div className="mb-3 flex justify-center gap-1.5" role="group" aria-label="Quick reactions">
           {STATUS_REACTIONS.map((emoji) => (
@@ -823,10 +839,6 @@ function ReplyBar({
           ref={input}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onFocus={() => onFocusChange(true)}
-          onBlur={() => {
-            if (!text.trim()) onFocusChange(false);
-          }}
           placeholder={`Reply to ${userDisplayName(author)}…`}
           aria-label="Reply"
           maxLength={4096}

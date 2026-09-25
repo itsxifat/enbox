@@ -19,6 +19,8 @@
  *   bubble-out / bubble-in (+ -meta)   message bubbles (own / others) and their timestamps
  *   wallpaper    conversation background (see .chat-wallpaper)
  *   danger, success, warning (+ -soft), unread, unread-muted, tick-read, online, overlay
+ *   warning-ink  warning-colored text on warning-soft
+ *   danger-fill  filled danger surfaces under white text (danger is for red text/icons)
  */
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -35,7 +37,7 @@
 
   --fg: #15141c;
   --muted: #676577;
-  --subtle: #8e8c9d;
+  --subtle: #6b6979;
 
   --brand: #6d5dfc;
   --brand-strong: #5a48e8;
@@ -46,7 +48,7 @@
   --bubble-out: #e7e2ff;
   --bubble-out-meta: #5f5a7c;
   --bubble-in: #ffffff;
-  --bubble-in-meta: #7a7889;
+  --bubble-in-meta: #6e6c7d;
   --wallpaper: #efedf5;
   --wallpaper-ink: rgb(109 93 252 / 0.07);
 
@@ -56,9 +58,13 @@
   --success-soft: #e7f7ed;
   --warning: #d97706;
   --warning-soft: #fdf3e2;
+  /* Warning-colored TEXT on warning-soft (the offline banner): 6.4:1. */
+  --warning-ink: #92400e;
+  /* Filled danger surfaces under white text (Delete / Log out buttons, danger badges). */
+  --danger-fill: #d93a40;
   --unread: #6d5dfc;
-  --unread-muted: #a3a1b3;
-  --tick-read: #2f9bf0;
+  --unread-muted: #737184;
+  --tick-read: #1a73c8;
   --online: #22c55e;
   --overlay: rgb(12 10 28 / 0.45);
 
@@ -80,7 +86,7 @@
 
   --fg: #ececf2;
   --muted: #a09fb0;
-  --subtle: #7b7a8c;
+  --subtle: #88879a;
 
   --brand: #6d5dfc;
   --brand-strong: #7f71ff;
@@ -101,7 +107,9 @@
   --success-soft: #16301f;
   --warning: #f59e0b;
   --warning-soft: #33260d;
-  --unread: #7f71ff;
+  --warning-ink: #f59e0b;
+  --danger-fill: #d93a40;
+  --unread: #6d5dfc;
   --unread-muted: #5b5a6a;
   --tick-read: #53bdeb;
   --online: #22c55e;
@@ -144,6 +152,8 @@
   --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger-fill: var(--danger-fill);
   --color-unread: var(--unread);
   --color-unread-muted: var(--unread-muted);
   --color-tick-read: var(--tick-read);
@@ -233,6 +243,11 @@
 @utility pr-safe {
   padding-right: env(safe-area-inset-right);
 }
+/* Horizontal safe areas (landscape notch) for full-screen roots. */
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
 @utility mb-safe {
   margin-bottom: env(safe-area-inset-bottom);
 }
@@ -309,4 +324,14 @@
   [data-wallpaper-pattern='off'] .chat-wallpaper {
     background-image: none;
   }
+}
+
+/*
+ * Tailwind v4's `outline-none` sets `--tw-outline-style: none`, and `focus-visible:outline-2`
+ * reads that variable (`outline-style: var(--tw-outline-style)`), so every focus ring paired
+ * with `outline-none` rendered as no outline at all. Restore the style while focus-visible;
+ * elements with `outline-none` and no outline width utility still show nothing.
+ */
+.outline-none:focus-visible {
+  --tw-outline-style: solid;
 }

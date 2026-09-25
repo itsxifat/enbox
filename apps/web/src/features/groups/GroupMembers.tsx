@@ -17,7 +17,7 @@ import { EmptyState, ListItemSkeleton, Menu, SearchInput, confirm, toast } from 
 import type { MenuAnchor, MenuEntry } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { getMyId } from '@/stores/auth';
-import { roleLabel, sortMembers } from './members';
+import { canTransferGroupOwnership, roleLabel, sortMembers } from './members';
 import {
   openDirectChat,
   removeGroupMember,
@@ -130,7 +130,7 @@ export function useGroupMemberMenu(chat: ChatSummary, onChanged: () => void) {
         onSelect: () =>
           void run(() => setGroupRole(chat.id, u.id, 'member'), `${name} is no longer an admin`),
       });
-    if (chat.myRole === 'owner' && !u.isDeleted)
+    if (canTransferGroupOwnership(chat, u))
       admin.push({
         label: `Make ${first} the group owner`,
         icon: Crown,

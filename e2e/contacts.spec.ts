@@ -174,10 +174,38 @@ test.describe('contacts & new chat', () => {
     // Gallery → Links tab lists the shared link.
     await page.getByTestId('media-row').click();
     await page.getByRole('tab', { name: 'Links' }).click();
-    // In the gallery (the message bubble behind the sheet has the same link).
+    // Scoped to the info sheet: the same link is also in the message bubble behind it.
     await expect(
       page.getByRole('dialog', { name: 'Chat info' }).getByRole('link', { name: /example\.com/ }),
     ).toBeVisible();
+    await context.close();
+  });
+
+  test('the open chat turns read-only live when the peer deletes their account', async ({
+    browser,
+  }) => {
+    const a = await registerUser({ displayName: 'Ana Stays' });
+    const b = await registerUser({ displayName: 'Ben Leaves' });
+    await makeContacts(a, b);
+    const chat = await apiAs<ChatSummary>(a, 'POST', '/api/chats/direct', { userId: b.user.id });
+    await apiAs(a, 'POST', `/api/chats/${chat.id}/messages`, {
+      clientId: uniqueName('c'),
+      type: 'text',
+      text: 'Bye for now',
+    });
+
+    const { page, context } = await openAs(browser, a, `/chats/${chat.id}`);
+    await expect(page.getByTestId('message').filter({ hasText: 'Bye for now' })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Voice call' })).toBeVisible();
+
+    // Only `user:changed` reaches Ana (no chat:upsert): permissions must follow the peer.
+    await apiAs(b, 'DELETE', '/api/me', { password: b.password });
+    await expect(page.getByTestId('read-only-footer')).toContainText(
+      'This account has been deleted',
+    );
+    await expect(page.getByRole('textbox', { name: 'Message' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Voice call' })).toHaveCount(0);
     await context.close();
   });
 });

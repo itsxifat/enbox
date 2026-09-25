@@ -21,6 +21,7 @@ import { formatChatListTime, formatCount } from '@/lib/format';
 import { isChatUnread, useChats, useSortedChats } from '@/stores/chats';
 import { nameOf } from '@/stores/users';
 import { discoverChannels, followChannel } from './channelApi';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 
 const SUGGEST_WHEN_FEWER_THAN = 4;
 
@@ -69,6 +70,7 @@ export function ChannelsSection() {
               <li key={c.id}>
                 <ListItem
                   to={`/updates/channels/${c.id}`}
+                  linkState={IN_APP_NAV}
                   active={c.id === chatId}
                   leading={<ChatAvatar chat={c} size="lg" />}
                   title={chatTitle(c)}
@@ -156,6 +158,7 @@ function Suggestions() {
           <li key={c.id} className="flex items-center gap-3 pr-4 transition-colors hover:bg-hover">
             <Link
               to={`/updates/channels/${c.id}`}
+              state={IN_APP_NAV}
               className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand lg:pl-3.5"
             >
               <Avatar src={c.avatarUrl} name={c.name} colorSeed={c.id} kind="channel" size="lg" />

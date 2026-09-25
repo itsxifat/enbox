@@ -12,13 +12,16 @@
  * - calls start with `useCalls().startCall(chatId, 'audio' | 'video')`
  */
 import { Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { MessageCircleOff } from 'lucide-react';
 import type { ChatSummary } from '@enbox/shared';
-import { EmptyState, PageSpinner, Sheet } from '@/components/ui';
+import { PaneHeader } from '@/components/layout/PaneHeader';
+import { Button, EmptyState, PageSpinner, Sheet } from '@/components/ui';
 import { ChannelInfoPanel } from '@/features/channels/ChannelInfoPanel';
 import { ContactInfoPanel } from '@/features/contacts/ContactInfoPanel';
 import { GroupInfoPanel } from '@/features/groups/GroupInfoPanel';
+import { chatPath } from '@/features/chats/links';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { ChatSearchBar, ReadOnlyFooter, SelectionBar } from './Bars';
@@ -58,8 +61,10 @@ export function ConversationPane() {
   const paramKey = paramTarget
     ? `${chatId}:${paramTarget.seq}:${paramTarget.messageId ?? ''}`
     : null;
+  const isChannel = chat?.type === 'channel';
   useEffect(() => {
-    if (!paramKey || !chatId || !paramTarget) return;
+    // Channels redirect to their feed with the params (see below): leave the URL alone.
+    if (!paramKey || !chatId || !paramTarget || isChannel) return;
     setConsumed({ chatId, t: paramTarget });
     const next = new URLSearchParams(params);
     next.delete('m');
@@ -84,24 +89,71 @@ export function ConversationPane() {
         .catch(() => undefined);
   }, [chatId, chatsLoaded, chat]);
 
-  if (!chat) {
-    if (!chatsLoaded) return <PageSpinner />;
+  if (!chat) return <MissingChat loaded={chatsLoaded} />;
+  // Channels have their own feed (ChannelPane); search/starred/forward links land here too.
+  if (chat.type === 'channel')
     return (
-      <div className="flex flex-1 items-center justify-center bg-app">
-        <EmptyState
-          icon={MessageCircleOff}
-          title="Chat not found"
-          description="It may have been deleted, or you no longer have access."
-        />
-      </div>
+      <Navigate
+        to={chatPath(chat, { seq: paramTarget?.seq, messageId: paramTarget?.messageId })}
+        replace
+      />
     );
-  }
   return (
     <Conversation
       key={chat.id}
       chat={chat}
       initialTarget={target?.chatId === chat.id ? target.t : null}
     />
+  );
+}
+
+/**
+ * No chat to show: still loading the list (or it failed), or the chat is gone (deleted,
+ * removed while open). Phones show this full screen, so it keeps a header with Back.
+ */
+function MissingChat({ loaded }: { loaded: boolean }) {
+  const desktop = useIsDesktop();
+  const { pathname } = useLocation();
+  const error = useChats((s) => s.error);
+  const loading = useChats((s) => s.loading);
+  let body;
+  if (loaded) {
+    body = (
+      <EmptyState
+        icon={MessageCircleOff}
+        title="Chat not found"
+        description="It may have been deleted, or you no longer have access."
+      />
+    );
+  } else if (error && !loading) {
+    body = (
+      <EmptyState
+        icon={MessageCircleOff}
+        title="Couldn’t load your chats"
+        description={error}
+        action={
+          <Button
+            variant="soft"
+            onClick={() =>
+              void useChats
+                .getState()
+                .loadChats()
+                .catch(() => undefined)
+            }
+          >
+            Try again
+          </Button>
+        }
+      />
+    );
+  } else {
+    body = <PageSpinner />;
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-app">
+      <PaneHeader title="Chat" back={desktop ? undefined : backPath(pathname)} border />
+      <div className="flex min-h-0 flex-1 items-center justify-center">{body}</div>
+    </div>
   );
 }
 

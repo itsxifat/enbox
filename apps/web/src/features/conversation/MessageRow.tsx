@@ -20,7 +20,7 @@ import { cn } from '@/lib/cn';
 import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
 import { useLongPress } from '@/features/chats/useLongPress';
-import { canReact, isActionable, retry, startReply } from './actions';
+import { canReact, canReply, retry, startReply } from './actions';
 import { AudioFileBody, VoiceBody } from './bubbles/AudioBody';
 import { CallBody, ContactBody, FileBody, LocationBody } from './bubbles/CardBodies';
 import { MediaBody } from './bubbles/MediaBody';
@@ -100,6 +100,14 @@ export const MessageRow = memo(function MessageRow({
   );
   const search = useConversationUi((s) => s.search[chat.id] ?? null);
   const menuOpen = useConversationUi((s) => s.action?.messageId === m.id);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  // A menu/popover anchored on the toolbar keeps it on screen (it is the menu's anchor).
+  const toolbarAnchored = useConversationUi(
+    (s) =>
+      s.action?.messageId === m.id &&
+      s.action.anchor instanceof HTMLElement &&
+      !!toolbarRef.current?.contains(s.action.anchor),
+  );
   const [flash, setFlash] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [dx, setDx] = useState(0);
@@ -113,13 +121,7 @@ export const MessageRow = memo(function MessageRow({
     return () => clearTimeout(t);
   }, [highlightToken]);
 
-  const actionable = isActionable(m);
-  const canReply =
-    actionable &&
-    !m.deletedAt &&
-    m.type !== 'system' &&
-    chat.permissions.canSend &&
-    chat.membership === 'active';
+  const replyable = canReply(chat, m);
 
   const open = (mode: 'menu' | 'sheet' | 'react', anchor: HTMLElement | { x: number; y: number }) =>
     useConversationUi.getState().openActions({ chatId: chat.id, messageId: m.id, anchor, mode });
@@ -151,7 +153,7 @@ export const MessageRow = memo(function MessageRow({
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     longPress.onPointerDown(e);
-    if (e.pointerType !== 'mouse' && canReply && !selecting)
+    if (e.pointerType !== 'mouse' && replyable && !selecting)
       swipe.current = { x: e.clientX, y: e.clientY, active: false };
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
@@ -429,41 +431,49 @@ export const MessageRow = memo(function MessageRow({
           ) : null}
         </div>
 
-        {/* Desktop hover: react + options beside the bubble (never covering its content). */}
+        {/* Desktop hover: react + options beside the bubble (never covering its content).
+            Below lg it stays reachable by keyboard / screen readers: visually hidden until a
+            button in it has focus (touch opens the same menu with a long-press). */}
         {!selecting ? (
           <div
             className={cn(
-              'mx-1 hidden shrink-0 items-center gap-0.5 self-center opacity-0 transition-opacity lg:flex',
-              'group-hover/msg:opacity-100 focus-within:opacity-100',
-              menuOpen && 'opacity-100',
-              mine ? 'order-first flex-row-reverse' : '',
+              'shrink-0 self-center',
+              'sr-only focus-within:not-sr-only lg:not-sr-only',
+              'transition-opacity lg:opacity-0 lg:group-hover/msg:opacity-100 lg:focus-within:opacity-100',
+              menuOpen && 'lg:opacity-100',
+              toolbarAnchored && 'not-sr-only',
+              mine && 'order-first',
             )}
+            ref={toolbarRef}
+            data-testid="message-toolbar"
           >
-            {reactable ? (
+            <div className={cn('mx-1 flex items-center gap-0.5', mine && 'flex-row-reverse')}>
+              {reactable ? (
+                <button
+                  type="button"
+                  aria-label="React to message"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    open('react', e.currentTarget);
+                  }}
+                  className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
+                >
+                  <SmilePlus size={17} aria-hidden />
+                </button>
+              ) : null}
               <button
                 type="button"
-                aria-label="React to message"
+                aria-label="Message options"
+                aria-haspopup="menu"
                 onClick={(e) => {
                   e.stopPropagation();
-                  open('react', e.currentTarget);
+                  open('menu', e.currentTarget);
                 }}
                 className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
               >
-                <SmilePlus size={17} aria-hidden />
+                <ChevronDown size={18} aria-hidden />
               </button>
-            ) : null}
-            <button
-              type="button"
-              aria-label="Message options"
-              aria-haspopup="menu"
-              onClick={(e) => {
-                e.stopPropagation();
-                open('menu', e.currentTarget);
-              }}
-              className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
-            >
-              <ChevronDown size={18} aria-hidden />
-            </button>
+            </div>
           </div>
         ) : null}
       </div>

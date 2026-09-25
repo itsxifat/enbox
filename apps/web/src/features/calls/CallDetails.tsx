@@ -22,6 +22,8 @@ import { useCalls } from '@/stores/calls';
 import { useUserName } from '@/stores/users';
 import { callKindLabel, groupCallLog } from './logic';
 import { CallChatAvatar, DirectionIcon, durationText, outcomeText, removeEntries } from './ui/log';
+import { useChats } from '@/stores/chats';
+import { canCallBack } from './callBack';
 
 const STATUS_TEXT: Record<CallParticipantStatus, string> = {
   joined: 'In the call',
@@ -62,6 +64,7 @@ export function CallDetails() {
     [log.entries, callId],
   );
   const entry = group?.entries.find((e) => e.call.id === callId);
+  const liveChat = useChats((s) => (entry ? s.byId[entry.chat.id] : undefined));
 
   if (!entry || !group) {
     if (!log.loaded) return <PageSpinner />;
@@ -81,6 +84,7 @@ export function CallDetails() {
 
   const title = chatTitle(entry.chat);
   const call = entry.call;
+  const callable = canCallBack(liveChat);
   const start = (type: 'audio' | 'video') =>
     void useCalls.getState().startCall(entry.chat.id, type);
   const remove = async () => {
@@ -126,8 +130,12 @@ export function CallDetails() {
                 label="Message"
                 onClick={() => navigate(`/chats/${entry.chat.id}`)}
               />
-              <ActionButton icon={Phone} label="Voice" onClick={() => start('audio')} />
-              <ActionButton icon={Video} label="Video" onClick={() => start('video')} />
+              {callable ? (
+                <>
+                  <ActionButton icon={Phone} label="Voice" onClick={() => start('audio')} />
+                  <ActionButton icon={Video} label="Video" onClick={() => start('video')} />
+                </>
+              ) : null}
             </div>
           </section>
 

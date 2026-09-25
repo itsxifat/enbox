@@ -31,14 +31,17 @@ import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
 import { useMessages, type ClientMessage } from '@/stores/messages';
-import { nameOf } from '@/stores/users';
+import { nameOf, useUsers } from '@/stores/users';
 import { ActionSheet } from '@/features/chats/ActionSheet';
 import {
   canEdit,
   canForward,
   canInfo,
+  canMessageSender,
   canPinMessage,
   canReact,
+  canReply,
+  canReplyPrivately,
   copyMessages,
   copyText,
   deleteMessages,
@@ -51,9 +54,11 @@ import {
   startEdit,
   startReply,
   unpinMessage,
+  type SenderInfo,
 } from './actions';
 import { LazyEmojiPicker } from './lazy';
 import { myReactionOf } from './lib/optimistic';
+import { useChatMembersStore } from './members';
 import { Popover } from './Popover';
 import { useConversationUi } from './state';
 
@@ -122,6 +127,12 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
   );
   const pins = useChats((s) => s.pins[chat.id]);
   const me = useAuth((s) => s.user?.id);
+  const senderProfile = useUsers((s) => (m?.senderId ? s.byId[m.senderId] : undefined));
+  // Cached member list (loaded by the header for groups); never fetched just for the menu.
+  const members = useChatMembersStore((s) =>
+    chat.type === 'group' ? s.byChat[chat.id] : undefined,
+  );
+  const quickOnly = chat.type === 'channel' && chat.channelSettings?.reactions === 'quick';
   const navigate = useNavigate();
   const [picker, setPicker] = useState<{
     anchor: HTMLElement | { x: number; y: number };
@@ -135,22 +146,29 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
   const items: MenuEntry[] = [];
   if (action && m) {
     const actionable = isActionable(m);
-    const replyable =
-      actionable && !m.deletedAt && chat.permissions.canSend && chat.membership === 'active';
-    const others = chat.type === 'group' && m.senderId && m.senderId !== me;
+    const sender: SenderInfo = {
+      deleted: !!(m.senderId && senderProfile?.isDeleted),
+      member: members && m.senderId ? members.some((x) => x.user.id === m.senderId) : null,
+    };
     const pinned = !!pins?.includes(m.id);
     const text = copyText(m);
     items.push(
       m.failed ? { label: 'Retry', icon: RotateCw, onSelect: () => retry(chat.id, m) } : null,
-      replyable ? { label: 'Reply', icon: Reply, onSelect: () => startReply(chat, m) } : null,
+      canReply(chat, m)
+        ? { label: 'Reply', icon: Reply, onSelect: () => startReply(chat, m) }
+        : null,
       action.mode === 'menu' && canReact(chat, m)
         ? {
             label: 'React',
             icon: SmilePlus,
-            onSelect: () => setPicker({ anchor: action.anchor, messageId: m.id }),
+            // Quick-only channels: the full emoji picker would offer emoji the server refuses.
+            onSelect: () =>
+              quickOnly
+                ? useConversationUi.getState().openActions({ ...action, mode: 'react' })
+                : setPicker({ anchor: action.anchor, messageId: m.id }),
           }
         : null,
-      others && actionable && !m.deletedAt
+      canReplyPrivately(chat, m, me, sender)
         ? {
             label: 'Reply privately',
             icon: MessageSquareReply,
@@ -162,7 +180,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
               }),
           }
         : null,
-      others && actionable
+      canMessageSender(chat, m, me, sender)
         ? {
             label: `Message ${nameOf(m.senderId!)}`,
             icon: MessageSquareText,

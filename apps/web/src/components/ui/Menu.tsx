@@ -39,6 +39,8 @@ export interface MenuProps {
   className?: string;
   /** Called with the element to return focus to after closing (default: the anchor). */
   restoreFocus?: boolean;
+  /** DOM id of the menu (referenced by the trigger's `aria-controls`). */
+  id?: string;
 }
 
 const MARGIN = 8;
@@ -55,6 +57,7 @@ export function Menu({
   align = 'start',
   className,
   restoreFocus = true,
+  id,
   ...aria
 }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -170,6 +173,7 @@ export function Menu({
     <Portal>
       <div
         ref={ref}
+        id={id}
         role="menu"
         aria-label={aria['aria-label']}
         onKeyDown={onKeyDown}
@@ -195,7 +199,7 @@ export function Menu({
               }}
               className={cn(
                 'flex w-full items-center gap-3 px-4 py-2.5 text-left text-[15px] outline-none',
-                'hover:bg-hover focus-visible:bg-hover disabled:opacity-45',
+                'hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand disabled:opacity-45',
                 entry.danger ? 'text-danger' : 'text-fg',
               )}
             >
@@ -265,6 +269,7 @@ export function DropdownMenu({
         items={items}
         align={align}
         className={className}
+        id={id}
         aria-label={aria['aria-label']}
       />
     </>

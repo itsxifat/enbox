@@ -18,6 +18,8 @@ import { cn } from '@/lib/cn';
 import { formatDaySeparator } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
 import { useChatMessages, useMessages } from '@/stores/messages';
+import { nameOf } from '@/stores/users';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/ui';
 import { MessageRow } from './MessageRow';
 import { Pill } from './bubbles/SystemPill';
@@ -30,6 +32,7 @@ import {
   visibleMessages,
   type Row,
 } from './lib/rows';
+import { incomingAnnouncement } from './lib/announce';
 import { useConversationUi } from './state';
 
 const BASE_INDEX = 1_000_000_000;
@@ -116,8 +119,6 @@ interface HeaderContext {
 
 const COMPONENTS = { Header: ListHeader, Footer: ListFooter };
 
-const followWhenAtBottom = (atBottom: boolean) => (atBottom ? ('smooth' as const) : false);
-
 export const MessageList = memo(function MessageList({
   chat,
   unread,
@@ -140,6 +141,16 @@ export const MessageList = memo(function MessageList({
   });
   const floatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingTarget = useRef<JumpTarget | null>(initialTarget);
+  /**
+   * Until when a jump is settling. A jump replaces the window while the list may still be "at
+   * bottom"; Virtuoso then follows the output (smooth scroll to the new window's end), which
+   * carried the view away from the target and triggered a `loadNewer`.
+   */
+  const jumpSettleUntil = useRef(0);
+  const jumpSettling = useCallback(
+    () => !!pendingTarget.current || performance.now() < jumpSettleUntil.current,
+    [],
+  );
   /** The next window replacement should land on the newest message (scroll-to-bottom). */
   const forceBottom = useRef(false);
 
@@ -202,27 +213,43 @@ export const MessageList = memo(function MessageList({
     }
   }
 
-  // Count messages that arrive below while the user is scrolled up.
+  // Messages appended after the previous last row (not window replacements or prepends):
+  // announce them to screen readers, and count them while the user is scrolled up.
   const lastKey = keys[keys.length - 1];
   const prevLast = useRef(lastKey);
+  const [announcement, setAnnouncement] = useState({ text: '', n: 0 });
   useEffect(() => {
     if (prevLast.current === lastKey) return;
     const prevIndex = prevLast.current ? keys.indexOf(prevLast.current) : -1;
     prevLast.current = lastKey;
-    if (atBottom || prevIndex < 0) return;
-    const added = rows
+    if (prevIndex < 0) return;
+    const incoming = rows
       .slice(prevIndex + 1)
-      .filter((r) => !r.mine && r.message.type !== 'system').length;
-    if (added) setNewBelow((n) => n + added);
-  }, [lastKey, keys, rows, atBottom]);
+      .filter((r) => !r.mine && r.message.type !== 'system')
+      .map((r) => r.message);
+    if (!incoming.length) return;
+    const text = incomingAnnouncement(chat, incoming, (id) => nameOf(id), me);
+    if (text) setAnnouncement((a) => ({ text, n: a.n + 1 }));
+    if (!atBottom) setNewBelow((n) => n + incoming.length);
+  }, [lastKey, keys, rows, atBottom, chat, me]);
 
   useEffect(() => {
     if (atBottom) setNewBelow(0);
   }, [atBottom]);
 
-  const scrollToRow = useCallback((index: number, align: Align, smooth = true) => {
-    virtuoso.current?.scrollToIndex({ index, align, behavior: smooth ? 'smooth' : 'auto' });
-  }, []);
+  // An explicit `behavior: 'smooth'` overrides the CSS reduced-motion rule: honour it here.
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const smoothScroll = reduceMotion ? 'auto' : 'smooth';
+  const scrollToRow = useCallback(
+    (index: number, align: Align, smooth = true) => {
+      virtuoso.current?.scrollToIndex({
+        index,
+        align,
+        behavior: smooth && !reduceMotion ? 'smooth' : 'auto',
+      });
+    },
+    [reduceMotion],
+  );
 
   const flash = useCallback((messageId: ID | undefined) => {
     if (messageId) setTimeout(() => useConversationUi.getState().flash(messageId), 120);
@@ -231,6 +258,7 @@ export const MessageList = memo(function MessageList({
   /** Scroll to a message, loading its window when needed. */
   const jumpTo = useCallback(
     async (target: JumpTarget) => {
+      jumpSettleUntil.current = performance.now() + 1500;
       const i = findTarget(prevRows.current, target);
       const found = i >= 0 ? prevRows.current[i]! : null;
       if (found && (found.message.seq === target.seq || found.message.id === target.messageId)) {
@@ -249,6 +277,7 @@ export const MessageList = memo(function MessageList({
       }
       // Same keys partially → no remount happened: scroll explicitly.
       requestAnimationFrame(() => {
+        jumpSettleUntil.current = performance.now() + 1000;
         const j = findTarget(prevRows.current, target);
         if (j >= 0) {
           scrollToRow(j, 'center', false);
@@ -286,9 +315,9 @@ export const MessageList = memo(function MessageList({
         .catch((e: unknown) => toast.error(e));
       return;
     }
-    virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+    virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: smoothScroll });
     setNewBelow(0);
-  }, [chat.id]);
+  }, [chat.id, smoothScroll]);
 
   const bottomToken = useConversationUi((s) => s.bottomToken);
   const lastBottomToken = useRef(bottomToken);
@@ -354,14 +383,6 @@ export const MessageList = memo(function MessageList({
   const setScroller = useCallback((el: HTMLElement | Window | null) => {
     scroller.current = el instanceof HTMLElement ? el : null;
   }, []);
-  // Follow new messages only when the newest page was already shown before this update: rows
-  // appended to an older window (`loadNewer` after a jump) must not drag the jump target away.
-  // (The ref holds the previous render's state; Virtuoso reads the prop with the new data.)
-  const showedLatest = useRef(!msgs.hasMoreAfter);
-  useEffect(() => {
-    showedLatest.current = !msgs.hasMoreAfter;
-  }, [msgs.hasMoreAfter, msgs.items]);
-
   const loaded = msgs.loaded;
   useEffect(() => {
     const el = wrapper.current;
@@ -426,6 +447,9 @@ export const MessageList = memo(function MessageList({
 
   const showFab = !atBottom || msgs.hasMoreAfter;
   const selfChat = chat.type === 'direct' && !!me && chat.peer?.id === me;
+  // Read-only chats (announcements, admins-only groups, former members, deleted/blocked
+  // peers) don't get a call to action they can't follow.
+  const canWrite = chat.membership === 'active' && chat.permissions.canSend;
 
   return (
     <div
@@ -452,9 +476,11 @@ export const MessageList = memo(function MessageList({
             <p className="text-[13px] leading-relaxed text-muted">
               {selfChat
                 ? 'Keep notes, links and reminders here. They sync across your devices.'
-                : chat.type === 'direct'
-                  ? 'Say hi 👋 — your first message starts the conversation.'
-                  : 'Be the first to send a message.'}
+                : !canWrite
+                  ? 'Messages will appear here.'
+                  : chat.type === 'direct'
+                    ? 'Say hi 👋 — your first message starts the conversation.'
+                    : 'Be the first to send a message.'}
             </p>
           </div>
         </div>
@@ -468,7 +494,7 @@ export const MessageList = memo(function MessageList({
         initialTopMostItemIndex={track.initial}
         computeItemKey={(_, r) => r.key}
         itemContent={renderRow}
-        followOutput={showedLatest.current ? followWhenAtBottom : false}
+        followOutput={(bottom) => (bottom && !jumpSettling() ? smoothScroll : false)}
         alignToBottom
         startReached={loadOlder}
         endReached={loadNewer}
@@ -495,11 +521,24 @@ export const MessageList = memo(function MessageList({
         </span>
       </div>
 
+      {/* Never on the virtualized list itself (it re-renders rows while scrolling). */}
+      <div
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="message-announcer"
+      >
+        {/* Alternate a trailing zero-width space so an identical message is announced again. */}
+        {announcement.text ? `${announcement.text}${announcement.n % 2 ? '\u200b' : ''}` : ''}
+      </div>
+
       <button
         type="button"
         onClick={goBottom}
         aria-label={newBelow ? `Scroll to bottom, ${newBelow} new messages` : 'Scroll to bottom'}
         tabIndex={showFab ? 0 : -1}
+        aria-hidden={showFab ? undefined : true}
+        inert={!showFab}
         className={cn(
           'absolute right-3 bottom-3 z-[2] flex size-11 items-center justify-center rounded-full bg-elevated text-muted shadow-elevated transition-all duration-200 hover:text-fg lg:right-6',
           showFab ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-3 opacity-0',

@@ -1,6 +1,7 @@
 /**
- * Channel admin composer: text posts, photo/video/document attachments (optimistic upload)
- * and polls. Enter sends per the device preference.
+ * Channel admin composer: text posts, photo/video/document attachments (processed and
+ * uploaded like chat media, see postMedia.ts) and polls. Enter sends per the device
+ * preference.
  */
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
@@ -13,7 +14,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  MAX_CAPTION_LENGTH,
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
@@ -30,16 +30,10 @@ import {
   Textarea,
   toast,
 } from '@/components/ui';
-import {
-  isVisualMedia,
-  prepareVisualMedia,
-  type PreparedMedia,
-} from '@/features/conversation/lib/mediaProcessing';
-import { enqueueMedia, type MediaSendInput } from '@/features/conversation/lib/sendMedia';
 import { validate } from '@/lib/forms';
-import { mediaKindForFile, probeMedia } from '@/lib/media';
 import { useMessages } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
+import { postFiles } from './postMedia';
 
 export function ChannelComposer({ chat }: { chat: ChatSummary }) {
   const [text, setText] = useState('');
@@ -61,47 +55,12 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
     textRef.current?.focus();
   };
 
-  /**
-   * Photos and videos go through the same processing as chat media (re-encoded ≤
-   * IMAGE_MAX_DIMENSION without EXIF/GPS, thumbnail / video poster), one file at a time;
-   * only "Document" uploads the original file. The caption goes with the first file.
-   */
-  const sendFiles = async (files: File[], asDocument: boolean) => {
-    const caption = text.trim().slice(0, MAX_CAPTION_LENGTH) || undefined;
+  const sendFiles = (files: File[], asDocument: boolean) => {
+    if (!files.length) return;
+    // The typed text becomes the first post's caption (taken once, before anything uploads).
+    const caption = text.trim() || undefined;
     if (caption) setText('');
-    let uploads = Promise.resolve();
-    let captionUsed = false;
-    const enqueue = (input: MediaSendInput) => {
-      const job = enqueueMedia(chat.id, { ...input, caption: captionUsed ? undefined : caption });
-      captionUsed = true;
-      // Uploads run in order, while the next file is being processed.
-      uploads = uploads.then(job).catch(() => undefined);
-    };
-    for (const file of files) {
-      if (!asDocument && isVisualMedia(file)) {
-        let prepared: PreparedMedia;
-        try {
-          prepared = await prepareVisualMedia(file);
-        } catch {
-          toast.error(`Couldn’t process “${file.name}”`);
-          continue;
-        }
-        enqueue(prepared);
-        continue;
-      }
-      const kind = asDocument ? 'file' : mediaKindForFile(file);
-      const meta = kind === 'file' ? { kind } : await probeMedia(file, kind);
-      enqueue({
-        kind,
-        blob: file,
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        width: meta.width,
-        height: meta.height,
-        durationMs: meta.durationMs,
-      });
-    }
-    await uploads;
+    void postFiles(chat.id, files, { asDocument, caption });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -160,7 +119,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          if (files.length) void sendFiles(files, false);
+          sendFiles(files, false);
         }}
       />
       <input
@@ -170,7 +129,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = '';
-          if (f) void sendFiles([f], true);
+          if (f) sendFiles([f], true);
         }}
       />
       <PollModal chat={chat} open={pollOpen} onClose={() => setPollOpen(false)} />

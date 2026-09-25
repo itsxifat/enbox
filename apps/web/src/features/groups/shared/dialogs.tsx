@@ -41,7 +41,7 @@ export function MuteModal({
       description={
         kind === 'channel'
           ? 'You won’t see new-post badges for this channel.'
-          : `Other ${kind === 'group' ? 'members' : 'people'} won’t see that you muted this chat. You’ll still be notified if you’re mentioned.`
+          : `Other ${kind === 'group' ? 'members' : 'people'} won’t see that you muted this chat.`
       }
       footer={
         <>

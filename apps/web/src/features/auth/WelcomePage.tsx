@@ -73,7 +73,10 @@ export function WelcomePage() {
   };
 
   return (
-    <div className="fixed inset-0 z-30 overflow-y-auto bg-surface" data-testid="welcome-page">
+    <div
+      className="fixed inset-0 z-30 overflow-y-auto bg-surface px-safe"
+      data-testid="welcome-page"
+    >
       <AuthLayout
         title="Set up your profile"
         subtitle="Add a photo and a few words so friends know it’s you. You can change these any time in Settings."

@@ -171,7 +171,8 @@ export function mergeChatUpsert(
 /** Apply a partial; a direct chat's permissions follow its peer (deleted/blocked). */
 function patched(chat: ChatSummary, partial: Partial<ChatSummary>): ChatSummary {
   const next = { ...chat, ...partial };
-  if (partial.peer && next.type === 'direct' && !partial.permissions)
+  // `user:changed` and block syncs patch only `peer`, with no chat:upsert.
+  if ('peer' in partial && !('permissions' in partial) && next.type === 'direct')
     next.permissions = computeChatPermissions(next, myId());
   return next;
 }

@@ -15,7 +15,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import {
   Bell,
@@ -79,11 +79,33 @@ export function ChannelPane() {
   return <ChannelPreviewView key={chatId} chatId={chatId} />;
 }
 
+/** A post to scroll to (search results, starred messages: `?m=<seq>&mid=<id>`). */
+export interface FeedJump {
+  seq: number;
+  messageId?: string;
+}
+
+function jumpFromParams(params: URLSearchParams): FeedJump | null {
+  const seq = Number(params.get('m'));
+  if (!Number.isInteger(seq) || seq <= 0) return null;
+  return { seq, messageId: params.get('mid') ?? undefined };
+}
+
+/** Index of the jump target in the loaded posts (by id, else the first post at/after its seq). */
+export function findPostIndex(items: ClientMessage[], t: FeedJump): number {
+  if (t.messageId) {
+    const i = items.findIndex((m) => m.id === t.messageId);
+    if (i >= 0) return i;
+  }
+  return items.findIndex((m) => m.seq > 0 && m.seq >= t.seq);
+}
+
 /** Virtuoso index base: prepended pages get lower indexes (keeps the scroll position). */
 const BASE_INDEX = 1_000_000_000;
 
 interface FeedContext {
   loadingMore: boolean;
+  loadingNewer: boolean;
 }
 
 function FeedHeader({ context }: { context?: FeedContext }) {
@@ -94,16 +116,34 @@ function FeedHeader({ context }: { context?: FeedContext }) {
   );
 }
 
-function FeedFooter() {
-  return <div className="h-3" aria-hidden />;
+function FeedFooter({ context }: { context?: FeedContext }) {
+  return (
+    <div className="flex min-h-3 justify-center text-brand-ink">
+      {context?.loadingNewer ? <Spinner size={18} /> : null}
+    </div>
+  );
 }
 
 const FEED_COMPONENTS = { Header: FeedHeader, Footer: FeedFooter };
 
+const followAtBottom = (bottom: boolean) => (bottom ? ('smooth' as const) : false);
+
+type FeedPosition = { index: number; align: 'center' | 'end' };
+
+function flashPost(root: HTMLElement | null, messageId: string): void {
+  const el = root?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+  const bubble = el?.querySelector<HTMLElement>('[id^="post-"]') ?? el;
+  bubble?.animate?.(
+    [{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }],
+    { duration: 1600, easing: 'ease-out' },
+  );
+}
+
 /**
  * The posts, virtualized (a follower may scroll back through many pages of media posts):
- * starts at the newest post, follows new posts while at the bottom, loads older pages at the
- * top and keeps the position when they are prepended.
+ * starts at the newest post (or a linked post), follows new posts while the newest one is
+ * shown at the bottom, loads older pages at the top (keeping the position when they are
+ * prepended) and newer ones at the bottom after a jump.
  */
 function Feed({
   items,
@@ -111,6 +151,12 @@ function Feed({
   hasMore,
   loadingMore,
   onLoadMore,
+  hasMoreAfter = false,
+  loadingNewer = false,
+  onLoadNewer,
+  onLatest,
+  jump,
+  onJumped,
   empty,
 }: {
   items: ClientMessage[];
@@ -118,10 +164,21 @@ function Feed({
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore?: () => void;
+  /** The loaded window ends before the newest post (after a jump). */
+  hasMoreAfter?: boolean;
+  loadingNewer?: boolean;
+  onLoadNewer?: () => void;
+  /** "Scroll to latest" when newer posts aren't loaded. */
+  onLatest?: () => void;
+  jump?: FeedJump | null;
+  onJumped?: () => void;
   empty?: ReactNode;
 }) {
   const virtuoso = useRef<VirtuosoHandle>(null);
+  const wrapper = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+  /** "Scroll to latest" asked for posts that weren't loaded: land on the newest once they are. */
+  const toLatest = useRef(false);
 
   // Keys keep their array identity while only post contents change (reactions, progress).
   const prevKeys = useRef<string[]>([]);
@@ -134,19 +191,35 @@ function Feed({
   }, [items]);
 
   // firstItemIndex bookkeeping (derived state, updated during render): prepends shift it,
-  // a replaced window remounts the list at the newest post.
+  // a replaced window remounts the list (at the linked post, else the newest one).
+  const initialPosition = (): FeedPosition => {
+    const i = jump ? findPostIndex(items, jump) : -1;
+    return i >= 0
+      ? { index: i, align: 'center' }
+      : { index: Math.max(0, items.length - 1), align: 'end' };
+  };
   const [track, setTrack] = useState(() => ({
     keys,
     first: BASE_INDEX - keys.length,
     epoch: 0,
+    initial: initialPosition(),
   }));
   if (track.keys !== keys) {
     const shifted = track.keys.length ? shiftFirstIndex(track.keys, track.first, keys) : null;
     if (shifted !== null && shifted > 0) setTrack({ ...track, keys, first: shifted });
-    else setTrack({ keys, first: BASE_INDEX - keys.length, epoch: track.epoch + 1 });
+    else
+      setTrack({
+        keys,
+        first: BASE_INDEX - keys.length,
+        epoch: track.epoch + 1,
+        initial: initialPosition(),
+      });
   }
 
-  const context = useMemo<FeedContext>(() => ({ loadingMore }), [loadingMore]);
+  const context = useMemo<FeedContext>(
+    () => ({ loadingMore, loadingNewer }),
+    [loadingMore, loadingNewer],
+  );
   const first = track.first;
   const renderItem = useCallback(
     (index: number, m: ClientMessage) => {
@@ -160,8 +233,39 @@ function Feed({
     [items, first, ctx],
   );
 
+  // Scroll to the linked post once it is loaded, and flash it.
+  useEffect(() => {
+    if (!jump || !items.length) return;
+    const i = findPostIndex(items, jump);
+    if (i < 0) return;
+    const id = items[i]!.id;
+    requestAnimationFrame(() => {
+      virtuoso.current?.scrollToIndex({ index: i, align: 'center' });
+      setTimeout(() => flashPost(wrapper.current, id), 150);
+    });
+    onJumped?.();
+  }, [jump, items, onJumped]);
+
+  // Follow new posts only when the newest one was already shown before this update: pages
+  // appended to an older window (after a jump) must not scroll past what the reader is on.
+  // (The ref holds the previous render's value; Virtuoso reads the prop with the new data.)
+  const showedLatest = useRef(!hasMoreAfter);
+  useEffect(() => {
+    showedLatest.current = !hasMoreAfter;
+    if (!hasMoreAfter && toLatest.current) {
+      toLatest.current = false;
+      requestAnimationFrame(() =>
+        virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end' }),
+      );
+    }
+  }, [hasMoreAfter, items]);
+
   return (
-    <div className="chat-wallpaper relative flex min-h-0 flex-1 flex-col" data-testid="channel-feed">
+    <div
+      ref={wrapper}
+      className="chat-wallpaper relative flex min-h-0 flex-1 flex-col"
+      data-testid="channel-feed"
+    >
       {items.length === 0 ? (
         <div className="flex flex-1 flex-col justify-end px-3 py-4">{empty}</div>
       ) : (
@@ -171,12 +275,13 @@ function Feed({
           data={items}
           context={context}
           firstItemIndex={track.first}
-          initialTopMostItemIndex={{ index: Math.max(0, items.length - 1), align: 'end' }}
+          initialTopMostItemIndex={track.initial}
           computeItemKey={(_, m) => rowKey(m)}
           itemContent={renderItem}
-          followOutput={(bottom) => (bottom ? 'smooth' : false)}
+          followOutput={showedLatest.current && !jump ? followAtBottom : false}
           alignToBottom
           startReached={hasMore && !loadingMore ? onLoadMore : undefined}
+          endReached={hasMoreAfter && !loadingNewer ? onLoadNewer : undefined}
           atBottomStateChange={setAtBottom}
           atBottomThreshold={80}
           increaseViewportBy={{ top: 200, bottom: 200 }}
@@ -185,16 +290,21 @@ function Feed({
           style={{ height: '100%' }}
         />
       )}
-      {!atBottom && items.length ? (
+      {(!atBottom || hasMoreAfter) && items.length ? (
         <IconButton
           icon={ChevronDown}
           label="Scroll to latest"
           variant="solid"
           size="md"
           className="absolute right-4 bottom-4 animate-pop shadow-elevated"
-          onClick={() =>
-            virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' })
-          }
+          onClick={() => {
+            if (hasMoreAfter && onLatest) {
+              toLatest.current = true;
+              onLatest();
+              return;
+            }
+            virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+          }}
         />
       ) : null}
     </div>
@@ -247,6 +357,11 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
   const [info, setInfo] = useState(false);
   const muted = isMuted(chat.mutedUntil);
   const admin = chat.permissions.canSend;
+  const [params, setParams] = useSearchParams();
+  const [jump, setJump] = useState<FeedJump | null>(null);
+  /** A `?m=` link is loading its window: don't load the latest page over it. */
+  const jumping = useRef(false);
+  const onJumped = useCallback(() => setJump(null), []);
 
   useEffect(() => {
     useChats.getState().setOpenChat(chat.id);
@@ -255,8 +370,37 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
     };
   }, [chat.id]);
 
+  // `?m=<seq>&mid=<id>` (search results, starred): load that post's window, then scroll to it.
+  const target = jumpFromParams(params);
+  const targetKey = target ? `${target.seq}:${target.messageId ?? ''}` : null;
   useEffect(() => {
-    if (!msgs.loaded && !msgs.loadingLatest && !msgs.error)
+    if (!target) return;
+    const next = new URLSearchParams(params);
+    next.delete('m');
+    next.delete('mid');
+    setParams(next, { replace: true });
+    const s = useMessages.getState().byChat[chat.id];
+    const loaded = s?.items.some(
+      (m) => m.id === target.messageId || (m.seq === target.seq && m.seq > 0),
+    );
+    if (loaded) {
+      setJump(target);
+      return;
+    }
+    jumping.current = true;
+    void useMessages
+      .getState()
+      .loadAround(chat.id, target.seq)
+      .then(() => setJump(target))
+      .catch((e: unknown) => toast.error(e))
+      .finally(() => {
+        jumping.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetKey, chat.id]);
+
+  useEffect(() => {
+    if (!msgs.loaded && !msgs.loadingLatest && !msgs.error && !jumping.current)
       void useMessages
         .getState()
         .loadLatest(chat.id)
@@ -329,6 +473,22 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
         .catch(() => undefined),
     [chat.id],
   );
+  const loadNewer = useCallback(
+    () =>
+      void useMessages
+        .getState()
+        .loadNewer(chat.id)
+        .catch(() => undefined),
+    [chat.id],
+  );
+  const loadLatest = useCallback(
+    () =>
+      void useMessages
+        .getState()
+        .loadLatest(chat.id)
+        .catch(() => undefined),
+    [chat.id],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -387,6 +547,12 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
           hasMore={msgs.hasMoreBefore && msgs.loaded}
           loadingMore={msgs.loadingBefore}
           onLoadMore={loadMore}
+          hasMoreAfter={msgs.hasMoreAfter && msgs.loaded}
+          loadingNewer={msgs.loadingAfter}
+          onLoadNewer={loadNewer}
+          onLatest={loadLatest}
+          jump={jump}
+          onJumped={onJumped}
         />
       )}
       {admin ? (

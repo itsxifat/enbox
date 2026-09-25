@@ -19,6 +19,7 @@ import { errorMessage } from '@/lib/api';
 import { formatCount } from '@/lib/format';
 import { useChats } from '@/stores/chats';
 import { discoverChannels, followChannel } from './channelApi';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 
 export function ChannelDiscoverPane() {
   const desktop = useIsDesktop();
@@ -108,6 +109,7 @@ export function ChannelDiscoverPane() {
                   >
                     <Link
                       to={`/updates/channels/${c.id}`}
+                      state={IN_APP_NAV}
                       className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
                     >
                       <Avatar

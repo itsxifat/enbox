@@ -17,6 +17,8 @@ export interface ListItemProps {
   end?: ReactNode;
   /** Render as a react-router Link. */
   to?: string;
+  /** History state for the `to` link (e.g. `IN_APP_NAV` for list → detail pages). */
+  linkState?: unknown;
   /** Render as a button. */
   onClick?: (e: MouseEvent<HTMLElement>) => void;
   onContextMenu?: (e: MouseEvent<HTMLElement>) => void;
@@ -47,6 +49,7 @@ export function ListItem({
   trailing,
   end,
   to,
+  linkState,
   onClick,
   onContextMenu,
   active,
@@ -127,6 +130,7 @@ export function ListItem({
     return (
       <Link
         to={to}
+        state={linkState}
         className={classes}
         onClick={onClick}
         onContextMenu={onContextMenu}

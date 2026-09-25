@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router';
 import { AtSign, BellOff, ChevronDown, MessageSquareText, Pin } from 'lucide-react';
 import { chatTitle, isMuted, renderMentions, tickStatus, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 import { Badge, ListItem, Menu, type MenuAnchor } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { formatChatListTime } from '@/lib/format';
@@ -128,6 +129,7 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
     >
       <ListItem
         to={to}
+        linkState={IN_APP_NAV}
         active={active}
         onContextMenu={onContextMenu}
         leading={
@@ -186,14 +188,16 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
           </>
         }
       />
-      {/* Desktop: hover chevron opens the chat menu (WhatsApp Web). */}
+      {/* Desktop: hover chevron opens the chat menu (WhatsApp Web). Below lg it is only
+          shown while focused by keyboard (touch uses long-press). */}
       <button
         type="button"
         aria-label={`Chat options for ${title}`}
         onClick={(e) => setMenu(e.currentTarget)}
         className={cn(
-          'absolute top-[34px] right-3.5 hidden size-6 items-center justify-center rounded-full text-muted opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-fg lg:flex',
-          'group-hover/row:opacity-100 focus-visible:opacity-100',
+          'absolute top-[34px] right-3.5 flex size-6 items-center justify-center rounded-full text-muted opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-fg',
+          'max-lg:pointer-events-none max-lg:bg-elevated max-lg:focus-visible:pointer-events-auto',
+          'lg:group-hover/row:opacity-100 focus-visible:opacity-100',
           menu && 'opacity-100',
         )}
       >
@@ -212,7 +216,11 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
         onClose={() => setSheet(false)}
         title={title}
         items={[
-          { label: 'Open chat', icon: MessageSquareText, onSelect: () => navigate(to) },
+          {
+            label: 'Open chat',
+            icon: MessageSquareText,
+            onSelect: () => navigate(to, { state: IN_APP_NAV }),
+          },
           ...items,
         ]}
       />

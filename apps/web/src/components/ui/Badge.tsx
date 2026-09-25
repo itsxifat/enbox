@@ -18,7 +18,7 @@ export interface BadgeProps {
 const TONES = {
   brand: 'bg-unread text-on-brand',
   muted: 'bg-unread-muted text-white dark:text-fg',
-  danger: 'bg-danger text-white',
+  danger: 'bg-danger-fill text-white',
   success: 'bg-success text-white',
 } as const;
 

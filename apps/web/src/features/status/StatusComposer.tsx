@@ -68,7 +68,7 @@ export function StatusComposer() {
         aria-modal="true"
         aria-label="New status"
         data-testid="status-composer"
-        className="fixed inset-0 z-[44] flex animate-fade-in flex-col text-white"
+        className="fixed inset-0 z-[44] flex animate-fade-in flex-col text-white px-safe"
       >
         {file ? (
           <MediaComposer file={file} onChange={setFile} onClose={close} />

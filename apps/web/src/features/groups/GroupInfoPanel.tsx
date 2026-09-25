@@ -33,7 +33,6 @@ import {
   type ChatMember,
   type ChatSummary,
   type GroupSettings,
-  type ID,
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
@@ -46,7 +45,6 @@ import { getMyId } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
 import { useChat } from '@/stores/chats';
 import { useCommunities } from '@/stores/communities';
-import { useChatMessages } from '@/stores/messages';
 import { useUserName } from '@/stores/users';
 import { GroupPermissionsFields } from './GroupPermissions';
 import { MemberRow, MembersView, useGroupMemberMenu } from './GroupMembers';
@@ -69,6 +67,7 @@ import { EditableAvatar } from './shared/EditableAvatar';
 import { InfoPage, InfoRow, InfoSection, QuickAction } from './shared/InfoLayout';
 import { InviteLinkView } from './shared/InviteLinkView';
 import { MediaGalleryView, MediaPreviewStrip } from './shared/MediaGallery';
+import { mediaTotal, useChatMediaCounts, useStarredCount } from './shared/mediaCounts';
 import { RichText } from './shared/RichText';
 import { StarredView } from './shared/StarredView';
 import { UserPicker } from './shared/UserPicker';
@@ -187,19 +186,6 @@ function isAdmin(chat: ChatSummary): boolean {
   return chat.membership === 'active' && (chat.myRole === 'owner' || chat.myRole === 'admin');
 }
 
-/** "Created by X" from the loaded `group_created` system message, if it is in the window. */
-function useCreator(chatId: ID): ID | null {
-  const { items } = useChatMessages(chatId);
-  return useMemo(() => {
-    for (const m of items) {
-      if (m.system?.kind === 'group_created' || m.system?.kind === 'community_created')
-        return m.system.actorId;
-      if (m.type !== 'system') break;
-    }
-    return null;
-  }, [items]);
-}
-
 function GroupInfoMain({
   chat,
   onClose,
@@ -225,8 +211,12 @@ function GroupInfoMain({
     chat.communityId ? s.byId[chat.communityId] : undefined,
   );
   const communitiesLoaded = useCommunities((s) => s.loaded);
-  const creator = useCreator(chat.id);
+  // `createdBy` is viewer-neutral (announcements: the community's creator); a deleted
+  // creator keeps their id and renders as a deleted account.
+  const creator = chat.createdBy;
   const creatorName = useUserName(creator);
+  const mediaCounts = useChatMediaCounts(chat.id);
+  const starredCount = useStarredCount(chat.id);
   const muted = isMuted(chat.mutedUntil);
   const [edit, setEdit] = useState<'name' | 'description' | null>(null);
   const [muteOpen, setMuteOpen] = useState(false);
@@ -401,7 +391,7 @@ function GroupInfoMain({
               <button
                 type="button"
                 onClick={() => setEdit('description')}
-                className="block w-full px-5 py-2 text-left outline-none hover:bg-hover focus-visible:bg-hover"
+                className="block w-full px-5 py-2 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
               >
                 <span className="text-[15px] font-medium text-brand-ink">
                   Add group description
@@ -443,9 +433,19 @@ function GroupInfoMain({
 
         {/* Media & starred */}
         <InfoSection>
-          <InfoRow icon={ImageIcon} label="Media, links and docs" onClick={() => go('media')} />
+          <InfoRow
+            icon={ImageIcon}
+            label="Media, links and docs"
+            value={mediaCounts ? String(mediaTotal(mediaCounts)) : undefined}
+            onClick={() => go('media')}
+          />
           <MediaPreviewStrip chatId={chat.id} onOpen={() => go('media')} />
-          <InfoRow icon={Star} label="Starred messages" onClick={() => go('starred')} />
+          <InfoRow
+            icon={Star}
+            label="Starred messages"
+            value={starredCount ? String(starredCount) : undefined}
+            onClick={() => go('starred')}
+          />
         </InfoSection>
 
         {/* Preferences */}
@@ -479,7 +479,11 @@ function GroupInfoMain({
               icon={Clock3}
               label="Disappearing messages"
               description={
-                p.canEditInfo ? undefined : 'Only admins can change the timer in this group'
+                p.canEditInfo
+                  ? undefined
+                  : announcement
+                    ? 'Managed by the community'
+                    : 'Only admins can change the timer in this group'
               }
               value={disappearingLabel(chat.disappearingSeconds)}
               onClick={p.canEditInfo ? () => setTimerOpen(true) : undefined}

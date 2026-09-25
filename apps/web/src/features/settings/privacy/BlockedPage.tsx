@@ -30,7 +30,7 @@ export function BlockedPage() {
         <button
           type="button"
           onClick={() => setPicking(true)}
-          className="flex min-h-14 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-hover focus-visible:bg-hover lg:px-5"
+          className="flex min-h-14 w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand lg:px-5"
         >
           <span className="flex size-10 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
             <UserRoundPlus size={20} aria-hidden />
@@ -54,7 +54,7 @@ export function BlockedPage() {
                   type="button"
                   onClick={() => void unblock(u)}
                   disabled={busy === u.id}
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover lg:px-5"
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand lg:px-5"
                   aria-label={`Unblock ${userDisplayName(u)}`}
                 >
                   <UserAvatar user={u} size="md" />

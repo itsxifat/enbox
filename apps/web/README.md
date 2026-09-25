@@ -101,6 +101,12 @@ export const callsRoutes: RouteObject[] = [
 - **`FullView`** — whole content area without a list pane (e.g. `/join/:code`).
 - **`PaneHeader`** — standard header (title/subtitle, `back` path or callback with arrow or ×,
   `leading` avatar, `actions`, `large` tab titles, children row for search/chips, safe-area).
+  A `back` path goes back in history when the page was opened by an in-app link that passed
+  `state: IN_APP_NAV` (`components/layout/navigation.ts`: list → chat, community → its chats,
+  search/starred results, channel lists), else replaces the entry with the parent path.
+- **Chat links**: `chatPath(chat, { seq?, messageId?, base? })` (`features/chats/links.ts`)
+  opens channels in their feed (`/updates/channels/:id`, which also reads `?m=`/`mid`) and
+  other chats in the conversation view; ConversationPane redirects channels there.
 - **`MainEmpty`** — branded empty main pane. `Placeholder` marks unbuilt screens.
 - Route tree: `RootLayout` (toasts, dialogs, bus navigation) → `PublicOnly` (`/login`,
   `/register`) | `RequireAuth` (splash while booting, `/login?next=…` when anonymous) →
@@ -245,12 +251,17 @@ derives `mentions`. Bodies are discriminated by `type` and strict (no foreign fi
   `text-muted`, `text-subtle`, `bg-brand`/`text-on-brand` (filled), `text-brand-ink` (brand
   colored text/icons — contrast-safe in both themes), `bg-brand-soft`, `bg-bubble-out`,
   `bg-bubble-in`, `text-bubble-out-meta`/`text-bubble-in-meta`, `.chat-wallpaper`,
-  `bg-danger`/`text-danger` (+ `-soft`), `success`, `warning`, `bg-unread`,
+  `text-danger` (+ `-soft`) for red text/icons, `bg-danger-fill` under white text,
+  `success`, `warning`, `text-warning-ink` (warning text on `bg-warning-soft`), `bg-unread`,
   `bg-unread-muted`, `text-tick-read`, `bg-online`, `bg-overlay`, `shadow-elevated`,
   `shadow-bubble`, `text-chat` (user font-size pref). Static brand scale: `violet-50…950`.
 - Dark mode is class-based (`dark:` variant works); theme/font-size/wallpaper are applied by
   `initTheme()` and a pre-paint script in `index.html` (no flash).
-- Safe areas: `pt-safe`, `pb-safe`, `pl-safe`, `pr-safe` (PaneHeader/BottomTabs handle them).
+- Safe areas: `pt-safe`, `pb-safe`, `pl-safe`, `pr-safe`, `px-safe` (PaneHeader/BottomTabs
+  handle top/bottom; AppShell and full-screen overlays use `px-safe` for landscape notches).
+- Focus rings: `outline-none focus-visible:outline-2 focus-visible:outline-brand` works (index.css
+  restores `--tw-outline-style` on `.outline-none:focus-visible`); don't rely on `focus-visible:bg-hover`
+  alone — it is nearly invisible.
   Animations: `animate-fade-in`, `-scale-in`, `-slide-up`, `-slide-in-right`, `-slide-down`,
   `-pop` (reduced-motion respected).
 - **There is no tailwind-merge**: `className` overrides must not fight a component's own
