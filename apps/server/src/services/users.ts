@@ -403,14 +403,16 @@ export async function loadUserSelf(dbx: DbOrTx, userId: string): Promise<UserSel
  * sessions, push subscriptions, contacts and blocks (both directions) and statuses, then
  * scrub the row. Run inside the deletion transaction AFTER the membership pipeline (steps
  * 1–2: forced call leave, groups/communities/channels). Returns the revoked session ids
- * (after commit: `invalidateSessions(ids)`, then `disconnectUser`).
+ * (after commit: `invalidateSessions(ids)`, then `disconnectUser`). `keepStatuses`: leave the
+ * statuses for the account-deletion hooks (the status module fans out `status:deleted`);
+ * the caller deletes the rest afterwards.
  */
-export async function scrubDeletedUser(tx: Tx, userId: string): Promise<{ sessionIds: string[] }> {
+export async function scrubDeletedUser(tx: Tx, userId: string, opts: { keepStatuses?: boolean } = {}): Promise<{ sessionIds: string[] }> {
   const revoked = await tx.delete(sessions).where(eq(sessions.userId, userId)).returning({ id: sessions.id });
   await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await tx.delete(contacts).where(or(eq(contacts.ownerId, userId), eq(contacts.contactId, userId)));
   await tx.delete(blocks).where(or(eq(blocks.blockerId, userId), eq(blocks.blockedId, userId)));
-  await tx.delete(statuses).where(eq(statuses.userId, userId));
+  if (!opts.keepStatuses) await tx.delete(statuses).where(eq(statuses.userId, userId));
   await tx
     .update(users)
     .set({

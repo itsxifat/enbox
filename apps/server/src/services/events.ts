@@ -28,6 +28,8 @@ export interface DomainEventMap {
   'chat.read': { userId: string; chatId: string; lastReadSeq: number; clearedUnread: boolean };
   /** A user stopped being an active member of a chat (left, removed, unfollowed, hidden announcement row). Calls: forced leave. */
   'member.left': { chatId: string; userId: string; reason: 'left' | 'removed' | 'unfollowed' };
+  /** Users module (`PUT /blocks/:userId`): a new block. Calls: forced leave of a live call between the two. */
+  'user.blocked': { blockerId: string; blockedId: string };
   /** Calls module: invitees were rung (`silentUserIds` ring silently: log only, no push). */
   'call.ringing': { callId: string; chatId: string; callerId: string; callType: CallType; isGroup: boolean; userIds: string[]; silentUserIds: string[] };
   /** Calls module: a user's ringing stopped (push `call_cancel`; body "Missed call" when `finalStatus` is missed). */
