@@ -1,13 +1,17 @@
 import type { ReactNode } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { cn } from '@/lib/cn';
 import { IconButton } from '@/components/ui';
+import { backTarget } from './navigation';
 
 export interface PaneHeaderProps {
   title: ReactNode;
   subtitle?: ReactNode;
-  /** Back arrow: a path to navigate to, or a callback. */
+  /**
+   * Back arrow: the parent path, or a callback. A path goes back in history when this page was
+   * opened by an in-app link (`state: IN_APP_NAV`), else replaces this entry with the parent.
+   */
   back?: string | (() => void);
   /** Icon for `back`: arrow (default) or × (closing side panels). */
   backIcon?: 'arrow' | 'close';
@@ -46,6 +50,7 @@ export function PaneHeader({
   border = false,
 }: PaneHeaderProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const titleBlock = (
     <div className="min-w-0 flex-1 text-left">
       <h1
@@ -71,7 +76,12 @@ export function PaneHeader({
           <IconButton
             icon={backIcon === 'close' ? X : ArrowLeft}
             label={backIcon === 'close' ? 'Close' : 'Back'}
-            onClick={() => (typeof back === 'string' ? navigate(back) : back())}
+            onClick={() => {
+              if (typeof back !== 'string') return back();
+              const t = backTarget(location.state, window.history.state, back);
+              if (t.kind === 'pop') void navigate(-1);
+              else void navigate(t.to, { replace: true });
+            }}
             className="shrink-0"
           />
         ) : null}

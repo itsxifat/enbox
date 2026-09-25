@@ -36,12 +36,14 @@ import { useAuth } from '@/stores/auth';
 import { isChatUnread, useChats, useSortedChats, type ChatListFilter } from '@/stores/chats';
 import { ChatRow } from './ChatRow';
 import { MessageSearchResults } from './MessageSearchResults';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 
 function ArchivedEntry({ count, unread }: { count: number; unread: number }) {
   return (
     <Link
       to="/archived"
-      className="flex items-center gap-4 px-6 py-3 text-[15px] font-medium text-fg outline-none hover:bg-hover focus-visible:bg-hover"
+      state={IN_APP_NAV}
+      className="flex items-center gap-4 px-6 py-3 text-[15px] font-medium text-fg outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <Archive size={20} className="text-brand-ink" aria-hidden />
       <span className="flex-1">Archived</span>

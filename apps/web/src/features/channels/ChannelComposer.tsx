@@ -1,6 +1,7 @@
 /**
- * Channel admin composer: text posts, photo/video/document attachments (optimistic upload)
- * and polls. Enter sends per the device preference.
+ * Channel admin composer: text posts, photo/video/document attachments (processed and
+ * uploaded like chat media, see postMedia.ts) and polls. Enter sends per the device
+ * preference.
  */
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
@@ -13,7 +14,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  MAX_CAPTION_LENGTH,
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
@@ -30,12 +30,10 @@ import {
   Textarea,
   toast,
 } from '@/components/ui';
-import { api } from '@/lib/api';
 import { validate } from '@/lib/forms';
-import { newClientId } from '@/lib/ids';
-import { createObjectUrl, mediaKindForFile, probeMedia } from '@/lib/media';
 import { useMessages } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
+import { postFiles } from './postMedia';
 
 export function ChannelComposer({ chat }: { chat: ChatSummary }) {
   const [text, setText] = useState('');
@@ -57,31 +55,12 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
     textRef.current?.focus();
   };
 
-  const sendFile = async (file: File, asDocument: boolean) => {
-    const kind = asDocument ? 'file' : mediaKindForFile(file);
-    const caption = text.trim().slice(0, MAX_CAPTION_LENGTH) || undefined;
+  const sendFiles = (files: File[], asDocument: boolean) => {
+    if (!files.length) return;
+    // The typed text becomes the first post's caption (taken once, before anything uploads).
+    const caption = text.trim() || undefined;
     if (caption) setText('');
-    const clientId = newClientId();
-    const localUrl = kind === 'image' || kind === 'video' ? createObjectUrl(file) : undefined;
-    const store = useMessages.getState();
-    store.addOptimistic(chat.id, {
-      clientId,
-      type: kind,
-      text: caption ?? null,
-      localUrl,
-      uploadProgress: 0,
-    });
-    try {
-      const media = await api.upload(file, await probeMedia(file, kind), (p) =>
-        useMessages.getState().patchOptimistic(chat.id, clientId, { uploadProgress: p }),
-      );
-      await useMessages
-        .getState()
-        .sendMessage(chat.id, { clientId, type: kind, mediaId: media.id, text: caption });
-    } catch (err) {
-      useMessages.getState().markFailed(chat.id, clientId);
-      toast.error(err);
-    }
+    void postFiles(chat.id, files, { asDocument, caption });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -140,7 +119,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          for (const f of files) void sendFile(f, false);
+          sendFiles(files, false);
         }}
       />
       <input
@@ -150,7 +129,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = '';
-          if (f) void sendFile(f, true);
+          if (f) sendFiles([f], true);
         }}
       />
       <PollModal chat={chat} open={pollOpen} onClose={() => setPollOpen(false)} />

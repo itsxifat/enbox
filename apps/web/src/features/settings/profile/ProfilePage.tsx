@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AtSign, Check, CircleUserRound, Copy, Info, Link2, Phone, Share2 } from 'lucide-react';
-import { DISPLAY_NAME_MAX_LENGTH, type UserPublic } from '@enbox/shared';
+import { DISPLAY_NAME_MAX_LENGTH } from '@enbox/shared';
 import { Button, IconButton, Spinner, toast } from '@/components/ui';
+import { useUsernameAvailability } from '@/features/auth/usernameAvailability';
 import { canonicalPhone, normalizeUsernameInput, usernameIssue } from '@/features/auth/validation';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/stores/auth';
 import { EditFieldModal } from '../EditFieldModal';
@@ -135,7 +134,7 @@ export function ProfilePage() {
         maxLength={32}
         transform={normalizeUsernameInput}
         validate={(v) => usernameIssue(v) ?? (v ? null : 'Choose a username')}
-        status={(v) => <UsernameStatus value={v} current={me.username} myId={me.id} />}
+        status={(v) => <UsernameStatus value={v} current={me.username} />}
         onSave={async (v) => {
           await updateProfile({ username: v });
           toast.success('Username updated');
@@ -181,66 +180,9 @@ export function ProfilePage() {
   );
 }
 
-type Availability = 'idle' | 'checking' | 'available' | 'taken' | 'mine' | 'invalid' | 'error';
-
-/** Live username availability (GET /api/users/by-username/:username; 404 = free). */
-export function useUsernameAvailability(
-  value: string,
-  current: string,
-  myId: string,
-): { state: Availability; message: string | null } {
-  const debounced = useDebouncedValue(value, 400);
-  const [result, setResult] = useState<{ for: string; state: Availability }>({
-    for: '',
-    state: 'idle',
-  });
-  const issue = value ? usernameIssue(value) : null;
-
-  useEffect(() => {
-    if (!debounced || debounced === current || usernameIssue(debounced)) return;
-    const ctrl = new AbortController();
-    setResult({ for: debounced, state: 'checking' });
-    api
-      .get<UserPublic>(`/api/users/by-username/${encodeURIComponent(debounced)}`, {
-        signal: ctrl.signal,
-      })
-      .then((u) => setResult({ for: debounced, state: u.id === myId ? 'mine' : 'taken' }))
-      .catch((e: unknown) => {
-        if (e instanceof ApiError && e.code === 'aborted') return;
-        setResult({
-          for: debounced,
-          state: e instanceof ApiError && e.status === 404 ? 'available' : 'error',
-        });
-      });
-    return () => ctrl.abort();
-  }, [debounced, current, myId]);
-
-  if (!value) return { state: 'idle', message: null };
-  if (issue) return { state: 'invalid', message: issue };
-  if (value === current) return { state: 'mine', message: 'This is your current username.' };
-  if (value !== debounced || result.for !== value) return { state: 'checking', message: null };
-  switch (result.state) {
-    case 'taken':
-      return { state: 'taken', message: `@${value} is taken.` };
-    case 'available':
-      return { state: 'available', message: `@${value} is available.` };
-    case 'error':
-      return { state: 'error', message: "Couldn't check availability." };
-    default:
-      return { state: result.state, message: null };
-  }
-}
-
-function UsernameStatus({
-  value,
-  current,
-  myId,
-}: {
-  value: string;
-  current: string;
-  myId: string;
-}) {
-  const { state, message } = useUsernameAvailability(value, current, myId);
+/** Live availability (GET /api/auth/username-available, same check as registration). */
+function UsernameStatus({ value, current }: { value: string; current: string }) {
+  const { state, message } = useUsernameAvailability(value, { current });
   if (state === 'checking')
     return (
       <span className="inline-flex items-center gap-1.5">

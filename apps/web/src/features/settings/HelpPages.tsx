@@ -92,7 +92,7 @@ export function HelpPage() {
       <SettingsGroup title="Help center">
         {FAQ.map((f) => (
           <details key={f.q} className="group">
-            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 text-[15.5px] text-fg outline-none hover:bg-hover focus-visible:bg-hover lg:px-5 [&::-webkit-details-marker]:hidden">
+            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3 text-[15.5px] text-fg outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand lg:px-5 [&::-webkit-details-marker]:hidden">
               <span className="flex-1">{f.q}</span>
               <ChevronDown
                 size={18}

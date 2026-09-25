@@ -49,7 +49,7 @@ export function Sheet({
   return (
     <Portal>
       <div
-        className="fixed inset-0 z-40 flex"
+        className="fixed inset-0 z-40 flex px-safe"
         style={{ justifyContent: side === 'right' ? 'flex-end' : 'flex-start' }}
       >
         {backdrop ? (

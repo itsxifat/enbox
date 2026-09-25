@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUi, type Toast } from '@/stores/ui';
@@ -10,17 +10,29 @@ const ICON_COLORS = {
   info: 'text-brand-ink',
 } as const;
 
+/** Toasts with an action (Undo, Open…) stay long enough to be reached by keyboard. */
+const ACTION_MIN_MS = 10_000;
+
 function ToastView({ t }: { t: Toast }) {
   const dismiss = useUi((s) => s.dismissToast);
+  // Hovering or focusing a toast pauses its timer (WCAG 2.2.1); leaving restarts it.
+  const [paused, setPaused] = useState(false);
+  const duration = t.duration && t.action ? Math.max(t.duration, ACTION_MIN_MS) : t.duration;
   useEffect(() => {
-    if (!t.duration) return;
-    const id = setTimeout(() => dismiss(t.id), t.duration);
+    if (!duration || paused) return;
+    const id = setTimeout(() => dismiss(t.id), duration);
     return () => clearTimeout(id);
-  }, [t.id, t.duration, dismiss]);
+  }, [t.id, duration, paused, dismiss]);
   const Icon = ICONS[t.kind];
   return (
     <div
       role={t.kind === 'error' ? 'alert' : 'status'}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setPaused(false);
+      }}
       className="pointer-events-auto flex w-full max-w-md animate-slide-down items-start gap-3 rounded-2xl border border-line bg-elevated px-4 py-3 text-fg shadow-elevated"
     >
       <Icon size={20} className={cn('mt-px shrink-0', ICON_COLORS[t.kind])} aria-hidden />

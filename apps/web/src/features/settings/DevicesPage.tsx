@@ -129,7 +129,7 @@ export function DevicesPage() {
                       type="button"
                       onClick={() => void revoke(s)}
                       disabled={busyId === s.id}
-                      className="flex w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-hover focus-visible:bg-hover disabled:opacity-50 lg:px-5"
+                      className="flex w-full items-center gap-4 px-4 py-3 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand disabled:opacity-50 lg:px-5"
                       aria-label={`${s.deviceName}${s.current ? ' (this device)' : ''}. ${lastActive(s)}. Log out`}
                     >
                       <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-ink">

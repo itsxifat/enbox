@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui';
 import { TABS, activeTab } from './tabs';
-import { useTabBadges } from './useTabBadges';
+import { tabBadgeText, useTabBadges } from './useTabBadges';
 
 /** Phone bottom tab bar (hidden on detail routes and on desktop). */
 export function BottomTabs() {
@@ -15,6 +15,7 @@ export function BottomTabs() {
         {TABS.map((t) => {
           const active = current === t.id;
           const badge = badges[t.id];
+          const badgeText = tabBadgeText(t.id, badge);
           return (
             <li key={t.id} className="flex-1">
               <NavLink
@@ -35,13 +36,13 @@ export function BottomTabs() {
                       count={badge.count}
                       size="sm"
                       className="absolute -top-1 left-[30px] ring-2 ring-surface"
-                      label={`${badge.count} unread chats`}
+                      label={badgeText ?? undefined}
                     />
                   ) : badge?.dot ? (
                     <Badge
                       dot
                       className="absolute top-0.5 right-3 ring-2 ring-surface"
-                      label="New updates"
+                      label={badgeText ?? undefined}
                     />
                   ) : null}
                 </span>

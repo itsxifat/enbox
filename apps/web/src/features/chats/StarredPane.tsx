@@ -14,8 +14,9 @@ import { useAuth } from '@/stores/auth';
 import { useMessages } from '@/stores/messages';
 import { toast } from '@/stores/ui';
 import { useUserName, useUsers } from '@/stores/users';
-import { messageLink } from './links';
+import { chatPath } from './links';
 import { PreviewLine, mentionName, previewParts } from './preview';
+import { IN_APP_NAV } from '@/components/layout/navigation';
 
 function StarredRow({
   r,
@@ -49,7 +50,11 @@ function StarredRow({
         type="button"
         className="absolute inset-0 z-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
         aria-label={`Open starred message from ${from}`}
-        onClick={() => navigate(messageLink(r.chat.id, m.seq, m.id, '/starred'))}
+        onClick={() =>
+          navigate(chatPath(r.chat, { seq: m.seq, messageId: m.id, base: '/starred' }), {
+            state: IN_APP_NAV,
+          })
+        }
       />
       <div className="pointer-events-none relative flex items-center gap-2 text-[13px]">
         {channel ? (
@@ -104,7 +109,7 @@ function StarredRow({
         label="Unstar"
         size="sm"
         onClick={onUnstar}
-        className="absolute top-2.5 right-2 z-[1] opacity-0 group-hover/star:opacity-100 focus-visible:opacity-100"
+        className="absolute top-2.5 right-2 z-[1] focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/star:opacity-100"
       />
     </div>
   );

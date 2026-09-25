@@ -21,3 +21,14 @@ export function useTabBadges(): Partial<Record<TabId, TabBadge>> {
     calls: missedCalls ? { count: missedCalls } : undefined,
   };
 }
+
+/** Spoken text for a tab's badge ("3 unread chats", "1 missed call", "new updates"). */
+export function tabBadgeText(id: TabId, badge: TabBadge | undefined): string | null {
+  if (badge?.count) {
+    const n = badge.count;
+    return id === 'calls'
+      ? `${n} missed call${n === 1 ? '' : 's'}`
+      : `${n} unread chat${n === 1 ? '' : 's'}`;
+  }
+  return badge?.dot ? 'new updates' : null;
+}
