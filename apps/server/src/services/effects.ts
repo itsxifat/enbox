@@ -40,7 +40,7 @@ import {
   removeUserFromChat,
   type ChatEmitOptions,
 } from '../realtime/emit.js';
-import { adminIds, activeMemberCount } from './chats.js';
+import { adminIds, activeMemberCount, hiddenPinsByMember } from './chats.js';
 import { domainEvents, type DomainEventMap, type DomainEventName } from './events.js';
 import { pinnedMessageIds, messageUpdatedPayloads, toMessages } from './messages.js';
 import { pairKey } from './sql.js';
@@ -172,9 +172,12 @@ export class Effects {
     return this.leaveRoom(userId, chatId).toUser(userId, 'chat:removed', { chatId });
   }
 
-  /** `chat:updated { chatId, changes }` → room (viewer-neutral metadata; rule 5). */
-  chatUpdated(chatId: ID, changes: ChatInfoChanges): this {
-    return this.toChat(chatId, 'chat:updated', { chatId, changes });
+  /**
+   * `chat:updated { chatId, changes }` → room (viewer-neutral metadata; rule 5).
+   * `exceptUserIds`: members who must not hear about it (direct chats: a peer who blocked the actor).
+   */
+  chatUpdated(chatId: ID, changes: ChatInfoChanges, opts: { exceptUserIds?: ID[] } = {}): this {
+    return this.toChat(chatId, 'chat:updated', { chatId, changes }, opts.exceptUserIds?.length ? { exceptUserIds: [...opts.exceptUserIds] } : undefined);
   }
 
   /** `chat:updated { memberCount }` → room, with the count as of the end of the tx. */
@@ -204,13 +207,28 @@ export class Effects {
     );
   }
 
-  /** `chat:pins { messageIds }` → room, with the pins as of the end of the tx. */
-  chatPins(chatId: ID): this {
+  /**
+   * `chat:pins { messageIds }` → room, with the pins as of the end of the tx. Members with a
+   * `message_hidden` row on a pinned message (deleted for them, or withheld because they
+   * blocked its sender) get their own list without it (→ user:<id>) instead of the room's.
+   * `exceptUserIds`: members who must not hear about it at all (direct chats: a peer who
+   * blocked the actor).
+   */
+  chatPins(chatId: ID, opts: { exceptUserIds?: ID[] } = {}): this {
+    const except = [...new Set(opts.exceptUserIds ?? [])];
     let messageIds: ID[] = [];
+    let hiddenFor = new Map<ID, Set<ID>>();
     return this.add(
-      () => emitToChat(chatId, 'chat:pins', { chatId, messageIds }),
+      () => {
+        emitToChat(chatId, 'chat:pins', { chatId, messageIds }, { exceptUserIds: [...except, ...hiddenFor.keys()] });
+        for (const [userId, hidden] of hiddenFor) {
+          if (except.includes(userId)) continue;
+          emitToUser(userId, 'chat:pins', { chatId, messageIds: messageIds.filter((id) => !hidden.has(id)) });
+        }
+      },
       async (dbx) => {
         messageIds = await pinnedMessageIds(dbx, chatId);
+        hiddenFor = await hiddenPinsByMember(dbx, chatId, messageIds);
       },
     );
   }
@@ -233,14 +251,18 @@ export class Effects {
     return this;
   }
 
-  /** `message:updated` → room except active members for whom the message is invisible (channels: whole room). */
-  messageUpdated(messageId: ID): this {
+  /**
+   * `message:updated` → room except active members for whom the message is invisible (channels:
+   * whole room) and `exceptUserIds` (direct chats: a peer who blocked the actor).
+   */
+  messageUpdated(messageId: ID, opts: { exceptUserIds?: ID[] } = {}): this {
     this.assertOpen();
     this.updatedIds.push(messageId);
+    const extra = opts.exceptUserIds ?? [];
     this.steps.push({
       run: () => {
         const p = this.updatedOut.get(messageId);
-        if (p) emitToChat(p.chatId, 'message:updated', { message: p.message }, { exceptUserIds: p.exceptUserIds });
+        if (p) emitToChat(p.chatId, 'message:updated', { message: p.message }, { exceptUserIds: [...new Set([...p.exceptUserIds, ...extra])] });
       },
     });
     return this;

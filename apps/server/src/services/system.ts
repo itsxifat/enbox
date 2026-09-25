@@ -40,6 +40,11 @@ export function systemMessageAllowed(chat: Pick<ChatRow, 'type' | 'isAnnouncemen
   }
 }
 
+/** The acting user of a system event (withheld from direct-chat peers who blocked them). */
+function actorOf(event: SystemEvent): string | null {
+  return 'actorId' in event ? event.actorId : null;
+}
+
 function assertAllowed(chat: Pick<ChatRow, 'type' | 'isAnnouncement' | 'id'>, event: SystemEvent) {
   if (!systemMessageAllowed(chat, event.kind)) {
     throw new Error(`System message '${event.kind}' is not allowed in ${chatKindOfRow(chat)} chat ${chat.id}`);
@@ -51,7 +56,8 @@ function assertAllowed(chat: Pick<ChatRow, 'type' | 'isAnnouncement' | 'id'>, ev
  * send path (chat lock, seq, unhide, delivered…) and register its `message:new` → room.
  * Throws (programming error) when the kind is not allowed in this chat — check with
  * `systemMessageAllowed` for optional messages. `exceptUserIds`: members still in the room
- * who must not receive it (e.g. someone who left earlier in the same tx).
+ * who must not receive it (e.g. someone who left earlier in the same tx). In direct chats the
+ * event's `actorId` is treated like a sender: a peer who blocked the actor never sees it.
  */
 export async function postSystemMessage(
   tx: Tx,
@@ -67,6 +73,7 @@ export async function postSystemMessage(
     type: 'system',
     metadata: { system: event },
     exceptUserIds: opts.exceptUserIds,
+    actorId: actorOf(event),
   });
   return message;
 }
@@ -74,5 +81,5 @@ export async function postSystemMessage(
 /** Like postSystemMessage but WITHOUT registering the fan-out (call `.publish(fx)` later). */
 export async function insertSystemMessage(tx: Tx, chat: Pick<ChatRow, 'id' | 'type' | 'isAnnouncement'>, event: SystemEvent): Promise<InsertedMessage> {
   assertAllowed(chat, event);
-  return insertMessage(tx, { chatId: chat.id, senderId: null, type: 'system', metadata: { system: event } });
+  return insertMessage(tx, { chatId: chat.id, senderId: null, type: 'system', metadata: { system: event }, actorId: actorOf(event) });
 }

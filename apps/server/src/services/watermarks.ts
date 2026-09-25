@@ -39,12 +39,15 @@ export interface ViewerWatermarks {
  * post-commit active set (left/removed) are treated as removed. `prevLastSeq` = chats.last_seq
  * before the tx (it is the watermark of viewers without other members). `prevReadReceipts` =
  * a user's previous readReceipts setting (direct chats' read watermarks depend on it).
+ * `skipUserIds` = members who must get no `chat:watermarks` for this transaction's changes in
+ * the chat (recipients a message was withheld from: the tick change would reveal it).
  */
 export interface WatermarkDelta {
   chatId: string;
   prevLastSeq?: number;
   members: { userId: string; prev: Marks | null }[];
   prevReadReceipts?: { userId: string; value: boolean };
+  skipUserIds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -137,22 +140,24 @@ interface MemberMarkRow {
   read: number;
   delivered: number;
   readReceipts: boolean;
+  /** The member deleted the chat for themselves (not in the chat room). */
+  hidden?: boolean;
 }
 
-/** Active members' marks (+ readReceipts setting) of these chats. */
+/** Active members' marks (+ readReceipts setting and hidden flag) of these chats. */
 async function loadActiveMarks(dbx: DbOrTx, chatIds: string[]): Promise<Map<string, MemberMarkRow[]>> {
   const out = new Map<string, MemberMarkRow[]>();
   if (chatIds.length === 0) return out;
-  const rows = await rawRows<{ chat_id: string; user_id: string; r: number; d: number; rr: boolean | null }>(
+  const rows = await rawRows<{ chat_id: string; user_id: string; r: number; d: number; rr: boolean | null; hidden: boolean }>(
     dbx,
     sql`select cm.chat_id, cm.user_id, cm.last_read_seq as r, cm.last_delivered_seq as d,
-          (u.settings->>'readReceipts')::boolean as rr
+          (u.settings->>'readReceipts')::boolean as rr, cm.hidden
         from chat_members cm join users u on u.id = cm.user_id
         where cm.chat_id = any(${uuidArray(chatIds)}) and cm.left_at is null`,
   );
   for (const r of rows) {
     const list = out.get(r.chat_id) ?? [];
-    list.push({ chatId: r.chat_id, userId: r.user_id, read: num(r.r), delivered: num(r.d), readReceipts: r.rr ?? RR_DEFAULT });
+    list.push({ chatId: r.chat_id, userId: r.user_id, read: num(r.r), delivered: num(r.d), readReceipts: r.rr ?? RR_DEFAULT, hidden: !!r.hidden });
     out.set(r.chat_id, list);
   }
   return out;
@@ -199,17 +204,20 @@ export async function computeWatermarks(dbx: DbOrTx, chatId: string, forUserIds?
 /**
  * Before/after diff of tick watermarks for the given deltas (merged per chat; the earliest
  * `prev` of a user wins). Returns, per chat, the `chat:watermarks` emissions for active
- * members whose value changed (newly active members are skipped). Channels never emit.
+ * members whose value changed. Skipped: newly active members (their chat:upsert carries the
+ * watermarks), members whose row is hidden (not in the room; the chat:upsert that unhides it
+ * carries them) and every delta's `skipUserIds` (withheld recipients). Channels never emit.
  */
 export async function diffWatermarks(
   dbx: DbOrTx,
   deltas: WatermarkDelta[],
 ): Promise<Map<string, { userId: string; payload: { chatId: string } & ViewerWatermarks }[]>> {
   const out = new Map<string, { userId: string; payload: { chatId: string } & ViewerWatermarks }[]>();
-  const merged = new Map<string, { prevLastSeq?: number; prev: Map<string, Marks | null>; prevRR: Map<string, boolean> }>();
+  const merged = new Map<string, { prevLastSeq?: number; prev: Map<string, Marks | null>; prevRR: Map<string, boolean>; skip: Set<string> }>();
   for (const d of deltas) {
     let m = merged.get(d.chatId);
-    if (!m) merged.set(d.chatId, (m = { prev: new Map(), prevRR: new Map() }));
+    if (!m) merged.set(d.chatId, (m = { prev: new Map(), prevRR: new Map(), skip: new Set() }));
+    for (const id of d.skipUserIds ?? []) m.skip.add(id);
     if (m.prevLastSeq === undefined && d.prevLastSeq !== undefined) m.prevLastSeq = d.prevLastSeq;
     for (const x of d.members) if (!m.prev.has(x.userId)) m.prev.set(x.userId, x.prev);
     if (d.prevReadReceipts && !m.prevRR.has(d.prevReadReceipts.userId)) m.prevRR.set(d.prevReadReceipts.userId, d.prevReadReceipts.value);
@@ -249,6 +257,7 @@ export async function diffWatermarks(
     for (const x of after) {
       if (m.prev.has(x.userId) && m.prev.get(x.userId) === null) continue; // newly active: chat:upsert carries it
       if (!activeBefore.has(x.userId)) continue;
+      if (x.hidden || m.skip.has(x.userId)) continue; // not in the room / must not learn about a withheld message
       const wb = viewerWatermarks(aggBefore, { chatType: chat.type, viewerId: x.userId, viewerActive: true, lastSeq: lastBefore, readReceiptsOff: rrOffBefore });
       const wa = viewerWatermarks(aggAfter, { chatType: chat.type, viewerId: x.userId, viewerActive: true, lastSeq: lastAfter, readReceiptsOff: rrOffAfter });
       if (wb.readWatermark !== wa.readWatermark || wb.deliveredWatermark !== wa.deliveredWatermark) {
@@ -381,6 +390,9 @@ export interface AdvanceResult {
  */
 export async function advanceRead(tx: Tx, fx: Effects, input: { chatId: string; userId: string; seq: number }): Promise<AdvanceResult> {
   const { chatId, userId } = input;
+  // Unlocked pre-check: a non-member can't queue on the chat row lock (e.g. a public channel's).
+  const pre = await getMembership(tx, chatId, userId);
+  if (!pre || pre.hidden) throw notFound('Chat');
   const chat = await lockChat(tx, chatId);
   const member = await getMembership(tx, chatId, userId);
   if (!member || member.hidden) throw notFound('Chat');
@@ -411,6 +423,8 @@ export async function advanceRead(tx: Tx, fx: Effects, input: { chatId: string; 
 /** Advance one member's delivered mark (clamped like reads). Registers `chat:watermarks` for changed members. */
 export async function advanceDelivered(tx: Tx, fx: Effects, input: { chatId: string; userId: string; seq: number }): Promise<AdvanceResult> {
   const { chatId, userId } = input;
+  const pre = await getMembership(tx, chatId, userId);
+  if (!pre || pre.leftAt) throw notFound('Chat');
   const chat = await lockChat(tx, chatId);
   const member = await getMembership(tx, chatId, userId);
   if (!member || member.leftAt) throw notFound('Chat');
@@ -439,17 +453,28 @@ export async function markDeliveredForOnlineRecipients(
 
 /**
  * Server-driven delivered receipts (b) — on socket connect, before `ready` (registered as an
- * `onBeforeReady` hook by the chats module): ONE statement advances the user's
- * last_delivered_seq to the latest visible seq of every active non-channel chat (lateral
- * top-1 per chat on the (chat_id, seq) index), then `chat:watermarks` goes to the members
- * whose ticks changed. It writes only the connecting user's own member rows (locked in
- * chat_id order) and takes no chat locks: a concurrent send already sees the user online
- * and advances its own delivery, and GREATEST keeps the rows monotonic.
+ * `onBeforeReady` hook by the chats module), after `markConnected`:
+ * 1. `FOR SHARE` locks on the user's active non-channel chats, in sorted id order (the
+ *    normative chat-first lock order, so no deadlock with multi-chat writers such as forwards
+ *    or community cascades). A send in flight holds its chat `FOR UPDATE` and may have seen
+ *    the user offline: waiting for it here means its message is committed before step 2's
+ *    snapshot; later sends see the user online and deliver themselves.
+ * 2. ONE statement advances the user's last_delivered_seq to the latest visible seq of each
+ *    of those chats (lateral top-1 per chat on the (chat_id, seq) index; GREATEST semantics),
+ *    then `chat:watermarks` goes to the members whose ticks changed.
  */
 export async function markDeliveredOnConnect(userId: string): Promise<void> {
   const fx = new Effects();
   await db.transaction(async (tx) => {
-    const rows = await rawRows<{ chat_id: string; pr: number; pd: number }>(
+    const locked = await rawRows<{ id: string }>(
+      tx,
+      sql`select c.id from chats c
+          where c.type <> 'channel'
+            and c.id in (select cm.chat_id from chat_members cm where cm.user_id = ${userId} and cm.left_at is null)
+          order by c.id
+          for share of c`,
+    );
+    const rows = locked.length === 0 ? [] : await rawRows<{ chat_id: string; pr: number; pd: number }>(
       tx,
       sql`with target as (
             select cm.chat_id, cm.last_read_seq as pr, cm.last_delivered_seq as pd, v.seq
@@ -460,7 +485,7 @@ export async function markDeliveredOnConnect(userId: string): Promise<void> {
               where m.chat_id = cm.chat_id and m.seq > cm.last_delivered_seq and ${memberVisibleSql('m', 'cm')}
               order by m.seq desc limit 1
             ) v
-            where cm.user_id = ${userId} and cm.left_at is null
+            where cm.user_id = ${userId} and cm.left_at is null and cm.chat_id = any(${uuidArray(locked.map((r) => r.id))})
             order by cm.chat_id
             for update of cm
           )

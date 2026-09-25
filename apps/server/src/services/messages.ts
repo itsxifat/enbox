@@ -20,6 +20,7 @@ import {
 } from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../db/index.js';
 import {
+  blocks,
   chatMembers,
   chatPins,
   chats,
@@ -97,6 +98,12 @@ export interface CreateMessageInput {
    * left earlier in this same transaction and is removed from the room after it).
    */
   exceptUserIds?: string[];
+  /**
+   * The user whose action created a system message (`senderId` null). Direct chats: a peer
+   * who blocked the actor gets the message withheld exactly like a send by the actor (docs
+   * "Blocking": never emitted, never unhides their chat, never counts as delivered/read).
+   */
+  actorId?: string | null;
 }
 
 export interface CreateMessageResult {
@@ -122,7 +129,8 @@ export interface InsertedMessage extends CreateMessageResult {
  * expires_at from the chat's timer (never for system/call), mentions ∩ active members;
  * withheld rows for direct-chat recipients who blocked the sender; unhide active hidden
  * members who can see it; sender read+delivered → seq (+ clear marked_unread); delivered →
- * seq for online recipients.
+ * seq for online recipients. Direct chats: `withheld` is derived from the sender, or from
+ * `actorId` for system messages.
  */
 export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<InsertedMessage> {
   const locked = await lockChat(tx, input.chatId);
@@ -149,10 +157,10 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
 
   // Channels: no per-follower work (no delivered receipts, no unhide, no pushes).
   const memberIds = isChannel ? [] : await activeMemberIds(tx, input.chatId);
-  const withheld =
-    chat!.type === 'direct' && input.senderId
-      ? [...(await blockersOf(tx, input.senderId, memberIds))]
-      : [];
+  // Direct chats: recipients who blocked the sender — or, for system messages, the acting
+  // user (timer changes, pins) — never see it (docs "Blocking").
+  const actorId = input.senderId ?? input.actorId ?? null;
+  const withheld = chat!.type === 'direct' && actorId ? [...(await blockersOf(tx, actorId, memberIds))] : [];
   const mentions = serverMessage
     ? []
     : await deriveMentions(tx, input.chatId, input.senderId, input.text, isChannel ? undefined : memberIds);
@@ -217,7 +225,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       for (const userId of unhidden) fx.join(userId, input.chatId);
       fx.messageNew(row, { exceptUserIds: [...withheld, ...(input.exceptUserIds ?? [])] });
       if (input.senderId) fx.chatRead(input.senderId, input.chatId);
-      if (!isChannel) fx.watermarks({ chatId: input.chatId, prevLastSeq, members: changedMarks });
+      // Withheld recipients learn nothing: not even the tick change the hidden seq causes.
+      if (!isChannel) fx.watermarks({ chatId: input.chatId, prevLastSeq, members: changedMarks, skipUserIds: withheld });
       fx.domain('message.created', { message: row, chat: chatRow, recipientIds, withheldUserIds: withheld });
     },
   };
@@ -390,7 +399,8 @@ function toPreview(row: MessageRow | undefined, chatType: ChatType | undefined, 
  * `toMessages(dbx, viewerId, rows)` (docs): batch serializer, output in input order, a fixed
  * number of queries per call. Viewer-neutral when `viewerId` is null (socket broadcasts:
  * no `starred`/`myReaction`/`poll.myOptionIds` keys). Channels: `senderId` null, reaction
- * `userIds` and poll `voterIds` always []. Deleted-for-everyone rows become tombstones.
+ * `userIds` and poll `voterIds` always []. Direct chats, viewer-specific only: reactions and votes
+ * of users the viewer blocked are left out. Deleted-for-everyone rows become tombstones.
  * `replyTo` is computed from the live row (null when purged/expired, `deleted: true` when
  * deleted); `statusReply` resolves to `available: false` once the status is gone.
  */
@@ -493,6 +503,15 @@ export async function toMessages(dbx: DbOrTx, viewerId: string | null, rows: Mes
     }
   }
 
+  // Direct chats (viewer-specific responses only): reactions and poll votes of users the
+  // viewer blocked are left out (docs "Blocking"); room broadcasts stay viewer-neutral.
+  let blockedByViewer = new Set<string>();
+  const isDirect = (chatId: string) => chatTypes.get(chatId) === 'direct';
+  if (viewerId && (reactable.some((id) => isDirect(chatOf.get(id)!) && reactionGroups.has(id)) || pollIds.some((id) => isDirect(chatOf.get(id)!) && optionCounts.has(id)))) {
+    const rows = await dbx.select({ id: blocks.blockedId }).from(blocks).where(eq(blocks.blockerId, viewerId));
+    blockedByViewer = new Set(rows.map((r) => r.id));
+  }
+
   if (!opts.fresh && viewerId) {
     const stars = await dbx
       .select({ messageId: starredMessages.messageId })
@@ -506,21 +525,23 @@ export async function toMessages(dbx: DbOrTx, viewerId: string | null, rows: Mes
     const deleted = !!row.deletedAt;
     const md: MessageMetadata = deleted ? {} : (row.metadata ?? {});
     const mediaRow = !deleted && row.mediaId ? mediaRows.get(row.mediaId) : undefined;
+    const filterBlocked = blockedByViewer.size > 0 && isDirect(row.chatId);
 
     let poll: Poll | null = null;
     if (md.poll) {
       const counts = optionCounts.get(row.id);
       const voters = optionVoters.get(row.id);
+      const shown = (optionId: string) => (voters?.get(optionId) ?? []).filter((u) => !blockedByViewer.has(u));
       poll = {
         question: md.poll.question,
         options: md.poll.options.map((o) => ({
           id: o.id,
           text: o.text,
-          voteCount: counts?.get(o.id) ?? 0,
-          voterIds: channel ? [] : (voters?.get(o.id) ?? []),
+          voteCount: filterBlocked ? shown(o.id).length : (counts?.get(o.id) ?? 0),
+          voterIds: channel ? [] : filterBlocked ? shown(o.id) : (voters?.get(o.id) ?? []),
         })),
         allowMultiple: md.poll.allowMultiple,
-        totalVoters: totalVoters.get(row.id) ?? 0,
+        totalVoters: filterBlocked ? new Set(md.poll.options.flatMap((o) => shown(o.id))).size : (totalVoters.get(row.id) ?? 0),
       };
       if (viewerId) {
         // Report my votes in option order (deterministic for clients and tests).
@@ -529,9 +550,14 @@ export async function toMessages(dbx: DbOrTx, viewerId: string | null, rows: Mes
       }
     }
 
+    const groups = (reactionGroups.get(row.id) ?? []).map((g) =>
+      filterBlocked ? { ...g, userIds: g.userIds.filter((u) => !blockedByViewer.has(u)) } : g,
+    );
     const reactions: ReactionSummary[] = deleted
       ? []
-      : (reactionGroups.get(row.id) ?? [])
+      : groups
+          .map((g) => (filterBlocked ? { ...g, count: g.userIds.length } : g))
+          .filter((g) => g.count > 0)
           .sort((a, b) => b.count - a.count || a.first - b.first)
           .map((g) => ({ emoji: g.emoji, count: g.count, userIds: channel ? [] : g.userIds }));
 

@@ -1,10 +1,11 @@
 /**
  * `user:changed { userId }` fan-out (docs matrix, `PATCH /me`): rooms of the user's active
- * direct and group chats (never channels) plus `user:<x>` of everyone who saved the user as
+ * direct and group chats (never channels; announcement groups only where the user is an
+ * admin) plus `user:<x>` of everyone who saved the user as
  * a contact. One broadcast to the union of rooms, so a socket in several of them receives
  * the event once.
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { rooms } from '@enbox/shared';
 import type { DbOrTx } from '../../db/index.js';
 import { chatMembers, chats } from '../../db/schema.js';
@@ -18,13 +19,25 @@ export interface UserChangedTargets {
   userIds: string[];
 }
 
-/** Direct/group chats where the user has an active row (hidden rows included: the peer still has the chat). */
+/**
+ * Direct/group chats where the user has an active row (hidden rows included: the peer still
+ * has the chat). Announcement groups only where the user is owner/admin: their member list is
+ * admin-only, so a plain member's changes must not reveal them to the whole community, while
+ * admins' names appear on the announcements everyone reads.
+ */
 export async function activeDirectAndGroupChatIds(dbx: DbOrTx, userId: string): Promise<string[]> {
   const rows = await dbx
     .select({ chatId: chatMembers.chatId })
     .from(chatMembers)
     .innerJoin(chats, eq(chats.id, chatMembers.chatId))
-    .where(and(eq(chatMembers.userId, userId), isNull(chatMembers.leftAt), inArray(chats.type, ['direct', 'group'])));
+    .where(
+      and(
+        eq(chatMembers.userId, userId),
+        isNull(chatMembers.leftAt),
+        inArray(chats.type, ['direct', 'group']),
+        or(eq(chats.isAnnouncement, false), inArray(chatMembers.role, ['owner', 'admin'])),
+      ),
+    );
   return rows.map((r) => r.chatId);
 }
 

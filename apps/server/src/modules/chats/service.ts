@@ -26,6 +26,7 @@ import {
   getChatAccess,
   getMembership,
   lockChat,
+  peersWhoBlockedMe,
   requireActiveMember,
   requirePermission,
   visibleTo,
@@ -240,6 +241,8 @@ export async function deleteChatForMe(me: string, chatId: string): Promise<void>
  * `PUT /chats/:chatId/disappearing`: active members with `canEditInfo` (direct chats: =
  * canSend, so `403 blocked` when I blocked the peer). Unchanged value → no-op. Events: sys
  * `disappearing_changed` (not channels) → room, then `chat:updated { disappearingSeconds }` → room.
+ * Direct chat whose peer blocked me: the change applies, but the system message is withheld
+ * from the peer and `chat:updated` skips them (docs "Blocking").
  */
 export async function setDisappearing(me: string, chatId: string, seconds: number | null): Promise<ChatSummary> {
   await transact(async (tx, fx) => {
@@ -247,11 +250,12 @@ export async function setDisappearing(me: string, chatId: string, seconds: numbe
     if (access.chat.type === 'direct') assertCanSend(access);
     else requirePermission(access, 'canEditInfo', 'Only admins can change the disappearing messages timer');
     if ((access.chat.disappearingSeconds ?? null) === seconds) return;
+    const blockers = await peersWhoBlockedMe(tx, access);
     await tx.update(chats).set({ disappearingSeconds: seconds, updatedAt: new Date() }).where(eq(chats.id, chatId));
     if (systemMessageAllowed(access.chat, 'disappearing_changed')) {
       await postSystemMessage(tx, fx, access.chat, { kind: 'disappearing_changed', actorId: me, seconds });
     }
-    fx.chatUpdated(chatId, { disappearingSeconds: seconds });
+    fx.chatUpdated(chatId, { disappearingSeconds: seconds }, { exceptUserIds: blockers });
   });
   return summaryOrNotFound(me, chatId);
 }
@@ -357,6 +361,7 @@ export async function listPins(me: string, chatId: string): Promise<Message[]> {
  * `POST /chats/:chatId/pins`: `canPin`; the message must be in the chat, visible to me, not
  * deleted, not system/call. At most MAX_PINNED_MESSAGES: pinning another replaces the oldest.
  * Already pinned → no-op. Events: sys `message_pinned` (not channels) → room, `chat:pins` → room.
+ * Direct chat whose peer blocked me: both skip the peer (docs "Blocking").
  */
 export async function pinMessage(me: string, chatId: string, messageId: string): Promise<Message[]> {
   await transact(async (tx, fx) => {
@@ -388,12 +393,15 @@ export async function pinMessage(me: string, chatId: string, messageId: string):
     if (systemMessageAllowed(access.chat, 'message_pinned')) {
       await postSystemMessage(tx, fx, access.chat, { kind: 'message_pinned', actorId: me, messageId });
     }
-    fx.chatPins(chatId);
+    fx.chatPins(chatId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
   });
   return listPins(me, chatId);
 }
 
-/** `DELETE /chats/:chatId/pins/:messageId`: `canPin`; not pinned → no-op. Events: `chat:pins` → room. */
+/**
+ * `DELETE /chats/:chatId/pins/:messageId`: `canPin`; not pinned → no-op. Events: `chat:pins` →
+ * room (direct chat whose peer blocked me: not to the peer).
+ */
 export async function unpinMessage(me: string, chatId: string, messageId: string): Promise<Message[]> {
   await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
@@ -402,7 +410,7 @@ export async function unpinMessage(me: string, chatId: string, messageId: string
       .delete(chatPins)
       .where(and(eq(chatPins.chatId, chatId), eq(chatPins.messageId, messageId)))
       .returning({ messageId: chatPins.messageId });
-    if (removed.length) fx.chatPins(chatId);
+    if (removed.length) fx.chatPins(chatId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
   });
   return listPins(me, chatId);
 }

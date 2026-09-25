@@ -33,7 +33,9 @@ import {
   getChatAccess,
   lockChats,
   memberVisibleSql,
+  peersWhoBlockedMe,
   requireActiveMember,
+  requirePermission,
   type ChatAccess,
 } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
@@ -175,13 +177,18 @@ function forwardedContent(src: MessageRow): Pick<CreateMessageInput, 'type' | 't
  * copy is a normal send in its target chat with `client_id = <clientId>:<sourceIndex>`
  * (idempotent retries) and `forward_count = source + 1`; never reply links, status replies,
  * reactions, votes or expiry (the target's timer applies); mentions re-derived. Rate limit:
- * one `sendMessage` unit per copy (capped at the window's limit so a large forward can pass
- * on a fresh window). Result: target-major, sources in request order.
+ * one `sendMessage` unit per copy (docs "Rate limits"); a forward creating more copies than
+ * one window allows (`messageIds × chatIds` > USER_RATE_LIMITS.sendMessage.limit) is a
+ * `400 validation_error` (it could never pass). Result: target-major, sources in request order.
  */
 export async function forwardMessages(me: string, body: ForwardBody): Promise<{ messages: Message[]; created: boolean }> {
   const rule = USER_RATE_LIMITS.sendMessage;
-  assertUserLimit(me, 'sendMessage', rule, Math.min(body.messageIds.length * body.chatIds.length, rule.limit));
+  const copies = body.messageIds.length * body.chatIds.length;
+  if (copies > rule.limit) throw badRequest(`A forward can create at most ${rule.limit} messages (messages × chats)`);
+  assertUserLimit(me, 'sendMessage', rule, copies);
   const { rows, created } = await transact(async (tx, fx) => {
+    // Unlocked membership pre-check: never queue on the row lock of a chat I can't see.
+    for (const chatId of body.chatIds) await getChatAccess(tx, me, chatId);
     const locked = new Map((await lockChats(tx, body.chatIds)).map((c) => [c.id, c]));
     for (const chatId of body.chatIds) {
       const chat = locked.get(chatId);
@@ -225,7 +232,8 @@ const EDITABLE_TYPES = new Set<MessageRow['type']>(['text', 'image', 'video', 'a
  * `PATCH /messages/:messageId` (docs "Edit"): text and captions only (400), not deleted (403),
  * the sender — any channel admin for channel posts — who can still send (403), within
  * EDIT_WINDOW_MS (410). Text messages need text; captions may be emptied (null). Mentions
- * re-derived, `edited_at` set. Unchanged text → no-op. Events: `message:updated` → room.
+ * re-derived, `edited_at` set. Unchanged text → no-op. Events: `message:updated` → room
+ * (direct chat whose peer blocked me: not to the peer — docs "Blocking").
  */
 export async function editMessage(me: string, messageId: string, text: string): Promise<Message> {
   const row = await transact(async (tx, fx) => {
@@ -249,7 +257,7 @@ export async function editMessage(me: string, messageId: string, text: string): 
     if (next === message.text) return message;
     const mentions = await deriveMentions(tx, message.chatId, message.senderId, next);
     const [updated] = await tx.update(messages).set({ text: next, mentions, editedAt: new Date() }).where(eq(messages.id, messageId)).returning();
-    fx.messageUpdated(messageId);
+    fx.messageUpdated(messageId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
     return updated!;
   });
   return toMessageFor(me, row);
@@ -297,11 +305,13 @@ const QUICK = new Set(QUICK_REACTIONS.map(stripVs16));
 /**
  * Load a message for a reaction/vote: visible (404), message row locked (serializes
  * concurrent votes/reactions and a concurrent delete-for-everyone), active membership (403).
+ * `hideFrom`: the direct-chat peer when they blocked me (my reactions and votes are never
+ * emitted to them — docs "Blocking").
  */
 async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) {
   const v = await loadVisibleMessage(tx, me, messageId, { lock: true });
-  await requireActiveMember(tx, me, v.chat.id);
-  return v;
+  const access = await requireActiveMember(tx, me, v.chat.id);
+  return { ...v, hideFrom: await peersWhoBlockedMe(tx, access) };
 }
 
 /**
@@ -311,7 +321,7 @@ async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) 
  */
 export async function react(me: string, messageId: string, emoji: string): Promise<Message> {
   const row = await transact(async (tx, fx) => {
-    const { message, chat } = await lockMessageForInteraction(tx, me, messageId);
+    const { message, chat, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
     if (message.type === 'system' || message.deletedAt) throw badRequest('You cannot react to this message');
     if (chat.type === 'channel') {
       const mode = chat.channelSettings?.reactions ?? 'all';
@@ -328,7 +338,7 @@ export async function react(me: string, messageId: string, emoji: string): Promi
         .insert(messageReactions)
         .values({ messageId, userId: me, emoji })
         .onConflictDoUpdate({ target: [messageReactions.messageId, messageReactions.userId], set: { emoji, createdAt: new Date() } });
-      fx.messageUpdated(messageId);
+      fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
     }
     return message;
   });
@@ -338,12 +348,12 @@ export async function react(me: string, messageId: string, emoji: string): Promi
 /** `DELETE /messages/:messageId/reaction`: remove mine (no-op without one). Events: `message:updated` → room. */
 export async function unreact(me: string, messageId: string): Promise<Message> {
   const row = await transact(async (tx, fx) => {
-    const { message } = await lockMessageForInteraction(tx, me, messageId);
+    const { message, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
     const removed = await tx
       .delete(messageReactions)
       .where(and(eq(messageReactions.messageId, messageId), eq(messageReactions.userId, me)))
       .returning({ emoji: messageReactions.emoji });
-    if (removed.length) fx.messageUpdated(messageId);
+    if (removed.length) fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
     return message;
   });
   return toMessageFor(me, row);
@@ -371,7 +381,7 @@ const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((
  */
 export async function vote(me: string, messageId: string, optionIds: string[]): Promise<Message> {
   const row = await transact(async (tx, fx) => {
-    const { message } = await lockMessageForInteraction(tx, me, messageId);
+    const { message, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
     const poll = message.metadata?.poll;
     if (message.type !== 'poll' || message.deletedAt || !poll) throw badRequest('This message is not a poll');
     const valid = new Set(poll.options.map((o) => o.id));
@@ -382,7 +392,7 @@ export async function vote(me: string, messageId: string, optionIds: string[]): 
     if (sameSet(current, optionIds)) return message;
     await tx.delete(pollVotes).where(where);
     if (optionIds.length) await tx.insert(pollVotes).values(optionIds.map((optionId) => ({ messageId, userId: me, optionId })));
-    fx.messageUpdated(messageId);
+    fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
     return message;
   });
   return toMessageFor(me, row);
@@ -393,7 +403,9 @@ export async function vote(me: string, messageId: string, optionIds: string[]): 
 // ---------------------------------------------------------------------------
 
 /**
- * `GET /messages/:messageId/info` (docs "Watermarks"): sender only (403), 404 in channels.
+ * `GET /messages/:messageId/info` (docs "Watermarks"): 404 in channels; like the member list
+ * it needs an active membership (former members → 403 not_member) and `canViewMembers`
+ * (announcement groups: admins only → 403); sender only (403).
  * Lists the other active members who joined before the message, split by their watermarks
  * (read ≥ seq → readBy, delivered ≥ seq → deliveredTo, else pending) — consistent with the
  * tick watermarks. Direct chats where either side has read receipts off never report reads.
@@ -402,6 +414,8 @@ export async function vote(me: string, messageId: string, optionIds: string[]): 
 export async function messageInfo(me: string, messageId: string): Promise<MessageInfo> {
   const { message, chat } = await loadVisibleMessage(db, me, messageId);
   if (chat.type === 'channel') throw notFound('Message');
+  const access = await requireActiveMember(db, me, chat.id, { chat });
+  requirePermission(access, 'canViewMembers', 'Only admins can see message info');
   if (message.senderId !== me) throw forbidden('Only the sender can see message info');
   const seq = Number(message.seq);
   const members = await db

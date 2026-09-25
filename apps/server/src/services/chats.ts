@@ -191,6 +191,26 @@ export function memberVisibleSql(m = 'm', cm = 'cm'): SQL {
   );
 }
 
+/**
+ * For `chat:pins`: the active, non-hidden members that have a `message_hidden` row (deleted
+ * for me / withheld) on some of `messageIds`, with those ids. One query.
+ */
+export async function hiddenPinsByMember(dbx: DbOrTx, chatId: string, messageIds: string[]): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (messageIds.length === 0) return out;
+  const rows = await dbx
+    .select({ userId: messageHidden.userId, messageId: messageHidden.messageId })
+    .from(messageHidden)
+    .innerJoin(chatMembers, and(eq(chatMembers.userId, messageHidden.userId), eq(chatMembers.chatId, chatId)))
+    .where(and(inArray(messageHidden.messageId, messageIds), isNull(chatMembers.leftAt), eq(chatMembers.hidden, false)));
+  for (const r of rows) {
+    let set = out.get(r.userId);
+    if (!set) out.set(r.userId, (set = new Set()));
+    set.add(r.messageId);
+  }
+  return out;
+}
+
 /** Highest visible seq in the window (≤ `upTo` when given), or null when nothing is visible. */
 export async function maxVisibleSeq(dbx: DbOrTx, chatId: string, w: VisibilityWindow, upTo?: number): Promise<number | null> {
   const [row] = await dbx
@@ -331,6 +351,22 @@ export function assertCanSend(access: ChatAccess): void {
     if (access.peer.isDeleted) throw forbidden('This account was deleted');
   }
   if (!access.permissions.canSend) throw forbidden('Only admins can send messages');
+}
+
+/**
+ * Direct chats: `[peerId]` when the peer blocked the viewer (the viewer's timer changes, pins,
+ * edits, reactions and votes must not reach them — docs "Blocking"), else `[]`. Use as the
+ * `exceptUserIds` of the room events such a mutation registers.
+ */
+export async function peersWhoBlockedMe(dbx: DbOrTx, access: Pick<ChatAccess, 'chat' | 'member' | 'peer'>): Promise<string[]> {
+  const me = access.member.userId;
+  if (access.chat.type !== 'direct' || !access.peer || access.peer.id === me) return [];
+  const [row] = await dbx
+    .select({ x: sql<number>`1` })
+    .from(blocks)
+    .where(and(eq(blocks.blockerId, access.peer.id), eq(blocks.blockedId, me)))
+    .limit(1);
+  return row ? [access.peer.id] : [];
 }
 
 /** 403 unless the viewer has `perm` (not_member for former members). */
