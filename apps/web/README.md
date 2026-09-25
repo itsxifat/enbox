@@ -296,3 +296,63 @@ phone/desktop screenshots to `docs/screenshots/`:
 ```bash
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node apps/web/scripts/screenshots.mjs   # BASE, ONLY, OUT env
 ```
+
+---
+
+## Calls & status (agent 4)
+
+### Calls — `features/calls/**`, `stores/calls.ts`, `realtime/calls.ts`
+
+- **Engine** (`features/calls/engine/`, plain TS, unit-tested with a fake RTCPeerConnection):
+  `CallEngine` (local mic/camera/screen tracks, one `PeerLink` per remote participant, remote
+  audio sinks, `AudioLevelMonitor` for the speaking ring / active speaker) and `PeerLink`
+  (audio + video `sendrecv` transceivers from the start, newcomer offers, perfect negotiation
+  with the smaller userId polite, ordered signal chain, `restartIce()` on ICE failure or a
+  stuck `disconnected`). Mute / camera / flip / screen share are `replaceTrack()` only.
+  MediaStreams live in `engine/streams.ts` (`useCallStream(id)`), never in zustand. ICE
+  servers come from `GET /api/calls/ice-servers`, cached until shortly before `ttlSec`.
+- **Controller** (`features/calls/controller.ts`, lazy-loaded by the store actions) glues
+  store ⇄ engine ⇄ socket: `call:start` (conflict → accept/join the chat's live call, or
+  "already in another call"), accept/join/rejoin, `call:participant-joined/left`,
+  `call:signal`, `call:media`, `call:updated/ended`; socket drop → `reconnecting` → on the
+  next `ready` `GET /api/calls/active` → `call:rejoin`; a page reload rejoins the call this tab
+  was in (sessionStorage); closing the tab leaves the call (`pagehide`).
+- **Store** `useCalls`: `incoming`, `active` (`phase`: starting → calling/ringing →
+  connecting → connected / reconnecting / ended, `connections`, `speaking`,
+  `activeSpeakerId`, `connectedAt`, `endReason`, media flags…), `liveCalls` (live call per
+  chatId), `log` (Calls tab), `picker`. Actions: `startCall(chatId, type, userIds?)` (groups
+  with more than 8 members open the participant picker), `acceptIncoming`, `declineIncoming`,
+  `joinCall(callId)`, `leaveCall`, `inviteToCall`, `toggleMute/Video/ScreenShare`,
+  `flipCamera`, `setMinimized`, `setOutputDevice`, `loadLog/loadMoreLog/removeLogEntry/clearLog`.
+- **UI**: `CallOverlay` (incoming full screen on phones / card on desktop, silenced and
+  call-waiting variants, ringtone/ringback), `CallScreen` (1:1 video with draggable PiP, group
+  grid ≤ 8, voice layout, controls, banners), `CallMiniWindow` (minimized, draggable),
+  Calls tab `/calls` (ongoing calls to join + log with All/Missed, grouping, call back,
+  remove/clear), `/calls/new` (contacts & groups), `/calls/:callId` (call info).
+- **For other features** (`import … from '@/features/calls'`):
+  - `useCalls.getState().startCall(chatId, 'audio' | 'video')` — conversation header, info panels.
+  - `<OngoingCallBanner chatId={chat.id} />` — render under the group conversation header
+    (live group call with Join, or "You're in this call · 1:23" with Return). Renders nothing
+    otherwise. **Lead: wire it into `ConversationPane` (agent 2).**
+  - `useActiveCallForChat(chatId)` → `{ call, inCallHere, inCallElsewhere, ringingMe, canJoin, joinedCount }`.
+  - `useMissedCallsCount()` — missed incoming calls since the Calls tab was last opened
+    (localStorage `enbox.calls.lastVisit`, cleared while the tab is open). **Lead: add
+    `calls: missed ? { count: missed } : undefined` to `components/layout/useTabBadges.ts`.**
+
+### Status — `features/status/**`, `stores/status.ts`, `realtime/status.ts`
+
+- `StatusSection` (Updates tab): My status (add text / photo / video, posting progress, views),
+  Recent updates / Viewed updates with segmented rings around the latest status preview,
+  section menu → My status updates, Status privacy (`PATCH /api/me/settings` with a contacts
+  picker for "except" / "only share with").
+- Routes under `/updates`: `status/new` (composer: text with colors/fonts/emoji, or a photo /
+  ≤ 60 s video with caption; `navigate('/updates/status/new', { state: { file } })` opens it
+  with a picked file), `status/mine` (my updates with view counts, delete), `status/:userId`
+  (full-screen viewer: progress bars, tap / hold / swipe / arrow keys, reply → direct message
+  with `statusReplyToId`, quick reactions, own viewers list + delete).
+- **Lead: wire the Updates header camera button** (`features/updates/UpdatesPane`, foundation)
+  to `navigate('/updates/status/new')`.
+- Store `useStatus`: `feed`, `posting`, `viewers`; `loadFeed`, `applyNew/Deleted/Viewed`
+  (deduped view counts), `markViewed` (once per status), `postText`, `postMedia`,
+  `deleteStatus`, `react`, `loadViewers`, `pruneExpired`; hooks `useHasUnseenStatus()`,
+  `useStatusLists()`.
