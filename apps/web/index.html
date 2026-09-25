@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>Enbox</title>
+    <meta
+      name="description"
+      content="Enbox — chats, groups, communities, channels, status and calls."
+    />
+    <meta name="application-name" content="Enbox" />
+    <meta id="theme-color" name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Enbox" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script>
+      // Apply the persisted theme before first paint (no light/dark flash). Mirrors stores/ui.ts.
+      (function () {
+        try {
+          var raw = localStorage.getItem('enbox.ui');
+          var theme = (raw && JSON.parse(raw).state.theme) || 'system';
+          var dark =
+            theme === 'dark' ||
+            (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+          document
+            .getElementById('theme-color')
+            .setAttribute('content', dark ? '#111117' : '#ffffff');
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Enbox needs JavaScript to run.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

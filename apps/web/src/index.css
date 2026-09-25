@@ -1,0 +1,312 @@
+@import 'tailwindcss';
+
+/*
+ * Enbox design tokens
+ * -------------------
+ * Semantic colors are CSS variables (light on :root, dark on .dark) exposed as Tailwind
+ * colors via `@theme inline`, so `bg-surface`, `text-muted`, `border-line`,
+ * `bg-bubble-out`, `bg-brand/10` ... all follow the active theme automatically.
+ * Prefer these tokens over raw palette colors (`bg-white`, `text-gray-500`) in feature code.
+ *
+ *   app          window background behind panes
+ *   surface      panes, lists, headers           surface-2   inputs, chips, subtle fills
+ *   elevated     menus, dialogs, popovers        hover / selected   row states
+ *   line         borders & dividers
+ *   fg / muted / subtle   primary / secondary / tertiary text
+ *   brand        filled brand surfaces (buttons, badges) — text on it: on-brand
+ *   brand-ink    brand-colored TEXT/ICONS on surfaces (contrast-safe in both themes)
+ *   brand-soft   tinted brand background (selected chip, unread row accent)
+ *   bubble-out / bubble-in (+ -meta)   message bubbles (own / others) and their timestamps
+ *   wallpaper    conversation background (see .chat-wallpaper)
+ *   danger, success, warning (+ -soft), unread, unread-muted, tick-read, online, overlay
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --app: #f4f3f8;
+  --surface: #ffffff;
+  --surface-2: #f1f0f6;
+  --elevated: #ffffff;
+  --hover: rgb(20 18 40 / 0.045);
+  --selected: #efedf8;
+  --line: #e7e5ef;
+  --line-strong: #d6d3e3;
+
+  --fg: #15141c;
+  --muted: #676577;
+  --subtle: #8e8c9d;
+
+  --brand: #6d5dfc;
+  --brand-strong: #5a48e8;
+  --brand-ink: #5646e6;
+  --brand-soft: #eeebff;
+  --on-brand: #ffffff;
+
+  --bubble-out: #e7e2ff;
+  --bubble-out-meta: #5f5a7c;
+  --bubble-in: #ffffff;
+  --bubble-in-meta: #7a7889;
+  --wallpaper: #efedf5;
+  --wallpaper-ink: rgb(109 93 252 / 0.07);
+
+  --danger: #e0393e;
+  --danger-soft: #fdecec;
+  --success: #16a34a;
+  --success-soft: #e7f7ed;
+  --warning: #d97706;
+  --warning-soft: #fdf3e2;
+  --unread: #6d5dfc;
+  --unread-muted: #a3a1b3;
+  --tick-read: #2f9bf0;
+  --online: #22c55e;
+  --overlay: rgb(12 10 28 / 0.45);
+
+  --shadow-color: 250 30% 20%;
+  --chat-font-size: 15px;
+
+  color-scheme: light;
+}
+
+.dark {
+  --app: #0b0b10;
+  --surface: #111117;
+  --surface-2: #1c1c25;
+  --elevated: #1d1d26;
+  --hover: rgb(255 255 255 / 0.05);
+  --selected: #22212e;
+  --line: #24232e;
+  --line-strong: #34333f;
+
+  --fg: #ececf2;
+  --muted: #a09fb0;
+  --subtle: #7b7a8c;
+
+  --brand: #6d5dfc;
+  --brand-strong: #7f71ff;
+  --brand-ink: #a89eff;
+  --brand-soft: #25214a;
+  --on-brand: #ffffff;
+
+  --bubble-out: #3b3192;
+  --bubble-out-meta: #c3bdf0;
+  --bubble-in: #1f1f29;
+  --bubble-in-meta: #9594a6;
+  --wallpaper: #0d0d13;
+  --wallpaper-ink: rgb(168 158 255 / 0.05);
+
+  --danger: #f2555a;
+  --danger-soft: #3a1a1e;
+  --success: #22c55e;
+  --success-soft: #16301f;
+  --warning: #f59e0b;
+  --warning-soft: #33260d;
+  --unread: #7f71ff;
+  --unread-muted: #5b5a6a;
+  --tick-read: #53bdeb;
+  --online: #22c55e;
+  --overlay: rgb(0 0 0 / 0.6);
+
+  --shadow-color: 240 30% 2%;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-app: var(--app);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-out-meta: var(--bubble-out-meta);
+  --color-bubble-in: var(--bubble-in);
+  --color-bubble-in-meta: var(--bubble-in-meta);
+  --color-wallpaper: var(--wallpaper);
+
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-unread: var(--unread);
+  --color-unread-muted: var(--unread-muted);
+  --color-tick-read: var(--tick-read);
+  --color-online: var(--online);
+  --color-overlay: var(--overlay);
+
+  --text-chat: var(--chat-font-size);
+
+  --shadow-elevated:
+    0 1px 2px hsl(var(--shadow-color) / 0.08), 0 8px 24px -4px hsl(var(--shadow-color) / 0.18);
+  --shadow-bubble: 0 1px 0.5px hsl(var(--shadow-color) / 0.13);
+}
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', 'Noto Sans', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    'Noto Color Emoji';
+
+  /* Brand scale (static; use semantic tokens above for theme-aware UI). */
+  --color-violet-50: #f3f1ff;
+  --color-violet-100: #e7e3ff;
+  --color-violet-200: #d0c9ff;
+  --color-violet-300: #afa3fe;
+  --color-violet-400: #8e80fd;
+  --color-violet-500: #6d5dfc;
+  --color-violet-600: #5a48e8;
+  --color-violet-700: #4a39c7;
+  --color-violet-800: #3c2fa0;
+  --color-violet-900: #2f267d;
+  --color-violet-950: #1d1650;
+
+  --breakpoint-xs: 26rem;
+
+  --animate-fade-in: fade-in 160ms ease-out both;
+  --animate-scale-in: scale-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  --animate-slide-up: slide-up 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-in-right: slide-in-right 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-down: slide-down 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pop: pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  @keyframes slide-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes slide-down {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+  }
+}
+
+/* Safe-area helpers for notched phones / installed PWAs. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+@utility mb-safe {
+  margin-bottom: env(safe-area-inset-bottom);
+}
+/* Hide scrollbars but keep scrolling (chips rows, carousels). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+/* Thin, theme-aware scrollbars for panes. */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-app font-sans text-[15px] leading-snug text-fg antialiased;
+    overscroll-behavior: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 28%, transparent);
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: default;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--subtle);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Conversation background: theme/wallpaper color + a faint brand dot pattern. */
+  .chat-wallpaper {
+    background-color: var(--wallpaper);
+    background-image:
+      radial-gradient(var(--wallpaper-ink) 1.2px, transparent 1.3px),
+      radial-gradient(var(--wallpaper-ink) 1.2px, transparent 1.3px);
+    background-size: 26px 26px;
+    background-position:
+      0 0,
+      13px 13px;
+  }
+  [data-wallpaper-pattern='off'] .chat-wallpaper {
+    background-image: none;
+  }
+}

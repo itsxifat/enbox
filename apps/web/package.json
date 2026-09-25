@@ -6,10 +6,11 @@
   "description": "Enbox web / PWA client (React, Vite, Tailwind).",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@enbox/shared": "0.1.0",
