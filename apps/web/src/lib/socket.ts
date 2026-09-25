@@ -242,7 +242,7 @@ export function emitWithAck<E extends AckEventName>(
       } else if (ack.ok) {
         resolve(ack.data);
       } else {
-        reject(new ApiError(ack.error.code, ack.error.message));
+        reject(new ApiError(ack.error.code, ack.error.message, 0, ack.error.details));
       }
     });
   });

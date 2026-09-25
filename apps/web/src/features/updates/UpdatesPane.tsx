@@ -3,13 +3,15 @@
  * agent 4's (features/status/StatusSection), the Channels section is agent 3's
  * (features/channels/ChannelsSection). Agents edit their section, not this file.
  */
-import { Camera, EllipsisVertical, Search } from 'lucide-react';
+import { Camera, Compass, EllipsisVertical, History, Megaphone } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { PaneHeader } from '@/components/layout/PaneHeader';
-import { IconButton } from '@/components/ui';
+import { DropdownMenu, IconButton } from '@/components/ui';
 import { ChannelsSection } from '@/features/channels/ChannelsSection';
 import { StatusSection } from '@/features/status/StatusSection';
 
 export function UpdatesPane() {
+  const navigate = useNavigate();
   return (
     <>
       <PaneHeader
@@ -17,9 +19,32 @@ export function UpdatesPane() {
         large
         actions={
           <>
-            <IconButton icon={Search} label="Search updates" />
-            <IconButton icon={Camera} label="Add status" />
-            <IconButton icon={EllipsisVertical} label="Menu" />
+            <IconButton
+              icon={Camera}
+              label="Add status"
+              onClick={() => void navigate('/updates/status/new')}
+            />
+            <DropdownMenu
+              aria-label="Updates menu"
+              trigger={(p) => <IconButton {...p} icon={EllipsisVertical} label="Menu" />}
+              items={[
+                {
+                  label: 'My status updates',
+                  icon: History,
+                  onSelect: () => void navigate('/updates/status/mine'),
+                },
+                {
+                  label: 'Create channel',
+                  icon: Megaphone,
+                  onSelect: () => void navigate('/updates/channels/new'),
+                },
+                {
+                  label: 'Find channels',
+                  icon: Compass,
+                  onSelect: () => void navigate('/updates/channels/discover'),
+                },
+              ]}
+            />
           </>
         }
       />

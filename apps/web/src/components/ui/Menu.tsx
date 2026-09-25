@@ -59,6 +59,8 @@ export function Menu({
 }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; origin: string } | null>(null);
+  // Bumped to re-run positioning when the anchor moves right after opening.
+  const [layoutTick, setLayoutTick] = useState(0);
   useOverlay(open, onClose);
 
   const entries = items.filter((e): e is MenuItem | 'separator' => !!e);
@@ -95,7 +97,7 @@ export function Menu({
     top = Math.max(MARGIN, Math.min(top, vh - menu.height - MARGIN));
     const origin = `${fromBottom ? 'bottom' : 'top'} ${align === 'end' ? 'right' : 'left'}`;
     setPos({ top, left, origin });
-  }, [open, anchor, align, items.length]);
+  }, [open, anchor, align, items.length, layoutTick]);
 
   // Focus the first item once positioned.
   useLayoutEffect(() => {
@@ -115,8 +117,15 @@ export function Menu({
       if (anchor instanceof HTMLElement && anchor.contains(t)) return;
       onClose();
     };
+    // Clicking a partly visible row scrolls it into view right after the menu opens; that
+    // scroll must reposition the menu, not close it.
+    const openedAt = performance.now();
     const onScroll = (e: Event) => {
       if (ref.current?.contains(e.target as Node)) return;
+      if (performance.now() - openedAt < 300) {
+        setLayoutTick((t) => t + 1);
+        return;
+      }
       onClose();
     };
     const onResize = () => onClose();

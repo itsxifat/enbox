@@ -320,14 +320,12 @@ function MediaComposer({
 
   const send = () => {
     if (!prepared) return;
-    const p = useStatus
-      .getState()
-      .postMedia({
-        file: prepared.blob,
-        meta: prepared.meta,
-        fileName: prepared.fileName,
-        caption,
-      });
+    const p = useStatus.getState().postMedia({
+      file: prepared.blob,
+      meta: prepared.meta,
+      fileName: prepared.fileName,
+      caption,
+    });
     onClose();
     p.then(
       () => toast.success('Status posted'),

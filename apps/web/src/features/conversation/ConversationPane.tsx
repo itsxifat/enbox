@@ -29,6 +29,7 @@ import { LazyLightbox } from './lazy';
 import { MessageActionsHost } from './MessageActionsHost';
 import { MessageInfoSheet } from './MessageInfoSheet';
 import { MessageList, type JumpTarget, type UnreadSnapshot } from './MessageList';
+import { OngoingCallBanner } from '@/features/calls';
 import { PinnedBar } from './PinnedBar';
 import { useConversationUi } from './state';
 
@@ -193,6 +194,7 @@ function Conversation({
         <ConversationHeader chat={chat} onOpenInfo={() => setInfoOpen(true)} />
       )}
       <PinnedBar chat={chat} />
+      <OngoingCallBanner chatId={chat.id} />
       <div className="chat-wallpaper relative min-h-0 flex-1">
         {msgs === undefined ? (
           <PageSpinner />
