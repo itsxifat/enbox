@@ -181,7 +181,7 @@ export const useUsers = create<UsersState>((set, get) => ({
       if (n > 0) continue;
       // A lingering subscription is still live on the server: nothing to send.
       presenceLinger.delete(id);
-      if (!presenceSent.has(id)) presencePending.add(id);
+      if (!presenceSent.has(id) && !presenceInflight.has(id)) presencePending.add(id);
     }
     if (!presencePending.size) return Promise.resolve();
     return schedulePresenceFlush(PRESENCE_FLUSH_DELAY_MS);
@@ -231,6 +231,8 @@ const presenceRefs = new Map<ID, number>();
 const presenceSent = new Set<ID>();
 /** Ids waiting for the next `presence:subscribe`. */
 const presencePending = new Set<ID>();
+/** Ids of the `presence:subscribe` awaiting its ack (not sent again meanwhile). */
+const presenceInflight = new Set<ID>();
 /** Subscribed ids without subscribers → when their last subscriber went away. */
 const presenceLinger = new Map<ID, number>();
 /** Emit times on the current socket (client-side view of the server's per-socket limit). */
@@ -285,20 +287,22 @@ async function flushPresence(): Promise<boolean> {
     return false;
   }
   const ids = [...presencePending].slice(0, MAX_USERS_BATCH);
-  for (const id of ids) presencePending.delete(id);
+  for (const id of ids) {
+    presencePending.delete(id);
+    presenceInflight.add(id);
+  }
   presenceEmits.push(now);
   const gen = presenceGen;
   try {
     const list = await emitWithAck('presence:subscribe', { userIds: ids });
     if (gen !== presenceGen) return false;
     presenceRetryMs = 0;
-    const unwanted: ID[] = [];
     for (const id of ids) {
-      if (wantsPresence(id)) presenceSent.add(id);
-      else unwanted.push(id);
+      presenceSent.add(id);
+      // Everyone unmounted while the ack was in flight: linger like any other unmount.
+      if (!wantsPresence(id)) presenceLinger.set(id, Date.now());
     }
-    // Everyone unmounted while the ack was in flight: undo right away.
-    if (unwanted.length) sendEvent('presence:unsubscribe', { userIds: unwanted });
+    scheduleLingerSweep();
     const { setPresence } = useUsers.getState();
     for (const p of list) setPresence(p);
     return true;
@@ -315,6 +319,7 @@ async function flushPresence(): Promise<boolean> {
     if (presencePending.size) void schedulePresenceFlush(presenceRetryMs);
     return false;
   } finally {
+    if (gen === presenceGen) for (const id of ids) presenceInflight.delete(id);
     settlePresenceWaiters();
   }
 }
@@ -350,6 +355,7 @@ function resetPresenceTransport(): void {
   lingerTimer = null;
   presenceSent.clear();
   presencePending.clear();
+  presenceInflight.clear();
   presenceLinger.clear();
   presenceEmits = [];
   presenceRetryMs = 0;

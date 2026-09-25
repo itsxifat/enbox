@@ -67,6 +67,7 @@ import {
 import { ChannelComposer } from './ChannelComposer';
 import { ChannelInfoPanel } from './ChannelInfoPanel';
 import { ChannelPost, SystemChip, type PostContext } from './ChannelPost';
+import { findPostIndex, jumpFromParams, type FeedJump } from './feedJump';
 import { channelUrl, followChannel, previewChannel, unfollowChannel } from './channelApi';
 
 export function ChannelPane() {
@@ -77,27 +78,6 @@ export function ChannelPane() {
   if (chat && chat.type === 'channel') return <ChannelView key={chat.id} chat={chat} />;
   if (!loaded) return <PageSpinner />;
   return <ChannelPreviewView key={chatId} chatId={chatId} />;
-}
-
-/** A post to scroll to (search results, starred messages: `?m=<seq>&mid=<id>`). */
-export interface FeedJump {
-  seq: number;
-  messageId?: string;
-}
-
-function jumpFromParams(params: URLSearchParams): FeedJump | null {
-  const seq = Number(params.get('m'));
-  if (!Number.isInteger(seq) || seq <= 0) return null;
-  return { seq, messageId: params.get('mid') ?? undefined };
-}
-
-/** Index of the jump target in the loaded posts (by id, else the first post at/after its seq). */
-export function findPostIndex(items: ClientMessage[], t: FeedJump): number {
-  if (t.messageId) {
-    const i = items.findIndex((m) => m.id === t.messageId);
-    if (i >= 0) return i;
-  }
-  return items.findIndex((m) => m.seq > 0 && m.seq >= t.seq);
 }
 
 /** Virtuoso index base: prepended pages get lower indexes (keeps the scroll position). */

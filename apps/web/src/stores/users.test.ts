@@ -113,6 +113,49 @@ describe('presence subscriptions', () => {
     expect(send).toHaveBeenCalledWith('presence:unsubscribe', { userIds: ['a'] });
   });
 
+  it('does not send an id again while its subscribe awaits the ack', async () => {
+    let ack!: () => void;
+    emit.mockImplementationOnce(
+      (_event, payload) =>
+        new Promise((resolve) => {
+          ack = () =>
+            resolve(
+              (payload as { userIds: string[] }).userIds.map((userId) => ({
+                userId,
+                online: true,
+                lastSeenAt: null,
+              })) as never,
+            );
+        }),
+    );
+    void subscribePresence(['a']);
+    await vi.advanceTimersByTimeAsync(PRESENCE_FLUSH_DELAY_MS);
+    expect(emit).toHaveBeenCalledTimes(1);
+    unsubscribePresence(['a']); // unmounted and remounted before the ack
+    void subscribePresence(['a']);
+    await vi.advanceTimersByTimeAsync(PRESENCE_FLUSH_DELAY_MS);
+    expect(emit).toHaveBeenCalledTimes(1);
+    ack();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(useUsers.getState().presence.a?.online).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('an id unmounted before its ack lingers, then is unsubscribed', async () => {
+    let ack!: () => void;
+    emit.mockImplementationOnce(
+      () => new Promise((resolve) => (ack = () => resolve([] as never))),
+    );
+    void subscribePresence(['b']);
+    await vi.advanceTimersByTimeAsync(PRESENCE_FLUSH_DELAY_MS);
+    unsubscribePresence(['b']);
+    ack();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(send).not.toHaveBeenCalled(); // a quick remount would reuse it
+    await vi.advanceTimersByTimeAsync(PRESENCE_LINGER_MS + 10);
+    expect(send).toHaveBeenCalledWith('presence:unsubscribe', { userIds: ['b'] });
+  });
+
   it('retries rejected subscriptions (rate_limited) with back-off', async () => {
     emit.mockRejectedValueOnce(new ApiError('rate_limited', 'Too many requests'));
     void subscribePresence(['x']);

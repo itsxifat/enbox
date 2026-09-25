@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
 import type {
   Call,
   ChatSummary,
@@ -7,6 +8,7 @@ import type {
   ServerToClientEvents,
   UserPublic,
 } from '@enbox/shared';
+import { useActiveCallForChat } from '@/features/calls/hooks';
 import { api } from '@/lib/api';
 import type * as NotifyModule from '@/lib/notify';
 import { resetSessionState } from '@/lib/session';
@@ -210,6 +212,21 @@ describe('chat events', () => {
     // A late call:updated for a chat I'm no longer in doesn't bring the banner back.
     useCalls.getState().setLiveCall(liveCall('g1'));
     expect(useCalls.getState().liveCalls.g1).toBeUndefined();
+  });
+
+  it('former members are not offered "Join" (the server would answer 403 not_member)', () => {
+    const call = {
+      ...liveCall('g3'),
+      participants: [{ userId: 'carol', status: 'joined' }],
+    } as unknown as Call;
+    useChats.getState().upsertChat(makeChat({ id: 'g3' }));
+    useCalls.getState().setLiveCall(call);
+    const { result, rerender } = renderHook(() => useActiveCallForChat('g3'));
+    expect(result.current.canJoin).toBe(true);
+    // Still cached as live (e.g. the removal and the call event raced): no Join anyway.
+    act(() => useChats.getState().patchChat('g3', { membership: 'left' }));
+    rerender();
+    expect(result.current.canJoin).toBe(false);
   });
 
   it('an older chat:read does not undo a newer local read', () => {

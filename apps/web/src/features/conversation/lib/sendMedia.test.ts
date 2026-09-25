@@ -58,6 +58,46 @@ describe('media sends', () => {
     expect(revoke).toHaveBeenCalledWith(thumbUrl);
   });
 
+  it('a sent photo switches to the server copy once it is decoded, then frees the blob', async () => {
+    let decoded!: () => void;
+    vi.stubGlobal(
+      'Image',
+      class {
+        src = '';
+        decode() {
+          return new Promise<void>((resolve) => (decoded = resolve));
+        }
+      },
+    );
+    const media = {
+      id: 'media-2',
+      kind: 'image',
+      url: '/uploads/b.jpg',
+      thumbnailUrl: '/uploads/b.thumb.jpg',
+      mimeType: 'image/jpeg',
+      fileName: 'b.jpg',
+      size: 1,
+      width: 10,
+      height: 10,
+      durationMs: null,
+      waveform: null,
+    } as const;
+    upload.mockResolvedValue(media);
+    const job = enqueueMedia(CHAT, input());
+    const { clientId, localUrl } = bubbles()[0]!;
+    vi.spyOn(api, 'post').mockResolvedValue(
+      makeMessage({ id: 'm2', seq: 2, clientId, senderId: 'me', type: 'image', media }),
+    );
+    await job();
+    // The bubble keeps the local copy (no flash) until the server image is ready.
+    expect(bubbles()[0]).toMatchObject({ id: 'm2', localUrl });
+    expect(revoke).not.toHaveBeenCalledWith(localUrl);
+    decoded();
+    await vi.waitFor(() => expect(bubbles()[0]!.localUrl).toBeUndefined());
+    expect(revoke).toHaveBeenCalledWith(localUrl);
+    vi.unstubAllGlobals();
+  });
+
   it('cancelling a failed send removes its bubble and releases its blobs', async () => {
     upload.mockRejectedValue(new ApiError('payload_too_large', 'Too large', 413));
     const job = enqueueMedia(CHAT, input());

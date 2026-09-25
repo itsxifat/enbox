@@ -169,8 +169,11 @@ describe('messages store', () => {
     useMessages.getState().removeMessages(CHAT, ['m2']);
     expect(seqs(items())).toEqual([1, 3, 4, 'p:ca']);
 
+    useChats.getState().setPins(CHAT, ['m3']);
     useMessages.getState().clearChat(CHAT, 3);
     expect(seqs(items())).toEqual([4, 'p:ca']);
+    // Pins on cleared messages are no longer mine to see: re-seeded from the server.
+    expect(useChats.getState().pins[CHAT]).toBeUndefined();
   });
 
   it('sendMessage posts, replaces the optimistic entry and updates the chat preview', async () => {

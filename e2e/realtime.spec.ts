@@ -1,6 +1,7 @@
 /**
- * Cross-user realtime state: unread counters and permissions stay right while events arrive
- * (chat:upsert before message:new, edits/deletes of unread mentions, deleted accounts).
+ * Cross-user realtime state: unread counters stay right while events arrive (chat:upsert
+ * before message:new, deletes of unread mentions). A peer's account deletion turning the chat
+ * read-only live is covered in contacts.spec.ts.
  */
 import { expect, test } from '@playwright/test';
 import { apiAs, makeContacts, openAs, registerUser, sendAs } from './helpers';
@@ -48,26 +49,5 @@ test('deleting an unread @mention for everyone clears the mention badge', async 
 
   await apiAs(carol, 'DELETE', `/api/messages/${m.id}?for=everyone`);
   await expect(row.getByLabel('You were mentioned')).toHaveCount(0);
-  await context.close();
-});
-
-test('a peer who deletes their account can no longer be messaged (live)', async ({
-  browser,
-}) => {
-  const alice = await registerUser({ displayName: 'Alice Peer' });
-  const bob = await registerUser({ displayName: 'Bob Peer' });
-  await makeContacts(alice, bob);
-  const chat = await apiAs<{ id: string }>(alice, 'POST', '/api/chats/direct', {
-    userId: bob.user.id,
-  });
-  await sendAs(alice, chat.id, { type: 'text', text: 'See you tomorrow' });
-
-  const { page, context } = await openAs(browser, alice, `/chats/${chat.id}`);
-  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
-
-  await apiAs(bob, 'DELETE', '/api/me', { password: bob.password });
-
-  await expect(page.getByTestId('read-only-footer')).toContainText('This account has been deleted');
-  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveCount(0);
   await context.close();
 });

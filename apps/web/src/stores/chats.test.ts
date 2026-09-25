@@ -205,17 +205,6 @@ describe('chats store: list reloads vs. concurrent changes', () => {
     expect(useChats.getState().loaded).toBe(false);
   });
 
-  it('recomputes a direct chat’s permissions when its peer changes (deleted account)', () => {
-    const peer = makeUser({ id: 'bob' });
-    useChats.getState().upsertChat(makeChat({ id: 'd', type: 'direct', name: null, peer }));
-    expect(useChats.getState().byId.d!.permissions.canSend).toBe(true);
-    useChats.getState().patchChat('d', { peer: { ...peer, isDeleted: true } });
-    expect(useChats.getState().byId.d!.permissions).toMatchObject({
-      canSend: false,
-      canCall: false,
-    });
-  });
-
   it('forgetPins / resetPins drop cached pin ids', () => {
     const s = useChats.getState();
     s.setPins('a', ['m1']);

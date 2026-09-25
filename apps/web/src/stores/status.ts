@@ -387,7 +387,6 @@ registerSessionReset(() => {
   });
 });
 
-/** Someone has status updates I haven't seen (Updates tab dot). */
 /** Earliest future expiry among unseen statuses (ms epoch), null when none. */
 export function nextUnseenExpiry(feed: StatusFeed | null, now: number): number | null {
   let next: number | null = null;

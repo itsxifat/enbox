@@ -104,9 +104,11 @@ export function ChatListPane() {
   const navigate = useNavigate();
   const { chatId } = useParams();
   const [query, setQuery] = useState('');
-  // The input stays bound to `query`; matching runs on the settled value.
+  // The input stays bound to `query`; matching runs on the settled value (the first letter
+  // right away, so the list never shows unfiltered chats under "Chats").
   const debouncedQuery = useDebouncedValue(query, 150);
   const searching = !!query;
+  const matchQuery = debouncedQuery || query;
   const [filter, setFilter] = useState<ChatListFilter>('all');
   const loaded = useChats((s) => s.loaded);
   const loadError = useChats((s) => s.error);
@@ -116,9 +118,9 @@ export function ChatListPane() {
   const chats = useMemo(
     () =>
       searching
-        ? filterChats(all, { query: debouncedQuery })
+        ? filterChats(all, { query: matchQuery })
         : filterChats(all, { filter }),
-    [all, searching, debouncedQuery, filter],
+    [all, searching, matchQuery, filter],
   );
   const { count: archivedCount, unread: archivedUnread } = useArchivedCounts();
   const unreadCount = useMemo(() => {
