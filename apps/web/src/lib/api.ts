@@ -218,6 +218,24 @@ export interface RequestOptions {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** The request was sent with a session token that is no longer the current one. */
+export function sessionChanged(sentToken: string | null): boolean {
+  return !!sentToken && sentToken !== authToken;
+}
+
+/** Thrown for responses that arrive after a logout / account switch (callers ignore it). */
+export function sessionChangedError(): ApiError {
+  return new ApiError('aborted', 'Session changed', 0, { sessionChanged: true });
+}
+
+export function isSessionChangedError(e: unknown): boolean {
+  return (
+    e instanceof ApiError &&
+    e.code === 'aborted' &&
+    !!(e.details as { sessionChanged?: boolean } | undefined)?.sessionChanged
+  );
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -265,12 +283,17 @@ async function request<T>(
     opts.signal?.removeEventListener('abort', onAbort);
   }
 
+  // Logged out (or switched account) while this was in flight: its data belongs to the
+  // previous session and must not land in the stores that were reset meanwhile.
+  if (sessionChanged(sentToken)) throw sessionChangedError();
+
   if (res.status === 204 || res.status === 205) {
     if (!res.ok) throw toApiError(res.status, null);
     return undefined as T;
   }
 
   const text = await res.text().catch(() => '');
+  if (sessionChanged(sentToken)) throw sessionChangedError();
   let data: unknown = undefined;
   if (text) {
     try {
@@ -351,6 +374,10 @@ function upload(
       if (e.lengthComputable && e.total > 0) onProgress?.(Math.min(1, e.loaded / e.total));
     };
     xhr.onload = () => {
+      if (sessionChanged(sentToken)) {
+        reject(sessionChangedError());
+        return;
+      }
       let data: unknown = null;
       try {
         data = xhr.responseText ? JSON.parse(xhr.responseText) : null;

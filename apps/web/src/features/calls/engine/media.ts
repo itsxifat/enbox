@@ -56,7 +56,7 @@ export function mediaErrorMessage(kind: MediaErrorKind, device: CaptureDevice): 
   switch (kind) {
     case 'permission':
       return device === 'screen'
-        ? 'Screen sharing was blocked'
+        ? 'Screen sharing is blocked. Allow screen recording for your browser in your system settings.'
         : `Allow ${label} access in your browser settings to use calls`;
     case 'not_found':
       return device === 'microphone' ? 'No microphone found' : `No ${label} found`;
@@ -75,11 +75,24 @@ export function mediaErrorMessage(kind: MediaErrorKind, device: CaptureDevice): 
   }
 }
 
+/**
+ * Screen capture: closing the picker surfaces as a plain `NotAllowedError` (cancelled, no
+ * message). A block by the OS (macOS Screen Recording permission: "Permission denied by
+ * system") or by a Permissions-Policy (`SecurityError`) must be reported, or the button
+ * looks dead.
+ */
+function screenErrorKind(err: unknown, kind: MediaErrorKind): MediaErrorKind {
+  if (kind !== 'permission') return kind;
+  const e = err as { name?: string; message?: string } | null;
+  if (e?.name === 'SecurityError') return 'permission';
+  if (/system/i.test(e?.message ?? '')) return 'permission';
+  return 'cancelled';
+}
+
 export function toMediaAccessError(err: unknown, device: CaptureDevice): MediaAccessError {
   if (err instanceof MediaAccessError) return err;
   const kind = classifyMediaError(err);
-  // The user closing the screen picker surfaces as NotAllowedError.
-  const k: MediaErrorKind = device === 'screen' && kind === 'permission' ? 'cancelled' : kind;
+  const k = device === 'screen' ? screenErrorKind(err, kind) : kind;
   return new MediaAccessError(k, device, mediaErrorMessage(k, device));
 }
 

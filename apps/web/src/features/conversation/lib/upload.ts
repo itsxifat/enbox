@@ -3,7 +3,14 @@
  * `api.upload` has no thumbnail support; kept here to avoid touching the shared client).
  */
 import type { ApiErrorBody, MediaAttachment, MediaKind } from '@enbox/shared';
-import { ApiError, apiUrl, getApiToken, throttleProgress } from '@/lib/api';
+import {
+  ApiError,
+  apiUrl,
+  getApiToken,
+  sessionChanged,
+  sessionChangedError,
+  throttleProgress,
+} from '@/lib/api';
 
 export interface MediaUploadMeta {
   kind: MediaKind;
@@ -41,6 +48,11 @@ export function uploadMedia(
       if (e.lengthComputable && e.total > 0) onProgress?.(Math.min(0.99, e.loaded / e.total));
     };
     xhr.onload = () => {
+      // Logged out meanwhile: the upload belongs to the previous session.
+      if (sessionChanged(token)) {
+        reject(sessionChangedError());
+        return;
+      }
       let data: unknown = null;
       try {
         data = xhr.responseText ? JSON.parse(xhr.responseText) : null;

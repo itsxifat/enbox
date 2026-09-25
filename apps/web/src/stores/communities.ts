@@ -77,21 +77,22 @@ export const useCommunities = create<CommunitiesState>((set, get) => ({
     set({ loading: true });
     // A response that lands after a logout belongs to the previous account: drop it.
     const epoch = sessionEpoch();
-    loadingPromise = api
+    const p: Promise<void> = api
       .get<Community[]>('/api/communities')
       .then((list) => {
         if (epoch !== sessionEpoch()) return;
         set({ byId: Object.fromEntries(list.map((c) => [c.id, c])), loaded: true, loading: false });
       })
       .catch((e: unknown) => {
-        if (epoch !== sessionEpoch()) return;
-        set({ loading: false });
+        // Not after a logout meanwhile (the store was reset; api throws 'aborted').
+        if (epoch === sessionEpoch() && loadingPromise === p) set({ loading: false });
         throw e;
       })
       .finally(() => {
-        loadingPromise = null;
+        if (loadingPromise === p) loadingPromise = null;
       });
-    return loadingPromise;
+    loadingPromise = p;
+    return p;
   },
 
   async refreshCommunity(id) {

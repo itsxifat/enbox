@@ -13,7 +13,12 @@
  *   colliding offers.
  * - Incoming signals are applied strictly in order (one promise chain per link).
  * - `iceconnectionstate === 'failed'` → `restartIce()`; a connection stuck in
- *   `disconnected` for DISCONNECT_RESTART_MS also restarts ICE.
+ *   `disconnected` for DISCONNECT_RESTART_MS also restarts ICE (after `beforeRestart`, which
+ *   refreshes time-limited TURN credentials).
+ * - An offerer link ignores every remote offer until its first answer arrived: such an offer
+ *   can only come from a connection the remote already closed (both sides rejoined at once —
+ *   the remote dropped that link on `call:participant-joined` and answers ours instead).
+ *   Rolling back for it (polite side) would wedge both links.
  */
 import type { CallSignal, RTCIceCandidateJSON } from '@enbox/shared';
 
@@ -29,6 +34,8 @@ export interface PeerLinkOptions {
   sendSignal: (signal: CallSignal) => void;
   onRemoteTrack?: (stream: MediaStream, track: MediaStreamTrack) => void;
   onStateChange?: (state: RTCPeerConnectionState) => void;
+  /** Awaited before every ICE restart (e.g. refresh expired TURN credentials). */
+  beforeRestart?: () => Promise<unknown>;
   /** Injected in tests. */
   createPeerConnection?: (config: RTCConfiguration) => RTCPeerConnection;
   log?: (msg: string, err?: unknown) => void;
@@ -63,6 +70,9 @@ export class PeerLink {
   private makingOffer = false;
   private ignoreOffer = false;
   private closed = false;
+  /** Offerer: no answer applied yet (remote offers are stale, see the header). */
+  private awaitingFirstAnswer: boolean;
+  private restarting = false;
   private chain: Promise<void> = Promise.resolve();
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -73,6 +83,7 @@ export class PeerLink {
     this.polite = isPolite(opts.selfId, opts.remoteId);
     this.audioTrack = opts.audioTrack;
     this.videoTrack = opts.videoTrack;
+    this.awaitingFirstAnswer = opts.role === 'offerer';
     this.remoteStream = new MediaStream();
 
     const config: RTCConfiguration = { iceServers: opts.iceServers, bundlePolicy: 'max-bundle' };
@@ -126,13 +137,36 @@ export class PeerLink {
     void this.replace('video', track);
   }
 
-  restartIce(): void {
+  /** Replace the STUN/TURN servers used from now on (new allocations, ICE restarts). */
+  setIceServers(iceServers: RTCIceServer[]): void {
     if (this.closed) return;
     try {
-      this.pc.restartIce();
+      this.pc.setConfiguration({ ...this.pc.getConfiguration(), iceServers });
     } catch (err) {
-      this.log('restartIce failed', err);
+      this.log('setConfiguration failed', err);
     }
+  }
+
+  restartIce(): void {
+    if (this.closed || this.restarting) return;
+    const run = () => {
+      this.restarting = false;
+      if (this.closed) return;
+      try {
+        this.pc.restartIce();
+      } catch (err) {
+        this.log('restartIce failed', err);
+      }
+    };
+    const hook = this.opts.beforeRestart;
+    if (!hook) {
+      run();
+      return;
+    }
+    this.restarting = true;
+    void hook()
+      .catch(() => undefined)
+      .then(run);
   }
 
   close(): void {
@@ -191,13 +225,16 @@ export class PeerLink {
 
     const offerCollision =
       signal.type === 'offer' && (this.makingOffer || this.pc.signalingState !== 'stable');
-    this.ignoreOffer = !this.polite && offerCollision;
+    // A stale offer (see the header) is ignored by both polite and impolite peers.
+    this.ignoreOffer =
+      signal.type === 'offer' && (this.awaitingFirstAnswer || (!this.polite && offerCollision));
     if (this.ignoreOffer) return;
     // A late/duplicate answer (we are not waiting for one) would throw.
     if (signal.type === 'answer' && this.pc.signalingState !== 'have-local-offer') return;
 
     // Polite peers roll back their own offer implicitly on glare.
     await this.pc.setRemoteDescription({ type: signal.type, sdp: signal.sdp });
+    if (signal.type === 'answer') this.awaitingFirstAnswer = false;
     if (signal.type === 'offer') {
       await this.ensureSending();
       await this.pc.setLocalDescription();

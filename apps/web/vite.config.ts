@@ -108,6 +108,12 @@ function serviceWorkerVersion(): Plugin {
  * Production-only CSP `<meta>` (the API server disables its CSP header for the SPA).
  * Inline scripts in index.html (the theme boot script) are allowed by hash, so keep them
  * byte-identical between edits or rebuild — the hash is computed at build time.
+ *
+ * Network/media sources are the real origins only ('self', the VITE_API_URL origin and its
+ * ws origin, OpenStreetMap tiles for location previews) — no blanket `https:`/`ws:`, so a
+ * script that does run can't simply fetch() or <img>-beacon data to any host. Same-origin
+ * WebSockets rely on CSP3 `'self'` matching ws/wss (older Safari: socket.io falls back to
+ * long-polling). Emoji pickers use native emoji (no image CDN).
  */
 function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
   return {
@@ -129,13 +135,14 @@ function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
           /* invalid VITE_API_URL: same-origin only */
         }
         const wsOrigin = apiOrigin.replace(/^http/, 'ws');
+        const src = (...list: string[]) => list.filter(Boolean).join(' ');
         const policy = [
           "default-src 'self'",
           `script-src 'self' ${hashes.join(' ')}`.trim(),
           "style-src 'self' 'unsafe-inline'",
-          `img-src 'self' data: blob: https: ${apiOrigin}`.trim(),
-          `media-src 'self' data: blob: https: ${apiOrigin}`.trim(),
-          `connect-src 'self' ws: wss: https: ${apiOrigin} ${wsOrigin}`.trim(),
+          `img-src ${src("'self'", 'data:', 'blob:', 'https://tile.openstreetmap.org', apiOrigin)}`,
+          `media-src ${src("'self'", 'blob:', apiOrigin)}`,
+          `connect-src ${src("'self'", apiOrigin, wsOrigin)}`,
           "font-src 'self' data:",
           "worker-src 'self'",
           "manifest-src 'self'",

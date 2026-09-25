@@ -16,7 +16,10 @@ export function registerStatusHandlers(socket: AppSocket): void {
     bus.emit('status:deleted', p);
   });
   socket.on('status:viewed', (p) => {
-    useStatus.getState().applyViewed(p.statusId, p.viewer);
+    useStatus.getState().applyViewed(p.statusId, p.viewer, {
+      firstView: p.firstView,
+      viewCount: p.viewCount,
+    });
     bus.emit('status:viewed', p);
   });
 }

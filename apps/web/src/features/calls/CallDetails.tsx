@@ -1,11 +1,18 @@
 /**
  * Call info (/calls/:callId): who, when, how long, the related calls of the same log group,
  * participants of group calls, and actions (message, call back, remove from log).
+ * A call that isn't in the loaded log pages (deep link, older page, log still loading) is
+ * fetched on its own with `GET /api/calls/:callId`.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { MessageCircle, Phone, PhoneMissed, Trash2, Video } from 'lucide-react';
-import { chatTitle, type CallParticipant, type CallParticipantStatus } from '@enbox/shared';
+import {
+  chatTitle,
+  type CallLogEntry,
+  type CallParticipant,
+  type CallParticipantStatus,
+} from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
@@ -17,6 +24,7 @@ import {
   confirm,
 } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { ApiError, api, type ApiResponse } from '@/lib/api';
 import { formatDaySeparator, formatTime } from '@/lib/format';
 import { useCalls } from '@/stores/calls';
 import { useUserName } from '@/stores/users';
@@ -49,6 +57,35 @@ function ParticipantRow({ p, initiatorId }: { p: CallParticipant; initiatorId: s
   );
 }
 
+type Fetched =
+  | { callId: string; state: 'loading' }
+  | { callId: string; state: 'ok'; entry: CallLogEntry }
+  | { callId: string; state: 'missing' };
+
+/** One log entry by id, for calls that aren't in the loaded log pages. */
+function useCallEntry(callId: string | undefined, skip: boolean): Fetched | null {
+  const [fetched, setFetched] = useState<Fetched | null>(null);
+  useEffect(() => {
+    if (!callId || skip) return;
+    let alive = true;
+    setFetched({ callId, state: 'loading' });
+    api
+      .get<ApiResponse<'GET /api/calls/:callId'>>(`/api/calls/${encodeURIComponent(callId)}`)
+      .then((entry) => alive && setFetched({ callId, state: 'ok', entry }))
+      .catch((e: unknown) => {
+        if (!alive) return;
+        // 404: not mine, removed from my log, or unknown. Anything else: show "not found" too
+        // (the log below still loads, and a later visit retries).
+        if (!(e instanceof ApiError && e.status === 404)) console.warn('[calls] call info', e);
+        setFetched({ callId, state: 'missing' });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [callId, skip]);
+  return fetched?.callId === callId ? fetched : null;
+}
+
 export function CallDetails() {
   const { callId } = useParams<{ callId: string }>();
   const navigate = useNavigate();
@@ -59,15 +96,20 @@ export function CallDetails() {
     void useCalls.getState().loadLog();
   }, []);
 
-  const group = useMemo(
+  const logGroup = useMemo(
     () => groupCallLog(log.entries).find((g) => g.entries.some((e) => e.call.id === callId)),
     [log.entries, callId],
   );
+  const fetched = useCallEntry(callId, !!logGroup);
+  const single = fetched?.state === 'ok' ? fetched.entry : null;
+  const group =
+    logGroup ?? (single ? { key: single.call.id, entries: [single], head: single } : undefined);
   const entry = group?.entries.find((e) => e.call.id === callId);
   const liveChat = useChats((s) => (entry ? s.byId[entry.chat.id] : undefined));
 
   if (!entry || !group) {
-    if (!log.loaded) return <PageSpinner />;
+    const logSettled = log.loaded || !!log.error;
+    if (!logSettled || !fetched || fetched.state === 'loading') return <PageSpinner />;
     return (
       <div className="flex flex-1 flex-col bg-app">
         <PaneHeader title="Call info" back={desktop ? undefined : '/calls'} border />

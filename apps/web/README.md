@@ -289,11 +289,19 @@ full screen on phones), `ListItem`/`ListSection`, `SearchInput`, `Spinner`/`Page
   `/api`, `/socket.io`, `/uploads`). Registered in builds (dev: `VITE_ENABLE_SW=true`).
 - `lib/notify.ts`: permission helpers, `showNotification` (only when unfocused, via the SW
   registration), WebAudio sounds `playSound('message'|'sent'|'notification'|'end'|'error')`,
-  `startLoop('ringtone'|'ringback')` → stop fn, `vibrate`.
+  `startLoop('ringtone'|'ringback')` → stop fn, `vibrate`, `closeAllNotifications()` (run on
+  logout: previews don't outlive the session).
 - `lib/push.ts`: `enablePush()` (user gesture; asks permission, subscribes with
   `/api/config` `vapidPublicKey`, `POST /api/push/subscriptions`), `syncPushSubscription()`
-  (silent, on login), `disablePush()` (on logout).
-- Production builds add a CSP `<meta>` (vite.config.ts); inline scripts are allowed by hash.
+  (silent, on login; never while "Desktop alerts" is off), `disablePush()` (on logout and
+  when "Desktop alerts" is turned off — the service worker can't read that pref; the browser
+  subscription is dropped first, then the server row).
+- Production builds add a CSP `<meta>` (vite.config.ts); inline scripts are allowed by hash;
+  images/media/connections are limited to `'self'`, the `VITE_API_URL` origin (+ its ws
+  origin) and OpenStreetMap tiles.
+- Responses of requests sent with a previous session's token (logout / account switch while
+  in flight) are rejected as `ApiError('aborted')` (`isSessionChangedError`), so they never
+  land in the reset stores; `toast.error` ignores them.
 
 ## Testing
 
@@ -347,13 +355,22 @@ Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/
   with the smaller userId polite, ordered signal chain, `restartIce()` on ICE failure or a
   stuck `disconnected`). Mute / camera / flip / screen share are `replaceTrack()` only.
   MediaStreams live in `engine/streams.ts` (`useCallStream(id)`), never in zustand. ICE
-  servers come from `GET /api/calls/ice-servers`, cached until shortly before `ttlSec`.
+  servers come from `GET /api/calls/ice-servers`, cached while at least min(1 h, ttl/2) of the
+  TURN credentials remain, refreshed before every ICE restart and rejoin, dropped on logout.
+  An offerer link ignores remote offers until its first answer (stale offers from a link the
+  peer closed when both rejoined at once).
 - **Controller** (`features/calls/controller.ts`, lazy-loaded by the store actions) glues
   store ⇄ engine ⇄ socket: `call:start` (conflict → accept/join the chat's live call, or
   "already in another call"), accept/join/rejoin, `call:participant-joined/left`,
-  `call:signal`, `call:media`, `call:updated/ended`; socket drop → `reconnecting` → on the
-  next `ready` `GET /api/calls/active` → `call:rejoin`; a page reload rejoins the call this tab
-  was in (sessionStorage); closing the tab leaves the call (`pagehide`).
+  `call:signal`, `call:media`, `call:updated/ended` (my own participant no longer `joined` →
+  the call ends here too); socket drop → `reconnecting` → on the next `ready`
+  `GET /api/calls/active` (retried with backoff) → `call:rejoin`, retried while the server
+  still sees the old call socket (`conflict`) or the ack is lost; a page reload rejoins the
+  call this tab was in (sessionStorage, reload navigations only). `pagehide` can't tell a
+  reload from a close, so closing the tab doesn't leave explicitly: the server releases the
+  participant after `CALL_RECONNECT_GRACE_MS`. A start/accept/join ack lost to a socket drop
+  is resolved on the next `ready` (rejoin if the server joined me, else redo it); hanging up
+  while an accept is pending also declines.
 - **Store** `useCalls`: `incoming`, `active` (`phase`: starting → calling/ringing →
   connecting → connected / reconnecting / ended, `connections`, `speaking`,
   `activeSpeakerId`, `connectedAt`, `endReason`, media flags…), `liveCalls` (live call per
@@ -365,7 +382,10 @@ Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/
   call-waiting variants, ringtone/ringback), `CallScreen` (1:1 video with draggable PiP, group
   grid ≤ 8, voice layout, controls, banners), `CallMiniWindow` (minimized, draggable),
   Calls tab `/calls` (ongoing calls to join + log with All/Missed, grouping, call back,
-  remove/clear), `/calls/new` (contacts & groups), `/calls/:callId` (call info).
+  remove/clear), `/calls/new` (contacts & groups), `/calls/:callId` (call info; a call that
+  isn't in the loaded log pages comes from `GET /api/calls/:callId`). Calls ringing me at the
+  same time are queued (the next one shows once the current is cleared); a ring also stops
+  locally after `CALL_RING_TIMEOUT_MS` + 5 s if the ring-stop was missed offline.
 - **For other features** (`import … from '@/features/calls'`):
   - `useCalls.getState().startCall(chatId, 'audio' | 'video')` — conversation header, info panels.
   - `<OngoingCallBanner chatId={chat.id} />` — render under the group conversation header
@@ -390,6 +410,7 @@ Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/
 - **Lead: wire the Updates header camera button** (`features/updates/UpdatesPane`, foundation)
   to `navigate('/updates/status/new')`.
 - Store `useStatus`: `feed`, `posting`, `viewers`; `loadFeed`, `applyNew/Deleted/Viewed`
-  (deduped view counts), `markViewed` (once per status), `postText`, `postMedia`,
+  (`status:viewed` `firstView` adds a viewer / replaces a reaction, `viewCount` is taken from
+  the server), `markViewed` (once per status), `postText`, `postMedia`,
   `deleteStatus`, `react`, `loadViewers`, `pruneExpired`; hooks `useHasUnseenStatus()`,
   `useStatusLists()`.

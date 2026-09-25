@@ -3,7 +3,7 @@
  * three browsers. Real server + Chromium fake camera/microphone (see playwright.config.ts).
  */
 import { expect, test, type Page } from '@playwright/test';
-import type { ChatSummary, MessagePage } from '@enbox/shared';
+import type { Call, ChatSummary, MessagePage } from '@enbox/shared';
 import { apiAs, makeContacts, openAs, registerUser, type E2EUser } from './helpers';
 
 async function startFromNewCall(page: Page, name: string, type: 'Voice' | 'Video') {
@@ -245,6 +245,104 @@ test('group call: three participants in a mesh, join from the Calls tab, leave',
   await expect(callScreen(B.page)).toHaveAttribute('data-phase', 'connected');
 
   await A.page.getByRole('button', { name: 'End call' }).click();
+  await expect(B.page.getByTestId('call-end-reason')).toContainText('Call ended');
+  await Promise.all([A.context.close(), B.context.close(), C.context.close()]);
+});
+
+test('page reload mid-call: the tab rejoins the call instead of leaving it', async ({
+  browser,
+}) => {
+  const a = await registerUser({ displayName: 'Ava Reload' });
+  const b = await registerUser({ displayName: 'Ben Reload' });
+  await makeContacts(a, b);
+  const A = await openAs(browser, a, '/calls');
+  const B = await openAs(browser, b, '/calls');
+
+  await startFromNewCall(A.page, 'Ben Reload', 'Voice');
+  await B.page.getByRole('button', { name: 'Accept' }).click();
+  await expect(callScreen(A.page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
+  await expect(callScreen(B.page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
+
+  // Confirm the "leave this page?" prompt the call puts up.
+  B.page.on('dialog', (d) => void d.accept());
+  await B.page.reload();
+  // The reloaded tab rejoins (retrying while the server still sees its old socket)…
+  await expect(callScreen(B.page)).toHaveAttribute('data-phase', 'connected', { timeout: 30_000 });
+  await expect(callScreen(A.page)).toHaveAttribute('data-phase', 'connected', { timeout: 30_000 });
+  // …and the call never ended in between (pagehide no longer sends call:leave).
+  const live = await apiAs<Call[]>(a, 'GET', '/api/calls/active');
+  expect(live).toHaveLength(1);
+  expect(live[0]!.participants.every((p) => p.status === 'joined')).toBe(true);
+
+  await B.page.getByRole('button', { name: 'End call' }).click();
+  await expect(A.page.getByTestId('call-end-reason')).toContainText('Call ended');
+  await A.context.close();
+  await B.context.close();
+});
+
+test('removed from the group mid-call: the call ends for the removed member only', async ({
+  browser,
+}) => {
+  const a = await registerUser({ displayName: 'Ava Admin' });
+  const b = await registerUser({ displayName: 'Ben Stays' });
+  const c = await registerUser({ displayName: 'Cleo Removed' });
+  await makeContacts(a, b);
+  await makeContacts(a, c);
+  const { chat } = await apiAs<{ chat: ChatSummary }>(a, 'POST', '/api/groups', {
+    name: 'Removal Test Group',
+    memberIds: [b.user.id, c.user.id],
+  });
+
+  const A = await openAs(browser, a, '/calls');
+  const B = await openAs(browser, b, '/calls');
+  const C = await openAs(browser, c, '/calls');
+  await startFromNewCall(A.page, 'Removal Test Group', 'Voice');
+  await expect(incoming(B.page)).toBeVisible();
+  await expect(incoming(C.page)).toBeVisible();
+  await B.page.getByRole('button', { name: 'Accept' }).click();
+  await C.page.getByRole('button', { name: 'Accept' }).click();
+  for (const page of [A.page, B.page, C.page]) {
+    await expect(callScreen(page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
+  }
+
+  await apiAs(a, 'DELETE', `/api/groups/${chat.id}/members/${c.user.id}`);
+  // C only learns it from call:updated (its call socket was released first).
+  await expect(callScreen(C.page)).toBeHidden({ timeout: 15_000 });
+  await expect(
+    A.page.locator(`[data-testid="call-tile"][data-user-id="${c.user.id}"]`),
+  ).toHaveCount(0, { timeout: 15_000 });
+  await expect(callScreen(B.page)).toHaveAttribute('data-phase', 'connected');
+
+  await A.page.getByRole('button', { name: 'End call' }).click();
+  await expect(B.page.getByTestId('call-end-reason')).toContainText('Call ended');
+  await Promise.all([A.context.close(), B.context.close(), C.context.close()]);
+});
+
+test('two calls at once: the second one rings once the first is declined', async ({ browser }) => {
+  const a = await registerUser({ displayName: 'Ava First' });
+  const b = await registerUser({ displayName: 'Ben Popular' });
+  const c = await registerUser({ displayName: 'Cleo Second' });
+  await makeContacts(a, b);
+  await makeContacts(c, b);
+  const A = await openAs(browser, a, '/calls');
+  const B = await openAs(browser, b, '/calls');
+  const C = await openAs(browser, c, '/calls');
+
+  await startFromNewCall(A.page, 'Ben Popular', 'Voice');
+  await expect(incoming(B.page)).toContainText('Ava First');
+  await startFromNewCall(C.page, 'Ben Popular', 'Voice');
+  // One incoming call UI at a time: the second call waits.
+  await expect(incoming(B.page)).toHaveCount(1);
+  await expect(incoming(B.page)).toContainText('Ava First');
+
+  await B.page.getByRole('button', { name: 'Decline' }).click();
+  await expect(A.page.getByTestId('call-end-reason')).toHaveText('Declined');
+  await expect(incoming(B.page)).toContainText('Cleo Second');
+  await expect(C.page.getByTestId('call-status')).toHaveText('Ringing…');
+  await B.page.getByRole('button', { name: 'Accept' }).click();
+  await expect(callScreen(C.page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
+  await expect(callScreen(B.page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
+  await C.page.getByRole('button', { name: 'End call' }).click();
   await expect(B.page.getByTestId('call-end-reason')).toContainText('Call ended');
   await Promise.all([A.context.close(), B.context.close(), C.context.close()]);
 });
