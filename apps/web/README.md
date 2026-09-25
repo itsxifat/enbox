@@ -136,21 +136,25 @@ Zustand stores are the contract between features. Use selectors (`useChats((s) =
 and the provided hooks; call actions via `useX.getState().action()` outside React. Every
 per-account store registers a reset in `lib/session.ts`, run on logout.
 
-| Store                       | State                                                                                                                                        | Actions / hooks                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auth`                      | `token`, `user: UserSelf \| null`, `status: 'booting'\|'authenticated'\|'anonymous'`, `bootError`                                            | `bootstrap()`, `login(req)`, `register(req)`, `logout({ remote? })`, `setUser(u)`, `patchUser(p)`; `useMe()`, `getMe()`, `getMyId()`                                                                                                                                                                                                                                                                                                                                  |
-| `chats`                     | `byId`, `loaded`, `loading`, `error`, `typing[chatId][userId]`, `pins[chatId]`, `openChatId`                                                 | `loadChats()`, `refreshChat(id)`, `upsertChat(s)`, `patchChat(id, p)`, `removeChat(id)`, `setTyping(chatId, userId, state)` (auto-expires), `setPins`, `setOpenChat`; `useSortedChats({ archived?, filter?: 'all'\|'unread'\|'groups', kind?: 'chats'\|'channels'\|'all', query? })` (pinned first, then `lastActivityAt` desc), `useChat(id)`, `getChat(id)`, `useTypingUsers(chatId)`, `useUnreadChatsCount()`, `isChatUnread(c)`                                   |
-| `messages`                  | `byChat[chatId]: { items, hasMoreBefore, hasMoreAfter, loaded, loadingLatest, loadingBefore, loadingAfter, error }`                          | `loadLatest`, `loadOlder`, `loadNewer`, `loadAround(chatId, seq)`, `catchUp`, `upsertMessage(m, { onlyIfPresent })`, `upsertMessages`, `patchMessage`, `removeMessages`, `clearChat(chatId, clearedSeq)`, `dropChat`, `addOptimistic`, `patchOptimistic`, `markFailed`, `removeOptimistic`, `sendMessage(chatId, req, { optimistic })`, `retryMessage`; `useChatMessages(chatId)`. Type `ClientMessage = Message & { pending?, failed?, localUrl?, uploadProgress? }` |
-| `users`                     | `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>`                                                                             | `upsertUsers`, `fetchUser(id, { force })` (deduped), `invalidateUser`, `setPresence`, `subscribePresence(ids)` / `unsubscribePresence(ids)` (ref-counted, re-sent on reconnect); `useUser(id)` (auto-fetch), `usePresence(id)` (auto-subscribe), `useUserName(id)`, `nameOf(id)`                                                                                                                                                                                      |
-| `ui` (persisted `enbox.ui`) | `theme`, `resolvedTheme`, `prefs: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications }`, `toasts`, `dialogs` | `setTheme`, `setPref(key, value)`; imperative `toast.success/error/info`, `confirm({...}) → Promise<boolean>`, `choose({ options }) → Promise<value \| null>`; `WALLPAPERS`, `FONT_SIZES`                                                                                                                                                                                                                                                                             |
-| `calls` _(agent 4)_         | `incoming: IncomingCallPayload \| null`, `active: ActiveCall \| null`                                                                        | `setIncoming`, `setActive`, `patchActive`, `startCall(chatId, type, userIds?)`, `acceptIncoming()`, `declineIncoming()`                                                                                                                                                                                                                                                                                                                                               |
-| `status` _(agent 4)_        | `feed: StatusFeed \| null`, `loaded`                                                                                                         | `loadFeed()`, `applyNew`, `applyDeleted`, `applyViewed`; `useHasUnseenStatus()`                                                                                                                                                                                                                                                                                                                                                                                       |
-| `communities` _(agent 3)_   | `byId`, `loaded`                                                                                                                             | `loadCommunities()`, `refreshCommunity(id)`, `upsertCommunity`, `removeCommunity`; `useSortedCommunities()`                                                                                                                                                                                                                                                                                                                                                           |
+| Store                       | State                                                                                                                                        | Actions / hooks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth`                      | `token`, `user: UserSelf \| null`, `status: 'booting'\|'authenticated'\|'anonymous'`, `bootError`                                            | `bootstrap()`, `login(req)`, `register(req)`, `logout({ remote? })`, `setUser(u)`, `patchUser(p)`; `useMe()`, `getMe()`, `getMyId()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `chats`                     | `byId`, `loaded`, `loading`, `error`, `typing[chatId][userId]`, `pins[chatId]`, `openChatId`                                                 | `loadChats()`, `refreshChat(id)`, `upsertChat(s)`, `patchChat(id, p)`, `applyChatUpdate(id, changes)` (`chat:updated`; recomputes `permissions`), `removeChat(id)`, `setTyping(chatId, userId, state)` (auto-expires), `clearTyping()`, `setPins`, `setOpenChat`; `useSortedChats({ archived?, filter?: 'all'\|'unread'\|'groups', kind?: 'chats'\|'channels'\|'all', query? })` (pinned first, then `lastActivityAt` desc), `useChat(id)`, `getChat(id)`, `useTypingUsers(chatId)`, `useUnreadChatsCount()`, `isChatUnread(c)`                                                                                     |
+| `messages`                  | `byChat[chatId]: { items, hasMoreBefore, hasMoreAfter, loaded, loadingLatest, loadingBefore, loadingAfter, error }`                          | `loadLatest`, `loadOlder`, `loadNewer`, `loadAround(chatId, seq)` (pages' side-loaded `users` go to the users store), `upsertMessage(m, { onlyIfPresent })` (keeps `starred`/`myReaction`/`poll.myOptionIds`, see `mergeMessage`), `upsertMessages`, `patchMessage`, `removeMessages`, `markQuotesDeleted(messageId)`, `clearChat(chatId, clearedSeq)`, `dropChat`, `addOptimistic`, `patchOptimistic`, `markFailed`, `removeOptimistic`, `sendMessage(chatId, req, { optimistic })`, `retryMessage`; `useChatMessages(chatId)`. Type `ClientMessage = Message & { pending?, failed?, localUrl?, uploadProgress? }` |
+| `users`                     | `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>` (`online: null` = hidden)                                                   | `upsertUsers`, `fetchUser(id, { force })` (deduped), `fetchUsers(ids, { force })` (batched `POST /api/users/batch`, one request per tick), `invalidateUser`, `setPresence`, `subscribePresence(ids)` / `unsubscribePresence(ids)` (ref-counted, re-sent on reconnect); `useUser(id)` (auto-fetch), `usePresence(id)` (auto-subscribe), `useUserName(id)`, `nameOf(id)`                                                                                                                                                                                                                                              |
+| `ui` (persisted `enbox.ui`) | `theme`, `resolvedTheme`, `prefs: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications }`, `toasts`, `dialogs` | `setTheme`, `setPref(key, value)`; imperative `toast.success/error/info`, `confirm({...}) → Promise<boolean>`, `choose({ options }) → Promise<value \| null>`; `WALLPAPERS`, `FONT_SIZES`                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `calls` _(agent 4)_         | `incoming: IncomingCallPayload \| null`, `active: ActiveCall \| null`                                                                        | `setIncoming`, `setActive`, `patchActive`, `startCall(chatId, type, userIds?)`, `acceptIncoming()`, `declineIncoming()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `status` _(agent 4)_        | `feed: StatusFeed \| null`, `loaded`                                                                                                         | `loadFeed()`, `applyNew`, `applyDeleted`, `applyViewed`; `useHasUnseenStatus()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `communities` _(agent 3)_   | `byId`, `loaded`                                                                                                                             | `loadCommunities()`, `refreshCommunity(id)`, `upsertCommunity`, `removeCommunity`; `useSortedCommunities()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Components never talk to the socket directly; use `lib/socket.ts` helpers:
 `emitWithAck('call:start', payload)` (typed ack → `Promise<data>`, rejects with `ApiError`),
 `sendEvent('chat:typing', { chatId, state })` (fire-and-forget, `false` when offline),
 `useConnection()` (`state`, `ready`, `sessionId`).
+
+Use `chat.permissions` (computed server-side by `computeChatPermissions`) to gate UI —
+composer, info editing, member management, pins, calls, invite links — never re-derive it
+from `myRole`/`groupSettings`.
 
 ## Realtime flow (`src/realtime/`)
 
@@ -158,28 +162,38 @@ Components never talk to the socket directly; use `lib/socket.ts` helpers:
    and stops it otherwise. `startRealtime()` loads chats over REST right away (no waiting
    for the socket), connects the single socket (`io(origin, { auth: { token } })`,
    WebSocket first with polling fallback) and registers every domain's handlers.
-2. On each server `ready` (first connect **and** reconnects) the domain resyncs run: reload
-   `GET /api/chats`, `chat:delivered` for chats with unread messages, `catchUp` (`after=`) for
-   loaded conversations (open one first), mark the open chat read, re-subscribe presence,
-   refresh `/api/me` after a reconnect, reload status/communities. Then the bus emits
-   `realtime:ready` — use it for your own resync.
-3. `message:new` → upsert the message (replacing the optimistic entry by `clientId`), update
-   the chat preview/`lastSeq`/`lastActivityAt`, `unreadCount`+1 (and mentions) unless it's
-   mine or the chat is open & focused; include `payload.chat` when sent; unknown/hidden chats
-   are fetched. Others' messages get `chat:delivered`; if the chat is open & focused →
+2. On each server `ready` (first connect **and** reconnects — the socket never replays) the
+   domain resyncs run: clear typing indicators, reload `GET /api/chats`, **discard every
+   cached message page** except the open chat, reload the open chat's latest page and pins
+   (never `after=` catch-up: it would miss edits/deletes/reactions/votes), mark the open chat
+   read, re-subscribe presence (subscriptions are per socket), refresh `/api/me` after a
+   reconnect, reload status/communities (calls: agent 4 refetches `/api/calls/active`). Then
+   the bus emits `realtime:ready` — use it for your own resync.
+3. `message:new` (`{ message }` only; the server sends `chat:upsert` first when a chat becomes
+   visible) → upsert the message (replacing the optimistic entry by `clientId`), update the
+   chat preview/`lastSeq`/`lastActivityAt`, `unreadCount`+1 (non-system messages; and
+   mentions) unless it's mine or the chat is open & focused; unknown chats are fetched
+   (`GET /api/chats/:id`); unknown user ids (`referencedUserIds`) are batch-fetched. Delivered
+   receipts are server-driven (no client event). If the chat is open & focused →
    `markChatRead`, else an in-app sound or a system notification (respecting mute,
    `messageNotifications`/`groupNotifications`, `notificationPreviews` and device prefs).
-4. `message:updated` merges into loaded windows only (keeps `starred`); `message:removed`
-   prunes (refetching the chat preview if needed). `chat:*` events patch the chat store;
-   `chat:members-changed`, `contacts:changed`, `blocks:changed`, `user:changed` become bus
-   events; `presence:update` → users store; `me:updated` → auth; `session:revoked` (for this
-   session) → logout; `connect_error: unauthorized` → logout.
+4. `message:updated` merges into loaded windows only (keeps `starred`, `myReaction`,
+   `poll.myOptionIds`; a delete-for-everyone also blanks loaded quotes of it);
+   `message:removed` prunes (refetching the chat preview if needed). `chat:upsert` replaces a
+   chat, `chat:updated` merges viewer-neutral changes (and recomputes `permissions`),
+   `chat:read` sets `lastReadSeq`/`unreadCount`/`unreadMentionCount`/`markedUnread`; other
+   `chat:*` events patch the chat store; `chat:members-changed`, `contacts:changed`,
+   `blocks:changed`, `user:changed` become bus events; `presence:update` → users store;
+   `me:updated` → auth; `session:revoked` (for this session) → logout;
+   `connect_error: unauthorized` → logout.
 5. `markChatRead(chatId)` (exported from `@/realtime`) emits `chat:read` with the chat's
-   `lastSeq` when the app is visible & focused, and clears the badge optimistically. It
-   runs automatically when the open chat changes and when the window regains focus.
+   `lastSeq` when the app is visible & focused (REST `POST /api/chats/:id/read` when
+   offline), and clears the badge optimistically; reading also clears `markedUnread`
+   server-side. It runs automatically when the open chat changes and when the window regains
+   focus.
 6. Calls/status/communities handlers are skeletons owned by agents 3/4; call events are
    forwarded to the bus (`bus.on('call:signal', …)`) so the WebRTC engine can live in
-   `features/calls`.
+   `features/calls`. `call:ring-stop` (any reason) clears the incoming-call UI.
 
 Bus (`lib/bus.ts`, typed): `realtime:ready`, `chat:members-changed`, `user:changed`,
 `contacts:changed`, `blocks:changed`, `status:*`, `call:*`, `navigate`. In components:
@@ -215,7 +229,10 @@ try {
 Optimistic entries have `id = 'local:<clientId>'`, `seq = 0`, `pending: true`, sit after the
 confirmed messages and also become the chat-list preview. The REST response or the
 `message:new` echo (whichever comes first) replaces them; the other merges idempotently.
-`tickStatus(message, chat)` from `@enbox/shared` gives pending/sent/delivered/read.
+`tickStatus(message, chat)` from `@enbox/shared` gives pending/sent/delivered/read (null =
+no ticks: channels, system and call messages). Mentions are `@{<userId>}` tokens inside
+`text` (`mentionToken(id)`); render them with `parseMentions`/`renderMentions` — the server
+derives `mentions`. Bodies are discriminated by `type` and strict (no foreign fields).
 
 ## Styling
 
@@ -252,8 +269,9 @@ full screen on phones), `ListItem`/`ListSection`, `SearchInput`, `Spinner`/`Page
 ## PWA, notifications, push
 
 - `public/manifest.webmanifest` + icons (SVG + PNG 192/512 + maskable + apple-touch).
-- `public/sw.js`: Web Push (`{ title, body, tag, url, icon }`; skipped when a focused window
-  exists), `notificationclick` focuses/opens and posts `{ type: 'navigate', url }` (routed via
+- `public/sw.js`: Web Push with the shared `PushPayload` (`type: 'message' | 'call'` shows a
+  notification unless a focused window exists; `dismiss` / `call_cancel` close the
+  notification with that `tag`), `notificationclick` focuses/opens and posts `{ type: 'navigate', url }` (routed via
   the bus), offline app shell (network-first navigations, cache-first `/assets/*`; never
   `/api`, `/socket.io`, `/uploads`). Registered in builds (dev: `VITE_ENABLE_SW=true`).
 - `lib/notify.ts`: permission helpers, `showNotification` (only when unfocused, via the SW

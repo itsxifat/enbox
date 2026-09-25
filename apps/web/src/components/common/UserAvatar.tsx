@@ -4,7 +4,11 @@ import { usePresence, useUser } from '@/stores/users';
 
 export interface UserAvatarProps {
   /** A user object, or an id to look up in the users cache (fetched if missing). */
-  user?: Pick<UserPublic, 'id' | 'displayName' | 'contactName' | 'avatarUrl' | 'isDeleted'> | null;
+  user?:
+    | (Pick<UserPublic, 'id' | 'displayName' | 'contactName' | 'avatarUrl'> & {
+        isDeleted?: boolean;
+      })
+    | null;
   userId?: ID | null;
   size?: AvatarSize | number;
   showPresence?: boolean;

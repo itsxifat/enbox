@@ -2,6 +2,12 @@
  * Database client. Uses PostgreSQL (node-postgres) when DATABASE_URL is set, otherwise an
  * embedded PGlite instance (on disk for dev, in memory for tests). Both expose the same
  * Drizzle query API; the PGlite instance is typed as the node-postgres database.
+ *
+ * Transaction rule: inside `db.transaction(async (tx) => ...)` use ONLY `tx` — pass it down
+ * to every service (`dbx: DbOrTx` first parameter). Using the global `db` (or starting a
+ * nested `db.transaction`) inside a transaction deadlocks forever on PGlite (single
+ * connection) and can self-deadlock on row locks with pg. Never await network/file I/O
+ * inside a transaction; emit socket events after commit.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -53,7 +59,12 @@ export async function initDb(opts: InitDbOptions): Promise<DbHandle> {
   if (handle) await handle.close();
   const shouldMigrate = opts.migrate ?? true;
   if (opts.databaseUrl) {
-    const { Pool } = await import('pg');
+    const pg = (await import('pg')).default;
+    // int8 (count(*), seqs, watermarks) and numeric come back as strings from node-postgres but
+    // as numbers from PGlite; parse them as JS numbers on both drivers (all our values < 2^53).
+    pg.types.setTypeParser(pg.types.builtins.INT8, (v: string) => Number(v));
+    pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v: string) => Number(v));
+    const { Pool } = pg;
     const { drizzle } = await import('drizzle-orm/node-postgres');
     const pool = new Pool({ connectionString: opts.databaseUrl, max: 20 });
     const database = drizzle(pool, { schema });

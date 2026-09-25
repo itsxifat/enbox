@@ -1,19 +1,21 @@
 /**
- * Realtime: message events → messages store + chat-list previews/unread counts,
- * delivery receipts and in-app/system notifications. Owned by the foundation
- * (agent 2 may extend; keep handlers idempotent — the sender also gets its own events).
+ * Realtime: message events → messages store + chat-list previews/unread counts and
+ * in-app/system notifications. Owned by the foundation (agent 2 may extend; keep handlers
+ * idempotent — the sender also gets its own events). Delivered receipts are server-driven.
  */
 import {
+  chatKindOf,
   chatTitle,
   isMuted,
   messagePreviewText,
+  referencedUserIds,
   truncate,
   userDisplayName,
   type ChatSummary,
   type Message,
 } from '@enbox/shared';
 import { isAppFocused, playSound, showNotification } from '@/lib/notify';
-import { sendEvent, type AppSocket } from '@/lib/socket';
+import type { AppSocket } from '@/lib/socket';
 import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
@@ -57,7 +59,10 @@ function notifyIncoming(message: Message, chat: ChatSummary): void {
   let body = 'New message';
   if (s.notificationPreviews) {
     const preview = truncate(
-      messagePreviewText(message, (id) => nameOf(id)),
+      messagePreviewText(message, (id) => nameOf(id), {
+        viewerId: me.id,
+        chatKind: chatKindOf(chat),
+      }),
       140,
     );
     const sender = message.senderId ? useUsers.getState().byId[message.senderId] : undefined;
@@ -70,25 +75,27 @@ function notifyIncoming(message: Message, chat: ChatSummary): void {
   );
 }
 
-export function handleNewMessage(message: Message, chatPayload?: ChatSummary): void {
+export function handleNewMessage(message: Message): void {
   const me = useAuth.getState().user?.id;
   const mine = !!me && message.senderId === me;
   const chats = useChats.getState();
   const visible = chats.openChatId === message.chatId && isAppFocused();
 
-  if (chatPayload) chats.upsertChat({ ...chatPayload });
-  const chat = useChats.getState().byId[message.chatId];
+  const chat = chats.byId[message.chatId];
   if (!chat) {
-    // Unknown or previously hidden (deleted-for-me) chat: fetch it (unhides).
+    // Unknown chat (normally preceded by `chat:upsert`): fetch it, it already includes this message.
     void chats.refreshChat(message.chatId).catch(() => undefined);
-  } else if (!chatPayload) {
+  } else {
     applyToChat(message, chat, mine, visible);
   }
 
   useMessages.getState().upsertMessage(message);
+  void useUsers
+    .getState()
+    .fetchUsers(referencedUserIds(message))
+    .catch(() => undefined);
 
   if (mine) return;
-  sendEvent('chat:delivered', { chatId: message.chatId, seq: message.seq });
   if (visible) {
     markChatRead(message.chatId);
   } else {
@@ -98,10 +105,11 @@ export function handleNewMessage(message: Message, chatPayload?: ChatSummary): v
 }
 
 export function registerMessageHandlers(socket: AppSocket): void {
-  socket.on('message:new', ({ message, chat }) => handleNewMessage(message, chat));
+  socket.on('message:new', ({ message }) => handleNewMessage(message));
 
   socket.on('message:updated', ({ message }) => {
     useMessages.getState().upsertMessage(message, { onlyIfPresent: true });
+    if (message.deletedAt) useMessages.getState().markQuotesDeleted(message.id);
     const chat = useChats.getState().byId[message.chatId];
     if (chat?.lastMessage?.id === message.id) {
       useChats.getState().patchChat(chat.id, { lastMessage: { ...chat.lastMessage, ...message } });

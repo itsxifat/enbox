@@ -15,7 +15,11 @@
  * - `loadChats()`            GET /api/chats (replaces the list)
  * - `refreshChat(id)`        GET /api/chats/:id (deduped), upserts; removes on 404
  * - `upsertChat(chat)` / `upsertChats(chats)` / `patchChat(id, partial)` / `removeChat(id)`
+ * - `applyChatUpdate(id, changes)` apply a viewer-neutral `chat:updated` (merges the changes,
+ *                            recomputes `permissions` with `computeChatPermissions`, and drops
+ *                            `inviteCode` when no longer allowed)
  * - `setTyping(chatId, userId, state)` auto-expires after TYPING_TIMEOUT_MS; 'idle' clears
+ * - `clearTyping()` drop every typing indicator (on reconnect)
  * - `setPins(chatId, ids)`, `setOpenChat(id | null)`
  *
  * Selectors / hooks
@@ -30,7 +34,9 @@ import { create } from 'zustand';
 import {
   TYPING_TIMEOUT_MS,
   chatTitle,
+  computeChatPermissions,
   isMuted,
+  type ChatInfoChanges,
   type ChatSummary,
   type ID,
   type TypingState,
@@ -38,6 +44,7 @@ import {
 } from '@enbox/shared';
 import { ApiError, api } from '@/lib/api';
 import { registerSessionReset } from '@/lib/session';
+import { useAuth } from './auth';
 import { useUsers } from './users';
 
 export interface TypingEntry {
@@ -59,8 +66,10 @@ export interface ChatsState {
   upsertChat(chat: ChatSummary): void;
   upsertChats(chats: ChatSummary[]): void;
   patchChat(id: ID, partial: Partial<ChatSummary>): void;
+  applyChatUpdate(id: ID, changes: ChatInfoChanges): void;
   removeChat(id: ID): void;
   setTyping(chatId: ID, userId: ID, state: TypingState): void;
+  clearTyping(): void;
   setPins(chatId: ID, messageIds: ID[]): void;
   setOpenChat(id: ID | null): void;
 }
@@ -151,6 +160,15 @@ export const useChats = create<ChatsState>((set, get) => ({
     set((s) => ({ byId: { ...s.byId, [id]: { ...current, ...partial } } }));
   },
 
+  applyChatUpdate(id, changes) {
+    const current = get().byId[id];
+    if (!current) return;
+    const merged = { ...current, ...changes };
+    const permissions = computeChatPermissions(merged, useAuth.getState().user?.id ?? '');
+    const inviteCode = permissions.canInvite ? merged.inviteCode : null;
+    set((s) => ({ byId: { ...s.byId, [id]: { ...merged, permissions, inviteCode } } }));
+  },
+
   removeChat(id) {
     if (!get().byId[id]) return;
     set((s) => {
@@ -195,6 +213,12 @@ export const useChats = create<ChatsState>((set, get) => ({
         if (entry && entry.expiresAt <= Date.now() + 50) get().setTyping(chatId, userId, 'idle');
       }, TYPING_TIMEOUT_MS),
     );
+  },
+
+  clearTyping() {
+    for (const t of typingTimers.values()) clearTimeout(t);
+    typingTimers.clear();
+    if (Object.keys(get().typing).length) set({ typing: {} });
   },
 
   setPins(chatId, messageIds) {

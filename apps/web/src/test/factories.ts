@@ -2,7 +2,14 @@
  * Test factories for wire models. Use in unit tests (and Playwright mocks) to build
  * realistic objects with sensible defaults: `makeChat({ unreadCount: 3 })`.
  */
-import type { ChatSummary, Message, UserPublic, UserSelf } from '@enbox/shared';
+import {
+  DEFAULT_USER_SETTINGS,
+  computeChatPermissions,
+  type ChatSummary,
+  type Message,
+  type UserPublic,
+  type UserSelf,
+} from '@enbox/shared';
 
 let n = 0;
 const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`;
@@ -16,9 +23,12 @@ export function makeUser(p: Partial<UserPublic> = {}): UserPublic {
     avatarUrl: null,
     about: null,
     phone: null,
+    online: null,
+    lastSeenAt: null,
     isContact: false,
     contactName: null,
     isBlocked: false,
+    isDeleted: false,
     ...p,
   };
 }
@@ -32,22 +42,7 @@ export function makeMe(p: Partial<UserSelf> = {}): UserSelf {
     about: 'Hey there! I am using Enbox.',
     phone: null,
     createdAt: '2025-01-01T00:00:00.000Z',
-    settings: {
-      lastSeenVisibility: 'everyone',
-      onlineVisibility: 'everyone',
-      profilePhotoVisibility: 'everyone',
-      aboutVisibility: 'everyone',
-      groupsAddPermission: 'everyone',
-      readReceipts: true,
-      silenceUnknownCallers: false,
-      statusPrivacy: 'contacts',
-      statusPrivacyUserIds: [],
-      defaultDisappearingSeconds: null,
-      messageNotifications: true,
-      groupNotifications: true,
-      callNotifications: true,
-      notificationPreviews: true,
-    },
+    settings: { ...DEFAULT_USER_SETTINGS },
     ...p,
   };
 }
@@ -80,8 +75,9 @@ export function makeMessage(p: Partial<Message> = {}): Message {
   };
 }
 
+/** A chat as seen by user 'me'; `permissions` are computed from the other fields unless given. */
 export function makeChat(p: Partial<ChatSummary> = {}): ChatSummary {
-  return {
+  const chat: Omit<ChatSummary, 'permissions'> & { permissions?: ChatSummary['permissions'] } = {
     id: p.id ?? uuid(),
     type: 'group',
     name: 'Test chat',
@@ -95,6 +91,7 @@ export function makeChat(p: Partial<ChatSummary> = {}): ChatSummary {
     channelSettings: null,
     myRole: 'member',
     membership: 'active',
+    inviteCode: null,
     disappearingSeconds: null,
     lastMessage: null,
     lastSeq: 0,
@@ -111,4 +108,5 @@ export function makeChat(p: Partial<ChatSummary> = {}): ChatSummary {
     lastActivityAt: '2025-01-01T00:00:00.000Z',
     ...p,
   };
+  return { ...chat, permissions: chat.permissions ?? computeChatPermissions(chat, 'me') };
 }

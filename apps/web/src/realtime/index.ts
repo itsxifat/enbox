@@ -26,7 +26,7 @@ import { registerMessageHandlers } from './messages';
 import { registerStatusHandlers, resyncStatus } from './status';
 import { registerUserHandlers, resyncUsers } from './users';
 
-export { markChatRead, ackDelivered } from './chats';
+export { markChatRead } from './chats';
 export { handleNewMessage } from './messages';
 
 let running = false;

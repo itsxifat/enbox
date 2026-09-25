@@ -8,9 +8,21 @@ import { chatMembers, users } from '../db/schema.js';
 import { logger } from '../lib/logger.js';
 import { resolveToken } from '../services/sessions.js';
 import { socketRegistrars } from '../modules/index.js';
-import { sessionRoom, setIo } from './emit.js';
-import { markConnected, markDisconnected, presenceEvents } from './presence.js';
-import type { IO } from './types.js';
+import { setIo } from './emit.js';
+import { afterReadyHooks, beforeReadyHooks, type ConnectHook } from './hooks.js';
+import { dropPresenceSocket, markConnected, markDisconnected, presenceEvents } from './presence.js';
+import type { AppSocket, IO } from './types.js';
+
+async function runHooks(kind: string, hooks: readonly ConnectHook[], socket: AppSocket) {
+  for (const hook of hooks) {
+    if (socket.disconnected) return;
+    try {
+      await hook(socket);
+    } catch (err) {
+      logger.error({ err, kind }, 'socket connect hook failed');
+    }
+  }
+}
 
 export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
   const io: IO = new Server(httpServer, {
@@ -60,6 +72,7 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
     }
 
     socket.on('disconnect', () => {
+      dropPresenceSocket(socket.id);
       if (markDisconnected(userId)) {
         const lastSeenAt = new Date();
         db.update(users)
@@ -71,11 +84,14 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
     });
 
     try {
+      // User/session rooms FIRST: a membership change committed while we load memberships
+      // then still reaches this socket through `io.in(user:<id>).socketsJoin(...)`.
+      await socket.join([rooms.user(userId), rooms.session(sessionId)]);
       const memberships = await db
         .select({ chatId: chatMembers.chatId })
         .from(chatMembers)
-        .where(and(eq(chatMembers.userId, userId), isNull(chatMembers.leftAt)));
-      await socket.join([rooms.user(userId), sessionRoom(sessionId), ...memberships.map((m) => rooms.chat(m.chatId))]);
+        .where(and(eq(chatMembers.userId, userId), isNull(chatMembers.leftAt), eq(chatMembers.hidden, false)));
+      if (memberships.length) await socket.join(memberships.map((m) => rooms.chat(m.chatId)));
     } catch (err) {
       logger.error({ err }, 'failed to join rooms');
       socket.disconnect(true);
@@ -84,7 +100,12 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
 
     if (socket.disconnected) return;
     if (markConnected(userId)) presenceEvents.emit('online', userId);
+    // e.g. advance delivered watermarks (server-driven delivered receipts).
+    await runHooks('beforeReady', beforeReadyHooks(), socket);
+    if (socket.disconnected) return;
     socket.emit('ready', { userId, sessionId, serverTime: new Date().toISOString() });
+    // e.g. re-emit call:incoming for calls still ringing this user.
+    await runHooks('afterReady', afterReadyHooks(), socket);
   });
 
   setIo(io);

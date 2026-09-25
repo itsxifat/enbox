@@ -5,6 +5,7 @@
 import type { ReactNode } from 'react';
 import { AtSign, BellOff, Check, CheckCheck, Clock, Pin } from 'lucide-react';
 import {
+  chatKindOf,
   chatTitle,
   isMuted,
   messagePreviewText,
@@ -58,7 +59,10 @@ export function ChatRow({ chat, to, active }: { chat: ChatSummary; to: string; a
         ) : null}
         <span className="truncate">
           {prefix}
-          {messagePreviewText(last, (id) => nameOf(id))}
+          {messagePreviewText(last, (id) => nameOf(id), {
+            viewerId: me,
+            chatKind: chatKindOf(chat),
+          })}
         </span>
       </span>
     );
@@ -71,7 +75,7 @@ export function ChatRow({ chat, to, active }: { chat: ChatSummary; to: string; a
       to={to}
       active={active}
       leading={<ChatAvatar chat={chat} size="lg" />}
-      title={chatTitle(chat)}
+      title={chatTitle(chat, me)}
       meta={
         chat.lastMessage || chat.lastActivityAt
           ? formatChatListTime(chat.lastActivityAt)

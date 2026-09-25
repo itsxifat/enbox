@@ -3,7 +3,7 @@
  *
  * The foundation only guarantees:
  * - `incoming` is set by realtime/calls.ts on `call:incoming` (cleared on
- *   `call:handled-elsewhere` / `call:ended` for that call) and rendered by
+ *   `call:ring-stop` / `call:ended` for that call) and rendered by
  *   features/calls/CallOverlay.
  * - `startCall(chatId, type)` is the entry point the conversation header (agent 2) and
  *   contact/group info (agents 1/3) call. Agent 4 implements it (call:start ack, media,

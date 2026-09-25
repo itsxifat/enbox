@@ -5,20 +5,31 @@
  * State: `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>`
  *
  * Actions
- * - `upsertUsers(users)`         merge profiles (also seeds presence from `online/lastSeenAt`)
+ * - `upsertUsers(users)`         merge profiles (also seeds presence from `online/lastSeenAt`;
+ *                                `online: null` = hidden by the user's privacy settings)
  * - `fetchUser(id, { force })`   GET /api/users/:id (deduped in flight; cached unless force)
- * - `invalidateUser(id)`         refetch if cached (on `user:changed`), else no-op
+ * - `fetchUsers(ids, { force })` batched POST /api/users/batch: ids requested in the same tick
+ *                                are coalesced into one request (≤ MAX_USERS_BATCH per call);
+ *                                cached ids are skipped unless force. Use it for ids found in
+ *                                messages (`referencedUserIds(message)`).
+ * - `invalidateUser(id)`         refetch if cached (on `user:changed`, batched), else no-op
  * - `setPresence(p)`             apply a `presence:update`
  * - `subscribePresence(ids)`     ref-counted `presence:subscribe` (ack seeds presence)
  * - `unsubscribePresence(ids)`   decrement; emits `presence:unsubscribe` at zero
  * - `resubscribePresence()`      re-send all active subscriptions (called on reconnect)
  *
- * Hooks: `useUser(id)` (auto-fetches), `usePresence(id)` (auto-subscribes while mounted),
+ * Hooks: `useUser(id)` (auto-fetches, batched), `usePresence(id)` (auto-subscribes while mounted),
  * `useUserName(id)` (contact name → display name, "You" for me).
  */
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { userDisplayName, type ID, type Presence, type UserPublic } from '@enbox/shared';
+import {
+  MAX_USERS_BATCH,
+  userDisplayName,
+  type ID,
+  type Presence,
+  type UserPublic,
+} from '@enbox/shared';
 import { api } from '@/lib/api';
 import { registerSessionReset } from '@/lib/session';
 import { emitWithAck, isSocketConnected, sendEvent } from '@/lib/socket';
@@ -30,6 +41,7 @@ export interface UsersState {
 
   upsertUsers(users: UserPublic[]): void;
   fetchUser(id: ID, opts?: { force?: boolean }): Promise<UserPublic>;
+  fetchUsers(ids: Iterable<ID>, opts?: { force?: boolean }): Promise<void>;
   invalidateUser(id: ID): Promise<void>;
   setPresence(p: Presence): void;
   subscribePresence(ids: ID[]): Promise<void>;
@@ -38,8 +50,46 @@ export interface UsersState {
 }
 
 const inflight = new Map<ID, Promise<UserPublic>>();
+/** userId → the pending batch that will load it. */
+const inflightBatch = new Map<ID, Promise<void>>();
+/** Ids collected during the current tick for the next POST /api/users/batch. */
+let queued: { ids: Set<ID>; promise: Promise<void> } | null = null;
 /** userId → number of active presence subscribers in this tab. */
 const presenceRefs = new Map<ID, number>();
+
+function enqueueBatch(ids: ID[]): Promise<void> {
+  if (!queued) {
+    const batch = { ids: new Set<ID>(), promise: Promise.resolve() };
+    batch.promise = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        if (queued === batch) queued = null;
+        const list = [...batch.ids];
+        const requests: Promise<void>[] = [];
+        for (let i = 0; i < list.length; i += MAX_USERS_BATCH) {
+          const userIds = list.slice(i, i + MAX_USERS_BATCH);
+          requests.push(
+            api
+              .post<UserPublic[]>('/api/users/batch', { userIds })
+              .then((users) => useUsers.getState().upsertUsers(users)),
+          );
+        }
+        Promise.all(requests)
+          .then(() => resolve(), reject)
+          .finally(() => {
+            for (const id of list)
+              if (inflightBatch.get(id) === batch.promise) inflightBatch.delete(id);
+          });
+      }, 0);
+    });
+    queued = batch;
+  }
+  const batch = queued;
+  for (const id of ids) {
+    batch.ids.add(id);
+    inflightBatch.set(id, batch.promise);
+  }
+  return batch.promise;
+}
 
 function samePresence(a: Presence | undefined, b: Presence): boolean {
   return !!a && a.online === b.online && a.lastSeenAt === b.lastSeenAt;
@@ -56,17 +106,10 @@ export const useUsers = create<UsersState>((set, get) => ({
       let presence = s.presence;
       for (const u of users) {
         byId[u.id] = { ...byId[u.id], ...u };
-        if (u.online !== undefined || u.lastSeenAt !== undefined) {
-          const p: Presence = {
-            userId: u.id,
-            online: u.online ?? presence[u.id]?.online ?? false,
-            lastSeenAt:
-              u.lastSeenAt !== undefined ? u.lastSeenAt : (presence[u.id]?.lastSeenAt ?? null),
-          };
-          if (!samePresence(presence[u.id], p)) {
-            if (presence === s.presence) presence = { ...presence };
-            presence[u.id] = p;
-          }
+        const p: Presence = { userId: u.id, online: u.online, lastSeenAt: u.lastSeenAt };
+        if (!samePresence(presence[u.id], p)) {
+          if (presence === s.presence) presence = { ...presence };
+          presence[u.id] = p;
         }
       }
       return { byId, presence };
@@ -89,10 +132,24 @@ export const useUsers = create<UsersState>((set, get) => ({
     return p;
   },
 
+  fetchUsers(ids, { force = false } = {}) {
+    const byId = get().byId;
+    const waits: Promise<void>[] = [];
+    const fresh: ID[] = [];
+    for (const id of new Set(ids)) {
+      if (!id || (!force && byId[id])) continue;
+      const pending = inflightBatch.get(id);
+      if (pending && !force) waits.push(pending);
+      else fresh.push(id);
+    }
+    if (fresh.length) waits.push(enqueueBatch(fresh));
+    return Promise.all(waits).then(() => undefined);
+  },
+
   async invalidateUser(id) {
     if (!get().byId[id]) return;
     await get()
-      .fetchUser(id, { force: true })
+      .fetchUsers([id], { force: true })
       .catch(() => undefined);
   },
 
@@ -144,18 +201,20 @@ export const useUsers = create<UsersState>((set, get) => ({
 
 registerSessionReset(() => {
   inflight.clear();
+  inflightBatch.clear();
+  queued = null;
   presenceRefs.clear();
   useUsers.setState({ byId: {}, presence: {} });
 });
 
-/** Cached user (fetches on mount when missing). */
+/** Cached user (fetches on mount when missing; mounts in the same tick share one batch request). */
 export function useUser(id: ID | null | undefined): UserPublic | undefined {
   const user = useUsers((s) => (id ? s.byId[id] : undefined));
   useEffect(() => {
     if (id && !user)
       void useUsers
         .getState()
-        .fetchUser(id)
+        .fetchUsers([id])
         .catch(() => undefined);
   }, [id, user]);
   return user;

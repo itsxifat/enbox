@@ -5,8 +5,9 @@
  * event to the bus (`bus.on('call:signal', …)`) so the WebRTC engine can live in
  * features/calls without touching the socket. Agent 4 may rewrite this file freely.
  *
- * TODO(agent 4): ringtone/ringback, `call:ringing` ack on ring, active-call updates,
- * resync of `GET /api/calls/active` on reconnect.
+ * TODO(agent 4): ringtone/ringback, active-call updates, resync of `GET /api/calls/active`
+ * on reconnect (`call:rejoin` for a call I'm still joined to — see CALL_RECONNECT_GRACE_MS).
+ * Devices that connect late get `call:incoming` re-emitted by the server after `ready`.
  */
 import { bus } from '@/lib/bus';
 import { sendEvent, type AppSocket, type ReadyInfo } from '@/lib/socket';
@@ -23,9 +24,12 @@ export function registerCallHandlers(socket: AppSocket): void {
     bus.emit('call:incoming', payload);
   });
 
-  socket.on('call:handled-elsewhere', (payload) => {
+  // Stop ringing on this device, whatever the reason (answered/declined elsewhere, timeout,
+  // cancelled, ended). Rule: ring iff my participant status ∈ {invited, ringing} and the
+  // call is ringing/ongoing — `call:updated`/`call:ended` keep that true as well.
+  socket.on('call:ring-stop', (payload) => {
     if (calls().incoming?.call.id === payload.callId) calls().setIncoming(null);
-    bus.emit('call:handled-elsewhere', payload);
+    bus.emit('call:ring-stop', payload);
   });
 
   socket.on('call:ended', (payload) => {

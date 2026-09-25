@@ -8,6 +8,11 @@ export interface Job {
   name: string;
   intervalMs: number;
   run: () => Promise<void>;
+  /**
+   * Also run once immediately when jobs start (process boot), e.g. crash recovery that
+   * closes calls left ringing/ongoing by a previous process.
+   */
+  runOnStart?: boolean;
 }
 
 const jobs: Job[] = [];
@@ -31,6 +36,7 @@ export function startJobs() {
         running = false;
       }
     };
+    if (job.runOnStart) void tick();
     timers.push(setInterval(tick, job.intervalMs).unref());
   }
 }

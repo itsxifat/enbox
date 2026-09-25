@@ -38,7 +38,8 @@ const settings = {
   readReceipts: true,
   silenceUnknownCallers: false,
   statusPrivacy: 'contacts',
-  statusPrivacyUserIds: [],
+  statusExcludeUserIds: [],
+  statusOnlyShareWithUserIds: [],
   defaultDisappearingSeconds: null,
   messageNotifications: true,
   groupNotifications: true,
@@ -66,6 +67,7 @@ const user = (n, displayName, extra = {}) => ({
   isContact: true,
   contactName: null,
   isBlocked: false,
+  isDeleted: false,
   online: false,
   lastSeenAt: ago(42),
   ...extra,
@@ -115,36 +117,76 @@ const msg = (chatId, seq, senderId, text, createdAt, extra = {}) => ({
   ...extra,
 });
 
-const chat = (n, p) => ({
-  id: id(n),
-  type: 'direct',
-  name: null,
-  description: null,
-  avatarUrl: null,
-  peer: null,
-  communityId: null,
-  isAnnouncement: false,
-  memberCount: 2,
-  groupSettings: null,
-  channelSettings: null,
-  myRole: 'member',
-  membership: 'active',
-  disappearingSeconds: null,
-  lastMessage: null,
-  lastSeq: 0,
-  lastReadSeq: 0,
-  unreadCount: 0,
-  unreadMentionCount: 0,
-  readWatermark: 0,
-  deliveredWatermark: 0,
-  isPinned: false,
-  isArchived: false,
-  mutedUntil: null,
-  markedUnread: false,
-  createdAt: ago(99999),
-  lastActivityAt: ago(5),
-  ...p,
-});
+// Simplified mirror of `computeChatPermissions` (@enbox/shared) for the mocks.
+const perms = (c) => {
+  const active = c.membership === 'active';
+  const admin = c.myRole !== 'member';
+  const g = c.groupSettings ?? {};
+  const group = c.type === 'group' && !c.isAnnouncement;
+  const send =
+    c.type === 'direct'
+      ? true
+      : c.type === 'channel' || c.isAnnouncement
+        ? admin
+        : !g.onlyAdminsCanSend || admin;
+  const edit =
+    c.type === 'direct'
+      ? send
+      : c.type === 'channel'
+        ? admin
+        : group && (!g.onlyAdminsCanEditInfo || admin);
+  const add = group && (!g.onlyAdminsCanAddMembers || admin);
+  return {
+    canSend: active && send,
+    canEditInfo: active && edit,
+    canAddMembers: active && add,
+    canRemoveMembers: active && group && admin,
+    canManageAdmins: active && (c.type === 'channel' ? c.myRole === 'owner' : group && admin),
+    canPin:
+      active && (c.type === 'direct' || (c.type === 'group' && c.isAnnouncement) ? true : edit),
+    canCall: active && send && c.type !== 'channel',
+    canInvite: active && (c.type === 'channel' ? admin : add),
+    canDeleteForEveryoneAsAdmin: active && admin && c.type !== 'direct',
+    canLeave: active && (group || (c.type === 'channel' && c.myRole !== 'owner')),
+    canViewMembers: active && (c.type === 'channel' || c.isAnnouncement ? admin : true),
+  };
+};
+
+const chat = (n, p) =>
+  withPerms({
+    id: id(n),
+    type: 'direct',
+    name: null,
+    description: null,
+    avatarUrl: null,
+    peer: null,
+    communityId: null,
+    isAnnouncement: false,
+    memberCount: 2,
+    groupSettings: null,
+    channelSettings: null,
+    myRole: 'member',
+    membership: 'active',
+    disappearingSeconds: null,
+    lastMessage: null,
+    lastSeq: 0,
+    lastReadSeq: 0,
+    unreadCount: 0,
+    unreadMentionCount: 0,
+    readWatermark: 0,
+    deliveredWatermark: 0,
+    isPinned: false,
+    isArchived: false,
+    mutedUntil: null,
+    markedUnread: false,
+    createdAt: ago(99999),
+    lastActivityAt: ago(5),
+    inviteCode: null,
+    ...p,
+  });
+function withPerms(c) {
+  return { ...c, permissions: perms(c) };
+}
 const gs = {
   onlyAdminsCanSend: false,
   onlyAdminsCanEditInfo: true,
@@ -392,7 +434,12 @@ async function mockApi(page, socket = 'ok') {
     if (p === '/api/chats' && m === 'GET') return json(route, 200, chats);
     let mm = p.match(/^\/api\/chats\/([^/]+)\/messages$/);
     if (mm && m === 'GET')
-      return json(route, 200, { messages: mm[1] === C.maya ? mayaMessages : [], hasMore: false });
+      return json(route, 200, {
+        messages: mm[1] === C.maya ? mayaMessages : [],
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+        users,
+      });
     mm = p.match(/^\/api\/chats\/([^/]+)$/);
     if (mm && m === 'GET') {
       const c = chats.find((x) => x.id === mm[1]);
@@ -402,6 +449,14 @@ async function mockApi(page, socket = 'ok') {
     }
     if (p === '/api/status/feed') return json(route, 200, statusFeed);
     if (p === '/api/communities') return json(route, 200, []);
+    if (p === '/api/users/batch' && m === 'POST') {
+      const ids = new Set(req.postDataJSON()?.userIds ?? []);
+      return json(
+        route,
+        200,
+        users.filter((x) => ids.has(x.id)),
+      );
+    }
     mm = p.match(/^\/api\/users\/([^/]+)$/);
     if (mm) {
       const u = users.find((x) => x.id === mm[1]);

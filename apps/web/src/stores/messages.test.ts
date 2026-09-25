@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message, MessagePage } from '@enbox/shared';
 import { api } from '@/lib/api';
 import { resetSessionState } from '@/lib/session';
-import { makeChat, makeMe, makeMessage } from '@/test/factories';
+import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
 import { useAuth } from './auth';
 import { useChats } from './chats';
 import { mergePage, upsertInto, useMessages, type ClientMessage } from './messages';
+import { useUsers } from './users';
 
 const CHAT = 'chat-1';
 
@@ -51,6 +52,36 @@ describe('upsertInto (pure)', () => {
     );
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ text: 'hi (edited)', starred: true });
+  });
+
+  it('keeps viewer-specific fields (myReaction, poll.myOptionIds) across viewer-neutral updates', () => {
+    const poll = {
+      question: 'Lunch?',
+      allowMultiple: false,
+      totalVoters: 1,
+      options: [
+        { id: 'a', text: 'Pizza', voteCount: 1, voterIds: ['me'] },
+        { id: 'b', text: 'Sushi', voteCount: 0, voterIds: [] },
+      ],
+    };
+    let list = upsertInto(
+      [],
+      makeMessage({
+        id: 'p1',
+        seq: 1,
+        type: 'poll',
+        poll: { ...poll, myOptionIds: ['a'] },
+        myReaction: '👍',
+      }),
+    );
+    list = upsertInto(
+      list,
+      makeMessage({ id: 'p1', seq: 1, type: 'poll', poll: { ...poll, totalVoters: 2 } }),
+    );
+    expect(list[0]).toMatchObject({
+      myReaction: '👍',
+      poll: { totalVoters: 2, myOptionIds: ['a'] },
+    });
   });
 
   it('ignores new messages outside the loaded window', () => {
@@ -168,8 +199,10 @@ describe('messages store', () => {
     seed([makeMessage({ id: 'old', seq: 1, starred: true })]);
     useMessages.getState().addOptimistic(CHAT, { type: 'text', text: 'pending', clientId: 'cp' });
     const page: MessagePage = {
-      messages: [makeMessage({ id: 'm5', seq: 5 }), makeMessage({ id: 'm4', seq: 4 })],
-      hasMore: true,
+      messages: [makeMessage({ id: 'm4', seq: 4 }), makeMessage({ id: 'm5', seq: 5 })],
+      hasMoreBefore: true,
+      hasMoreAfter: false,
+      users: [makeUser({ id: 'user-1', displayName: 'Sender' })],
     };
     vi.spyOn(api, 'get').mockResolvedValue(page);
     await useMessages.getState().loadLatest(CHAT);
@@ -177,6 +210,8 @@ describe('messages store', () => {
     expect(seqs(s.items)).toEqual([4, 5, 'p:cp']);
     expect(s.hasMoreBefore).toBe(true);
     expect(s.hasMoreAfter).toBe(false);
+    // Side-loaded users land in the users store.
+    expect(useUsers.getState().byId['user-1']?.displayName).toBe('Sender');
   });
 
   it('ignores realtime messages for chats that were never opened', () => {

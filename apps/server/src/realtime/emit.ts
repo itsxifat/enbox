@@ -1,9 +1,11 @@
 /**
  * Realtime fan-out helpers. All helpers are no-ops until the socket server is initialised
- * (e.g. in tests that only exercise REST). Emit only AFTER the DB transaction commits.
+ * (e.g. in tests that only exercise REST). Emit only AFTER the DB transaction commits, in
+ * the order given by the mutation → event matrix in docs/ARCHITECTURE.md.
  *
  * Never emit viewer-specific payloads (ChatSummary, UserPublic, Community...) to a chat
- * room — build them per viewer and use emitToUser.
+ * room — build them per viewer and use emitToUser. Room joins/leaves use
+ * `io.in(...).socketsJoin/socketsLeave`, which also reach sockets on other nodes.
  */
 import { rooms } from '@enbox/shared';
 import type { IO, ServerEvent, ServerPayload } from './types.js';
@@ -17,8 +19,6 @@ export function setIo(server: IO | undefined) {
 export function getIo(): IO | undefined {
   return io;
 }
-
-export const sessionRoom = (sessionId: string) => `session:${sessionId}`;
 
 type Emitter = { emit: (event: string, payload: unknown) => boolean };
 
@@ -41,7 +41,10 @@ export function emitToUsers<E extends ServerEvent>(userIds: Iterable<string>, ev
 export interface ChatEmitOptions {
   /** Skip this socket (e.g. the typing user's own socket). */
   exceptSocketId?: string;
-  /** Skip all sockets of these users. */
+  /**
+   * Skip all sockets of these users — e.g. `message:updated` must skip active members who
+   * cannot see the message (joined after it, cleared/hid it, blocked recipient).
+   */
   exceptUserIds?: string[];
 }
 
@@ -61,7 +64,7 @@ export function emitToSocket<E extends ServerEvent>(socketId: string, event: E, 
 
 export function emitToSession<E extends ServerEvent>(sessionId: string, event: E, payload: ServerPayload<E>) {
   if (!io) return;
-  emit(io.to(sessionRoom(sessionId)) as unknown as Emitter, event, payload);
+  emit(io.to(rooms.session(sessionId)) as unknown as Emitter, event, payload);
 }
 
 /** Subscribe all of a user's connected sockets to a chat room (after adding them as member/follower). */
@@ -86,7 +89,7 @@ export function clearChatRoom(chatId: string) {
 
 /** Forcefully disconnect all sockets of a session (logout / revoke). */
 export function disconnectSession(sessionId: string) {
-  io?.in(sessionRoom(sessionId)).disconnectSockets(true);
+  io?.in(rooms.session(sessionId)).disconnectSockets(true);
 }
 
 export function disconnectUser(userId: string) {

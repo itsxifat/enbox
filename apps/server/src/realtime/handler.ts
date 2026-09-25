@@ -13,7 +13,9 @@ export interface SocketCtx {
 
 /**
  * Wrap a socket event handler: validates the payload with `schema`, runs `fn`, and replies via
- * the ack callback (if the client passed one) with `{ ok: true, data }` or `{ ok: false, error }`.
+ * the ack callback (if the client passed one) with `{ ok: true, data }` or `{ ok: false, error }`
+ * (`error.details` carries HttpError details, e.g. `{ callId }` for a call:start conflict).
+ * Per-socket throttling: call `limitUser(socket.id, ...)` (lib/userLimit.ts) inside `fn`.
  */
 export function socketHandler<S extends z.ZodType, R>(
   socket: AppSocket,
@@ -28,7 +30,9 @@ export function socketHandler<S extends z.ZodType, R>(
     } catch (err) {
       const e = toHttpError(err);
       if (e.status >= 500) logger.error({ err }, 'socket handler failed');
-      if (typeof ack === 'function') ack({ ok: false, error: { code: e.code, message: e.message } });
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: { code: e.code, message: e.message, ...(e.details !== undefined ? { details: e.details } : {}) } });
+      }
     }
   };
 }

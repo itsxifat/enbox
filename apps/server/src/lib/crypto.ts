@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH } from '@enbox/shared';
 
 const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number, opts: object) => Promise<Buffer>;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -35,11 +36,14 @@ export function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
-const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-/** URL-safe, unambiguous invite code (default 22 chars ≈ 128 bits). */
-export function generateInviteCode(length = 22): string {
+/**
+ * URL-safe, unambiguous invite code (INVITE_CODE_LENGTH chars ≈ 128 bits; matches
+ * `inviteCodeSchema`). Codes share one space across chats and communities: callers retry
+ * generation when the code already exists in either table.
+ */
+export function generateInviteCode(length = INVITE_CODE_LENGTH): string {
   const bytes = randomBytes(length);
   let out = '';
-  for (let i = 0; i < length; i++) out += INVITE_ALPHABET[bytes[i]! % INVITE_ALPHABET.length];
+  for (let i = 0; i < length; i++) out += INVITE_CODE_ALPHABET[bytes[i]! % INVITE_CODE_ALPHABET.length];
   return out;
 }

@@ -28,6 +28,7 @@ export const limitReached = (message: string) => new HttpError(409, 'limit_reach
 export const privacyRestricted = (message = "This user's privacy settings don't allow that") =>
   new HttpError(403, 'privacy_restricted', message);
 export const expired = (message: string) => new HttpError(410, 'expired', message);
+export const rateLimited = (message = 'Too many requests, slow down') => new HttpError(429, 'rate_limited', message);
 
 /** Normalise any thrown value into an HttpError (unknown errors become 500). */
 export function toHttpError(err: unknown): HttpError {

@@ -1,15 +1,18 @@
 /**
- * Realtime: chat-list events, read/delivered receipts. Owned by the foundation
+ * Realtime: chat-list events and read receipts. Owned by the foundation
  * (agent 2 may extend; keep handlers idempotent).
+ *
+ * Delivered receipts are server-driven (advanced when a message reaches a connected user,
+ * and on every socket connect); clients never send them.
  *
  * Exports
  * - `markChatRead(chatId, { force })` — emits `chat:read` with the chat's `lastSeq` when the
- *   app is visible+focused (or `force`), and zeroes the unread badge optimistically.
- *   ConversationPane calls it on open and whenever new messages arrive while visible;
- *   `installReadTracking()` also calls it for the open chat when the window regains focus.
- * - `ackDelivered(chats)` — `chat:delivered` for chats with messages newer than our read position.
+ *   app is visible+focused (or `force`), and zeroes the unread badge optimistically (reading
+ *   also clears `markedUnread` server-side). ConversationPane calls it on open and whenever
+ *   new messages arrive while visible; `installReadTracking()` also calls it for the open
+ *   chat when the window regains focus.
  */
-import { type ChatSummary, type ID } from '@enbox/shared';
+import { type ID, type Message } from '@enbox/shared';
 import { api } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { isAppFocused } from '@/lib/notify';
@@ -34,9 +37,6 @@ export function markChatRead(chatId: ID, opts: { force?: boolean } = {}): boolea
   if (!sendEvent('chat:read', { chatId, seq })) {
     void api.post(`/api/chats/${chatId}/read`, { seq }).catch(() => undefined);
   }
-  if (chat.markedUnread) {
-    void api.patch(`/api/chats/${chatId}/prefs`, { markedUnread: false }).catch(() => undefined);
-  }
   useChats.getState().patchChat(chatId, {
     lastReadSeq: Math.max(chat.lastReadSeq, seq),
     unreadCount: 0,
@@ -46,21 +46,15 @@ export function markChatRead(chatId: ID, opts: { force?: boolean } = {}): boolea
   return true;
 }
 
-/** Report delivery for chats that have messages from others beyond our read position. */
-export function ackDelivered(chats: ChatSummary[]): void {
-  const me = getMyId();
-  for (const c of chats) {
-    if (c.lastSeq > c.lastReadSeq && c.lastMessage && c.lastMessage.senderId !== me) {
-      sendEvent('chat:delivered', { chatId: c.id, seq: c.lastSeq });
-    }
-  }
-}
-
 export function registerChatHandlers(socket: AppSocket): void {
   const chats = () => useChats.getState();
 
   socket.on('chat:upsert', ({ chat }) => {
     chats().upsertChat(chat);
+  });
+
+  socket.on('chat:updated', ({ chatId, changes }) => {
+    chats().applyChatUpdate(chatId, changes);
   });
 
   socket.on('chat:removed', ({ chatId }) => {
@@ -77,16 +71,20 @@ export function registerChatHandlers(socket: AppSocket): void {
     }
   });
 
-  socket.on('chat:read', ({ chatId, lastReadSeq, unreadCount }) => {
-    const chat = chats().byId[chatId];
-    if (!chat) return;
-    reportedRead.set(chatId, Math.max(reportedRead.get(chatId) ?? 0, lastReadSeq));
-    chats().patchChat(chatId, {
-      lastReadSeq: Math.max(chat.lastReadSeq, lastReadSeq),
-      unreadCount,
-      unreadMentionCount: unreadCount === 0 ? 0 : chat.unreadMentionCount,
-    });
-  });
+  socket.on(
+    'chat:read',
+    ({ chatId, lastReadSeq, unreadCount, unreadMentionCount, markedUnread }) => {
+      const chat = chats().byId[chatId];
+      if (!chat) return;
+      reportedRead.set(chatId, Math.max(reportedRead.get(chatId) ?? 0, lastReadSeq));
+      chats().patchChat(chatId, {
+        lastReadSeq: Math.max(chat.lastReadSeq, lastReadSeq),
+        unreadCount,
+        unreadMentionCount,
+        markedUnread,
+      });
+    },
+  );
 
   socket.on('chat:watermarks', ({ chatId, readWatermark, deliveredWatermark }) => {
     chats().patchChat(chatId, { readWatermark, deliveredWatermark });
@@ -106,34 +104,39 @@ export function registerChatHandlers(socket: AppSocket): void {
   });
 }
 
-/** After (re)connect: reload the list, ack deliveries, catch up loaded conversations. */
+/**
+ * On every `ready` (the socket doesn't replay missed events): reload the chat list, discard
+ * cached message pages (they may hold stale edits/deletes/reactions/votes), reload the open
+ * chat's latest page + pins, clear typing indicators and mark the open chat read.
+ * Presence re-subscription and `GET /api/calls/active` run in their own domain resyncs.
+ */
 export async function resyncChats(_info: ReadyInfo): Promise<void> {
+  useChats.getState().clearTyping();
   try {
     await useChats.getState().loadChats();
   } catch {
     return; // stays on cached list; next reconnect retries
   }
   const { byId, openChatId } = useChats.getState();
-  ackDelivered(Object.values(byId));
 
   const messages = useMessages.getState();
-  const loaded = Object.keys(messages.byChat).filter((id) => messages.byChat[id]?.loaded);
-  for (const chatId of loaded) {
-    if (!byId[chatId]) messages.dropChat(chatId);
+  for (const chatId of Object.keys(messages.byChat)) {
+    if (chatId !== openChatId) messages.dropChat(chatId);
   }
-  // Open conversation first, then the others (sequentially, cheap `after=` queries).
-  const order =
-    openChatId && loaded.includes(openChatId)
-      ? [openChatId, ...loaded.filter((id) => id !== openChatId)]
-      : loaded;
-  for (const chatId of order) {
-    if (!useChats.getState().byId[chatId]) continue;
-    await useMessages
-      .getState()
-      .catchUp(chatId)
-      .catch(() => undefined);
+  if (openChatId && byId[openChatId]) {
+    await Promise.allSettled([
+      useMessages.getState().loadLatest(openChatId),
+      api.get<Message[]>(`/api/chats/${openChatId}/pins`).then((pins) =>
+        useChats.getState().setPins(
+          openChatId,
+          pins.map((m) => m.id),
+        ),
+      ),
+    ]);
+    markChatRead(openChatId);
+  } else if (openChatId) {
+    messages.dropChat(openChatId);
   }
-  if (openChatId) markChatRead(openChatId);
 }
 
 /**

@@ -7,18 +7,21 @@
  * - `hasMoreBefore` / `hasMoreAfter` (after `loadAround`, newer messages aren't loaded)
  * - `loaded`, `loadingLatest`, `loadingBefore`, `loadingAfter`, `error`
  *
- * Loading
- * - `loadLatest(chatId)`      newest page (replaces the window, keeps optimistic entries)
+ * Loading (every page's side-loaded `users` go into the users store)
+ * - `loadLatest(chatId)`      newest page (replaces the window, keeps optimistic entries);
+ *                             also the reconnect path: after a reconnect cached pages are
+ *                             discarded and the open chat reloads its latest page (never
+ *                             `after=` catch-up, which misses edits/deletes/reactions)
  * - `loadOlder(chatId)`       page before the first loaded seq
  * - `loadNewer(chatId)`       page after the last loaded seq (when `hasMoreAfter`)
  * - `loadAround(chatId, seq)` jump to a message (search, starred, reply quote)
- * - `catchUp(chatId)`         fetch everything after the last loaded seq (reconnects)
  *
  * Mutations (realtime + optimistic)
  * - `upsertMessage(m, { onlyIfPresent })` dedupes by `id`, then by `clientId` (replacing the
- *   optimistic entry). Merges `{ ...old, ...new }` so viewer-specific fields (`starred`,
- *   `localUrl`) survive viewer-neutral `message:updated` payloads. New messages outside the
- *   loaded window are ignored (they load on scroll).
+ *   optimistic entry). Merges with `mergeMessage` so viewer-specific fields (`starred`,
+ *   `myReaction`, `poll.myOptionIds`, `localUrl`) survive viewer-neutral `message:updated`
+ *   payloads. New messages outside the loaded window are ignored (they load on scroll).
+ * - `markQuotesDeleted(messageId)` blank loaded quotes of a message deleted for everyone
  * - `patchMessage(chatId, id, partial)`, `removeMessages(chatId, ids)`,
  *   `clearChat(chatId, clearedSeq)`, `dropChat(chatId)`
  * - `addOptimistic(chatId, input)` → ClientMessage (also bumps the chat-list preview)
@@ -33,6 +36,7 @@
 import { create } from 'zustand';
 import {
   MESSAGES_PAGE_SIZE,
+  extractMentionIds,
   type ID,
   type Message,
   type MessagePage,
@@ -44,6 +48,7 @@ import { isLocalId, localMessageId, newClientId } from '@/lib/ids';
 import { registerSessionReset } from '@/lib/session';
 import { useAuth } from './auth';
 import { useChats } from './chats';
+import { useUsers } from './users';
 
 /** A message as held by the client: server `Message` + optimistic/upload state. */
 export type ClientMessage = Message & {
@@ -68,8 +73,10 @@ export interface ChatMessages {
   error: string | null;
 }
 
-/** Body for `sendMessage`: a SendMessageRequest whose clientId is optional. */
-export type SendInput = Omit<SendMessageRequest, 'clientId'> & { clientId?: string };
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** Body for `sendMessage`: a SendMessageRequest (discriminated by `type`) whose clientId is optional. */
+export type SendInput = DistributiveOmit<SendMessageRequest, 'clientId'> & { clientId?: string };
 
 /** Fields for `addOptimistic`: anything from Message, `type` required. */
 export type OptimisticInput = Partial<ClientMessage> & Pick<Message, 'type'>;
@@ -81,12 +88,12 @@ export interface MessagesState {
   loadOlder(chatId: ID): Promise<void>;
   loadNewer(chatId: ID): Promise<void>;
   loadAround(chatId: ID, seq: number): Promise<void>;
-  catchUp(chatId: ID): Promise<void>;
 
   upsertMessage(message: ClientMessage, opts?: { onlyIfPresent?: boolean }): void;
   upsertMessages(chatId: ID, messages: ClientMessage[]): void;
   patchMessage(chatId: ID, id: ID, partial: Partial<ClientMessage>): void;
   removeMessages(chatId: ID, ids: ID[]): void;
+  markQuotesDeleted(messageId: ID): void;
   clearChat(chatId: ID, clearedSeq: number): void;
   dropChat(chatId: ID): void;
 
@@ -140,6 +147,19 @@ function lowerBound(items: ClientMessage[], end: number, seq: number): number {
   return lo;
 }
 
+/**
+ * Merge an incoming (possibly viewer-neutral) message into the cached one: incoming fields
+ * win, except the viewer-specific ones it lacks (`starred`, `myReaction` stay via the spread;
+ * `poll.myOptionIds` is nested, so it is carried over explicitly).
+ */
+export function mergeMessage(old: ClientMessage, incoming: ClientMessage): ClientMessage {
+  const merged: ClientMessage = { ...old, ...incoming };
+  if (incoming.poll && incoming.poll.myOptionIds === undefined && old.poll?.myOptionIds) {
+    merged.poll = { ...incoming.poll, myOptionIds: old.poll.myOptionIds };
+  }
+  return merged;
+}
+
 function finalize(merged: ClientMessage): ClientMessage {
   if (isOptimistic(merged)) return merged;
   const m = { ...merged };
@@ -172,7 +192,7 @@ export function upsertInto(
   let base = items;
   if (idx >= 0) {
     const old = items[idx]!;
-    merged = finalize({ ...old, ...incoming });
+    merged = finalize(mergeMessage(old, incoming));
     const samePlace = isOptimistic(old) === isOptimistic(merged) && old.seq === merged.seq;
     if (samePlace) {
       const next = items.slice();
@@ -220,12 +240,10 @@ function replaceWindow(items: ClientMessage[], page: Message[]): ClientMessage[]
   );
   const confirmed = [...page]
     .sort((a, b) => a.seq - b.seq)
-    .map((m) =>
-      finalize({
-        ...(oldById.get(m.id) ?? (m.clientId ? oldByClientId.get(m.clientId) : undefined)),
-        ...m,
-      }),
-    );
+    .map((m) => {
+      const old = oldById.get(m.id) ?? (m.clientId ? oldByClientId.get(m.clientId) : undefined);
+      return finalize(old ? mergeMessage(old, m) : m);
+    });
   const confirmedClientIds = new Set(confirmed.map((m) => m.clientId).filter(Boolean));
   const optimistic = items.filter((m) => isOptimistic(m) && !confirmedClientIds.has(m.clientId));
   return confirmed.concat(optimistic);
@@ -241,36 +259,53 @@ function firstConfirmedSeq(items: ClientMessage[]): number {
 }
 
 function optimisticFromRequest(req: SendInput): Partial<ClientMessage> {
-  const poll: Poll | null = req.poll
-    ? {
-        question: req.poll.question,
-        options: req.poll.options.map((text, i) => ({ id: `local-${i}`, text, voterIds: [] })),
-        allowMultiple: req.poll.allowMultiple ?? false,
-        totalVoters: 0,
-      }
-    : null;
+  const text = 'text' in req ? (req.text ?? null) : null;
+  const poll: Poll | null =
+    req.type === 'poll'
+      ? {
+          question: req.poll.question,
+          options: req.poll.options.map((option, i) => ({
+            id: `local-${i}`,
+            text: option,
+            voteCount: 0,
+            voterIds: [],
+          })),
+          allowMultiple: req.poll.allowMultiple ?? false,
+          totalVoters: 0,
+          myOptionIds: [],
+        }
+      : null;
   return {
     type: req.type,
-    text: req.text ?? null,
-    mentions: req.mentions ?? [],
-    location: req.location
-      ? {
-          latitude: req.location.latitude,
-          longitude: req.location.longitude,
-          name: req.location.name ?? null,
-          address: req.location.address ?? null,
-        }
-      : null,
-    contact: req.contact
-      ? {
-          userId: req.contact.userId ?? null,
-          name: req.contact.name,
-          username: req.contact.username ?? null,
-          phone: req.contact.phone ?? null,
-        }
-      : null,
+    text,
+    // The server derives mentions from the text's `@{uuid}` tokens (active members only).
+    mentions: extractMentionIds(text),
+    location:
+      req.type === 'location'
+        ? {
+            latitude: req.location.latitude,
+            longitude: req.location.longitude,
+            name: req.location.name ?? null,
+            address: req.location.address ?? null,
+          }
+        : null,
+    contact:
+      req.type === 'contact'
+        ? {
+            userId: req.contact.userId ?? null,
+            name: req.contact.name ?? '',
+            username: req.contact.username ?? null,
+            phone: req.contact.phone ?? null,
+          }
+        : null,
     poll,
   };
+}
+
+/** Put a page's side-loaded users into the users store and return its messages. */
+function ingestPage(page: MessagePage): Message[] {
+  if (page.users?.length) useUsers.getState().upsertUsers(page.users);
+  return page.messages;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,9 +360,10 @@ export const useMessages = create<MessagesState>((set, get) => {
           const page = await api.get<MessagePage>(pageUrl(chatId), {
             query: { limit: MESSAGES_PAGE_SIZE },
           });
+          const messages = ingestPage(page);
           update(chatId, (s) => ({
-            items: replaceWindow(s.items, page.messages),
-            hasMoreBefore: page.hasMore,
+            items: replaceWindow(s.items, messages),
+            hasMoreBefore: page.hasMoreBefore,
             hasMoreAfter: false,
             loaded: true,
             loadingLatest: false,
@@ -351,9 +387,10 @@ export const useMessages = create<MessagesState>((set, get) => {
           const page = await api.get<MessagePage>(pageUrl(chatId), {
             query: { before, limit: MESSAGES_PAGE_SIZE },
           });
+          const messages = ingestPage(page);
           update(chatId, (cur) => ({
-            items: mergePage(cur.items, page.messages),
-            hasMoreBefore: page.hasMore && page.messages.length > 0,
+            items: mergePage(cur.items, messages),
+            hasMoreBefore: page.hasMoreBefore && messages.length > 0,
             loadingBefore: false,
           }));
         } catch (e) {
@@ -373,9 +410,10 @@ export const useMessages = create<MessagesState>((set, get) => {
           const page = await api.get<MessagePage>(pageUrl(chatId), {
             query: { after, limit: MESSAGES_PAGE_SIZE },
           });
+          const messages = ingestPage(page);
           update(chatId, (cur) => ({
-            items: mergePage(cur.items, page.messages),
-            hasMoreAfter: page.hasMore,
+            items: mergePage(cur.items, messages),
+            hasMoreAfter: page.hasMoreAfter && messages.length > 0,
             loadingAfter: false,
           }));
         } catch (e) {
@@ -392,14 +430,11 @@ export const useMessages = create<MessagesState>((set, get) => {
           const page = await api.get<MessagePage>(pageUrl(chatId), {
             query: { around: seq, limit: MESSAGES_PAGE_SIZE },
           });
-          const sorted = [...page.messages].sort((a, b) => a.seq - b.seq);
-          const first = sorted[0]?.seq ?? 0;
-          const last = sorted[sorted.length - 1]?.seq ?? 0;
-          const chatLastSeq = useChats.getState().byId[chatId]?.lastSeq;
+          const messages = ingestPage(page);
           update(chatId, (cur) => ({
-            items: replaceWindow(cur.items, sorted),
-            hasMoreBefore: first > 1,
-            hasMoreAfter: chatLastSeq !== undefined ? last < chatLastSeq : page.hasMore,
+            items: replaceWindow(cur.items, messages),
+            hasMoreBefore: page.hasMoreBefore,
+            hasMoreAfter: page.hasMoreAfter,
             loaded: true,
             loadingLatest: false,
           }));
@@ -407,25 +442,6 @@ export const useMessages = create<MessagesState>((set, get) => {
           fail(chatId, 'loadingLatest', e);
           throw e;
         }
-      });
-    },
-
-    catchUp(chatId) {
-      const s = chatState(chatId);
-      if (!s.loaded || s.hasMoreAfter) return Promise.resolve();
-      return once(`${chatId}:catchup`, async () => {
-        let after = lastConfirmedSeq(chatState(chatId).items);
-        if (!after) return get().loadLatest(chatId);
-        for (let pageNo = 0; pageNo < 5; pageNo++) {
-          const page = await api.get<MessagePage>(pageUrl(chatId), {
-            query: { after, limit: 200 },
-          });
-          update(chatId, (cur) => ({ items: mergePage(cur.items, page.messages) }));
-          if (!page.hasMore || !page.messages.length) return;
-          after = Math.max(after, ...page.messages.map((m) => m.seq));
-        }
-        // Too far behind: start over from the latest page.
-        await get().loadLatest(chatId);
       });
     },
 
@@ -459,6 +475,23 @@ export const useMessages = create<MessagesState>((set, get) => {
       update(chatId, (s) => {
         const items = s.items.filter((m) => !drop.has(m.id));
         return items.length === s.items.length ? null : { items };
+      });
+    },
+
+    markQuotesDeleted(messageId) {
+      set((st) => {
+        let byChat = st.byChat;
+        for (const [chatId, cm] of Object.entries(st.byChat)) {
+          if (!cm.items.some((m) => m.replyTo?.id === messageId)) continue;
+          const items = cm.items.map((m) =>
+            m.replyTo?.id === messageId
+              ? { ...m, replyTo: { ...m.replyTo, text: null, media: null, deleted: true } }
+              : m,
+          );
+          if (byChat === st.byChat) byChat = { ...st.byChat };
+          byChat[chatId] = { ...cm, items };
+        }
+        return byChat === st.byChat ? st : { byChat };
       });
     },
 

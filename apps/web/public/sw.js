@@ -101,9 +101,20 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ---------------------------------------------------------------------------
-// Web Push
-// payload JSON: { title, body, tag, url, icon }
+// Web Push — payload JSON is `PushPayload` (packages/shared/src/models.ts):
+//   { type: 'message'|'call'|'call_cancel'|'dismiss', title, body, tag, url, icon?, chatId?, callId?, silent? }
+// - message / call: show (unless a focused window exists — the app notifies in-app)
+// - dismiss: close notifications with `tag` (chat read on another device)
+// - call_cancel: close the ringing notification `tag`; show `body` (e.g. "Missed call") if set
 // ---------------------------------------------------------------------------
+
+function closeTagged(tag) {
+  if (!tag) return Promise.resolve();
+  return self.registration
+    .getNotifications({ tag })
+    .then((list) => list.forEach((n) => n.close()))
+    .catch(() => undefined);
+}
 
 self.addEventListener('push', (event) => {
   let data = {};
@@ -117,13 +128,31 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     tag: data.tag || undefined,
     renotify: Boolean(data.tag),
+    silent: Boolean(data.silent),
+    requireInteraction: data.type === 'call',
     icon: data.icon || '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     data: { url: data.url || '/chats' },
   };
+
+  if (data.type === 'dismiss') {
+    event.waitUntil(closeTagged(data.tag));
+    return;
+  }
+  if (data.type === 'call_cancel') {
+    event.waitUntil(
+      closeTagged(data.tag).then(() =>
+        data.body
+          ? self.registration.showNotification(title, { ...options, renotify: false })
+          : undefined,
+      ),
+    );
+    return;
+  }
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // The open, focused app shows its own in-app notification; don't double up.
+      // The open, focused app shows its own in-app notification / call UI; don't double up.
       const focused = clients.some((c) => c.focused && c.visibilityState === 'visible');
       if (focused) return undefined;
       return self.registration.showNotification(title, options);

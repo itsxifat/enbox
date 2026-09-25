@@ -103,14 +103,19 @@ function Composer({ chat }: { chat: ChatSummary }) {
   const [text, setText] = useState('');
   const enterToSend = useUi((s) => s.prefs.enterToSend);
   const me = useAuth((s) => s.user?.id);
+  // `permissions` is computed server-side (computeChatPermissions) — don't re-derive it.
   const blocked =
     chat.membership !== 'active'
       ? "You can't send messages because you're no longer a member."
-      : chat.type === 'channel' && chat.myRole === 'member'
-        ? 'Only channel admins can post.'
-        : chat.groupSettings?.onlyAdminsCanSend && chat.myRole === 'member'
-          ? 'Only admins can send messages.'
-          : null;
+      : chat.permissions.canSend
+        ? null
+        : chat.type === 'channel'
+          ? 'Only channel admins can post.'
+          : chat.type === 'direct'
+            ? chat.peer?.isDeleted
+              ? 'This account was deleted.'
+              : 'Unblock this contact to send a message.'
+            : 'Only admins can send messages.';
   if (blocked || !me) {
     return (
       <div className="shrink-0 border-t border-line bg-surface px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))] text-center text-sm text-muted">

@@ -15,6 +15,7 @@ import type {
   CallStatus,
   ID,
   IncomingCallPayload,
+  RingStopReason,
   Status,
   StatusViewer,
   UserPublic,
@@ -44,7 +45,8 @@ export interface BusEvents {
   'call:signal': { callId: ID; fromUserId: ID; signal: CallSignal };
   'call:media': CallMediaStatePayload & { userId: ID };
   'call:ended': { callId: ID; status: CallStatus; call: Call };
-  'call:handled-elsewhere': { callId: ID };
+  /** Stop ringing on this device (answered/declined elsewhere, timeout, cancelled, ended). */
+  'call:ring-stop': { callId: ID; reason: RingStopReason };
 
   // --- Navigation ---
   /** Ask the router to navigate (used by notifications / service worker clicks). */

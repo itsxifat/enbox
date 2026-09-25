@@ -3,7 +3,7 @@
  * is stored. Lookups are cached briefly to avoid a DB hit per request/socket event.
  */
 import { and, eq, gt } from 'drizzle-orm';
-import { db } from '../db/index.js';
+import { db, type DbOrTx } from '../db/index.js';
 import { sessions, type SessionRow } from '../db/schema.js';
 import { config } from '../config.js';
 import { generateToken, sha256 } from '../lib/crypto.js';
@@ -25,9 +25,10 @@ export interface CreateSessionInput {
   ip?: string | null;
 }
 
-export async function createSession(input: CreateSessionInput): Promise<{ token: string; session: SessionRow }> {
+/** Create a session (pass `tx` when called inside a transaction, e.g. registration). */
+export async function createSession(input: CreateSessionInput, dbx: DbOrTx = db): Promise<{ token: string; session: SessionRow }> {
   const token = generateToken();
-  const [session] = await db
+  const [session] = await dbx
     .insert(sessions)
     .values({
       userId: input.userId,
@@ -78,7 +79,11 @@ function touch(sessionId: string, now: number) {
     .catch(() => {});
 }
 
-/** Drop cached lookups for these sessions (call after deleting session rows). */
+/**
+ * Drop cached lookups for these sessions (call after deleting session rows, then emit
+ * `session:revoked` to rooms.session(id) and `disconnectSession(id)`). Other instances may
+ * honour a revoked token for up to CACHE_TTL_MS (30 s).
+ */
 export function invalidateSessions(sessionIds: string[]) {
   const ids = new Set(sessionIds);
   for (const [hash, entry] of cache) if (ids.has(entry.ctx.sessionId)) cache.delete(hash);
