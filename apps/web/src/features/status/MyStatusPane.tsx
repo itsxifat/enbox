@@ -3,8 +3,9 @@
  * view count; open one in the viewer, delete, or add another.
  */
 import { useNavigate } from 'react-router';
-import { Camera, CircleDashed, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Camera, Eye, Pencil, Trash2 } from 'lucide-react';
 import type { Status } from '@enbox/shared';
+import { UpdatesIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { EmptyState, IconButton, ListSection, confirm, toast } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -61,7 +62,7 @@ export function MyStatusPane() {
         <div className="mx-auto max-w-2xl">
           {newest.length === 0 ? (
             <EmptyState
-              icon={CircleDashed}
+              icon={UpdatesIcon}
               title="No status updates"
               description="Share text, photos and videos with your contacts. They disappear after 24 hours."
             />

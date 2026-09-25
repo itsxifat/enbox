@@ -25,30 +25,34 @@ export function BottomTabs() {
               >
                 <span
                   className={cn(
-                    'relative flex h-8 w-14 items-center justify-center rounded-full transition-colors duration-200',
+                    'relative flex h-8 w-16 items-center justify-center rounded-full transition-colors duration-200',
                     'group-focus-visible:outline-2 group-focus-visible:outline-brand',
-                    active ? 'bg-brand-soft text-brand-ink' : 'text-muted',
+                    active ? 'bg-brand-soft text-brand-ink' : 'text-muted group-active:bg-hover',
                   )}
                 >
-                  <t.icon size={22} strokeWidth={active ? 2.2 : 1.9} aria-hidden />
+                  {active ? (
+                    <t.activeIcon size={24} className="animate-icon-pop" aria-hidden />
+                  ) : (
+                    <t.icon size={24} aria-hidden />
+                  )}
                   {badge?.count ? (
                     <Badge
                       count={badge.count}
                       size="sm"
-                      className="absolute -top-1 left-[30px] ring-2 ring-surface"
+                      className="absolute -top-1 left-[34px] ring-2 ring-surface"
                       label={badgeText ?? undefined}
                     />
                   ) : badge?.dot ? (
                     <Badge
                       dot
-                      className="absolute top-0.5 right-3 ring-2 ring-surface"
+                      className="absolute top-0.5 right-[18px] ring-2 ring-surface"
                       label={badgeText ?? undefined}
                     />
                   ) : null}
                 </span>
                 <span
                   className={cn(
-                    'text-[12px] leading-none',
+                    'text-[12px] leading-none transition-colors',
                     active ? 'font-semibold text-fg' : 'font-medium text-muted',
                   )}
                 >

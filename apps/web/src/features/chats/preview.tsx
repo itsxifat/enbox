@@ -112,8 +112,7 @@ export function PreviewLine({
     <span className={cn('inline-flex min-w-0 max-w-full items-center gap-1', className)}>
       {Icon ? (
         <Icon
-          size={15}
-          strokeWidth={2}
+          size={16}
           className={cn('shrink-0', parts.danger ? 'text-danger' : 'opacity-80', iconClassName)}
           aria-hidden
         />

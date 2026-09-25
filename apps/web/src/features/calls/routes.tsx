@@ -1,6 +1,6 @@
 /** Calls routes — OWNED BY FEATURE AGENT 4. */
 import type { RouteObject } from 'react-router';
-import { Phone } from 'lucide-react';
+import { CallsIcon } from '@/components/icons';
 import { MainEmpty } from '@/components/layout/MainEmpty';
 import { SplitView } from '@/components/layout/SplitView';
 import { lazyNamed } from '@/lib/lazy';
@@ -17,7 +17,7 @@ export const callsRoutes: RouteObject[] = [
         list={<CallsPane />}
         empty={
           <MainEmpty
-            icon={Phone}
+            icon={CallsIcon}
             title="Calls"
             description="Make voice and video calls to your contacts and groups, right from your browser. Select a call to see its details."
           />

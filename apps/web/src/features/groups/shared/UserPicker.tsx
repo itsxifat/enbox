@@ -6,6 +6,7 @@ import { useRef, type ReactNode } from 'react';
 import { Check, SearchX, UserRoundSearch, X } from 'lucide-react';
 import { userDisplayName, type ID, type UserPublic } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { EmptyState, ListItemSkeleton, SearchInput, Spinner } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { isRemoteQuery, useCandidates } from './candidates';
@@ -58,7 +59,7 @@ export function UserPicker({
                 <span className="relative">
                   <UserAvatar user={u} size="lg" />
                   <span className="absolute -right-0.5 -bottom-0.5 flex size-5 items-center justify-center rounded-full bg-subtle text-surface ring-2 ring-surface transition-colors group-hover:bg-danger group-hover:text-white">
-                    <X size={12} strokeWidth={3} aria-hidden />
+                    <X size={12} strokeWidth={ICON_STROKE_BOLD} aria-hidden />
                   </span>
                 </span>
                 <span className="w-full truncate text-center text-[12px] text-muted">
@@ -198,7 +199,7 @@ export function RoundCheck({ checked }: { checked: boolean }) {
         checked ? 'border-brand bg-brand text-on-brand' : 'border-line-strong',
       )}
     >
-      {checked ? <Check size={14} strokeWidth={3} className="animate-pop" /> : null}
+      {checked ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} className="animate-pop" /> : null}
     </span>
   );
 }

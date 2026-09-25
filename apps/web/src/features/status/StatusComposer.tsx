@@ -5,8 +5,9 @@
  */
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { ImagePlus, Lock, Palette, SendHorizontal, Smile, Type, X } from 'lucide-react';
+import { ImagePlus, Lock, Palette, Smile, Type, X } from 'lucide-react';
 import { STATUS_TEXT_MAX_LENGTH } from '@enbox/shared';
+import { SendIcon } from '@/components/icons';
 import { Portal, Spinner, toast, useFocusTrap, useOverlay } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { lazyNamed } from '@/lib/lazy';
@@ -238,7 +239,7 @@ function TextComposer({
           onPick={onPickFile}
           className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-black/30 px-3.5 text-[13px] font-medium backdrop-blur hover:bg-black/45"
         >
-          <ImagePlus size={15} aria-hidden /> Photo & video
+          <ImagePlus size={16} aria-hidden /> Photo & video
         </FilePicker>
         <PrivacyChip onClick={() => setPrivacy(true)} />
         <div className="flex-1" />
@@ -251,7 +252,7 @@ function TextComposer({
           onClick={() => void send()}
           className="flex size-14 shrink-0 items-center justify-center rounded-full bg-white text-[#15141c] shadow-xl transition-transform hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
         >
-          {sending ? <Spinner size={22} label={null} /> : <SendHorizontal size={24} aria-hidden />}
+          {sending ? <Spinner size={22} label={null} /> : <SendIcon size={24} aria-hidden />}
         </button>
       </footer>
       <StatusPrivacyDialog open={privacy} onClose={() => setPrivacy(false)} />
@@ -358,7 +359,7 @@ function MediaComposer({
           onPick={onChange}
           className="flex h-9 items-center gap-1.5 rounded-full bg-white/15 px-3.5 text-[13px] font-medium hover:bg-white/25"
         >
-          <ImagePlus size={15} aria-hidden /> Change
+          <ImagePlus size={16} aria-hidden /> Change
         </FilePicker>
         <ToolButton icon={Type} label="Text status instead" onClick={() => onChange(null)} />
       </header>
@@ -397,7 +398,7 @@ function MediaComposer({
             {!prepared && !error ? (
               <Spinner size={20} label="Preparing" />
             ) : (
-              <SendHorizontal size={22} aria-hidden />
+              <SendIcon size={22} aria-hidden />
             )}
           </button>
         </div>

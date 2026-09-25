@@ -6,6 +6,7 @@
 import { useRef, useState } from 'react';
 import { Camera, ImageUp, Trash2 } from 'lucide-react';
 import { AVATAR_MIME_TYPES, type MediaAttachment } from '@enbox/shared';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { Avatar, Menu, toast, type AvatarKind } from '@/components/ui';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -126,7 +127,10 @@ export function EditableAvatar({
             className="absolute right-[4%] bottom-[4%] flex items-center justify-center rounded-full bg-brand text-on-brand shadow-sm ring-3 ring-surface"
             style={{ width: Math.max(24, size * 0.26), height: Math.max(24, size * 0.26) }}
           >
-            <Camera size={Math.max(13, size * 0.13)} strokeWidth={2.2} />
+            <Camera
+              size={Math.round(Math.max(14, size * 0.13))}
+              strokeWidth={ICON_STROKE_ON_FILL}
+            />
           </span>
         ) : null}
       </button>

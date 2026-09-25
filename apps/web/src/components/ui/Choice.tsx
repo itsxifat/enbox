@@ -1,5 +1,6 @@
 import { useId, useRef, useEffect, type ReactNode } from 'react';
 import { Check, Minus } from 'lucide-react';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { cn } from '@/lib/cn';
 
 // ---------------------------------------------------------------------------
@@ -144,14 +145,14 @@ export function Checkbox({
           indeterminate ? (
             <Minus
               size={14}
-              strokeWidth={3}
+              strokeWidth={ICON_STROKE_BOLD}
               className="pointer-events-none absolute inset-0 m-auto text-on-brand"
               aria-hidden
             />
           ) : (
             <Check
               size={14}
-              strokeWidth={3}
+              strokeWidth={ICON_STROKE_BOLD}
               className="pointer-events-none absolute inset-0 m-auto text-on-brand"
               aria-hidden
             />

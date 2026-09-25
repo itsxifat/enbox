@@ -1,6 +1,7 @@
 /** Presentation helpers shared by the call log list and the call details page. */
 import { ArrowDownLeft, ArrowUpRight, Video } from 'lucide-react';
 import { chatTitle, formatDuration, type CallLogEntry } from '@enbox/shared';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { Avatar, toast, type AvatarSize } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useCalls } from '@/stores/calls';
@@ -52,7 +53,7 @@ export function DirectionIcon({ entry, className }: { entry: CallLogEntry; class
     <span className={cn('inline-flex shrink-0 items-center gap-0.5', className)}>
       <Arrow
         size={16}
-        strokeWidth={2.4}
+        strokeWidth={ICON_STROKE_BOLD}
         className={
           bad
             ? 'text-danger'

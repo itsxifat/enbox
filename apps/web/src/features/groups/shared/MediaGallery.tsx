@@ -93,7 +93,7 @@ function Thumb({ m }: { m: Message }) {
       )}
       {m.type === 'video' ? (
         <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/60 to-transparent px-1.5 pt-3 pb-1 text-[11px] font-medium text-white">
-          <Play size={11} fill="currentColor" aria-hidden />
+          <Play size={12} fill="currentColor" aria-hidden />
           {m.media?.durationMs ? formatDuration(m.media.durationMs) : null}
         </span>
       ) : null}

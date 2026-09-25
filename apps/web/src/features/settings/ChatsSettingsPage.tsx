@@ -1,4 +1,5 @@
-import { Check, CheckCheck, CornerDownLeft, Sparkles } from 'lucide-react';
+import { Check, CornerDownLeft, Sparkles } from 'lucide-react';
+import { ICON_STROKE_BOLD, DoubleTickIcon } from '@/components/icons';
 import { cn } from '@/lib/cn';
 import {
   FONT_SIZES,
@@ -73,7 +74,7 @@ function ThemePicker() {
               )}
               {selected ? (
                 <span className="absolute right-1.5 bottom-1.5 flex size-5 items-center justify-center rounded-full bg-brand text-on-brand">
-                  <Check size={13} strokeWidth={3} aria-hidden />
+                  <Check size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden />
                 </span>
               ) : null}
             </span>
@@ -120,7 +121,7 @@ function WallpaperPicker() {
             >
               {selected ? (
                 <span className="flex size-6 items-center justify-center rounded-full bg-brand text-on-brand shadow">
-                  <Check size={14} strokeWidth={3} aria-hidden />
+                  <Check size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden />
                 </span>
               ) : null}
             </span>
@@ -177,7 +178,7 @@ function ChatPreview() {
       <div className="max-w-[78%] self-end rounded-2xl rounded-tr-md bg-bubble-out px-3 py-1.5 text-chat leading-snug text-fg shadow-bubble">
         Yes! This one looks great
         <span className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-bubble-out-meta">
-          10:42 <CheckCheck size={14} className="text-tick-read" />
+          10:42 <DoubleTickIcon size={14} className="text-tick-read" />
         </span>
       </div>
     </div>

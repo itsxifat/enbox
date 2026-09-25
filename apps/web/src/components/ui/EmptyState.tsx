@@ -36,7 +36,7 @@ export function EmptyState({
             compact ? 'size-12' : 'size-16',
           )}
         >
-          <Icon size={compact ? 22 : 28} strokeWidth={1.8} aria-hidden />
+          <Icon size={compact ? 22 : 28} strokeWidth={1.75} nonScalingStroke={false} aria-hidden />
         </div>
       ) : null}
       <h3 className={cn('font-semibold text-fg', compact ? 'text-[15px]' : 'text-lg')}>{title}</h3>

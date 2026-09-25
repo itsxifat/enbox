@@ -1,12 +1,18 @@
 import type { ReactNode } from 'react';
-import { CheckCheck, CircleDashed, MessageCircle, Phone, UsersRound } from 'lucide-react';
 import { Logo, LogoMark } from '@/components/common/Logo';
+import {
+  CallsIcon,
+  ChatsIcon,
+  CommunitiesIcon,
+  DoubleTickIcon,
+  UpdatesIcon,
+} from '@/components/icons';
 
 const FEATURES = [
-  { icon: MessageCircle, text: 'Fast chats that stay in sync on every device' },
-  { icon: UsersRound, text: 'Groups, communities and channels' },
-  { icon: Phone, text: 'Crystal-clear voice and video calls' },
-  { icon: CircleDashed, text: 'Status updates that disappear after 24 hours' },
+  { icon: ChatsIcon, text: 'Fast chats that stay in sync on every device' },
+  { icon: CommunitiesIcon, text: 'Groups, communities and channels' },
+  { icon: CallsIcon, text: 'Crystal-clear voice and video calls' },
+  { icon: UpdatesIcon, text: 'Status updates that disappear after 24 hours' },
 ];
 
 /** A little decorative conversation for the brand panel. */
@@ -33,7 +39,7 @@ function ChatPreview() {
         <div className="max-w-[80%] self-end rounded-2xl rounded-tr-md bg-violet-200 px-3 py-2 text-slate-900">
           Yes! See you at 8
           <span className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-slate-500">
-            19:03 <CheckCheck size={14} className="text-sky-500" />
+            19:03 <DoubleTickIcon size={14} className="text-sky-500" />
           </span>
         </div>
         <div className="max-w-[80%] self-start rounded-2xl rounded-tl-md bg-white px-3 py-2 text-slate-800">
@@ -78,7 +84,7 @@ export function AuthLayout({
               {FEATURES.map(({ icon: Icon, text }) => (
                 <li key={text} className="flex items-center gap-3 text-[15px] text-white/90">
                   <span className="flex size-8 items-center justify-center rounded-full bg-white/15">
-                    <Icon size={17} aria-hidden />
+                    <Icon size={18} aria-hidden />
                   </span>
                   {text}
                 </li>

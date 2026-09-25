@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef } from 'react';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import type { IconType } from '@/components/ui';
 import { cn } from '@/lib/cn';
 
@@ -59,7 +60,7 @@ export function CallButton({
       )}
       {...rest}
     >
-      <Icon size={s.icon} strokeWidth={2} aria-hidden />
+      <Icon size={s.icon} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
     </button>
   );
   if (!caption) return button;

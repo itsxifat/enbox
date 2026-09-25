@@ -72,7 +72,7 @@ export function SystemPill({
         </button>
       ) : (
         <span className="inline-flex items-center gap-1.5">
-          {timer ? <Timer size={13} aria-hidden /> : null}
+          {timer ? <Timer size={14} aria-hidden /> : null}
           {text}
         </span>
       )}

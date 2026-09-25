@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router';
 import { AtSign, BellOff, ChevronDown, MessageSquareText, Pin } from 'lucide-react';
 import { chatTitle, isMuted, renderMentions, tickStatus, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { IN_APP_NAV } from '@/components/layout/navigation';
 import { Badge, ListItem, Menu, type MenuAnchor } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -149,9 +150,9 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
         subtitle={subtitle}
         trailing={
           <>
-            {muted ? <BellOff size={15} aria-label="Muted" /> : null}
+            {muted ? <BellOff size={16} aria-label="Muted" /> : null}
             {chat.isPinned && !chat.isArchived ? (
-              <Pin size={15} className="rotate-45" aria-label="Pinned" />
+              <Pin size={16} className="rotate-45" aria-label="Pinned" />
             ) : null}
             {chat.unreadMentionCount > 0 ? (
               <span
@@ -159,7 +160,7 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
                 aria-label="You were mentioned"
                 role="img"
               >
-                <AtSign size={12} strokeWidth={2.6} aria-hidden />
+                <AtSign size={14} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
               </span>
             ) : null}
             {unread ? (

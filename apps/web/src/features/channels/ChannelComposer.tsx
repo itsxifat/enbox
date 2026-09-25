@@ -4,15 +4,7 @@
  * preference.
  */
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import {
-  BarChart3,
-  FileText,
-  Image as ImageIcon,
-  Paperclip,
-  Plus,
-  SendHorizontal,
-  Trash2,
-} from 'lucide-react';
+import { BarChart3, FileText, Image as ImageIcon, Paperclip, Plus, Trash2 } from 'lucide-react';
 import {
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
@@ -20,6 +12,7 @@ import {
   pollInputSchema,
   type ChatSummary,
 } from '@enbox/shared';
+import { SendIcon } from '@/components/icons';
 import {
   Button,
   DropdownMenu,
@@ -104,7 +97,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
       />
       <IconButton
         type="submit"
-        icon={SendHorizontal}
+        icon={SendIcon}
         label="Post"
         variant="brand"
         size="lg"
@@ -194,7 +187,7 @@ function PollModal({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} leftIcon={SendHorizontal}>
+          <Button onClick={submit} leftIcon={SendIcon}>
             Post poll
           </Button>
         </>

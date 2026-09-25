@@ -9,8 +9,8 @@
  *                             lives here because it needs an authenticated session
  */
 import type { RouteObject } from 'react-router';
-import { Settings } from 'lucide-react';
 import type { RouteHandle } from '@/app/routeHandle';
+import { SettingsIcon } from '@/components/icons';
 import { MainEmpty } from '@/components/layout/MainEmpty';
 import { SplitView } from '@/components/layout/SplitView';
 import { lazyNamed } from '@/lib/lazy';
@@ -29,7 +29,7 @@ export const settingsRoutes: RouteObject[] = [
         list={<SettingsPane />}
         empty={
           <MainEmpty
-            icon={Settings}
+            icon={SettingsIcon}
             title="Settings"
             description="Manage your profile, privacy, notifications and devices."
           />

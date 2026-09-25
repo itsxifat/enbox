@@ -31,6 +31,7 @@ src/
   app/                   router composition, guards, root layout, error pages [foundation]
   components/
     ui/                  UI kit (Button, Modal, Menu, Sheet, ListItem…)      [shared, append-only]
+    icons/               Enbox icon set + IconProvider (app-wide stroke system)
     layout/              AppShell, NavRail, BottomTabs, SplitView, PaneHeader, MainEmpty, banners
     common/              Logo, ChatAvatar, UserAvatar, Placeholder
   hooks/                 useIsDesktop/useMediaQuery, useBus, useAppVisible, useOnline, useDebouncedValue
@@ -87,7 +88,9 @@ const CallsPane = lazyNamed(() => import('./CallsPane'), 'CallsPane'); // code-s
 export const callsRoutes: RouteObject[] = [
   {
     path: 'calls',
-    element: <SplitView list={<CallsPane />} empty={<MainEmpty icon={Phone} title="Calls" />} />,
+    element: (
+      <SplitView list={<CallsPane />} empty={<MainEmpty icon={CallsIcon} title="Calls" />} />
+    ),
     children: [{ path: ':callId', element: <CallDetails />, handle: { detail: true } }],
   },
 ];
@@ -263,7 +266,7 @@ derives `mentions`. Bodies are discriminated by `type` and strict (no foreign fi
   restores `--tw-outline-style` on `.outline-none:focus-visible`); don't rely on `focus-visible:bg-hover`
   alone — it is nearly invisible.
   Animations: `animate-fade-in`, `-scale-in`, `-slide-up`, `-slide-in-right`, `-slide-down`,
-  `-pop` (reduced-motion respected).
+  `-pop`, `-icon-pop` (a tab icon switching to its filled state; reduced-motion respected).
 - **There is no tailwind-merge**: `className` overrides must not fight a component's own
   utilities (e.g. passing `rounded-2xl` to a `rounded-full` button). Use variant props
   instead (`Button variant/size`, `IconButton variant/size/shape`, `Input/Textarea
@@ -278,6 +281,25 @@ context menus) and `DropdownMenu`, `Tabs` (underline/chips), `Sheet` (right pane
 full screen on phones), `ListItem`/`ListSection`, `SearchInput`, `Spinner`/`PageSpinner`,
 `Skeleton`/`ListItemSkeleton`, `EmptyState`, `Tooltip`, `Toaster` + `toast`. Plus
 `components/common`: `ChatAvatar` (any chat, optional presence), `UserAvatar`, `Logo`.
+
+### Icons (`@/components/icons`)
+
+- **One line weight everywhere.** `IconProvider` (wrapped around the app in `main.tsx`) gives
+  every lucide and Enbox icon a non-scaling **1.5px** stroke (`ICON_STROKE`), so a 14px glyph
+  in a chat row and a 24px glyph in a header look equally crisp. Don't pass `strokeWidth` for
+  ordinary icons. Two deliberate exceptions: `ICON_STROKE_BOLD` (2px — checkmarks in selection
+  circles, tiny glyphs on badges) and `ICON_STROKE_ON_FILL` (1.75px — white glyphs on brand /
+  danger / call buttons; `Button` and `IconButton` apply it for their filled variants).
+- **Sizes on the even grid**: 12 / 14 / 16 / 18 / 20 / 22 / 24 (odd sizes render blurry).
+  Menus and list rows use 20, headers 22 (`IconButton md`), tabs 24.
+- Large illustrative icons (empty states, avatar fallbacks) scale their stroke with the size:
+  `nonScalingStroke={false}` (see `EmptyState`, `MainEmpty`, `Avatar`).
+- Enbox glyphs (drawn on lucide's 24-unit grid, same props as lucide icons): tab icons with
+  identical-silhouette filled variants for the current tab (`ChatsIcon`/`ChatsFilledIcon`,
+  `UpdatesIcon` — the status ring, `CommunitiesIcon`, `CallsIcon`, `SettingsIcon`),
+  `TickIcon`/`DoubleTickIcon` (message status), `SendIcon` (solid, for filled send buttons) and
+  `NewChatIcon`. New ones: `createIcon(name, ({ uid, sw }) => <paths/>)`; use `uid` for mask ids
+  and `sw` (the effective stroke in viewBox units) for cut-out widths.
 
 ## PWA, notifications, push
 

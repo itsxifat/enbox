@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Check } from 'lucide-react';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { cn } from '@/lib/cn';
 
 export interface SelectRowProps {
@@ -50,7 +51,7 @@ export function SelectRow({
           checked ? 'border-brand bg-brand text-on-brand' : 'border-line-strong',
         )}
       >
-        {checked ? <Check size={12} strokeWidth={3.5} /> : null}
+        {checked ? <Check size={12} strokeWidth={ICON_STROKE_BOLD} /> : null}
       </span>
     </label>
   );

@@ -1,5 +1,6 @@
-import { AlertCircle, Check, CheckCheck, Clock3 } from 'lucide-react';
+import { AlertCircle, Clock3 } from 'lucide-react';
 import type { TickStatus } from '@enbox/shared';
+import { DoubleTickIcon, TickIcon } from '@/components/icons';
 import { cn } from '@/lib/cn';
 
 const LABELS: Record<TickStatus | 'failed', string> = {
@@ -20,27 +21,27 @@ export function Ticks({
   size?: number;
   className?: string;
 }) {
-  const common = { size, strokeWidth: 2.2, 'aria-hidden': true as const };
   return (
     <span
       role="img"
       aria-label={LABELS[status]}
       data-status={status}
       className={cn(
-        'inline-flex shrink-0 items-center',
+        'inline-flex shrink-0 items-center justify-center',
         status === 'read' && 'text-tick-read',
         status === 'failed' && 'text-danger',
         className,
       )}
+      style={{ width: size, height: size }}
     >
       {status === 'pending' ? (
-        <Clock3 {...common} size={size - 3} />
+        <Clock3 size={size - 4} aria-hidden />
       ) : status === 'sent' ? (
-        <Check {...common} />
+        <TickIcon size={size} aria-hidden />
       ) : status === 'failed' ? (
-        <AlertCircle {...common} size={size - 2} />
+        <AlertCircle size={size - 2} aria-hidden />
       ) : (
-        <CheckCheck {...common} />
+        <DoubleTickIcon size={size} aria-hidden />
       )}
     </span>
   );

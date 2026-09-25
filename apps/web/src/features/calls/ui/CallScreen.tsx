@@ -332,7 +332,7 @@ function OneToOneStage({ active, peerId }: { active: ActiveCall; peerId: ID | nu
       <div className="absolute inset-0 flex">{main}</div>
       {remote?.audioMuted && remote.status === 'joined' ? (
         <span className="absolute top-[calc(env(safe-area-inset-top)+76px)] left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-[12px] backdrop-blur">
-          <MicOff size={13} aria-hidden /> Muted
+          <MicOff size={14} aria-hidden /> Muted
         </span>
       ) : null}
       {small ? (

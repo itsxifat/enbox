@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { userDisplayName, type ID, type UserPublic } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Avatar,
@@ -70,7 +71,7 @@ function ActionRow({
       className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand text-on-brand">
-        <Icon size={22} aria-hidden />
+        <Icon size={22} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
       </span>
       <span className="flex min-w-0 flex-col">
         <span className="text-[16px] font-medium text-fg">{title}</span>

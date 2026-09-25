@@ -132,7 +132,7 @@ export function ChannelDiscoverPane() {
                     </Link>
                     {following ? (
                       <span className="inline-flex h-8 items-center gap-1 rounded-full px-3 text-[13px] font-medium text-muted">
-                        <Check size={15} aria-hidden /> Following
+                        <Check size={16} aria-hidden /> Following
                       </span>
                     ) : (
                       <Button

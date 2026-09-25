@@ -125,7 +125,8 @@ export function Avatar({
         ) : (
           <Icon
             size={Math.round(px * 0.52)}
-            strokeWidth={1.8}
+            strokeWidth={1.75}
+            nonScalingStroke={false}
             className={kind === 'user' ? 'text-white' : 'text-white dark:text-fg'}
             aria-hidden
           />

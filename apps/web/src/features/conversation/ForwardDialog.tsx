@@ -1,9 +1,10 @@
 /** Forward messages to up to MAX_FORWARD_TARGETS chats (search, multi-select). */
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, SendHorizontal } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { MAX_FORWARD_TARGETS, chatTitle, type ChatSummary, type Message } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { ICON_STROKE_BOLD, SendIcon } from '@/components/icons';
 import { EmptyState, IconButton, ListItem, Modal, SearchInput } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
@@ -108,7 +109,7 @@ function ForwardDialogInner({
             {names.length ? names.join(', ') : `Select up to ${MAX_FORWARD_TARGETS} chats`}
           </p>
           <IconButton
-            icon={SendHorizontal}
+            icon={SendIcon}
             label="Forward"
             variant="brand"
             size="lg"
@@ -152,7 +153,7 @@ function ForwardDialogInner({
                       on ? 'border-brand bg-brand text-on-brand' : 'border-line-strong',
                     )}
                   >
-                    {on ? <Check size={13} strokeWidth={3} /> : null}
+                    {on ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} /> : null}
                   </span>
                 }
                 active={on}

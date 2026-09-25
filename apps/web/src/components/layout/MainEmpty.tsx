@@ -25,7 +25,7 @@ export function MainEmpty({
         />
         {Icon ? (
           <div className="relative flex size-28 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
-            <Icon size={48} strokeWidth={1.5} aria-hidden />
+            <Icon size={48} strokeWidth={1.5} nonScalingStroke={false} aria-hidden />
           </div>
         ) : (
           <LogoMark size={96} className="relative drop-shadow-xl" />

@@ -133,7 +133,7 @@ export function DevicesPage() {
                       aria-label={`${s.deviceName}${s.current ? ' (this device)' : ''}. ${lastActive(s)}. Log out`}
                     >
                       <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
-                        <Icon size={22} strokeWidth={1.8} aria-hidden />
+                        <Icon size={22} aria-hidden />
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span className="flex items-center gap-2">

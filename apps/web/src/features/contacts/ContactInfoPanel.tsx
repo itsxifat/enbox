@@ -113,8 +113,7 @@ function Row({
   const body = (
     <>
       <Icon
-        size={21}
-        strokeWidth={1.8}
+        size={22}
         className={cn('shrink-0', danger ? 'text-danger' : 'text-muted')}
         aria-hidden
       />
@@ -161,7 +160,7 @@ function QuickAction({
       onClick={onClick}
       className="flex w-24 flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
-      <Icon size={22} strokeWidth={1.9} aria-hidden />
+      <Icon size={22} aria-hidden />
       <span className="text-[13px] font-medium text-fg">{label}</span>
     </button>
   );
@@ -481,12 +480,7 @@ function ContactInfo({
       {self ? (
         <Card>
           <div className="flex items-start gap-5 px-5 py-3">
-            <NotebookPen
-              size={21}
-              strokeWidth={1.8}
-              className="mt-0.5 shrink-0 text-muted"
-              aria-hidden
-            />
+            <NotebookPen size={22} className="mt-0.5 shrink-0 text-muted" aria-hidden />
             <p className="text-[14px] leading-relaxed text-muted">
               Use this chat to keep notes, links, photos and files for yourself. Only you can see
               it, and it syncs across your devices.

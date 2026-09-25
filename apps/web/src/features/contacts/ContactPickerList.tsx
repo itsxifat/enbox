@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Check, Contact as ContactIcon } from 'lucide-react';
 import { userDisplayName, type ID, type UserPublic } from '@enbox/shared';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { EmptyState, ListItemSkeleton, SearchInput } from '@/components/ui';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { cn } from '@/lib/cn';
@@ -100,7 +101,7 @@ export function ContactPickerList({
                       )}
                       aria-hidden
                     >
-                      {isSel ? <Check size={13} strokeWidth={3.5} /> : null}
+                      {isSel ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} /> : null}
                     </span>
                   </button>
                 ) : (

@@ -36,6 +36,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Button, IconButton, Switch, confirm, toast } from '@/components/ui';
 import type { InfoPanelProps } from '@/features/contacts/ContactInfoPanel';
@@ -640,7 +641,7 @@ function ActionRow({
       className="flex w-full items-center gap-3 px-5 py-2.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <span className="flex size-10 items-center justify-center rounded-full bg-brand text-on-brand">
-        <Icon size={20} aria-hidden />
+        <Icon size={20} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
       </span>
       <span className="text-[15.5px] font-medium text-fg">{label}</span>
     </button>

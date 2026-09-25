@@ -28,17 +28,33 @@ export function NavRail() {
         title={t.label}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'relative flex size-11 items-center justify-center rounded-full transition-colors duration-150',
+          'group/tab relative flex size-11 items-center justify-center rounded-2xl transition-colors duration-150',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
           active ? 'bg-brand-soft text-brand-ink' : 'text-muted hover:bg-hover hover:text-fg',
         )}
       >
-        <t.icon size={22} strokeWidth={active ? 2.2 : 1.9} aria-hidden />
+        {/* Current-page marker on the rail's edge. */}
+        <span
+          aria-hidden
+          className={cn(
+            'absolute top-1/2 -left-3 h-5 w-1 -translate-y-1/2 rounded-r-full bg-brand transition-transform duration-200',
+            active ? 'scale-y-100' : 'scale-y-0',
+          )}
+        />
+        {active ? (
+          <t.activeIcon size={24} className="animate-icon-pop" aria-hidden />
+        ) : (
+          <t.icon
+            size={24}
+            className="transition-transform duration-150 group-active/tab:scale-90"
+            aria-hidden
+          />
+        )}
         {badge?.count ? (
           <Badge
             count={badge.count}
             size="sm"
-            className="absolute -top-0.5 -right-1 ring-2 ring-app"
+            className="absolute -top-1 -right-1.5 ring-2 ring-app"
           />
         ) : badge?.dot ? (
           <Badge dot className="absolute top-1.5 right-1.5 ring-2 ring-app" />

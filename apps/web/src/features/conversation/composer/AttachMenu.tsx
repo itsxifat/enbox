@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { Popover } from '../Popover';
 
 export type AttachKind =
@@ -75,7 +76,7 @@ export function AttachMenu({
               className="flex size-11 shrink-0 items-center justify-center rounded-full text-white sm:size-8"
               style={{ backgroundColor: item.color }}
             >
-              <item.icon size={20} strokeWidth={2} aria-hidden />
+              <item.icon size={20} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
             </span>
             <span className="text-center sm:pr-4 sm:text-left">{item.label}</span>
           </button>

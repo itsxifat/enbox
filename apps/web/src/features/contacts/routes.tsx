@@ -5,8 +5,8 @@
  *   /u/:username    public profile link (shared from Settings → Profile)
  */
 import type { RouteObject } from 'react-router';
-import { MessageSquarePlus } from 'lucide-react';
 import type { RouteHandle } from '@/app/routeHandle';
+import { NewChatIcon } from '@/components/icons';
 import { MainEmpty } from '@/components/layout/MainEmpty';
 import { FullView, SplitView } from '@/components/layout/SplitView';
 import { lazyNamed } from '@/lib/lazy';
@@ -25,7 +25,7 @@ export const contactsRoutes: RouteObject[] = [
         list={<NewChatPane />}
         empty={
           <MainEmpty
-            icon={MessageSquarePlus}
+            icon={NewChatIcon}
             title="Start a new chat"
             description="Pick a contact, search anyone by their @username or phone number, or message yourself to keep notes."
           />

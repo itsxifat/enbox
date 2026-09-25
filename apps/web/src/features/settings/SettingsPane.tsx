@@ -1,11 +1,27 @@
 import { Link, useParams } from 'react-router';
 import { ChevronRight, LogOut } from 'lucide-react';
-import { Avatar } from '@/components/ui';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
+import { Avatar, type IconType } from '@/components/ui';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/stores/auth';
 import { confirmLogout } from './account/AccountPage';
 import { SETTINGS_SECTIONS } from './sections';
+
+const ROW =
+  'flex items-center gap-4 rounded-xl px-3 py-2.5 outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand';
+
+/** iOS-style colored tile behind a white section icon. */
+function IconTile({ icon: Icon, color }: { icon: IconType; color: string }) {
+  return (
+    <span
+      className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-linear-to-b from-white/15 to-transparent text-white shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.12)]"
+      style={{ backgroundColor: color }}
+    >
+      <Icon size={20} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
+    </span>
+  );
+}
 
 /** Settings tab list (/settings): my profile card, sections, log out. */
 export function SettingsPane() {
@@ -44,36 +60,29 @@ export function SettingsPane() {
                 <Link
                   to={`/settings/${s.id}`}
                   aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'flex items-center gap-4 rounded-xl px-3 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
-                    active && 'bg-selected hover:bg-selected',
-                  )}
+                  className={cn(ROW, active && 'bg-selected hover:bg-selected')}
                 >
-                  <span
-                    className={cn(
-                      'flex size-10 shrink-0 items-center justify-center rounded-full',
-                      active ? 'bg-brand text-on-brand' : 'bg-surface-2 text-muted',
-                    )}
-                  >
-                    <s.icon size={20} strokeWidth={1.8} aria-hidden />
-                  </span>
+                  <IconTile icon={s.icon} color={s.tint} />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="text-[16px] text-fg">{s.title}</span>
                     <span className="truncate text-[13.5px] text-muted">{s.description}</span>
                   </span>
+                  <ChevronRight
+                    size={18}
+                    className={cn('shrink-0', active ? 'text-brand-ink' : 'text-subtle')}
+                    aria-hidden
+                  />
                 </Link>
               </li>
             );
           })}
-          <li>
+          <li className="mt-2 border-t border-line pt-2">
             <button
               type="button"
               onClick={() => void confirmLogout()}
-              className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
+              className={cn(ROW, 'w-full text-left')}
             >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
-                <LogOut size={20} strokeWidth={1.8} aria-hidden />
-              </span>
+              <IconTile icon={LogOut} color="var(--danger-fill)" />
               <span className="text-[16px] text-danger">Log out</span>
             </button>
           </li>
