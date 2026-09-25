@@ -3,7 +3,14 @@
  * `api.upload` has no thumbnail support; kept here to avoid touching the shared client).
  */
 import type { ApiErrorBody, MediaAttachment, MediaKind } from '@enbox/shared';
-import { ApiError, apiUrl, getApiToken, sessionChanged, sessionChangedError } from '@/lib/api';
+import {
+  ApiError,
+  apiUrl,
+  getApiToken,
+  sessionChanged,
+  sessionChangedError,
+  throttleProgress,
+} from '@/lib/api';
 
 export interface MediaUploadMeta {
   kind: MediaKind;
@@ -25,6 +32,8 @@ export function uploadMedia(
   meta: MediaUploadMeta,
   opts: MediaUploadOptions = {},
 ): Promise<MediaAttachment> {
+  // XHR progress fires every ~50 ms; each tick re-renders the conversation: throttle it.
+  const onProgress = throttleProgress(opts.onProgress);
   return new Promise<MediaAttachment>((resolve, reject) => {
     if (opts.signal?.aborted) {
       reject(new ApiError('aborted', 'Upload cancelled'));
@@ -36,7 +45,7 @@ export function uploadMedia(
     const token = getApiToken();
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && e.total > 0) opts.onProgress?.(Math.min(0.99, e.loaded / e.total));
+      if (e.lengthComputable && e.total > 0) onProgress?.(Math.min(0.99, e.loaded / e.total));
     };
     xhr.onload = () => {
       // Logged out meanwhile: the upload belongs to the previous session.
@@ -51,7 +60,7 @@ export function uploadMedia(
         /* non-JSON */
       }
       if (xhr.status >= 200 && xhr.status < 300 && data) {
-        opts.onProgress?.(1);
+        onProgress?.(1);
         resolve(data as MediaAttachment);
         return;
       }

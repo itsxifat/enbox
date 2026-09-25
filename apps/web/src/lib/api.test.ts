@@ -7,6 +7,7 @@ import {
   mediaUrl,
   setApiToken,
   setUnauthorizedHandler,
+  throttleProgress,
 } from './api';
 
 function mockFetch(status: number, body?: unknown) {
@@ -87,5 +88,23 @@ describe('api client', () => {
     expect(mediaUrl('https://cdn/x.png')).toBe('https://cdn/x.png');
     expect(mediaUrl('blob:abc')).toBe('blob:abc');
     expect(mediaUrl(null)).toBeUndefined();
+  });
+});
+
+describe('throttleProgress', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('passes one call per interval and whole percent; the final 1 always goes through', () => {
+    vi.useFakeTimers();
+    const seen: number[] = [];
+    const fn = throttleProgress((p) => seen.push(p), 150)!;
+    fn(0.1);
+    fn(0.1001); // same percent
+    fn(0.2); // too soon
+    vi.advanceTimersByTime(160);
+    fn(0.3);
+    fn(1); // done: never dropped
+    expect(seen).toEqual([0.1, 0.3, 1]);
+    expect(throttleProgress(undefined)).toBeUndefined();
   });
 });

@@ -20,8 +20,9 @@
 import { create } from 'zustand';
 import type { Call, CallLogEntry, CallType, ID, IncomingCallPayload } from '@enbox/shared';
 import { api, type ApiResponse } from '@/lib/api';
-import { registerSessionReset } from '@/lib/session';
+import { registerSessionReset, sessionEpoch } from '@/lib/session';
 import { sendEvent } from '@/lib/socket';
+import { useChats } from './chats';
 import { toast } from './ui';
 
 export type CallPhase =
@@ -220,7 +221,9 @@ export const useCalls = create<CallsState>((set, get) => ({
   },
 
   setLiveCall(call) {
-    if (!isLiveCall(call)) {
+    // A chat I left / was removed from: no "Join" (the server would answer 403 not_member).
+    const chat = useChats.getState().byId[call.chatId];
+    if (!isLiveCall(call) || (chat && chat.membership !== 'active')) {
       get().removeLiveCall(call.chatId, call.id);
       return;
     }
@@ -277,10 +280,12 @@ export const useCalls = create<CallsState>((set, get) => ({
     if (!log.loaded || log.loadingMore || !log.hasMore || !log.entries.length) return;
     const before = log.entries[log.entries.length - 1]!.call.createdAt;
     set({ log: { ...log, loadingMore: true } });
+    const epoch = sessionEpoch();
     try {
       const page = await api.get<ApiResponse<'GET /api/calls'>>('/api/calls', {
         query: { limit: CALL_LOG_PAGE, before },
       });
+      if (epoch !== sessionEpoch()) return; // logged out meanwhile
       const cur = get().log;
       set({
         log: {
@@ -291,6 +296,7 @@ export const useCalls = create<CallsState>((set, get) => ({
         },
       });
     } catch (e) {
+      if (epoch !== sessionEpoch()) return;
       set({ log: { ...get().log, loadingMore: false } });
       toast.error(e);
     }

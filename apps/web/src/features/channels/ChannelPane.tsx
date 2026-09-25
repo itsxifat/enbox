@@ -6,8 +6,17 @@
  *   (read receipts / unread suppression) like the conversation view.
  * - Anyone else: a preview (GET /api/channels/:id → header + recent posts) with Follow.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import {
   Bell,
   BellOff,
@@ -49,9 +58,16 @@ import { cn } from '@/lib/cn';
 import { formatCount, formatDaySeparator, isSameLocalDay } from '@/lib/format';
 import { useChat, useChats } from '@/stores/chats';
 import { useChatMessages, useMessages, type ClientMessage } from '@/stores/messages';
+import {
+  nextExpiry,
+  rowKey,
+  shiftFirstIndex,
+  visibleMessages,
+} from '@/features/conversation/lib/rows';
 import { ChannelComposer } from './ChannelComposer';
 import { ChannelInfoPanel } from './ChannelInfoPanel';
 import { ChannelPost, SystemChip, type PostContext } from './ChannelPost';
+import { findPostIndex, jumpFromParams, type FeedJump } from './feedJump';
 import { channelUrl, followChannel, previewChannel, unfollowChannel } from './channelApi';
 
 export function ChannelPane() {
@@ -64,27 +80,51 @@ export function ChannelPane() {
   return <ChannelPreviewView key={chatId} chatId={chatId} />;
 }
 
-/** A post to scroll to (search results, starred messages: `?m=<seq>&mid=<id>`). */
-export interface FeedJump {
-  seq: number;
-  messageId?: string;
+/** Virtuoso index base: prepended pages get lower indexes (keeps the scroll position). */
+const BASE_INDEX = 1_000_000_000;
+
+interface FeedContext {
+  loadingMore: boolean;
+  loadingNewer: boolean;
 }
 
-function jumpFromParams(params: URLSearchParams): FeedJump | null {
-  const seq = Number(params.get('m'));
-  if (!Number.isInteger(seq) || seq <= 0) return null;
-  return { seq, messageId: params.get('mid') ?? undefined };
+function FeedHeader({ context }: { context?: FeedContext }) {
+  return (
+    <div className="flex h-10 items-center justify-center text-brand-ink">
+      {context?.loadingMore ? <Spinner size={18} /> : null}
+    </div>
+  );
 }
 
-function findPost(root: HTMLElement, t: FeedJump): HTMLElement | null {
-  if (t.messageId) {
-    const el = root.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(t.messageId)}"]`);
-    if (el) return el;
-  }
-  const posts = Array.from(root.querySelectorAll<HTMLElement>('[data-seq]'));
-  return posts.find((el) => Number(el.dataset.seq) >= t.seq) ?? null;
+function FeedFooter({ context }: { context?: FeedContext }) {
+  return (
+    <div className="flex min-h-3 justify-center text-brand-ink">
+      {context?.loadingNewer ? <Spinner size={18} /> : null}
+    </div>
+  );
 }
 
+const FEED_COMPONENTS = { Header: FeedHeader, Footer: FeedFooter };
+
+const followAtBottom = (bottom: boolean) => (bottom ? ('smooth' as const) : false);
+
+type FeedPosition = { index: number; align: 'center' | 'end' };
+
+function flashPost(root: HTMLElement | null, messageId: string): void {
+  const el = root?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+  const bubble = el?.querySelector<HTMLElement>('[id^="post-"]') ?? el;
+  bubble?.animate?.(
+    [{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }],
+    { duration: 1600, easing: 'ease-out' },
+  );
+}
+
+/**
+ * The posts, virtualized (a follower may scroll back through many pages of media posts):
+ * starts at the newest post (or a linked post), follows new posts while the newest one is
+ * shown at the bottom, loads older pages at the top (keeping the position when they are
+ * prepended) and newer ones at the bottom after a jump.
+ */
 function Feed({
   items,
   ctx,
@@ -114,99 +154,123 @@ function Feed({
   onJumped?: () => void;
   empty?: ReactNode;
 }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const top = useRef<HTMLDivElement>(null);
-  const bottom = useRef<HTMLDivElement>(null);
-  const stick = useRef(!jump);
-  const [far, setFar] = useState(false);
-  const prevHeight = useRef(0);
-  const lastId = items[items.length - 1]?.id;
-  const firstId = items[0]?.id;
+  const virtuoso = useRef<VirtuosoHandle>(null);
+  const wrapper = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  /** "Scroll to latest" asked for posts that weren't loaded: land on the newest once they are. */
+  const toLatest = useRef(false);
 
-  // Keep the view pinned to the newest post (unless the reader scrolled up), and keep the
-  // position when older posts are prepended.
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    if (prevHeight.current && el.scrollTop < 40 && !stick.current) {
-      el.scrollTop += el.scrollHeight - prevHeight.current;
-    } else if (stick.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-    prevHeight.current = el.scrollHeight;
-  }, [lastId, firstId, items.length]);
+  // Keys keep their array identity while only post contents change (reactions, progress).
+  const prevKeys = useRef<string[]>([]);
+  const keys = useMemo(() => {
+    const next = items.map((m) => rowKey(m));
+    const prev = prevKeys.current;
+    const same = prev.length === next.length && next.every((k, i) => k === prev[i]);
+    prevKeys.current = same ? prev : next;
+    return prevKeys.current;
+  }, [items]);
 
-  // Scroll to the linked post once it is rendered, and flash it.
-  useLayoutEffect(() => {
-    const root = scroller.current;
-    if (!jump || !root || !items.length) return;
-    const el = findPost(root, jump);
-    if (!el) return;
-    stick.current = false;
-    el.scrollIntoView?.({ block: 'center' });
-    prevHeight.current = root.scrollHeight;
-    const bubble = el.querySelector<HTMLElement>('[id^="post-"]') ?? el;
-    bubble.animate?.(
-      [{ boxShadow: '0 0 0 3px var(--brand)' }, { boxShadow: '0 0 0 3px transparent' }],
-      { duration: 1600, easing: 'ease-out' },
-    );
+  // firstItemIndex bookkeeping (derived state, updated during render): prepends shift it,
+  // a replaced window remounts the list (at the linked post, else the newest one).
+  const initialPosition = (): FeedPosition => {
+    const i = jump ? findPostIndex(items, jump) : -1;
+    return i >= 0
+      ? { index: i, align: 'center' }
+      : { index: Math.max(0, items.length - 1), align: 'end' };
+  };
+  const [track, setTrack] = useState(() => ({
+    keys,
+    first: BASE_INDEX - keys.length,
+    epoch: 0,
+    initial: initialPosition(),
+  }));
+  if (track.keys !== keys) {
+    const shifted = track.keys.length ? shiftFirstIndex(track.keys, track.first, keys) : null;
+    if (shifted !== null && shifted > 0) setTrack({ ...track, keys, first: shifted });
+    else
+      setTrack({
+        keys,
+        first: BASE_INDEX - keys.length,
+        epoch: track.epoch + 1,
+        initial: initialPosition(),
+      });
+  }
+
+  const context = useMemo<FeedContext>(
+    () => ({ loadingMore, loadingNewer }),
+    [loadingMore, loadingNewer],
+  );
+  const first = track.first;
+  const renderItem = useCallback(
+    (index: number, m: ClientMessage) => {
+      const prev = items[index - first - 1];
+      const day =
+        !prev || !isSameLocalDay(prev.createdAt, m.createdAt)
+          ? formatDaySeparator(m.createdAt)
+          : null;
+      return <FeedItem day={day} m={m} ctx={ctx} />;
+    },
+    [items, first, ctx],
+  );
+
+  // Scroll to the linked post once it is loaded, and flash it.
+  useEffect(() => {
+    if (!jump || !items.length) return;
+    const i = findPostIndex(items, jump);
+    if (i < 0) return;
+    const id = items[i]!.id;
+    requestAnimationFrame(() => {
+      virtuoso.current?.scrollToIndex({ index: i, align: 'center' });
+      setTimeout(() => flashPost(wrapper.current, id), 150);
+    });
     onJumped?.();
   }, [jump, items, onJumped]);
 
+  // Follow new posts only when the newest one was already shown before this update: pages
+  // appended to an older window (after a jump) must not scroll past what the reader is on.
+  // (The ref holds the previous render's value; Virtuoso reads the prop with the new data.)
+  const showedLatest = useRef(!hasMoreAfter);
   useEffect(() => {
-    const el = top.current;
-    if (!el || !hasMore || !onLoadMore) return;
-    const io = new IntersectionObserver((e) => {
-      if (e[0]?.isIntersecting) onLoadMore();
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [hasMore, onLoadMore]);
-
-  useEffect(() => {
-    const el = bottom.current;
-    if (!el || !hasMoreAfter || !onLoadNewer) return;
-    const io = new IntersectionObserver((e) => {
-      if (e[0]?.isIntersecting) onLoadNewer();
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [hasMoreAfter, onLoadNewer]);
+    showedLatest.current = !hasMoreAfter;
+    if (!hasMoreAfter && toLatest.current) {
+      toLatest.current = false;
+      requestAnimationFrame(() =>
+        virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end' }),
+      );
+    }
+  }, [hasMoreAfter, items]);
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-          stick.current = gap < 80;
-          prevHeight.current = el.scrollHeight;
-          setFar(gap > 400);
-        }}
-        className="chat-wallpaper min-h-0 flex-1 overflow-y-auto scrollbar-thin"
-        data-testid="channel-feed"
-      >
-        <div className="mx-auto flex min-h-full max-w-3xl flex-col justify-end gap-2 px-3 py-4 lg:px-10">
-          <div ref={top} className="flex justify-center py-1 text-brand-ink">
-            {loadingMore ? <Spinner size={18} /> : null}
-          </div>
-          {items.length === 0 ? empty : null}
-          {items.map((m, i) => {
-            const day =
-              i === 0 || !isSameLocalDay(items[i - 1]!.createdAt, m.createdAt) ? (
-                <div className="sticky top-2 z-[2] my-1 self-center rounded-lg bg-surface/90 px-3 py-1 text-xs font-medium text-muted shadow-bubble backdrop-blur">
-                  {formatDaySeparator(m.createdAt)}
-                </div>
-              ) : null;
-            return <FeedItem key={m.id} day={day} m={m} ctx={ctx} />;
-          })}
-          <div ref={bottom} className="flex justify-center text-brand-ink">
-            {loadingNewer ? <Spinner size={18} /> : null}
-          </div>
-        </div>
-      </div>
-      {far || hasMoreAfter ? (
+    <div
+      ref={wrapper}
+      className="chat-wallpaper relative flex min-h-0 flex-1 flex-col"
+      data-testid="channel-feed"
+    >
+      {items.length === 0 ? (
+        <div className="flex flex-1 flex-col justify-end px-3 py-4">{empty}</div>
+      ) : (
+        <Virtuoso<ClientMessage, FeedContext>
+          key={track.epoch}
+          ref={virtuoso}
+          data={items}
+          context={context}
+          firstItemIndex={track.first}
+          initialTopMostItemIndex={track.initial}
+          computeItemKey={(_, m) => rowKey(m)}
+          itemContent={renderItem}
+          followOutput={showedLatest.current && !jump ? followAtBottom : false}
+          alignToBottom
+          startReached={hasMore && !loadingMore ? onLoadMore : undefined}
+          endReached={hasMoreAfter && !loadingNewer ? onLoadNewer : undefined}
+          atBottomStateChange={setAtBottom}
+          atBottomThreshold={80}
+          increaseViewportBy={{ top: 200, bottom: 200 }}
+          components={FEED_COMPONENTS}
+          className="scrollbar-thin"
+          style={{ height: '100%' }}
+        />
+      )}
+      {(!atBottom || hasMoreAfter) && items.length ? (
         <IconButton
           icon={ChevronDown}
           label="Scroll to latest"
@@ -214,10 +278,12 @@ function Feed({
           size="md"
           className="absolute right-4 bottom-4 animate-pop shadow-elevated"
           onClick={() => {
-            stick.current = true;
-            if (hasMoreAfter && onLatest) return onLatest();
-            const el = scroller.current;
-            if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+            if (hasMoreAfter && onLatest) {
+              toLatest.current = true;
+              onLatest();
+              return;
+            }
+            virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
           }}
         />
       ) : null}
@@ -225,29 +291,43 @@ function Feed({
   );
 }
 
-function FeedItem({ day, m, ctx }: { day: ReactNode; m: ClientMessage; ctx: PostContext }) {
+const FeedItem = memo(function FeedItem({
+  day,
+  m,
+  ctx,
+}: {
+  day: string | null;
+  m: ClientMessage;
+  ctx: PostContext;
+}) {
   return (
-    <>
-      {day}
+    <div className="mx-auto flex max-w-3xl flex-col gap-2 px-3 pb-2 lg:px-10">
+      {day ? (
+        <div className="my-1 self-center rounded-lg bg-surface/90 px-3 py-1 text-xs font-medium text-muted shadow-bubble backdrop-blur">
+          {day}
+        </div>
+      ) : null}
       {m.type === 'system' ? <SystemChip m={m} /> : <ChannelPost m={m} ctx={ctx} />}
-    </>
+    </div>
   );
-}
+});
 
+/** Hide expired (disappearing) posts client-side; same array while nothing expired. */
 function useVisibleItems(items: ClientMessage[]): ClientMessage[] {
-  // Hide expired (disappearing) posts client-side.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const next = items
-      .map((m) => (m.expiresAt ? Date.parse(m.expiresAt) : Infinity))
-      .filter((t) => t > now)
-      .sort((a, b) => a - b)[0];
-    if (!next || !Number.isFinite(next)) return;
-    const t = setTimeout(() => setNow(Date.now()), Math.min(2 ** 31 - 1, next - now + 50));
+    const next = nextExpiry(items, now);
+    if (next === null) return;
+    const t = setTimeout(
+      () => setNow(Date.now()),
+      Math.min(2 ** 31 - 1, Math.max(250, next - Date.now() + 50)),
+    );
     return () => clearTimeout(t);
   }, [items, now]);
-  return items.filter((m) => !m.expiresAt || Date.parse(m.expiresAt) > now);
+  return useMemo(() => visibleMessages(items, now), [items, now]);
 }
+
+const PREVIEW_CTX: PostContext = { chat: null, reactions: 'none', canVote: false };
 
 function ChannelView({ chat }: { chat: ChatSummary }) {
   const desktop = useIsDesktop();
@@ -356,11 +436,39 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
     },
   ];
 
-  const ctx: PostContext = {
-    chat,
-    reactions: chat.channelSettings?.reactions ?? 'all',
-    canVote: chat.membership === 'active',
-  };
+  // Stable props for the memoized posts.
+  const ctx = useMemo<PostContext>(
+    () => ({
+      chat,
+      reactions: chat.channelSettings?.reactions ?? 'all',
+      canVote: chat.membership === 'active',
+    }),
+    [chat],
+  );
+  const loadMore = useCallback(
+    () =>
+      void useMessages
+        .getState()
+        .loadOlder(chat.id)
+        .catch(() => undefined),
+    [chat.id],
+  );
+  const loadNewer = useCallback(
+    () =>
+      void useMessages
+        .getState()
+        .loadNewer(chat.id)
+        .catch(() => undefined),
+    [chat.id],
+  );
+  const loadLatest = useCallback(
+    () =>
+      void useMessages
+        .getState()
+        .loadLatest(chat.id)
+        .catch(() => undefined),
+    [chat.id],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -418,26 +526,11 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
           ctx={ctx}
           hasMore={msgs.hasMoreBefore && msgs.loaded}
           loadingMore={msgs.loadingBefore}
-          onLoadMore={() =>
-            void useMessages
-              .getState()
-              .loadOlder(chat.id)
-              .catch(() => undefined)
-          }
+          onLoadMore={loadMore}
           hasMoreAfter={msgs.hasMoreAfter && msgs.loaded}
           loadingNewer={msgs.loadingAfter}
-          onLoadNewer={() =>
-            void useMessages
-              .getState()
-              .loadNewer(chat.id)
-              .catch(() => undefined)
-          }
-          onLatest={() =>
-            void useMessages
-              .getState()
-              .loadLatest(chat.id)
-              .catch(() => undefined)
-          }
+          onLoadNewer={loadNewer}
+          onLatest={loadLatest}
           jump={jump}
           onJumped={onJumped}
         />
@@ -516,7 +609,6 @@ function ChannelPreviewView({ chatId }: { chatId: string }) {
   if (!data) return <PageSpinner />;
 
   const c = data.channel;
-  const ctx: PostContext = { chat: null, reactions: 'none', canVote: false };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PaneHeader
@@ -546,7 +638,7 @@ function ChannelPreviewView({ chatId }: { chatId: string }) {
       />
       <Feed
         items={data.messages as ClientMessage[]}
-        ctx={ctx}
+        ctx={PREVIEW_CTX}
         hasMore={false}
         loadingMore={false}
         empty={<p className="self-center py-10 text-sm text-muted">No posts yet.</p>}

@@ -2,7 +2,7 @@
  * One channel post (channel identity, no sender names/ticks): text, media, polls, location,
  * contact cards, reactions (counts only) and admin actions.
  */
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   AlertCircle,
   Check,
@@ -62,7 +62,14 @@ export function SystemChip({ m }: { m: Message }) {
   );
 }
 
-export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) {
+/** Memoized: the feed re-renders on every window change; unchanged posts skip. */
+export const ChannelPost = memo(function ChannelPost({
+  m,
+  ctx,
+}: {
+  m: ClientMessage;
+  ctx: PostContext;
+}) {
   const [picker, setPicker] = useState<HTMLElement | null>(null);
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const [editing, setEditing] = useState(false);
@@ -237,7 +244,7 @@ export function ChannelPost({ m, ctx }: { m: ClientMessage; ctx: PostContext }) 
       <Lightbox message={lightbox ? m : null} onClose={() => setLightbox(false)} />
     </article>
   );
-}
+});
 
 function Reactions({
   m,

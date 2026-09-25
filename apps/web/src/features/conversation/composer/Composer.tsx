@@ -60,7 +60,7 @@ import {
   type MentionQuery,
   type MentionRef,
 } from '../lib/composerMentions';
-import { isVisualMedia, prepareVisualMedia } from '../lib/mediaProcessing';
+import { isVisualMedia, prepareEach } from '../lib/mediaProcessing';
 import { VoiceRecording, recordingSupported } from '../lib/recorder';
 import { enqueueMedia, sendMedia } from '../lib/sendMedia';
 import { sendQueued } from '../lib/outbox';
@@ -380,26 +380,21 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     const r = replyFields(reply);
     const captions = items.map((it) => encodeMentions(it.caption, refs.current));
     clearAfterSend();
-    const prepared = await Promise.all(
-      items.map(async (it, i) => {
-        try {
-          return { ...(await prepareVisualMedia(it.file)), caption: captions[i] };
-        } catch {
-          toast.error(`Couldn’t process “${it.file.name}”`);
-          return null;
-        }
-      }),
+    // One file at a time (decoding every picked photo at once runs phones out of memory).
+    // Each bubble appears when its file is ready, and uploads run in order while the next
+    // file is being processed.
+    let uploads = Promise.resolve();
+    let first = true;
+    await prepareEach(
+      items,
+      (p, _item, i) => {
+        const job = enqueueMedia(chat.id, { ...p, ...(first ? r : {}), caption: captions[i] });
+        first = false;
+        uploads = uploads.then(job).catch(() => undefined);
+      },
+      (item) => toast.error(`Couldn’t process “${item.file.name}”`),
     );
-    const jobs = prepared
-      .filter((p): p is NonNullable<typeof p> => !!p)
-      .map((p, i) =>
-        enqueueMedia(chat.id, {
-          ...p,
-          ...(i === 0 ? r : {}),
-          caption: p.caption,
-        }),
-      );
-    for (const job of jobs) await job();
+    await uploads;
   };
 
   const sendFiles = async (files: File[], kind: 'file' | 'audio') => {

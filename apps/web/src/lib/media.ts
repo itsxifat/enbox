@@ -8,6 +8,7 @@
  */
 import type { MediaKind } from '@enbox/shared';
 import type { UploadMeta } from './api';
+import { registerSessionReset } from './session';
 
 export interface Dimensions {
   width: number;
@@ -37,6 +38,9 @@ export function revokeAllObjectUrls(): void {
   for (const url of objectUrls) URL.revokeObjectURL(url);
   objectUrls.clear();
 }
+
+// Logout: the previous account's local media must not stay readable (or pinned in memory).
+registerSessionReset(revokeAllObjectUrls);
 
 function withUrl<T>(src: Blob | string, fn: (url: string) => Promise<T>): Promise<T> {
   if (typeof src === 'string') return fn(src);

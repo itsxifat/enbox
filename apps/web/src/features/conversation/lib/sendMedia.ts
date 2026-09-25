@@ -2,12 +2,16 @@
  * Media sends: optimistic bubble with the local preview → upload with progress (shown in
  * the bubble) → send with the same clientId. Uploads can be cancelled from the bubble and
  * failed sends retried (re-uploading if the upload itself failed).
+ *
+ * Local object URLs: the thumbnail's is revoked once the server copy is confirmed, a photo's
+ * once the server image is decoded (the bubble switches without a flash); others (audio,
+ * video, files — possibly playing) are released with the message (see stores/messages.ts).
  */
-import type { ID, MediaAttachment, MediaKind, MessagePreview } from '@enbox/shared';
-import { ApiError } from '@/lib/api';
+import type { ID, MediaAttachment, MediaKind, Message, MessagePreview } from '@enbox/shared';
+import { ApiError, mediaUrl } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
-import { createObjectUrl } from '@/lib/media';
-import { useMessages } from '@/stores/messages';
+import { createObjectUrl, revokeObjectUrl } from '@/lib/media';
+import { isOptimistic, useMessages } from '@/stores/messages';
 import { toast } from '@/stores/ui';
 import { holdForReconnect, isOfflineError } from './outbox';
 import { uploadMedia } from './upload';
@@ -27,22 +31,59 @@ export interface MediaSendInput {
   replyTo?: MessagePreview | null;
 }
 
-const controllers = new Map<string, AbortController>();
-const retries = new Map<string, () => Promise<void>>();
+interface MediaJob {
+  chatId: ID;
+  run: () => Promise<void>;
+  /** Set while uploading. */
+  controller: AbortController | null;
+}
 
+/** clientId → media send that can still be retried/cancelled. */
+const jobs = new Map<string, MediaJob>();
+
+/**
+ * Cancel a media send: aborts a running upload (its bubble is removed), or drops a send that
+ * is waiting (failed, or queued for the reconnect) together with its bubble.
+ */
 export function cancelUpload(clientId: string): boolean {
-  const c = controllers.get(clientId);
-  if (!c) return false;
-  c.abort();
+  const job = jobs.get(clientId);
+  if (!job) return false;
+  if (job.controller) {
+    job.controller.abort();
+    return true;
+  }
+  jobs.delete(clientId);
+  useMessages.getState().removeOptimistic(job.chatId, clientId);
   return true;
 }
 
 /** Re-run a failed media send (returns false when this client id has no media job). */
 export function retryMediaSend(clientId: string): boolean {
-  const job = retries.get(clientId);
+  const job = jobs.get(clientId);
   if (!job) return false;
-  void job();
+  void job.run();
   return true;
+}
+
+function hasOptimistic(chatId: ID, clientId: string): boolean {
+  return !!useMessages
+    .getState()
+    .byChat[chatId]?.items.some((m) => m.clientId === clientId && isOptimistic(m));
+}
+
+/** Show the server copy of a sent photo once it is decoded, then free the local blob. */
+async function swapToServerImage(chatId: ID, message: Message, localUrl: string): Promise<void> {
+  const url = mediaUrl(message.media?.url);
+  if (!url || typeof Image === 'undefined') return;
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+  } catch {
+    return; // keep the local copy (offline, not decodable…)
+  }
+  useMessages.getState().patchMessage(chatId, message.id, { localUrl: undefined });
+  revokeObjectUrl(localUrl);
 }
 
 /**
@@ -79,10 +120,16 @@ export function enqueueMedia(chatId: ID, input: MediaSendInput): () => Promise<v
   });
 
   let uploaded: MediaAttachment | null = null;
+  const job: MediaJob = { chatId, run: () => Promise.resolve(), controller: null };
   const run = async () => {
+    // Deleted/cancelled meanwhile (or already delivered): nothing left to send.
+    if (!hasOptimistic(chatId, clientId)) {
+      jobs.delete(clientId);
+      return;
+    }
     const s = useMessages.getState();
     const controller = new AbortController();
-    controllers.set(clientId, controller);
+    job.controller = controller;
     s.patchOptimistic(chatId, clientId, {
       pending: true,
       failed: false,
@@ -108,19 +155,22 @@ export function enqueueMedia(chatId: ID, input: MediaSendInput): () => Promise<v
           },
         );
       }
-      controllers.delete(clientId);
-      await useMessages.getState().sendMessage(chatId, {
+      job.controller = null;
+      const message = await useMessages.getState().sendMessage(chatId, {
         clientId,
         type: input.kind,
         mediaId: uploaded.id,
         text: caption,
         replyToId: input.replyToId,
       });
-      retries.delete(clientId);
+      jobs.delete(clientId);
+      // The confirmed message carries the server's media (and thumbnail).
+      revokeObjectUrl(thumbUrl);
+      if (input.kind === 'image') void swapToServerImage(chatId, message, localUrl);
     } catch (e) {
-      controllers.delete(clientId);
+      job.controller = null;
       if (e instanceof ApiError && e.code === 'aborted') {
-        retries.delete(clientId);
+        jobs.delete(clientId);
         useMessages.getState().removeOptimistic(chatId, clientId);
         return;
       }
@@ -132,7 +182,8 @@ export function enqueueMedia(chatId: ID, input: MediaSendInput): () => Promise<v
       toast.error(e);
     }
   };
-  retries.set(clientId, run);
+  job.run = run;
+  jobs.set(clientId, job);
   return run;
 }
 

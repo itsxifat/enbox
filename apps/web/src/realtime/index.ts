@@ -32,10 +32,11 @@ export { handleNewMessage } from './messages';
 let running = false;
 let cleanups: (() => void)[] = [];
 
-async function resync(info: ReadyInfo): Promise<void> {
-  // Calls right away: a call rejoin must land within the server's reconnect grace, so it
-  // can't wait behind the chat reload. Otherwise chats first (drives the UI), the rest in
-  // parallel.
+/** The domain resyncs run on every `ready` (exported for tests). */
+export async function resyncAll(info: ReadyInfo): Promise<void> {
+  // Calls start right away: `call:rejoin` must beat the server's reconnect grace
+  // (CALL_RECONNECT_GRACE_MS) and doesn't depend on the chat list. Chats next (they drive
+  // the UI), then the rest in parallel.
   await Promise.allSettled([
     resyncCalls(info),
     resyncChats(info).then(() =>
@@ -61,7 +62,7 @@ export function startRealtime(): void {
 
   cleanups.push(
     onReady((info) => {
-      void resync(info).finally(() => {
+      void resyncAll(info).finally(() => {
         bus.emit('realtime:ready', {
           userId: info.userId,
           sessionId: info.sessionId,
@@ -73,7 +74,8 @@ export function startRealtime(): void {
   );
 
   // Don't wait for the socket handshake (or a blocked WebSocket) to show the chat list;
-  // every `ready` reloads it again to close the gap before rooms were joined.
+  // every `ready` reloads it again (a fresh request, never this one) to close the gap before
+  // rooms were joined.
   void useChats
     .getState()
     .loadChats()

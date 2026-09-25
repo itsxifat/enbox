@@ -12,14 +12,17 @@
  *   new messages arrive while visible; `installReadTracking()` also calls it for the open
  *   chat when the window regains focus.
  */
-import { type ChatSummary, type ID, type Message } from '@enbox/shared';
+import { type ID, type Message } from '@enbox/shared';
 import { api } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { isAppFocused } from '@/lib/notify';
 import { sendEvent, type AppSocket, type ReadyInfo } from '@/lib/socket';
 import { getMyId } from '@/stores/auth';
-import { useChats } from '@/stores/chats';
-import { useMessages } from '@/stores/messages';
+import { useCalls } from '@/stores/calls';
+import { mergeWatermarks, useChats } from '@/stores/chats';
+import { useMessages, windowGeneration, windowRequestMark } from '@/stores/messages';
+
+export { mergeWatermarks };
 
 /** chatId → highest seq we already reported as read (avoid duplicate emits). */
 const reportedRead = new Map<ID, number>();
@@ -37,29 +40,18 @@ export function markChatRead(chatId: ID, opts: { force?: boolean } = {}): boolea
   if (!sendEvent('chat:read', { chatId, seq })) {
     void api.post(`/api/chats/${chatId}/read`, { seq }).catch(() => undefined);
   }
-  useChats.getState().patchChat(chatId, {
-    lastReadSeq: Math.max(chat.lastReadSeq, seq),
-    unreadCount: 0,
-    unreadMentionCount: 0,
+  // Relative to the summary it lands on (a chat-list reload may replay it on a newer one).
+  useChats.getState().mutateChat(chatId, (c) => ({
+    lastReadSeq: Math.max(c.lastReadSeq, seq),
     markedUnread: false,
-  });
+    ...(seq >= c.lastSeq ? { unreadCount: 0, unreadMentionCount: 0 } : {}),
+  }));
   return true;
 }
 
-/**
- * Watermarks only move forward: events can arrive out of order (REST response vs socket,
- * several devices), so keep the MAX of the cached and incoming values. The one legitimate
- * decrease is `readWatermark: 0` in a direct chat (read receipts turned off on either side).
- */
-export function mergeWatermarks(
-  current: Pick<ChatSummary, 'type' | 'readWatermark' | 'deliveredWatermark'>,
-  incoming: { readWatermark: number; deliveredWatermark: number },
-): { readWatermark: number; deliveredWatermark: number } {
-  const readOff = current.type === 'direct' && incoming.readWatermark === 0;
-  return {
-    readWatermark: readOff ? 0 : Math.max(current.readWatermark, incoming.readWatermark),
-    deliveredWatermark: Math.max(current.deliveredWatermark, incoming.deliveredWatermark),
-  };
+/** Forget the live call of a chat I can no longer join (left, removed, chat gone). */
+function dropLiveCall(chatId: ID): void {
+  useCalls.getState().removeLiveCall(chatId);
 }
 
 export function registerChatHandlers(socket: AppSocket): void {
@@ -67,6 +59,8 @@ export function registerChatHandlers(socket: AppSocket): void {
 
   socket.on('chat:upsert', ({ chat }) => {
     chats().upsertChat(chat);
+    // Former members get no call events any more: a stale "Join" banner would 403.
+    if (chat.membership !== 'active') dropLiveCall(chat.id);
   });
 
   socket.on('chat:updated', ({ chatId, changes }) => {
@@ -76,36 +70,35 @@ export function registerChatHandlers(socket: AppSocket): void {
   socket.on('chat:removed', ({ chatId }) => {
     chats().removeChat(chatId);
     useMessages.getState().dropChat(chatId);
+    dropLiveCall(chatId);
     reportedRead.delete(chatId);
   });
 
   socket.on('chat:cleared', ({ chatId, clearedSeq }) => {
     useMessages.getState().clearChat(chatId, clearedSeq);
-    const chat = chats().byId[chatId];
-    if (chat && chat.lastMessage && chat.lastMessage.seq <= clearedSeq) {
-      chats().patchChat(chatId, { lastMessage: null, unreadCount: 0, unreadMentionCount: 0 });
-    }
+    chats().mutateChat(chatId, (c) =>
+      c.lastMessage && c.lastMessage.seq <= clearedSeq
+        ? { lastMessage: null, unreadCount: 0, unreadMentionCount: 0 }
+        : null,
+    );
   });
 
   socket.on(
     'chat:read',
     ({ chatId, lastReadSeq, unreadCount, unreadMentionCount, markedUnread }) => {
-      const chat = chats().byId[chatId];
-      if (!chat) return;
       reportedRead.set(chatId, Math.max(reportedRead.get(chatId) ?? 0, lastReadSeq));
-      chats().patchChat(chatId, {
-        lastReadSeq: Math.max(chat.lastReadSeq, lastReadSeq),
-        unreadCount,
-        unreadMentionCount,
-        markedUnread,
-      });
+      // Counts are the server's at that read position; an older read (another device, a
+      // reordered event) must not overwrite a newer local read.
+      chats().mutateChat(chatId, (c) =>
+        lastReadSeq >= c.lastReadSeq
+          ? { lastReadSeq, unreadCount, unreadMentionCount, markedUnread }
+          : null,
+      );
     },
   );
 
   socket.on('chat:watermarks', ({ chatId, readWatermark, deliveredWatermark }) => {
-    const chat = chats().byId[chatId];
-    if (!chat) return;
-    chats().patchChat(chatId, mergeWatermarks(chat, { readWatermark, deliveredWatermark }));
+    chats().mutateChat(chatId, (c) => mergeWatermarks(c, { readWatermark, deliveredWatermark }));
   });
 
   socket.on('chat:typing', ({ chatId, userId, state }) => {
@@ -124,14 +117,18 @@ export function registerChatHandlers(socket: AppSocket): void {
 
 /**
  * On every `ready` (the socket doesn't replay missed events): reload the chat list, discard
- * cached message pages (they may hold stale edits/deletes/reactions/votes), reload the open
- * chat's latest page + pins, clear typing indicators and mark the open chat read.
- * Presence re-subscription and `GET /api/calls/active` run in their own domain resyncs.
+ * cached message pages (they may hold stale edits/deletes/reactions/votes — unsent messages
+ * stay), reload the open chat's latest page + pins, forget other chats' pins (re-seeded when
+ * opened), clear typing indicators and mark the open chat read. The reloads never reuse a
+ * request issued before this `ready` (it may predate the room joins). Presence
+ * re-subscription and `GET /api/calls/active` run in their own domain resyncs.
  */
 export async function resyncChats(_info: ReadyInfo): Promise<void> {
   useChats.getState().clearTyping();
+  // Window requests issued from now on are post-`ready` (fresh).
+  const readyMark = windowRequestMark();
   try {
-    await useChats.getState().loadChats();
+    await useChats.getState().loadChats({ fresh: true });
   } catch {
     return; // stays on cached list; next reconnect retries
   }
@@ -139,11 +136,17 @@ export async function resyncChats(_info: ReadyInfo): Promise<void> {
 
   const messages = useMessages.getState();
   for (const chatId of Object.keys(messages.byChat)) {
-    if (chatId !== openChatId) messages.dropChat(chatId);
+    if (chatId !== openChatId) messages.discardConfirmed(chatId);
   }
+  useChats.getState().resetPins(openChatId && byId[openChatId] ? openChatId : null);
   if (openChatId && byId[openChatId]) {
+    // Already (re)requested after this `ready` — the user opened it or jumped to a message:
+    // that window is fresh, and reloading the latest page would undo the jump.
+    const requestedSinceReady = windowGeneration(openChatId) > readyMark;
     await Promise.allSettled([
-      useMessages.getState().loadLatest(openChatId),
+      requestedSinceReady
+        ? Promise.resolve()
+        : useMessages.getState().loadLatest(openChatId, { fresh: true }),
       api.get<Message[]>(`/api/chats/${openChatId}/pins`).then((pins) =>
         useChats.getState().setPins(
           openChatId,
@@ -153,7 +156,7 @@ export async function resyncChats(_info: ReadyInfo): Promise<void> {
     ]);
     markChatRead(openChatId);
   } else if (openChatId) {
-    messages.dropChat(openChatId);
+    messages.discardConfirmed(openChatId);
   }
 }
 

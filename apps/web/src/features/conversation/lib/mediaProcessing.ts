@@ -58,6 +58,25 @@ function draw(
   return canvas;
 }
 
+/**
+ * Draw and encode, then release the canvas' backing store right away (browsers cap the total
+ * canvas memory — iOS Safari at a few hundred MB — and GC reclaims canvases lazily).
+ */
+async function encode(
+  source: CanvasImageSource,
+  width: number,
+  height: number,
+  quality: number,
+): Promise<Blob> {
+  const canvas = draw(source, width, height);
+  try {
+    return await canvasToBlob(canvas, 'image/jpeg', quality);
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
 /** JPEG thumbnail ≤ MAX_THUMBNAIL_BYTES (shrinks quality/size until it fits). */
 export async function makeThumbnail(
   source: CanvasImageSource,
@@ -71,7 +90,7 @@ export async function makeThumbnail(
     [160, 0.5],
   ] as const) {
     const size = scaled(width, height, max);
-    const blob = await canvasToBlob(draw(source, size.width, size.height), 'image/jpeg', q);
+    const blob = await encode(source, size.width, size.height, q);
     if (blob.size <= MAX_THUMBNAIL_BYTES) return blob;
   }
   return null;
@@ -126,7 +145,7 @@ export async function prepareImage(file: File): Promise<PreparedMedia> {
       };
     }
     const size = scaled(img.width, img.height, IMAGE_MAX_DIMENSION);
-    const blob = await canvasToBlob(draw(img.source, size.width, size.height), 'image/jpeg', 0.85);
+    const blob = await encode(img.source, size.width, size.height, 0.85);
     return {
       kind: 'image',
       blob,
@@ -197,10 +216,37 @@ export async function prepareVideo(file: File): Promise<PreparedMedia> {
   };
 }
 
-/** Photos & videos picker entries → upload-ready media. */
+/**
+ * Photos & videos picker entries → upload-ready media. Decoding is memory-heavy (a 12 MP
+ * photo is ~48 MB of pixels): process several files one after the other, never all at once
+ * (see `prepareEach`).
+ */
 export function prepareVisualMedia(file: File): Promise<PreparedMedia> {
   if (file.type.startsWith('video/')) return prepareVideo(file);
   return prepareImage(file);
+}
+
+/**
+ * Prepare files sequentially, handing each result to `onReady` as soon as it is done (so its
+ * bubble can appear and its upload start while the next file is processed). `onError` gets
+ * the files that couldn't be processed.
+ */
+export async function prepareEach<T extends { file: File }>(
+  items: T[],
+  onReady: (prepared: PreparedMedia, item: T, index: number) => void,
+  onError: (item: T, index: number) => void,
+  prepare: (file: File) => Promise<PreparedMedia> = prepareVisualMedia,
+): Promise<void> {
+  for (const [i, item] of items.entries()) {
+    let prepared: PreparedMedia;
+    try {
+      prepared = await prepare(item.file);
+    } catch {
+      onError(item, i);
+      continue;
+    }
+    onReady(prepared, item, i);
+  }
 }
 
 export function isVisualMedia(file: Pick<File, 'type'>): boolean {

@@ -12,9 +12,11 @@ import {
   truncate,
   userDisplayName,
   type ChatSummary,
+  type ID,
   type Message,
 } from '@enbox/shared';
 import { isAppFocused, playSound, showNotification } from '@/lib/notify';
+import { registerSessionReset } from '@/lib/session';
 import type { AppSocket } from '@/lib/socket';
 import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
@@ -23,8 +25,21 @@ import { useUi } from '@/stores/ui';
 import { nameOf, useUsers } from '@/stores/users';
 import { markChatRead } from './chats';
 
-/** Apply a new message to its chat-list entry (preview, seq, unread counters). */
-function applyToChat(message: Message, chat: ChatSummary, mine: boolean, visible: boolean): void {
+/**
+ * Chat-list patch for a new message (preview, seq, unread counters). Pure (unit-tested).
+ *
+ * A summary whose `lastSeq` already reaches the message was built after the message existed
+ * (the `chat:upsert` that precedes the first message of a new/unhidden chat, a reload that
+ * landed first), so its counters already include it: only messages newer than `lastSeq`
+ * count. My own message advances my read position (the server does the same).
+ */
+export function messageChatPatch(
+  chat: ChatSummary,
+  message: Message,
+  opts: { me: ID | null | undefined; visible: boolean },
+): Partial<ChatSummary> | null {
+  const mine = !!opts.me && message.senderId === opts.me;
+  const fresh = message.seq > chat.lastSeq;
   const patch: Partial<ChatSummary> = {};
   if (message.seq >= chat.lastSeq) {
     patch.lastMessage = message;
@@ -33,12 +48,80 @@ function applyToChat(message: Message, chat: ChatSummary, mine: boolean, visible
   }
   if (mine) {
     patch.lastReadSeq = Math.max(chat.lastReadSeq, message.seq);
-  } else if (!visible && message.seq > chat.lastReadSeq && message.type !== 'system') {
+    if (message.seq >= chat.lastSeq) {
+      patch.unreadCount = 0;
+      patch.unreadMentionCount = 0;
+      patch.markedUnread = false;
+    }
+  } else if (
+    fresh &&
+    !opts.visible &&
+    message.seq > chat.lastReadSeq &&
+    message.type !== 'system'
+  ) {
     patch.unreadCount = chat.unreadCount + 1;
-    const me = useAuth.getState().user?.id;
-    if (me && message.mentions.includes(me)) patch.unreadMentionCount = chat.unreadMentionCount + 1;
+    if (opts.me && message.mentions.includes(opts.me))
+      patch.unreadMentionCount = chat.unreadMentionCount + 1;
   }
-  useChats.getState().patchChat(chat.id, patch);
+  return Object.keys(patch).length ? patch : null;
+}
+
+/**
+ * `message:updated` is viewer-neutral. Outside channels `reactions[].userIds` and
+ * `poll.options[].voterIds` are authoritative, so derive my reaction / votes from them —
+ * otherwise a change made on another device keeps the cached (stale) values. Channels are
+ * anonymous (empty id lists): keep the cached values there. Pure (unit-tested).
+ */
+export function withViewerFields(
+  message: Message,
+  chat: Pick<ChatSummary, 'type'> | undefined,
+  me: ID | null | undefined,
+): Message {
+  if (!chat || chat.type === 'channel' || !me) return message;
+  let out = message;
+  if (message.myReaction === undefined) {
+    const mine = message.reactions.find((r) => r.userIds.includes(me));
+    out = { ...out, myReaction: mine?.emoji ?? null };
+  }
+  if (message.poll && message.poll.myOptionIds === undefined) {
+    const myOptionIds = message.poll.options
+      .filter((o) => o.voterIds.includes(me))
+      .map((o) => o.id);
+    out = { ...out, poll: { ...message.poll, myOptionIds } };
+  }
+  return out;
+}
+
+// Unread / mention counters the client can't recompute locally (edits, deletes and removals
+// of unread messages): refetch the summary, debounced per chat.
+const refreshTimers = new Map<ID, ReturnType<typeof setTimeout>>();
+
+function refreshChatSoon(chatId: ID, delayMs = 400): void {
+  const prev = refreshTimers.get(chatId);
+  if (prev) clearTimeout(prev);
+  refreshTimers.set(
+    chatId,
+    setTimeout(() => {
+      refreshTimers.delete(chatId);
+      void useChats
+        .getState()
+        .refreshChat(chatId)
+        .catch(() => undefined);
+    }, delayMs),
+  );
+}
+
+registerSessionReset(() => {
+  for (const t of refreshTimers.values()) clearTimeout(t);
+  refreshTimers.clear();
+});
+
+function cachedMessage(chatId: ID, id: ID): Message | undefined {
+  return useMessages.getState().byChat[chatId]?.items.find((m) => m.id === id);
+}
+
+function countsAsUnread(m: Message, chat: ChatSummary, me: ID | null | undefined): boolean {
+  return m.senderId !== me && m.seq > chat.lastReadSeq && m.type !== 'system';
 }
 
 function notifyIncoming(message: Message, chat: ChatSummary): void {
@@ -81,12 +164,11 @@ export function handleNewMessage(message: Message): void {
   const chats = useChats.getState();
   const visible = chats.openChatId === message.chatId && isAppFocused();
 
-  const chat = chats.byId[message.chatId];
-  if (!chat) {
+  if (!chats.byId[message.chatId]) {
     // Unknown chat (normally preceded by `chat:upsert`): fetch it, it already includes this message.
     void chats.refreshChat(message.chatId).catch(() => undefined);
   } else {
-    applyToChat(message, chat, mine, visible);
+    chats.mutateChat(message.chatId, (c) => messageChatPatch(c, message, { me, visible }));
   }
 
   useMessages.getState().upsertMessage(message);
@@ -106,27 +188,52 @@ export function handleNewMessage(message: Message): void {
   }
 }
 
+export function handleMessageUpdated(incoming: Message): void {
+  const me = useAuth.getState().user?.id;
+  const chat = useChats.getState().byId[incoming.chatId];
+  const message = withViewerFields(incoming, chat, me);
+
+  // Did the edit / delete-for-everyone change whether an unread message mentions me?
+  if (chat && me && countsAsUnread(message, chat, me) && (message.editedAt || message.deletedAt)) {
+    const mentionsMe = !message.deletedAt && message.mentions.includes(me);
+    const old = cachedMessage(chat.id, message.id);
+    const changed = old
+      ? mentionsMe !== (!old.deletedAt && old.mentions.includes(me))
+      : mentionsMe !== chat.unreadMentionCount > 0;
+    if (changed) refreshChatSoon(chat.id);
+  }
+
+  useMessages.getState().upsertMessage(message, { onlyIfPresent: true });
+  if (message.deletedAt) useMessages.getState().markQuotesDeleted(message.id);
+  useChats
+    .getState()
+    .mutateChat(message.chatId, (c) =>
+      c.lastMessage?.id === message.id ? { lastMessage: { ...c.lastMessage, ...message } } : null,
+    );
+}
+
+export function handleMessagesRemoved(chatId: ID, messageIds: ID[]): void {
+  const me = useAuth.getState().user?.id;
+  const chat = useChats.getState().byId[chatId];
+  if (chat) {
+    const previewGone = !!chat.lastMessage && messageIds.includes(chat.lastMessage.id);
+    // Unknown (not loaded) messages may have been unread: let the server recount.
+    const unreadGone =
+      (chat.unreadCount > 0 || chat.unreadMentionCount > 0) &&
+      messageIds.some((id) => {
+        const m = cachedMessage(chatId, id);
+        return !m || countsAsUnread(m, chat, me);
+      });
+    // The preview message vanished: refetch the summary for the new preview.
+    if (previewGone || unreadGone) refreshChatSoon(chatId);
+  }
+  useMessages.getState().removeMessages(chatId, messageIds);
+}
+
 export function registerMessageHandlers(socket: AppSocket): void {
   socket.on('message:new', ({ message }) => handleNewMessage(message));
-
-  socket.on('message:updated', ({ message }) => {
-    useMessages.getState().upsertMessage(message, { onlyIfPresent: true });
-    if (message.deletedAt) useMessages.getState().markQuotesDeleted(message.id);
-    const chat = useChats.getState().byId[message.chatId];
-    if (chat?.lastMessage?.id === message.id) {
-      useChats.getState().patchChat(chat.id, { lastMessage: { ...chat.lastMessage, ...message } });
-    }
-  });
-
-  socket.on('message:removed', ({ chatId, messageIds }) => {
-    useMessages.getState().removeMessages(chatId, messageIds);
-    const chat = useChats.getState().byId[chatId];
-    if (chat?.lastMessage && messageIds.includes(chat.lastMessage.id)) {
-      // The preview message vanished: refetch the summary for the new preview.
-      void useChats
-        .getState()
-        .refreshChat(chatId)
-        .catch(() => undefined);
-    }
-  });
+  socket.on('message:updated', ({ message }) => handleMessageUpdated(message));
+  socket.on('message:removed', ({ chatId, messageIds }) =>
+    handleMessagesRemoved(chatId, messageIds),
+  );
 }

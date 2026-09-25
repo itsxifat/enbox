@@ -3,7 +3,6 @@
  * (day separator, "N unread messages" divider, bubble grouping). Pure (unit-tested).
  */
 import type { ID } from '@enbox/shared';
-import { isSameLocalDay } from '@/lib/format';
 import type { ClientMessage } from '@/stores/messages';
 
 /** Consecutive messages of one sender within this window form a visual group. */
@@ -45,10 +44,34 @@ function groupable(m: ClientMessage): boolean {
   return m.type !== 'system' && m.type !== 'call';
 }
 
+interface TimeMeta {
+  /** createdAt, ms epoch. */
+  t: number;
+  /** Local midnight of createdAt (day separators). */
+  day: number;
+}
+
+/**
+ * Parsed times per message object. Rows are rebuilt on every window change (upload
+ * progress, reactions…) while message objects are only replaced when they change, so each
+ * message is parsed once.
+ */
+const timeMeta = new WeakMap<ClientMessage, TimeMeta>();
+
+function timesOf(m: ClientMessage): TimeMeta {
+  let v = timeMeta.get(m);
+  if (!v) {
+    const t = Date.parse(m.createdAt);
+    v = { t, day: new Date(t).setHours(0, 0, 0, 0) };
+    timeMeta.set(m, v);
+  }
+  return v;
+}
+
 function sameGroup(a: ClientMessage, b: ClientMessage): boolean {
   if (!groupable(a) || !groupable(b)) return false;
   if (a.senderId !== b.senderId) return false;
-  const gap = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+  const gap = timesOf(b).t - timesOf(a).t;
   return gap >= 0 && gap <= GROUP_WINDOW_MS;
 }
 
@@ -64,7 +87,7 @@ export function buildRows(items: ClientMessage[], opts: RowOptions): Row[] {
   for (let i = 0; i < items.length; i++) {
     const m = items[i]!;
     const prev = i > 0 ? items[i - 1]! : null;
-    const showDay = prev ? !isSameLocalDay(prev.createdAt, m.createdAt) : !hasMoreBefore;
+    const showDay = prev ? timesOf(prev).day !== timesOf(m).day : !hasMoreBefore;
     const divider = i === dividerAt ? unreadCount : 0;
     rows[i] = {
       key: rowKey(m),
@@ -107,6 +130,16 @@ export function reuseRows(prev: Row[], next: Row[]): Row[] {
     return r;
   });
   return changed ? out : prev;
+}
+
+/**
+ * The rows' keys — `prev` itself when they are identical, so consumers keyed on the array
+ * identity (firstItemIndex bookkeeping) skip work when only row contents changed (upload
+ * progress, reactions, edits).
+ */
+export function rowKeys(rows: readonly Row[], prev: string[]): string[] {
+  if (prev.length === rows.length && rows.every((r, i) => r.key === prev[i])) return prev;
+  return rows.map((r) => r.key);
 }
 
 /**

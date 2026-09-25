@@ -27,6 +27,7 @@ import {
   buildRows,
   nextExpiry,
   reuseRows,
+  rowKeys,
   shiftFirstIndex,
   visibleMessages,
   type Row,
@@ -179,7 +180,14 @@ export const MessageList = memo(function MessageList({
     prevRows.current = next;
     return next;
   }, [items, me, unread, msgs.hasMoreBefore]);
-  const keys = useMemo(() => rows.map((r) => r.key), [rows]);
+  // Same keys → same array: an update that only changes row contents (upload progress,
+  // reactions) doesn't re-run the firstItemIndex bookkeeping (and its second render).
+  const prevKeys = useRef<string[]>([]);
+  const keys = useMemo(() => {
+    const next = rowKeys(rows, prevKeys.current);
+    prevKeys.current = next;
+    return next;
+  }, [rows]);
 
   // firstItemIndex bookkeeping (derived state, updated during render).
   const [track, setTrack] = useState<Track>(() => ({

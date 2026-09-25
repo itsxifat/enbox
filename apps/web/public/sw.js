@@ -7,9 +7,14 @@
  * - Never cached: /api, /socket.io, /uploads, non-GET requests, cross-origin requests.
  *
  * Bump SHELL_CACHE when the caching strategy changes; old caches are purged on activate.
+ * BUILD_ID is stamped by the build (vite.config.ts `enbox-sw-version`), so every deploy
+ * installs a new worker whose activate step drops the previous builds' asset caches; the
+ * asset cache is also capped (oldest entries first) in case the worker isn't updated.
  */
+const BUILD_ID = '__ENBOX_BUILD_ID__';
 const SHELL_CACHE = 'enbox-shell-v1';
-const ASSET_CACHE = 'enbox-assets-v1';
+const ASSET_CACHE = `enbox-assets-${BUILD_ID}`;
+const ASSET_CACHE_MAX_ENTRIES = 200;
 const SHELL_URL = '/index.html';
 const PRECACHE = ['/', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png'];
 
@@ -43,6 +48,16 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/** Drop the oldest entries beyond `max` (Cache.keys() is in insertion order). */
+function trimCache(name, max) {
+  return caches.open(name).then((cache) =>
+    cache.keys().then((keys) => {
+      if (keys.length <= max) return undefined;
+      return Promise.all(keys.slice(0, keys.length - max).map((k) => cache.delete(k)));
+    }),
+  );
+}
+
 function isBypassed(url) {
   return (
     url.origin !== self.location.origin ||
@@ -68,7 +83,12 @@ self.addEventListener('fetch', (event) => {
         .then((res) => {
           if (res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
             const copy = res.clone();
-            caches.open(SHELL_CACHE).then((c) => c.put(SHELL_URL, copy));
+            event.waitUntil(
+              caches
+                .open(SHELL_CACHE)
+                .then((c) => c.put(SHELL_URL, copy))
+                .catch(() => undefined),
+            );
           }
           return res;
         })
@@ -91,7 +111,14 @@ self.addEventListener('fetch', (event) => {
           fetch(request).then((res) => {
             if (res.ok) {
               const copy = res.clone();
-              caches.open(ASSET_CACHE).then((c) => c.put(request, copy));
+              // Quota errors must not surface as unhandled rejections.
+              event.waitUntil(
+                caches
+                  .open(ASSET_CACHE)
+                  .then((c) => c.put(request, copy))
+                  .then(() => trimCache(ASSET_CACHE, ASSET_CACHE_MAX_ENTRIES))
+                  .catch(() => undefined),
+              );
             }
             return res;
           }),
