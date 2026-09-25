@@ -1,6 +1,11 @@
 /**
  * Channel admin composer: text posts, photo/video/document attachments (optimistic upload)
  * and polls. Enter sends per the device preference.
+ *
+ * Photos & videos go through the same client-side processing as chat media
+ * (docs/ARCHITECTURE.md "Media"): photos are re-encoded through a canvas (strips EXIF/GPS —
+ * channels are public, the server keeps files as uploaded), both get a thumbnail. Only the
+ * Document picker uploads the original file.
  */
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
@@ -34,6 +39,8 @@ import { api } from '@/lib/api';
 import { validate } from '@/lib/forms';
 import { newClientId } from '@/lib/ids';
 import { createObjectUrl, mediaKindForFile, probeMedia } from '@/lib/media';
+import { prepareVisualMedia } from '@/features/conversation/lib/mediaProcessing';
+import { uploadMedia } from '@/features/conversation/lib/upload';
 import { useMessages } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
 
@@ -59,6 +66,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
 
   const sendFile = async (file: File, asDocument: boolean) => {
     const kind = asDocument ? 'file' : mediaKindForFile(file);
+    const visual = kind === 'image' || kind === 'video';
     const caption = text.trim().slice(0, MAX_CAPTION_LENGTH) || undefined;
     if (caption) setText('');
     const clientId = newClientId();
@@ -71,13 +79,29 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
       localUrl,
       uploadProgress: 0,
     });
+    const onProgress = (p: number) =>
+      useMessages.getState().patchOptimistic(chat.id, clientId, { uploadProgress: p });
     try {
-      const media = await api.upload(file, await probeMedia(file, kind), (p) =>
-        useMessages.getState().patchOptimistic(chat.id, clientId, { uploadProgress: p }),
-      );
+      let mediaId: string;
+      if (visual) {
+        // Never fall back to the original: a photo the browser can't decode (e.g. HEIC)
+        // fails instead of leaking its metadata.
+        const p = await prepareVisualMedia(file).catch(() => {
+          throw new Error(`Couldn’t process “${file.name}”`);
+        });
+        const media = await uploadMedia(
+          p.blob,
+          { kind: p.kind, width: p.width, height: p.height, durationMs: p.durationMs },
+          { fileName: p.fileName, thumbnail: p.thumbnail, onProgress },
+        );
+        mediaId = media.id;
+      } else {
+        const media = await api.upload(file, await probeMedia(file, kind), onProgress);
+        mediaId = media.id;
+      }
       await useMessages
         .getState()
-        .sendMessage(chat.id, { clientId, type: kind, mediaId: media.id, text: caption });
+        .sendMessage(chat.id, { clientId, type: kind, mediaId, text: caption });
     } catch (err) {
       useMessages.getState().markFailed(chat.id, clientId);
       toast.error(err);

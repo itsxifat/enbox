@@ -17,7 +17,13 @@ import {
   showNotification,
   type PermissionState,
 } from '@/lib/notify';
-import { enablePush, getServerConfig, pushSupported, type PushResult } from '@/lib/push';
+import {
+  disablePush,
+  enablePush,
+  getServerConfig,
+  pushSupported,
+  type PushResult,
+} from '@/lib/push';
 import { useMe } from '@/stores/auth';
 import { useUi } from '@/stores/ui';
 import { updateSettings } from './settingsApi';
@@ -69,6 +75,8 @@ export function NotificationsPage() {
 
   const enable = async () => {
     setEnabling(true);
+    // "Turn on" also turns this device's alerts back on (push follows that switch).
+    useUi.getState().setPref('desktopNotifications', true);
     try {
       if (pushSupported() && pushAvailable) {
         const r = await enablePush();
@@ -170,7 +178,14 @@ export function NotificationsPage() {
           title="Desktop alerts"
           description="Show system notifications while Enbox is in the background"
           checked={prefs.desktopNotifications}
-          onChange={(v) => useUi.getState().setPref('desktopNotifications', v)}
+          onChange={(v) => {
+            useUi.getState().setPref('desktopNotifications', v);
+            // Web Push is shown by the service worker, which can't see this switch: the
+            // subscription itself has to follow it.
+            if (!pushSupported()) return;
+            if (!v) void disablePush();
+            else if (permission === 'granted' && pushAvailable) void enablePush();
+          }}
         />
         <SwitchRow
           icon={Volume2}

@@ -100,7 +100,7 @@ export const useChats = create<ChatsState>((set, get) => ({
   loadChats() {
     if (loadingPromise) return loadingPromise;
     set({ loading: true, error: null });
-    loadingPromise = api
+    const p: Promise<void> = api
       .get<ChatSummary[]>('/api/chats')
       .then((chats) => {
         useUsers.getState().upsertUsers(peersOf(chats));
@@ -109,13 +109,16 @@ export const useChats = create<ChatsState>((set, get) => ({
         set({ byId, loaded: true, loading: false });
       })
       .catch((e: unknown) => {
-        set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load chats' });
+        // A response of the previous session (logout meanwhile): the store was reset.
+        if (loadingPromise === p)
+          set({ loading: false, error: e instanceof Error ? e.message : 'Failed to load chats' });
         throw e;
       })
       .finally(() => {
-        loadingPromise = null;
+        if (loadingPromise === p) loadingPromise = null;
       });
-    return loadingPromise;
+    loadingPromise = p;
+    return p;
   },
 
   refreshChat(id) {

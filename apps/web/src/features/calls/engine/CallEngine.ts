@@ -30,6 +30,11 @@ export interface LevelMonitor {
 export interface CallEngineOptions {
   selfId: string;
   iceServers: RTCIceServer[];
+  /**
+   * Fresh STUN/TURN servers (time-limited TURN credentials); awaited before every ICE
+   * restart so a long call never restarts with expired credentials.
+   */
+  refreshIceServers?: () => Promise<RTCIceServer[]>;
   sendSignal(toUserId: string, signal: CallSignal): void;
   events?: CallEngineEvents;
   /** Test seams. */
@@ -54,6 +59,7 @@ export class CallEngine {
   private outputDeviceId: string | null = null;
   private audioBlocked = false;
   private closed = false;
+  private iceRefresh: Promise<void> | null = null;
 
   constructor(opts: CallEngineOptions) {
     this.opts = opts;
@@ -88,8 +94,26 @@ export class CallEngine {
     return [...this.links.keys()];
   }
 
+  /** Use these servers for new links and apply them to the live ones (ICE restarts). */
   setIceServers(servers: RTCIceServer[]): void {
+    if (this.closed) return;
     this.iceServers = servers;
+    for (const link of this.links.values()) link.setIceServers(servers);
+  }
+
+  /** Fetch fresh servers (deduped) and apply them; never rejects. */
+  refreshIceServers(): Promise<void> {
+    const fetchServers = this.opts.refreshIceServers;
+    if (!fetchServers || this.closed) return Promise.resolve();
+    if (!this.iceRefresh) {
+      this.iceRefresh = fetchServers()
+        .then((servers) => this.setIceServers(servers))
+        .catch(() => undefined)
+        .finally(() => {
+          this.iceRefresh = null;
+        });
+    }
+    return this.iceRefresh;
   }
 
   /** Microphone track (from getMicrophoneStream). */
@@ -167,6 +191,7 @@ export class CallEngine {
       onStateChange: (state) => {
         if (this.links.get(userId) === link) this.opts.events?.onPeerState?.(userId, state);
       },
+      beforeRestart: this.opts.refreshIceServers ? () => this.refreshIceServers() : undefined,
       createPeerConnection: this.opts.createPeerConnection,
     });
     this.links.set(userId, link);

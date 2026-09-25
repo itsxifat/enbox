@@ -94,8 +94,16 @@ export class FakePeerConnection {
   oniceconnectionstatechange: (() => void) | null = null;
   private negotiationQueued = false;
 
-  constructor(readonly config: RTCConfiguration) {
+  constructor(public config: RTCConfiguration) {
     FakePeerConnection.instances.push(this);
+  }
+
+  getConfiguration(): RTCConfiguration {
+    return { ...this.config };
+  }
+
+  setConfiguration(config: RTCConfiguration) {
+    this.config = { ...config };
   }
 
   addTransceiver(

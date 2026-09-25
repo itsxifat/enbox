@@ -11,6 +11,7 @@
  * existing notification instead of stacking.
  */
 import { bus } from './bus';
+import { registerSessionReset } from './session';
 
 // ---------------------------------------------------------------------------
 // Notifications
@@ -53,6 +54,28 @@ export interface AppNotification {
   silent?: boolean;
 }
 
+/** Shown with `new Notification()` (no SW registration): getNotifications() can't list them. */
+const pageNotifications = new Set<Notification>();
+
+/**
+ * Close every notification Enbox is showing on this device (logout: message previews must
+ * not stay in the tray after the session ends).
+ */
+export async function closeAllNotifications(): Promise<void> {
+  for (const n of pageNotifications) n.close();
+  pageNotifications.clear();
+  try {
+    const reg =
+      'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+    const list = (await reg?.getNotifications()) ?? [];
+    for (const n of list) n.close();
+  } catch {
+    /* unsupported */
+  }
+}
+
+registerSessionReset(() => void closeAllNotifications());
+
 /**
  * Show a system notification when the app is not focused (or always with `force`).
  * Returns true if a notification was shown.
@@ -79,6 +102,8 @@ export async function showNotification(
       return true;
     }
     const notification = new Notification(n.title, options);
+    pageNotifications.add(notification);
+    notification.onclose = () => pageNotifications.delete(notification);
     notification.onclick = () => {
       window.focus();
       if (n.url) bus.emit('navigate', { to: n.url });

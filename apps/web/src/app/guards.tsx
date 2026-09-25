@@ -2,12 +2,24 @@ import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router';
 import { Splash } from '@/components/layout/Splash';
 import { useAuth } from '@/stores/auth';
 
-/** Only allow same-app relative paths as post-login redirects (no open redirects). */
+/**
+ * Only allow same-app paths as post-login redirects (no open redirects). Parsed, not
+ * prefix-matched: the URL parser drops TAB/CR/LF and reads a backslash as `/`, so
+ * `/<TAB>/evil.example` would resolve to another origin. Returns the normalized path + query + hash.
+ */
 export function safeNext(next: string | null | undefined, fallback = '/chats'): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\'))
+  // Control characters (incl. TAB/CR/LF) and backslashes never appear in our own paths.
+  // eslint-disable-next-line no-control-regex
+  if (!next || !next.startsWith('/') || /[\u0000-\u001f\u007f\\]/.test(next)) return fallback;
+  let url: URL;
+  try {
+    url = new URL(next, window.location.href);
+  } catch {
     return fallback;
-  if (next.startsWith('/login') || next.startsWith('/register')) return fallback;
-  return next;
+  }
+  if (url.origin !== window.location.origin) return fallback;
+  if (/^\/(login|register)(\/|$)/.test(url.pathname)) return fallback;
+  return url.pathname + url.search + url.hash;
 }
 
 /** Authenticated area: splash while booting, redirect to /login?next=… when anonymous. */

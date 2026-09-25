@@ -21,7 +21,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ReactNode } from 'react';
-import { errorMessage } from '@/lib/api';
+import { errorMessage, isSessionChangedError } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
 import { StorageKeys } from '@/lib/storage';
 
@@ -216,11 +216,16 @@ export const toast = {
   success: (message: string, opts?: ToastOptions) =>
     useUi.getState().pushToast('success', message, opts),
   info: (message: string, opts?: ToastOptions) => useUi.getState().pushToast('info', message, opts),
-  /** Accepts a message or any thrown value (ApiError → its message). */
+  /**
+   * Accepts a message or any thrown value (ApiError → its message). Failures of requests that
+   * belonged to a previous session (logout meanwhile) are not shown.
+   */
   error: (error: unknown, opts?: ToastOptions) =>
-    useUi
-      .getState()
-      .pushToast('error', typeof error === 'string' ? error : errorMessage(error), opts),
+    isSessionChangedError(error)
+      ? ''
+      : useUi
+          .getState()
+          .pushToast('error', typeof error === 'string' ? error : errorMessage(error), opts),
   dismiss: (id: string) => useUi.getState().dismissToast(id),
 };
 

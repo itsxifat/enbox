@@ -12,6 +12,7 @@ function makeLink(opts: {
   role: LinkRole;
   audio?: FakeTrack | null;
   video?: FakeTrack | null;
+  beforeRestart?: () => Promise<unknown>;
 }) {
   const sent: CallSignal[] = [];
   const states: RTCPeerConnectionState[] = [];
@@ -28,6 +29,7 @@ function makeLink(opts: {
         : opts.audio && asTrack(opts.audio),
     videoTrack: opts.video ? asTrack(opts.video) : null,
     sendSignal: (s) => sent.push(s),
+    beforeRestart: opts.beforeRestart,
     onStateChange: (s) => states.push(s),
     onRemoteTrack: (_stream, track) => remoteTracks.push(track.kind),
     createPeerConnection: asPc((config) => (pc = new FakePeerConnection(config))),
@@ -128,20 +130,28 @@ describe('PeerLink (answerer / existing participant)', () => {
   });
 });
 
+/** An offerer link past its initial offer/answer, renegotiating (ICE restart) now. */
+async function renegotiating(self: string, remote: string) {
+  const l = makeLink({ self, remote, role: 'offerer' });
+  await flush();
+  await l.link.handleSignal({ type: 'answer', sdp: 'first-answer' });
+  l.link.restartIce();
+  await flush();
+  expect(l.pc().signalingState).toBe('have-local-offer');
+  return l;
+}
+
 describe('perfect negotiation (glare)', () => {
   it('the polite peer rolls back its own offer and answers', async () => {
     // A < B → A is polite.
-    const { link, sent, pc } = makeLink({ self: A, remote: B, role: 'offerer' });
-    await flush();
-    expect(pc().signalingState).toBe('have-local-offer');
+    const { link, sent, pc } = await renegotiating(A, B);
     await link.handleSignal({ type: 'offer', sdp: 'their-offer' });
     expect(pc().rollbacks).toBe(1);
     expect(sent.at(-1)).toEqual({ type: 'answer', sdp: expect.any(String) });
   });
 
   it('the impolite peer ignores a colliding offer and its candidates', async () => {
-    const { link, sent, pc } = makeLink({ self: B, remote: A, role: 'offerer' });
-    await flush();
+    const { link, sent, pc } = await renegotiating(B, A);
     const before = sent.length;
     await link.handleSignal({ type: 'offer', sdp: 'their-offer' });
     await link.handleSignal({ type: 'candidate', candidate: { candidate: 'x' } });
@@ -149,6 +159,27 @@ describe('perfect negotiation (glare)', () => {
     expect(pc().signalingState).toBe('have-local-offer');
     expect(sent.length).toBe(before);
   });
+
+  it.each([
+    ['polite', A, B],
+    ['impolite', B, A],
+  ])(
+    'a %s newcomer ignores a stale offer before its first answer (both rejoined at once)',
+    async (_label, self, remote) => {
+      // The remote closed the link that sent this offer (call:participant-joined) and answers
+      // our offer on a fresh one instead.
+      const { link, sent, pc } = makeLink({ self, remote, role: 'offerer' });
+      await flush();
+      const before = sent.length;
+      await link.handleSignal({ type: 'offer', sdp: 'stale-offer' });
+      await link.handleSignal({ type: 'candidate', candidate: { candidate: 'stale' } });
+      expect(pc().rollbacks).toBe(0);
+      expect(sent.length).toBe(before); // no answer to the dead connection
+      await link.handleSignal({ type: 'answer', sdp: 'real-answer' });
+      expect(pc().signalingState).toBe('stable');
+      expect(pc().remoteDescription?.sdp).toBe('real-answer');
+    },
+  );
 });
 
 describe('media & recovery', () => {
@@ -178,6 +209,26 @@ describe('media & recovery', () => {
     expect(pc().restartIceCalls).toBe(2);
     link.close();
     expect(pc().closed).toBe(true);
+  });
+
+  it('refreshes ICE servers before restarting ICE', async () => {
+    let release!: () => void;
+    const refreshed = new Promise<void>((r) => (release = r));
+    const beforeRestart = vi.fn(() => refreshed);
+    const { link, pc } = makeLink({ role: 'offerer', beforeRestart });
+    await flush();
+    pc().setIceState('failed');
+    pc().setIceState('failed'); // a second trigger while refreshing is coalesced
+    expect(beforeRestart).toHaveBeenCalledTimes(1);
+    expect(pc().restartIceCalls).toBe(0);
+    link.setIceServers([{ urls: 'turn:fresh.example', username: 'u', credential: 'c' }]);
+    release();
+    await flush();
+    expect(pc().restartIceCalls).toBe(1);
+    expect(pc().config.iceServers).toEqual([
+      { urls: 'turn:fresh.example', username: 'u', credential: 'c' },
+    ]);
+    expect(pc().config.bundlePolicy).toBe('max-bundle');
   });
 
   it('stops emitting after close', async () => {
