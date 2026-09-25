@@ -1,0 +1,17 @@
+/* Call feature keyframes (used via Tailwind arbitrary `animate-[…]` values). */
+@keyframes call-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  20% {
+    transform: translateY(-6px) scale(1.04);
+  }
+  40% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.02);
+  }
+}
