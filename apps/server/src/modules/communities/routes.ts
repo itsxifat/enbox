@@ -23,7 +23,7 @@ import { chats, communities, communityMembers, type ChatRow, type CommunityMembe
 import { authUserId } from '../../http/auth.js';
 import { badRequest, conflict, forbidden, limitReached, notFound, notMember } from '../../lib/errors.js';
 import { parse } from '../../lib/validate.js';
-import { getChatAccess, getMembership, lockChats } from '../../services/chats.js';
+import { getChat, getChatAccess, getMembership, lockChats } from '../../services/chats.js';
 import {
   addCommunityMembers,
   communityMemberIds,
@@ -89,7 +89,9 @@ router.post('/communities', async (req, res) => {
   const body = parse(createCommunitySchema, req.body ?? {});
   const communityId = await transact(async (tx, fx) => {
     if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);
-    // Validate (and lock, sorted) the groups to link; the community and its announcement group are new rows.
+    // Validate without locks first (never queue on the row lock of a chat I can't manage),
+    // then lock (sorted) and re-validate; the community and its announcement group are new rows.
+    for (const id of body.groupIds) await requireLinkableGroup(tx, me, id, (await getChat(tx, id)) ?? undefined);
     const locked = new Map((await lockChats(tx, body.groupIds)).map((c) => [c.id, c]));
     const groups: ChatRow[] = [];
     for (const id of body.groupIds) groups.push(await requireLinkableGroup(tx, me, id, locked.get(id)));
@@ -235,6 +237,9 @@ router.post('/communities/:communityId/groups/link', async (req, res) => {
   const { communityId } = parse(communityParams, req.params);
   const { chatIds } = parse(linkGroupsSchema, req.body ?? {});
   await transact(async (tx, fx) => {
+    // Unlocked pre-checks (no row locks for callers who may not link), then under the locks.
+    await requireCommunityRole(tx, communityId, me, 'admin');
+    for (const id of chatIds) await requireLinkableGroup(tx, me, id, (await getChat(tx, id)) ?? undefined);
     const scope = await lockCommunityScope(tx, communityId, { extraChatIds: chatIds });
     await requireCommunityRole(tx, communityId, me, 'admin');
     const groups: ChatRow[] = [];

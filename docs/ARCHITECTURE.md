@@ -62,7 +62,10 @@ apps/web/src/
   registers `onBeforeReady` / `onAfterReady` hooks (`realtime/hooks.ts`).
 - **Validation**: every body, query, **path param** and socket payload is parsed with the
   zod schemas from `@enbox/shared` (`idParamSchema('chatId', …)`, `inviteParamsSchema`,
-  `usernameParamsSchema`). Invalid input → `400 validation_error` (never a 500 from Postgres).
+  `usernameParamsSchema`). Invalid input → `400 validation_error` (never a 500 from Postgres):
+  `parse()` also rejects any string (value or key) containing a NUL character or an unpaired
+  UTF-16 surrogate (Postgres can't store them in text/jsonb), and datetimes reaching the DB
+  go through `storableDate()` (years 0001–9999, e.g. `mutedUntil`, the call-log cursor).
   Ids are lowercase UUIDs (`idSchema` lowercases; z.uuid is RFC-strict, so tests use
   `crypto.randomUUID()`). Routers with merged params use `Router({ mergeParams: true })`.
 - **Routes**: register literal segments before param routes (`/users/search`,
@@ -90,9 +93,19 @@ apps/web/src/
   - Lock order: `communities` row (community-level ops) → `chats` rows via
     `lockChats(tx, chatIds)` (`SELECT … FOR UPDATE` in **sorted id order**) → `calls` row →
     everything else. Any tx that writes messages, chat_members or chat_pins of a chat locks
-    that chat first. Limit checks (MAX_GROUP_MEMBERS, MAX_PINNED_MESSAGES,
+    that chat first (the connect-time delivered advance takes `FOR SHARE` on the user's
+    chats, sorted). A tx locks all its chats in ONE sorted `lockChats` call; when it only
+    learns under a lock that it needs a row that sorts earlier (a group linked to a community
+    meanwhile), it rolls back to a savepoint to release the chat before locking the
+    community (`lockGroupScope`), or fails with a retryable `409 conflict` (account
+    deletion). Limit checks (MAX_GROUP_MEMBERS, MAX_PINNED_MESSAGES,
     MAX_COMMUNITY_GROUPS, MAX_PINNED_CHATS) run after the lock. Poll votes lock the message
-    row (`SELECT … FOR UPDATE`).
+    row (`SELECT … FOR UPDATE`). Membership activations `FOR SHARE`-lock the users they
+    activate and skip accounts deleted meanwhile (`lockLiveUsers`); writes referencing a
+    status lock it `FOR KEY SHARE` (a concurrent delete → 404).
+  - Mutations addressed by client-supplied chat ids (forward targets, groups to link) check
+    access with plain reads first, so nobody can queue on the row lock of a chat they can't
+    use.
   - Ownership changes demote the old owner in one statement, then promote the new one (the
     one-owner partial unique indexes are checked per row).
   - No network/file I/O (uploads, web-push, `fetchSockets`) inside a transaction. Emit
@@ -103,6 +116,9 @@ apps/web/src/
 - **Auth**: opaque random session tokens (`Authorization: Bearer`), stored as sha256 in
   `sessions`. Each session is a "linked device". Sockets authenticate with the same token.
   Passwords: `crypto.scrypt` with per-user salt (no native deps).
+- **Client IPs**: Express `trust proxy` comes from `TRUST_PROXY` (default off: the socket
+  address is the client IP). Set it only behind a reverse proxy you control; otherwise a
+  spoofed `X-Forwarded-For` would dodge every per-IP limit.
 - **Rate limits**: per IP (`lib/rateLimit.ts`: auth, invites, uploads, general API) and per
   user/socket (`lib/userLimit.ts`: `limitUser(subjectId, key, limit, windowMs)` /
   `assertUserLimit(subjectId, key, USER_RATE_LIMITS.x)` → `429 rate_limited`). See "Rate limits".
@@ -162,25 +178,33 @@ invite, calls and message mutations → `403 not_member`; `/calls/active` exclud
   (self chat, last member) = the chat's `lastSeq`. Direct chats: `readWatermark = 0` when
   either side has `readReceipts` off (delivered still works). Channels: both 0, no ticks,
   never recomputed. Compute per chat with one query (the two smallest watermarks) and emit
-  `chat:watermarks` only to members whose value changed.
+  `chat:watermarks` only to members whose value changed — never to members whose row is
+  hidden (their `chat:upsert` on unhide carries the values) nor to recipients a message was
+  withheld from (the tick change would reveal it).
 - **Delivered is server-driven** (clients never send delivered receipts):
   (a) when a message is created, every recipient with ≥ 1 connected socket
   (`isOnline`) gets `last_delivered_seq` advanced in the same transaction;
-  (b) on socket connect, before `ready`, the chats module (`onBeforeReady` hook) advances
-  the user's `last_delivered_seq` to the latest visible seq of every active chat (one
-  lateral query using the `(chat_id, seq)` index), then emits `chat:watermarks` to senders
-  whose ticks changed.
+  (b) on socket connect, before `ready` (after the socket counts as online), the chats
+  module (`onBeforeReady` hook) takes `FOR SHARE` locks on the user's active chats (sorted:
+  a send in flight that saw the user offline commits first, later sends see them online),
+  then advances the user's `last_delivered_seq` to the latest visible seq of every active
+  chat (one lateral query using the `(chat_id, seq)` index), then emits `chat:watermarks` to
+  senders whose ticks changed.
 - **Read**: `chat:read { chatId, seq }` (socket) or `POST /api/chats/:chatId/read { seq }`
   (REST) — identical semantics: clamp, `GREATEST`, set `last_read_at`, clear
   `marked_unread`, then emit `chat:read { chatId, lastReadSeq, unreadCount,
   unreadMentionCount, markedUnread }` to `user:<me>`, `chat:watermarks` to affected members,
   and a `dismiss` push (tag `chat:<chatId>`) to my push subscriptions if unread messages
   were cleared. `PATCH prefs { markedUnread: true }` never moves `last_read_seq`.
-- `MessageInfo` (`GET /messages/:id/info`, sender only, 404 in channels): other members for
+- `MessageInfo` (`GET /messages/:id/info`, sender only, 404 in channels; like the member
+  list it needs an active membership — former members → `403 not_member` — and
+  `canViewMembers` — announcement groups: admins only): other members for
   whom the message is visible, split by watermarks; `at` is approximate (time the member's
   watermark last advanced, nullable).
 - Known v1 limitation: after unblocking, messages withheld during the block may show as
-  read once a later message is read (watermarks are positions, not per-message receipts).
+  read once a later message is read (watermarks are positions, not per-message receipts);
+  likewise, during the block, a later message the blocker can see (e.g. a system message of
+  their own pin) moves their marks past earlier withheld messages.
 
 ### Unread and mentions
 `unreadCount` = visible messages with `seq > last_read_seq`, `sender_id IS DISTINCT FROM
@@ -193,10 +217,15 @@ viewer`, `type <> 'system'` (call messages count for everyone but the initiator)
 - Rooms (`rooms` helper): `user:<id>` (all devices), `session:<id>` (one device),
   `chat:<id>` (active, non-hidden members/followers), `call:<id>` and `call:<id>:<userId>`
   (call sockets of joined participants). **Presence is not room-based.**
-- Connect sequence (io.ts): authenticate → join `user:` + `session:` rooms **first** → load
-  active non-hidden memberships and join their chat rooms → `onBeforeReady` hooks
-  (delivered advance) → emit `ready { userId, sessionId, serverTime }` → `onAfterReady`
-  hooks (calls: re-emit `call:incoming` for live calls where I'm `invited`/`ringing`).
+- Connect sequence (io.ts): authenticate (a non-string token → `unauthorized`; handshakes
+  are rate-limited per user) → join `user:` + `session:` rooms **first** → load active
+  non-hidden memberships and join their chat rooms, then re-read them and leave every room
+  no longer visible (a leave committed between the read and the join flushed its
+  `socketsLeave` before this socket was in the room; a later one reaches it) → count the
+  socket as online (only sockets that got this far are uncounted on disconnect) →
+  `onBeforeReady` hooks (delivered advance) → emit `ready { userId, sessionId, serverTime }`
+  → `onAfterReady` hooks (calls: re-emit `call:incoming` for live calls where I'm
+  `invited`/`ringing`).
 - Room membership mirrors active visibility. Joins/leaves always use
   `io.in(rooms.user(u)).socketsJoin/socketsLeave(...)` (`joinUserToChat`,
   `removeUserFromChat`), which reach sockets on every node.
@@ -215,7 +244,10 @@ viewer`, `type <> 'system'` (call messages count for everyone but the initiator)
 4. `message:new` is emitted **once** to `chat:c`, excluding users who cannot see it
    (`exceptUserIds`: a recipient who blocked the sender). `message:updated` goes to
    `chat:c` excluding active members for whom the message is invisible (`joined_seq >= seq`,
-   `cleared_seq >= seq`, or a `message_hidden` row); channels: whole room.
+   `cleared_seq >= seq`, or a `message_hidden` row) and, in direct chats, a peer who blocked
+   the acting user; channels: whole room. `chat:pins` goes to the room, except members with
+   a `message_hidden` row on a pinned message, who get their own list without it →
+   `user:<id>`.
 5. Viewer-neutral chat metadata (`name`, `description`, `avatarUrl`, `groupSettings`,
    `channelSettings`, `disappearingSeconds`, `memberCount`, `communityId`, `isAnnouncement`)
    → `chat:updated { chatId, changes }` → `chat:c`; clients merge and recompute
@@ -235,25 +267,25 @@ acting device also receives the events (clients dedupe).
 | --- | --- |
 | `POST /auth/logout` | `disconnectSession(me.session)` (push subscriptions cascade) |
 | `DELETE /auth/sessions[/:id]`, `POST /auth/change-password` | per revoked session s: `invalidateSessions` → `session:revoked {sessionId:s}` → S(s) → `disconnectSession(s)` |
-| `PATCH /me` | `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels) and → U(x) for users who saved me as a contact |
+| `PATCH /me` | `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels; announcement groups only where I'm an admin — their member lists are admin-only) and → U(x) for users who saved me as a contact |
 | `PATCH /me/settings` | `me:updated` → U(me); presence-visibility change → re-evaluate my presence subscribers (per-socket `presence:update`); `readReceipts` change → recompute read watermarks of my direct chats → `chat:watermarks` → U(me), U(peer) where changed |
 | `DELETE /me` | see "Account deletion" |
 | `POST/PATCH/DELETE /contacts…` | `contacts:changed` → U(me); `user:changed {userId: me}` → U(contact) (their view of me changed); re-evaluate my presence subscribers |
-| `PUT/DELETE /blocks/:u` | `blocks:changed` → U(me); `chat:upsert` (direct chat with u, if any) → U(me); `user:changed {me}` → U(u); presence re-evaluated both ways; a live call between us → forced leave |
+| `PUT/DELETE /blocks/:u` | (the direct chat with u is locked first: serializes with `call:start`) `blocks:changed` → U(me); `chat:upsert` (direct chat with u, if any) → U(me); `user:changed {me}` → U(u); presence re-evaluated both ways; a live call between us → forced leave |
 | `POST /chats/direct` (new) | JOIN(me) only (peer row is hidden until the first message; nothing to the peer) |
 | `PATCH /chats/:c/prefs` | `chat:upsert` → U(me) |
 | `POST /chats/:c/read`, `chat:read` | `chat:read {…}` → U(me); `chat:watermarks` → U(x) changed; `dismiss` push → me |
 | `POST /chats/:c/clear` | `chat:cleared {clearedSeq}` → U(me) (my stars in range are removed) |
 | `DELETE /chats/:c` | `removeUserFromChat(me, c)` → `chat:removed` → U(me) |
-| `PUT /chats/:c/disappearing` | sys `disappearing_changed` (not channels) → R; `chat:updated {disappearingSeconds}` → R |
-| `POST /chats/:c/pins` | sys `message_pinned` (not channels) → R; `chat:pins` → R |
-| `DELETE /chats/:c/pins/:m` | `chat:pins` → R |
+| `PUT /chats/:c/disappearing` | sys `disappearing_changed` (not channels) → R; `chat:updated {disappearingSeconds}` → R (direct: both skip a peer who blocked me) |
+| `POST /chats/:c/pins` | sys `message_pinned` (not channels) → R; `chat:pins` → R (direct: both skip a peer who blocked me) |
+| `DELETE /chats/:c/pins/:m` | `chat:pins` → R (direct: not to a peer who blocked me) |
 | `POST /chats/:c/messages` | for each member u unhidden by it: JOIN(u); `message:new` → R (except withheld recipients); `chat:read` → U(sender); `chat:watermarks` → U(sender) if delivered advanced; pushes. Idempotent retry (same `clientId`): 200 with the existing message, no events |
 | `POST /messages/forward` | per created copy: as a send in its target chat |
-| `PATCH /messages/:m` (edit) | `message:updated` → R (visible members) |
+| `PATCH /messages/:m` (edit) | `message:updated` → R (visible members; direct: not to a peer who blocked me) |
 | `DELETE /messages/:m?for=me` | `message:removed {chatId, [m]}` → U(me) |
 | `DELETE /messages/:m?for=everyone` | `message:updated` (tombstone) → R (visible); `chat:pins` → R if it was pinned |
-| `PUT/DELETE /messages/:m/reaction`, `PUT …/vote` | `message:updated` → R (visible) |
+| `PUT/DELETE /messages/:m/reaction`, `PUT …/vote` | `message:updated` → R (visible; direct: not to a peer who blocked me) |
 | `PUT/DELETE /messages/:m/star` | none (stars are private; the Starred screen fetches on open) |
 | `POST /groups` | JOIN(creator), JOIN(each added); sys `group_created`, `members_added` → R |
 | `PATCH /groups/:c` | per changed field: sys `name_changed`/`description_changed`/`avatar_changed` → R; then `chat:updated {changed fields}` → R |
@@ -267,7 +299,7 @@ acting device also receives the events (clients dedupe).
 | `POST /invites/:code/join` | group: JOIN(me); sys `member_joined_via_link` → R; `chat:updated {memberCount}`; `chat:members-changed`; community cascade. Channel: as follow. Community: as community join |
 | `POST /communities` | JOIN(creator) into the announcement group; sys `community_created` → R(ann); `community:upsert` → U(creator); per linked group: as link |
 | `PATCH /communities/:id` | announcement group: per changed field sys (`name_changed`… in community wording) → R(ann), `chat:updated` → R(ann); `community:upsert` → U(each member) |
-| `DELETE /communities/:id` | per linked group: sys `removed_from_community` → R(g), `chat:updated {communityId: null}` → R(g); `chat:removed` → R(ann), `clearChatRoom(ann)`; `community:removed` → U(each former member) |
+| `DELETE /communities/:id` | per linked group: sys `removed_from_community` → R(g), `chat:updated {communityId: null}` → R(g); a live call in the announcement group ends (ring-stops, `call:ended`, see Calls); `chat:removed` → R(ann), `clearChatRoom(ann)`; `community:removed` → U(each former member) |
 | `POST /communities/:id/groups` | as `POST /groups` (group created linked) + community cascade for its members; `community:upsert` → U(each community member) |
 | `POST /communities/:id/groups/link` | per group: sys `added_to_community` → R(g); `chat:updated {communityId}` → R(g); community cascade for its members; `community:upsert` → U(each community member) |
 | `DELETE /communities/:id/groups/:c` (unlink) | sys `removed_from_community` → R(g); `chat:updated {communityId: null}` → R(g); `community:upsert` → U(each community member) |
@@ -283,7 +315,7 @@ acting device also receives the events (clients dedupe).
 | `DELETE /channels/:c/follow` | row deleted; `removeUserFromChat(me, c)`; `chat:removed` → U(me); `chat:updated {memberCount}` → R; `chat:members-changed` → admins |
 | `PUT/DELETE /channels/:c/admins/:u`, `POST …/transfer-ownership` | `chat:upsert` → U(each changed user); `chat:members-changed` → admins |
 | `POST /channels/:c/invite/reset` | `chat:upsert` → U(each admin) |
-| `POST /status` | `status:new` → U(each audience member), U(me) |
+| `POST /status` | `status:new` → U(each audience member), U(me) (≤ 30 posts/h per user) |
 | `DELETE /status/:s` | `status:deleted` → U(audience), U(me) |
 | `POST /status/:s/view`, `PUT …/reaction` | `status:viewed` → U(author) (not when the viewer has read receipts off) |
 | `chat:typing` | `chat:typing` → R except my sockets (see Typing) |
@@ -312,7 +344,9 @@ every `TYPING_REFRESH_MS` while active and `idle` on send/blur; indicators expir
 All membership writes go through one helper, `upsertMembership(tx, …)` in
 `services/membership.ts`, called while holding the chat lock:
 
-- **Add / join / rejoin (groups)**: create the system message S first (`members_added`,
+- **Add / join / rejoin (groups)**: `FOR SHARE`-lock the users being activated and drop
+  accounts deleted meanwhile (an admin add reports them `failed: not_found`); create the
+  system message S first (`members_added`,
   `member_joined_via_link`, `member_joined`), then upsert the member with
   `joined_seq = S.seq − 1`, `joined_at = now()`, `last_read_seq = last_delivered_seq =
   joined_seq`, `role = 'member'`, `added_by`, `left_at/left_seq/left_reason = null`,
@@ -395,10 +429,20 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 - I blocked the peer: my sends → `403 blocked` ("Unblock to send"); `canSend`/`canCall` false.
 - The peer blocked me: my sends **succeed** but are inserted into `message_hidden` for the
   peer, never emitted or pushed to them and never unhide their chat; clamping keeps my
-  ticks single. Calls: see Calls. The blocked party never learns about the block.
+  ticks single (the send emits no `chat:watermarks` to them either). The same holds for
+  every action of mine in that chat: system messages I cause (timer change, pin) are
+  withheld exactly like my sends (`actorId`), and `chat:updated`/`chat:pins` skip the peer;
+  my edits, reactions and poll votes apply but their `message:updated` skips the peer, and
+  the peer's own (viewer-specific) responses — history, pins, search, reaction/vote results
+  — leave out reactions and votes of users they blocked. Limitations (v1): room broadcasts
+  stay viewer-neutral, so a later `message:updated` caused by the blocker's own interaction
+  with that message carries my reaction/vote; an edit of mine shows up when the blocker
+  refetches; the timer I set applies to the chat (visible in the blocker's summary on their
+  next fetch). Calls: see Calls. The blocked party never learns about the block.
 - Either direction: no typing relay, presence hidden, status audience excluded; group adds
   of such users land in `needsInvite`. The blocked party sees the blocker's avatar, about,
-  phone and presence as null. Group messages are unaffected.
+  phone and presence as null, and can't find the blocker by username or phone (search,
+  `by-username`, `POST /contacts` → 404). Group messages are unaffected.
 
 ### Pins and disappearing messages
 - Pins: ≤ MAX_PINNED_MESSAGES per chat; pinning another replaces the oldest pin. The message
@@ -445,7 +489,9 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 ### Forward
 - Sources: visible to the forwarder, not deleted, not system/call (else 404/400). Targets:
   `canSend`. One transaction locking all target chats (sorted); each copy is created with
-  `client_id = <clientId>:<sourceIndex>` (retries idempotent).
+  `client_id = <clientId>:<sourceIndex>` (retries idempotent). Rate limit: one `sendMessage`
+  unit per copy; `messageIds × chatIds` above `USER_RATE_LIMITS.sendMessage.limit` → `400
+  validation_error` (it could never pass).
 - Copies ONLY `type`, `text` (verbatim; mentions re-derived for the target chat), `media_id`
   (server-side reuse is allowed), and location/contact/poll definition (fresh, no votes).
   Never reply links, status replies, reactions or expiry (the target's timer applies).
@@ -524,8 +570,10 @@ messages; clients resolve users with `POST /api/users/batch`.
   → 404 for non-members (previews via invites).
 - `POST …/members` returns `CommunityAddMembersResult` with the same add rules as groups.
 - **Deactivation** (owner, `DELETE /communities/:id`), one transaction: for each linked
-  group insert `removed_from_community` and set `community_id = null`; delete the
-  announcement chat (cascade); delete the community. Then the events in the matrix.
+  group insert `removed_from_community` and set `community_id = null`; end a live call of
+  the announcement group (chat-deletion hooks, `services/hooks.ts`: ongoing → `ended`,
+  ringing → `cancelled`, with the normal end fan-out); delete the announcement chat
+  (cascade); delete the community. Then the events in the matrix.
 
 ## Channels
 
@@ -570,6 +618,9 @@ messages; clients resolve users with `POST /api/users/batch`.
   excludes deleted users and users who blocked me.
 - `POST /users/batch` (≤ MAX_USERS_BATCH): privacy-filtered like `GET /users/:id`, deleted
   users included (`isDeleted`), unknown ids omitted.
+- `POST /contacts` (by userId / username / phone): deleted/unknown → 404, and by username or
+  phone also a user who blocked me (like search). Existing contact → 200 (name updated when
+  given) — also when the same contact was added concurrently (double tap); new → 201.
 
 ## Accounts, sessions and deletion
 
@@ -582,7 +633,11 @@ messages; clients resolve users with `POST /api/users/batch`.
   `DELETE /auth/sessions/:id` affects only the caller's sessions (else 404); deleting the
   current session = logout. Other instances may honour a revoked token ≤ 30 s (cache).
   Push subscriptions cascade with their session.
-- **Account deletion** (`DELETE /me`, password required), one transaction: (1) forced leave
+- **Account deletion** (`DELETE /me`, password required, per-IP auth limiter), one
+  transaction. Locks: my communities, then in ONE sorted call every chat the steps may touch
+  (my active chats, the announcement and linked groups of my communities, chats of my live
+  calls), then my users row; memberships gained between the first reads and that lock →
+  `409 conflict` (retry). Steps: (1) forced leave
   of any live call; (2) leave every active group (normal pipeline + succession) and
   community (community pipeline); delete follower rows of channels; owned channels pass to
   the oldest admin or are deleted; (3) delete sessions, push subscriptions, contacts and
@@ -601,7 +656,9 @@ messages; clients resolve users with `POST /api/users/batch`.
   `only_share_with` = `statusOnlyShareWithUserIds` ∩ contacts; always minus blocks (either
   direction) and deleted users.
 - `requireVisibleStatus`: live and (author, or in audience with no block) else 404 — used by
-  view, reaction and status replies. Viewers list: author only.
+  view, reaction and status replies (views/reactions lock the status `FOR KEY SHARE`, so a
+  concurrent delete answers 404). Viewers list: author only. Posting: ≤ 30 per hour per
+  user. The feed shows at most the latest 100 live statuses per other author.
 - Viewers with `readReceipts` off: the view is recorded (`viewed: true` for them) but they
   are excluded from `viewCount`/viewers and trigger no `status:viewed`.
 - Status media must be the author's upload of the matching kind. Deleting/expiring a status
@@ -613,7 +670,8 @@ messages; clients resolve users with `POST /api/users/batch`.
   and groups (`canCall` = `canSend`); never channels. Invitees = `userIds` (or all other
   active members) ∩ active members, ≤ MAX_CALL_PARTICIPANTS − 1; if `userIds` is omitted
   and the chat has more than MAX_CALL_PARTICIPANTS − 1 other members → `400
-  validation_error`. `call:invite`: group calls only, by joined participants, same limits;
+  validation_error`. `call:invite`: group calls only, by joined participants with `canCall`
+  (announcement / admins-only groups: admins), same limits;
   re-inviting a declined/missed/busy/left participant resets `invited_at`. The joined count
   is checked at accept/join/rejoin (`limit_reached`). Rate limit: `USER_RATE_LIMITS.callStart`.
 - **One live call per chat** (`calls_chat_live_uq`): `call:start` while one exists → ack
@@ -645,7 +703,12 @@ messages; clients resolve users with `POST /api/users/batch`.
   `rooms.call(id)` and `rooms.callMember(id, me)`. Peers get `call:participant-joined`;
   `call:updated` → all visible participants; the call message → `message:updated`.
   `call:leave`, `call:signal`, `call:media` are honoured only from the call socket;
-  `call:decline` from any of my sockets. Signals are relayed only between call sockets of
+  `call:decline` from any of my sockets. `call:leave` is evaluated in the call's queue: from
+  the socket bound then (a leave sent before the accept/join ack counts once the accept
+  bound it), or from the socket that was the call socket when the leave arrived even if it
+  disconnected meanwhile — also when socket.io dropped the event because the disconnect
+  arrived in the same read (the disconnect handler replays it first): the leave is final,
+  no reconnect grace. Signals are relayed only between call sockets of
   joined participants via `rooms.callMember(callId, toUserId)`.
 - **Negotiation**: both audio and video transceivers on every connection (replaceTrack for
   camera/screen, no renegotiation); the newcomer offers to every joined participant in its
@@ -660,14 +723,19 @@ messages; clients resolve users with `POST /api/users/batch`.
   the old connection and wait for the offer). After the grace the calls job marks the
   participant `left` (`call:participant-left`) and applies the end rules.
 - **Late devices**: after `ready` the server re-emits `call:incoming` for live calls where
-  the user is still invited/ringing. `GET /calls/active` = live calls in my active chats,
+  the user is still invited/ringing; the final check and emit run in the call's queue, so a
+  device never gets a stale `call:incoming` after its `call:ring-stop`. `GET /calls/active` = live calls in my active chats,
   including calls ringing me (hidden participant rows excluded).
 - **Crash recovery**: on boot (calls job `runOnStart`), every `ongoing` call → `ended`
   (`ended_at = now()`), every `ringing` call → `missed`; participants closed; call messages
-  updated. (v1 assumes a single server instance; with several instances this must be
-  limited to calls whose call sockets lived on the restarted node.)
+  updated. A failed recovery is retried on every run until it succeeds. The periodic runs
+  also catch joined participants without a call socket in this process whose disconnect
+  was never recorded (e.g. that transaction failed): they enter the reconnect grace. (v1
+  assumes a single server instance; with several instances this must be limited to calls
+  whose call sockets lived on the restarted node.)
 - **Forced leave**: leaving/removal from the chat, a block between direct-call peers,
-  revocation of the session holding the call socket, account deletion.
+  revocation of the session holding the call socket, account deletion. A chat being deleted
+  (community deactivation) ends its live call inside the deleting transaction.
 - **Call messages**: created at `call:start` (`type: 'call'`, `senderId` = initiator,
   `metadata.call` = `CallMessagePayload`), updated with `message:updated` at every status
   transition (`durationSec` once ended). They count as unread for everyone but the
@@ -688,6 +756,9 @@ messages; clients resolve users with `POST /api/users/batch`.
   MAX_THUMBNAIL_BYTES) → `media.thumbnail_key`, `MediaAttachment.thumbnailUrl`.
 - Files are served immutable with `nosniff`, a sandbox CSP and `Content-Disposition:
   attachment` unless the extension is inline-safe.
+- A failure after a file was moved into the store (the thumbnail move, the row insert)
+  removes what was stored; the GC job (also at boot) deletes `UPLOAD_DIR/.tmp` files older
+  than an hour (uploads interrupted by a crash).
 - Ownership: every client-supplied `mediaId` (messages, statuses, avatars) must be uploaded
   by the caller, else 404; `message.type`/status type must equal `media.kind`. Avatars
   (user, group, community, channel): kind `image`, AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES.
@@ -705,8 +776,11 @@ messages; clients resolve users with `POST /api/users/batch`.
 
 - Subscriptions: `session_id` NOT NULL (logout/revocation removes them), endpoint must be
   https on an allow-listed push service host (`pushEndpointSchema`), upsert by endpoint
-  (reassigned to the current user/session), unsubscribe only my own; 404/410 from the push
-  service deletes the row. Sender: timeout, no redirects.
+  (reassigned to the current user/session), unsubscribe only my own. One subscription per
+  session (subscribing again replaces the session's previous endpoint) and at most 10 per
+  user (oldest dropped). 404/410 from the push service deletes the row, and so do 5
+  consecutive other failures. Sender: timeout, no redirects, ≤ 16 requests in flight per
+  delivery.
 - Payload: `PushPayload` (models.ts). Sent to every subscription of each recipient (never
   the sender) regardless of socket state; the service worker skips showing it when a
   focused window exists.
@@ -727,9 +801,10 @@ messages; clients resolve users with `POST /api/users/batch`.
 
 | Scope | Limit |
 | --- | --- |
-| Per IP (lib/rateLimit.ts) | auth 20/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
-| Per user (`USER_RATE_LIMITS`) | sendMessage 60/10 s (forwards count per copy), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact) |
-| Per socket | typing 1/s per chat (dropped silently), presenceSubscribe 30/min |
+| Per IP (lib/rateLimit.ts) | auth 20/10 min (login, register, change password, delete account), invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
+| Per user (`USER_RATE_LIMITS`) | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact) |
+| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h |
+| Per socket | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min; server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`) |
 
 ## Jobs
 
@@ -738,9 +813,10 @@ Registered in `jobs/register.ts`; idempotent, safe on every instance.
   expires_at <= now() ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED) RETURNING id,
   chat_id`, looping while full; `message:removed` → room per chat.
 - **Status expiry**: delete expired statuses (clients drop them at `expiresAt`).
-- **Calls** (every ~5 s, `runOnStart` for crash recovery): ring timeouts, reconnect-grace
-  expiry, end rules.
-- **Media GC** (hourly) and **session cleanup** (expired sessions).
+- **Calls** (every ~5 s, `runOnStart` for crash recovery, retried until it succeeds): ring
+  timeouts, reconnect-grace expiry, lost call sockets, end rules.
+- **Media GC** (hourly and at boot; also stale upload temp files) and **session cleanup**
+  (expired sessions).
 
 ## Web client conventions
 - Mobile-first responsive layout: phone = single pane with bottom tabs

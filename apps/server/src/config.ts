@@ -11,6 +11,18 @@ function int(name: string, fallback: number): number {
   if (Number.isNaN(n)) throw new Error(`Env ${name} must be an integer`);
   return n;
 }
+/**
+ * Express `trust proxy` from TRUST_PROXY: unset/empty/'false' → false (the default: the
+ * server is reached directly and `X-Forwarded-For` is ignored), 'true' → true, an integer →
+ * that many proxy hops, anything else → an address/subnet list or 'loopback' etc.
+ */
+function trustProxy(name: string): boolean | number | string {
+  const v = str(name)?.trim();
+  if (!v || v === 'false') return false;
+  if (v === 'true') return true;
+  if (/^\d+$/.test(v)) return Number.parseInt(v, 10);
+  return v;
+}
 function list(name: string, fallback: string[] = []): string[] {
   const v = str(name);
   return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : fallback;
@@ -36,6 +48,11 @@ export interface Config {
   /** Serve the built web client from this directory when it exists. */
   webDistDir: string;
   rateLimit: boolean;
+  /**
+   * Express `trust proxy`. Only set it when a reverse proxy you control sits in front of the
+   * server: otherwise clients can spoof `X-Forwarded-For` and dodge every per-IP rate limit.
+   */
+  trustProxy: boolean | number | string;
   ice: {
     stunUrls: string[];
     turnUrls: string[];
@@ -71,6 +88,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     logLevel: str('LOG_LEVEL', env === 'test' ? 'silent' : 'info')!,
     webDistDir: path.resolve(str('WEB_DIST_DIR', path.join(process.cwd(), '../web/dist'))!),
     rateLimit: str('RATE_LIMIT', env === 'test' ? 'off' : 'on') !== 'off',
+    trustProxy: trustProxy('TRUST_PROXY'),
     ice: {
       stunUrls: list('STUN_URLS', ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']),
       turnUrls: list('TURN_URLS'),

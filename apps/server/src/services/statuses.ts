@@ -14,14 +14,19 @@ import { uniq } from './sql.js';
 
 /**
  * `requireVisibleStatus` (docs "Status updates"): the status is live and the viewer is its
- * author, or in its audience with no block either way — else 404.
+ * author, or in its audience with no block either way — else 404. `lock: true` (writes that
+ * reference the status, e.g. a view) takes `FOR KEY SHARE`: a concurrent delete (author or
+ * expiry purge) is waited for and then yields 404 instead of a foreign-key error.
  */
-export async function requireVisibleStatus(dbx: DbOrTx, viewerId: string, statusId: string): Promise<StatusRow> {
-  const [row] = await dbx
+export async function requireVisibleStatus(dbx: DbOrTx, viewerId: string, statusId: string, opts: { lock?: boolean } = {}): Promise<StatusRow> {
+  let q = dbx
     .select()
     .from(statuses)
     .where(and(eq(statuses.id, statusId), gt(statuses.expiresAt, new Date())))
-    .limit(1);
+    .limit(1)
+    .$dynamic();
+  if (opts.lock) q = q.for('key share');
+  const [row] = await q;
   if (!row) throw notFound('Status');
   if (row.userId === viewerId) return row;
   if (!row.audience.includes(viewerId) || (await blockedEitherWay(dbx, viewerId, row.userId))) throw notFound('Status');

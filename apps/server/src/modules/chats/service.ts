@@ -20,6 +20,7 @@ import {
 import { db, type DbOrTx, type Tx } from '../../db/index.js';
 import { chatMembers, chatPins, chats, media, messages, starredMessages, type MessageRow } from '../../db/schema.js';
 import { badRequest, conflict, limitReached, notFound } from '../../lib/errors.js';
+import { storableDate } from '../../lib/validate.js';
 import {
   activeMemberRows,
   assertCanSend,
@@ -164,7 +165,7 @@ export async function updatePrefs(me: string, chatId: string, patch: ChatPrefsPa
       }
     }
     if (patch.isArchived !== undefined) set.isArchived = patch.isArchived;
-    if (patch.mutedUntil !== undefined) set.mutedUntil = patch.mutedUntil === null ? null : new Date(patch.mutedUntil);
+    if (patch.mutedUntil !== undefined) set.mutedUntil = patch.mutedUntil === null ? null : storableDate(patch.mutedUntil, 'mutedUntil');
     if (patch.markedUnread !== undefined) set.markedUnread = patch.markedUnread;
     if (Object.keys(set).length) {
       await tx

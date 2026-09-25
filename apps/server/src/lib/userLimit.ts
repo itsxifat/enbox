@@ -10,6 +10,25 @@
 import { config } from '../config.js';
 import { rateLimited } from './errors.js';
 
+/**
+ * Server-side per-socket / per-user limits that are not part of the shared contract (abuse
+ * protection; docs "Rate limits"). Excess socket events are dropped (fire-and-forget events)
+ * or acked `rate_limited`; excess handshakes fail with connect_error `rate_limited`; REST
+ * answers `429 rate_limited`.
+ */
+export const SERVER_RATE_LIMITS = {
+  /** `POST /status` per user. */
+  statusPost: { limit: 30, windowMs: 60 * 60_000 },
+  /** Socket handshakes per user. */
+  connect: { limit: 60, windowMs: 60_000 },
+  /** `chat:read` per socket. */
+  chatRead: { limit: 100, windowMs: 5_000 },
+  /** `chat:typing` per socket across all chats (the per-chat throttle is USER_RATE_LIMITS.typing). */
+  typingAnyChat: { limit: 20, windowMs: 1_000 },
+  /** `call:media` per socket. */
+  callMedia: { limit: 40, windowMs: 10_000 },
+} as const;
+
 interface Bucket {
   count: number;
   resetAt: number;

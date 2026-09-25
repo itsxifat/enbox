@@ -11,6 +11,7 @@ import { chats, media, type ChatRow } from '../../db/schema.js';
 import { conflict, notFound } from '../../lib/errors.js';
 import { getChatAccess, getMembership, type ChatAccess, type ChatAccessOptions } from '../../services/chats.js';
 import type { Effects } from '../../services/effects.js';
+import { runChatDeletionHooks } from '../../services/hooks.js';
 import { mediaUrl } from '../../services/media.js';
 import { upsertMembership } from '../../services/membership.js';
 
@@ -36,9 +37,11 @@ export async function followChannelTx(tx: Tx, fx: Effects, chat: ChatRow, userId
 
 /**
  * Delete a channel (matrix `DELETE /channels/:c`): `chat:removed` → R; `clearChatRoom(c)`;
- * then the row is deleted (messages, members, pins cascade).
+ * then the row is deleted (messages, members, pins cascade). Chat-deletion hooks run first
+ * (a guard: channels never have calls).
  */
 export async function deleteChannelTx(tx: Tx, fx: Effects, chatId: string): Promise<void> {
+  await runChatDeletionHooks(tx, fx, [chatId]);
   fx.toChat(chatId, 'chat:removed', { chatId }).clearRoom(chatId);
   await tx.delete(chats).where(eq(chats.id, chatId));
 }

@@ -20,7 +20,7 @@ visibility, watermarks, membership transitions, serialization or fan-out in a mo
 | `statuses.ts` | status visibility + status-reply resolution |
 | `invites.ts` | invite codes unique across chats and communities |
 | `sessions.ts` | session tokens (pre-existing) |
-| `hooks.ts` | cross-module hook registries (account deletion) |
+| `hooks.ts` | cross-module hook registries (account deletion, chat deletion) |
 | `sql.ts` | raw-SQL helpers (`uuidArray`, `rawRows`, `num`, `pairKey`) |
 
 ## The post-commit pattern: `transact` + `Effects`
@@ -68,15 +68,15 @@ Managing the transaction yourself: `await fx.prepare(tx)` as the last line of th
 | `removeChat(u, c)` | `removeUserFromChat(u,c)` then `chat:removed` → user:u |
 | `joinRoom(u,c)` / `leaveRoom(u,c)` / `clearRoom(c)` | room membership only |
 | `chatUpsert(u \| u[], c)` | `chat:upsert` → each user with their own summary (batched) |
-| `chatUpdated(c, changes)` | `chat:updated` → room |
+| `chatUpdated(c, changes, { exceptUserIds? })` | `chat:updated` → room (except e.g. a direct-chat peer who blocked the actor) |
 | `memberCountChanged(c)` | `chat:updated { memberCount }` → room (count at end of tx) |
 | `membersChanged(chat)` | `chat:members-changed` → room; admins only for channels/announcement groups |
-| `chatPins(c)` | `chat:pins { messageIds }` → room (pins at end of tx) |
+| `chatPins(c, { exceptUserIds? })` | `chat:pins { messageIds }` → room (pins at end of tx); members with a `message_hidden` row on a pin get their own filtered list → user |
 | `messageNew(row, { exceptUserIds })` | `message:new` → room once (normally registered by `createMessage`) |
-| `messageUpdated(messageId)` | `message:updated` → room except members who can't see it (channels: whole room) |
+| `messageUpdated(messageId, { exceptUserIds? })` | `message:updated` → room except members who can't see it (channels: whole room) and `exceptUserIds` |
 | `messagesRemoved(c, ids, { userId? })` | `message:removed` → user (delete for me) or room (purge) |
 | `chatRead(u, c)` | `chat:read { lastReadSeq, unreadCount, unreadMentionCount, markedUnread }` → user:u |
-| `watermarks(delta)` | `chat:watermarks` → active members whose ticks changed (see watermarks.ts) |
+| `watermarks(delta)` | `chat:watermarks` → active, non-hidden members whose ticks changed, minus `delta.skipUserIds` (see watermarks.ts) |
 | `toUser` / `toUsers` / `toChat` | raw emit of a ready payload |
 | `add(run, prepare?)` | custom step; `prepare(dbx)` runs inside the tx (e.g. build a `Community` per user) |
 | `domain(event, payload)` | domain event, fired after all socket steps |
@@ -115,6 +115,9 @@ Standalone post-commit publishers (use only outside transactions; they read with
   `messages m` with the member row `chat_members cm`, `maxVisibleSeq(dbx, chatId, window, upTo?)`.
 - **Permissions**: `computePermissions(chat, member, peer, viewerId)` (wraps shared
   `computeChatPermissions`, so guards and clients agree).
+- `hiddenPinsByMember(dbx, chatId, messageIds)` — `chat:pins` per-member filtering.
+- `peersWhoBlockedMe(dbx, access)` — direct chats: `[peer]` when the peer blocked the viewer;
+  pass as `exceptUserIds` of the room events of the viewer's mutations (docs "Blocking").
 - **Guards**: `getChatAccess(dbx, viewerId, chatId, { allowHidden?, lock?, chat? }): ChatAccess`
   `{ chat, member, membership, permissions, peer, window }` — 404 without a (non-hidden) row;
   in mutations pass `lock: true` so the checks hold under the chat lock;
@@ -140,7 +143,10 @@ Standalone post-commit publishers (use only outside transactions; they read with
   mentions ∩ active members, withheld rows for direct recipients who blocked the sender,
   unhide, sender marks + `marked_unread` cleared, delivered for online recipients) and its
   fan-out. Checks (canSend, media ownership, reply target, rate limit) are the caller's.
-  `input`: `{ chatId, senderId, type, clientId?, text?, mediaId?, metadata?, replyToId?, forwardCount?, exceptUserIds? }`.
+  `input`: `{ chatId, senderId, type, clientId?, text?, mediaId?, metadata?, replyToId?, forwardCount?, exceptUserIds?, actorId? }`
+  (`actorId`: the acting user of a system message — direct chats withhold it from peers who
+  blocked them, like a send; `postSystemMessage` fills it from the event). Withheld
+  recipients get no `chat:watermarks` for it either.
 - `insertMessage(tx, input): { …, publish(fx) }` — same, fan-out registered later by you
   (e.g. after JOINs). Used by membership/system code.
 - `deriveMentions(dbx, chatId, senderId, text, activeIds?)` — for send AND edit.
@@ -153,7 +159,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
   membership/rights (`getChatAccess` + shared `canEditMessage` / `canDeleteForEveryone`).
 - `toMessages(dbx, viewerId | null, rows, { chatTypes?, fresh? }): Message[]` — batch
   serializer (input order). `viewerId` null = broadcast shape (no `starred`/`myReaction`/
-  `myOptionIds`). Channels: `senderId` null, reaction `userIds`/poll `voterIds` []. Tombstones,
+  `myOptionIds`). Channels: `senderId` null, reaction `userIds`/poll `voterIds` []. Direct
+  chats with a viewer: reactions/votes of users the viewer blocked are left out. Tombstones,
   read-time `replyTo` (chatId+seq; `deleted`; null when expired/purged; ~200 chars without
   splitting tokens), read-time `statusReply` (`available: false` once gone).
 - `loadMessages(dbx, viewerId, ids)` — load + serialize (e.g. REST responses after reactions/votes).
@@ -165,7 +172,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `deleteForMeTx(tx, fx, userId, message)` — hidden row, my star removed, `message:removed` → me.
 
 ### system.ts
-- `postSystemMessage(tx, fx, chat, event, { exceptUserIds? })` → MessageRow (registered fan-out).
+- `postSystemMessage(tx, fx, chat, event, { exceptUserIds? })` → MessageRow (registered fan-out;
+  the event's `actorId` is passed as `CreateMessageInput.actorId`).
 - `insertSystemMessage(tx, chat, event)` → `InsertedMessage` (publish later).
 - `systemMessageAllowed(chat, kind)` — direct: timer/pin; channel: created/name/description/
   avatar; announcement: no join/leave/add/remove/role messages. Posting a disallowed kind throws.
@@ -174,7 +182,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `upsertMembership(tx, fx, change): { chat, userIds, systemMessage, newOwnerId }` — **all**
   membership writes:
   - `{ kind: 'activate', chatId, userIds, role?, roles?, addedBy?, systemEvent?, initial? }` —
-    add/join/rejoin/follow/creation. S first → `joined_seq = S.seq − 1`; `initial` (group
+    add/join/rejoin/follow/creation. `lockLiveUsers` first: accounts deleted meanwhile are
+    dropped (result `userIds`; `members_added` lists only the others). S first → `joined_seq = S.seq − 1`; `initial` (group
     creation) → 0, post `group_created`/`members_added` AFTER the call; no S (announcement
     groups) → `last_seq`; channels → 0 with marks = `last_seq`. Rejoin resets the window,
     keeps pin/archive/mute. Registers JOIN(u) per user, then S's `message:new`. Already-active
@@ -202,15 +211,18 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `advanceDelivered(tx, fx, { chatId, userId, seq })`.
 - `markDeliveredForOnlineRecipients(tx, { chatId, seq, recipientIds })` (used by createMessage).
 - `markDeliveredOnConnect(userId)` — registered as an `onBeforeReady` hook in
-  `modules/chats/socket.ts`.
+  `modules/chats/socket.ts`: `FOR SHARE` on the user's chats (sorted), then one statement.
 - `readReceiptsChanged(dbx, fx, userId, previousValue)` — PATCH /me/settings.
 - `computeWatermarks(dbx, chatId, forUserIds?)`, `unreadCounts(dbx, pairs)`,
   `readStates(dbx, pairs)` / `readState(dbx, userId, chatId)`, `bumpMarks(tx, chatId, userIds, …)`.
-- Pure: `aggregateMarks(marks)`, `viewerWatermarks(agg, …)`; `WatermarkDelta` for `fx.watermarks`.
+- Pure: `aggregateMarks(marks)`, `viewerWatermarks(agg, …)`; `WatermarkDelta` for `fx.watermarks`
+  (`skipUserIds`: members who must not learn about this change, e.g. withheld recipients).
 
 ### users.ts
 - Rows: `getUserRows(dbx, ids)` (Map, deleted included, with `avatarKey`), `getUserRow`,
   `requireUser(dbx, id, { allowDeleted? })` (404), `settingsOf(row)` / `resolveSettings`.
+- `lockLiveUsers(tx, ids)` — `FOR SHARE` the non-deleted users (membership writes); waits for a
+  concurrent account deletion, whose committed `deleted_at` then excludes the user.
 - Relationships: `loadRelationships(dbx, pairs)` (2 queries, both directions),
   `loadRelationship(dbx, viewerId, subjectId)`, `isBlocked(dbx, blocker, blocked)`,
   `blockedEitherWay(dbx, a, b)`, `blockedEitherWayIds(dbx, userId, others)`,
@@ -231,7 +243,7 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `sniffFile(path)`, `isAllowedMime(kind, mime)`, `sanitizeFileName(name)`,
   `newStorageKey(ext)`, `storagePath(key)`, `moveIntoStore`, `removeFiles`, `removeStoredFiles`.
   Sniffing uses the `file-type` package; MIME names are normalised to MEDIA_MIME_ALLOWLIST's.
-- `requireVisibleStatus(dbx, viewerId, statusId)` (404), `resolveStatusReply(dbx, { senderId, chat, statusId })`,
+- `requireVisibleStatus(dbx, viewerId, statusId, { lock? })` (404; `lock` = `FOR KEY SHARE` for writes referencing it), `resolveStatusReply(dbx, { senderId, chat, statusId })`,
   `loadStatusesForReplies`, `toStatusReplyPayload`.
 - `generateUniqueInviteCode(dbx)`.
 - `domainEvents.on(name, listener)` / `.emit` — `message.created`, `chat.read`, `member.left`,
@@ -301,8 +313,13 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
 - Serializers used for fan-out run inside the transaction (prepare phase) through `tx`; this
   keeps emissions synchronous after commit (ordering) and consistent with the committed state.
 - `ChatSummary.lastMessage` is serialized viewer-neutral (no `starred`/`myReaction`).
-- `markDeliveredOnConnect` takes no chat locks (one statement on the user's own rows, locked
-  in chat_id order); reads and sends lock the chat as the doc requires.
+- `markDeliveredOnConnect` takes `FOR SHARE` locks on the user's chats (sorted) before its one
+  statement on the user's own rows: chat-first like every other writer (no deadlock with
+  multi-chat transactions), and a send in flight that saw the user offline commits before the
+  statement's snapshot.
+- Hooks (`services/hooks.ts`): `registerAccountDeletionHook` (DELETE /me) and
+  `registerChatDeletionHook` / `runChatDeletionHooks(tx, fx, chatIds)` — run before a chat row
+  is deleted (community deactivation, channel deletion); the calls module ends live calls there.
 - Delivered receipts are not tracked for channels (no ticks; a post doesn't touch follower rows).
 - Clamping: marks move to the highest visible seq ≤ the requested seq (not just `min(seq, max)`),
   so a withheld message never reads as delivered/read while the block lasts.

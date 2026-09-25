@@ -34,7 +34,7 @@ import { db, type DbOrTx, type Tx } from '../../db/index.js';
 import { callParticipants, calls, chats, messages, type CallParticipantRow, type CallRow, type ChatRow } from '../../db/schema.js';
 import { HttpError, badRequest, blocked, conflict, expired, forbidden, limitReached, notFound, notMember } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
-import { assertUserLimit } from '../../lib/userLimit.js';
+import { SERVER_RATE_LIMITS, assertUserLimit } from '../../lib/userLimit.js';
 import { emitToUser } from '../../realtime/emit.js';
 import type { AppSocket } from '../../realtime/types.js';
 import { activeMemberCount, activeMemberIds, getChatAccess, lockChat, requireActiveMember } from '../../services/chats.js';
@@ -212,10 +212,28 @@ export interface CallCtx {
   ended: boolean;
   /** Extra post-commit steps (timers). */
   after: (() => void)[];
+  /** The chat (and with it the call message) is deleted in this transaction: no message rewrite. */
+  chatDeleted: boolean;
 }
 
 function newCtx(tx: Tx, fx: Effects, chat: ChatRow, call: CallRow, parts: CallParticipantRow[]): CallCtx {
-  return { tx, fx, chat, call, parts, prevStatus: call.status, ringStops: [], joined: [], left: [], rung: [], silent: new Set(), changed: false, ended: false, after: [] };
+  return {
+    tx,
+    fx,
+    chat,
+    call,
+    parts,
+    prevStatus: call.status,
+    ringStops: [],
+    joined: [],
+    left: [],
+    rung: [],
+    silent: new Set(),
+    changed: false,
+    ended: false,
+    after: [],
+    chatDeleted: false,
+  };
 }
 
 function part(ctx: CallCtx, userId: string): CallParticipantRow | undefined {
@@ -311,7 +329,7 @@ async function finalize(ctx: CallCtx): Promise<void> {
     const verdict = endVerdict(ctx);
     if (verdict) await endCall(ctx, verdict.status, verdict.reason);
   }
-  const messageChanged = ctx.call.status !== ctx.prevStatus && !!ctx.call.messageId;
+  const messageChanged = ctx.call.status !== ctx.prevStatus && !!ctx.call.messageId && !ctx.chatDeleted;
   if (messageChanged) {
     await ctx.tx
       .update(messages)
@@ -716,20 +734,30 @@ export async function declineCall(userId: string, callId: string): Promise<void>
   });
 }
 
-/** `call:leave` (call socket only): leave, or cancel when I started it and it is still ringing. */
-export async function leaveCall(actor: Actor, callId: string): Promise<void> {
+/**
+ * `call:leave` (call socket only): leave, or cancel when I started it and it is still ringing.
+ * The call-socket rule is evaluated when the op runs: the socket bound then (an
+ * accept/join/rejoin of this socket queued earlier has bound it), or — nothing bound any
+ * more — the socket that WAS the call socket when the leave arrived (`wasCallSocket`, taken
+ * by the calls socket middleware on packet receipt): it disconnected meanwhile, and the
+ * leave still counts at once (no reconnect grace).
+ */
+export async function leaveCall(actor: Actor, callId: string, opts: { wasCallSocket?: boolean } = {}): Promise<void> {
   const { userId, socket } = actor;
-  if (!isCallSocket(socket, callId, userId)) return;
+  const wasCallSocket = opts.wasCallSocket ?? isCallSocket(socket, callId, userId);
+  const boundNow = boundSocketId(callId, userId);
+  if (!wasCallSocket && boundNow && boundNow !== socket.id) return; // another device holds the call
   await runCallOp(callId, async (ctx) => {
     const mine = part(ctx, userId);
     if (!mine || mine.status !== 'joined' || !isLive(ctx.call.status)) return;
-    if (boundSocketId(ctx.call.id, userId) !== socket.id) return;
+    const bound = boundSocketId(ctx.call.id, userId);
+    if (bound ? bound !== socket.id : !wasCallSocket) return;
     await leaveParticipant(ctx, userId);
   });
 }
 
 /**
- * `call:invite` (group calls, joined participants): ring more active members. Re-inviting a
+ * `call:invite` (group calls, joined participants with `canCall`): ring more active members. Re-inviting a
  * declined/missed/busy/left participant resets `invited_at`; users already joined or ringing
  * and users with a block either way with the inviter are skipped; busy ones get `busy`.
  */
@@ -740,7 +768,9 @@ export async function inviteToCall(userId: string, input: { callId: string; user
     if (!isLive(ctx.call.status)) throw expired('This call has ended');
     if (!ctx.call.isGroup) throw forbidden('Only group calls can have more participants');
     if (mine.status !== 'joined') throw forbidden('Join the call to add people');
-    await requireActiveMember(ctx.tx, userId, ctx.chat.id, { chat: ctx.chat });
+    // Ringing members is what `canCall` grants (announcement groups / admins-only groups: admins).
+    const access = await requireActiveMember(ctx.tx, userId, ctx.chat.id, { chat: ctx.chat });
+    if (!access.permissions.canCall) throw forbidden('Only admins can add people to this call');
 
     const members = new Set(await activeMemberIds(ctx.tx, ctx.chat.id));
     let targets = input.userIds.filter((id) => id !== userId && members.has(id));
@@ -785,6 +815,7 @@ export async function updateMediaState(
 ): Promise<void> {
   const { userId, socket } = actor;
   if (!isCallSocket(socket, input.callId, userId)) return;
+  assertUserLimit(socket.id, 'call:media', SERVER_RATE_LIMITS.callMedia);
   const [row] = await db
     .update(callParticipants)
     .set({ audioMuted: input.audioMuted, videoOff: input.videoOff, screenSharing: input.screenSharing })
@@ -902,6 +933,29 @@ export async function forceLeaveDirectCall(blockerId: string, blockedId: string)
   if (chat) await forceLeaveChatCall(chat.id, blockerId);
 }
 
+/**
+ * Chat deletion (community deactivation deletes the announcement group; inside the deleting
+ * transaction, the chats already locked): every live call of these chats ends — ongoing →
+ * `ended`, ringing → `cancelled` — with the normal fan-out (ring-stops + `call_cancel`,
+ * `call:ended` → visible participants, call sockets released, timers cleared). The call
+ * message is not rewritten (it is deleted with the chat).
+ */
+export async function endChatCallsTx(tx: Tx, fx: Effects, chatIds: string[]): Promise<void> {
+  const live = await tx
+    .select({ id: calls.id })
+    .from(calls)
+    .where(and(inArray(calls.chatId, chatIds), inArray(calls.status, LIVE_CALL_STATUSES)))
+    .orderBy(asc(calls.chatId));
+  for (const { id } of live) {
+    await applyInTx(tx, fx, id, async (ctx) => {
+      ctx.chatDeleted = true;
+      if (!isLive(ctx.call.status)) return;
+      const ongoing = ctx.call.status === 'ongoing';
+      await endCall(ctx, ongoing ? 'ended' : 'cancelled', ongoing ? 'ended' : 'cancelled');
+    });
+  }
+}
+
 /** Account deletion (inside the deletion transaction): forced leave of every live call. */
 export async function forceLeaveAllCallsTx(tx: Tx, fx: Effects, userId: string): Promise<void> {
   const rows = await tx
@@ -929,6 +983,7 @@ export async function forceLeaveAllCallsTx(tx: Tx, fx: Effects, userId: string):
  */
 export async function recoverCalls(): Promise<number> {
   const live = await db.select({ id: calls.id }).from(calls).where(inArray(calls.status, LIVE_CALL_STATUSES));
+  let failed = 0;
   for (const { id } of live) {
     try {
       await runCallOp(id, async (ctx) => {
@@ -936,14 +991,23 @@ export async function recoverCalls(): Promise<number> {
         await endCall(ctx, ctx.call.status === 'ongoing' ? 'ended' : 'missed', 'ended');
       });
     } catch (err) {
+      failed += 1;
       logOpError(err, 'crash recovery', id);
     }
   }
-  if (live.length) logger.info({ calls: live.length }, 'calls: closed calls left open by a previous process');
+  if (live.length) logger.info({ calls: live.length, failed }, 'calls: closed calls left open by a previous process');
+  // The calls job retries the whole recovery on its next run (it is idempotent).
+  if (failed) throw new Error(`calls: crash recovery failed for ${failed} call(s)`);
   return live.length;
 }
 
-/** Safety net for lost timers: overdue rings and expired reconnect windows. */
+/**
+ * Safety net for lost timers and lost disconnect bookkeeping: overdue rings, expired reconnect
+ * windows, and joined participants without a call socket in this process whose disconnect was
+ * never recorded (e.g. the disconnect transaction failed) — they enter the reconnect grace
+ * now (`callSocketGone` re-checks the binding under the call queue). Relies on the documented
+ * single-instance assumption (bindings are per process).
+ */
 export async function sweepCalls(): Promise<void> {
   const now = Date.now();
   const overdue = await db
@@ -970,13 +1034,26 @@ export async function sweepCalls(): Promise<void> {
       ),
     );
   for (const { callId, userId } of lost) await expireGrace(callId, userId);
+  const unbound = await db
+    .select({ callId: callParticipants.callId, userId: callParticipants.userId })
+    .from(callParticipants)
+    .innerJoin(calls, eq(calls.id, callParticipants.callId))
+    .where(and(eq(callParticipants.status, 'joined'), isNull(callParticipants.disconnectedAt), inArray(calls.status, LIVE_CALL_STATUSES)));
+  for (const { callId, userId } of unbound) {
+    if (!boundSocketId(callId, userId)) await callSocketGone(callId, userId);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Late devices
 // ---------------------------------------------------------------------------
 
-/** After `ready`: re-emit `call:incoming` to this socket for live calls still ringing me. */
+/**
+ * After `ready`: re-emit `call:incoming` to this socket for live calls still ringing me. Each
+ * call's final check-and-emit runs in that call's queue (whose ops flush inside their slot),
+ * so an accept/decline/timeout elsewhere is either fully before it (nothing is emitted) or
+ * after it (its ring-stop follows the incoming) — never a stale incoming after a ring-stop.
+ */
 export async function reemitIncoming(socket: AppSocket): Promise<void> {
   const userId = socket.data.userId;
   const rows = await db
@@ -991,21 +1068,22 @@ export async function reemitIncoming(socket: AppSocket): Promise<void> {
         inArray(calls.status, LIVE_CALL_STATUSES),
       ),
     );
-  if (rows.length === 0) return;
-  const loaded = await loadCallRows(
-    db,
-    rows.map((r) => r.callId),
-  );
-  const chatRows = await db
-    .select()
-    .from(chats)
-    .where(inArray(chats.id, uniq([...loaded.values()].map((c) => c.call.chatId))));
-  const chatById = new Map(chatRows.map((c) => [c.id, c]));
-  for (const { call, parts } of loaded.values()) {
-    const chat = chatById.get(call.chatId);
-    if (!chat) continue;
-    const silent = await silentUserIds(db, [userId], call.initiatorId);
-    const payload = (await buildIncomingPayloads(db, chat, toCall(call, parts), [userId], silent)).get(userId);
-    if (payload && !socket.disconnected) socket.emit('call:incoming', payload);
+  for (const callId of uniq(rows.map((r) => r.callId))) {
+    if (socket.disconnected) return;
+    try {
+      await withCallQueue(callId, async () => {
+        const loaded = (await loadCallRows(db, [callId])).get(callId);
+        if (!loaded || !isLive(loaded.call.status)) return;
+        const mine = loaded.parts.find((p) => p.userId === userId);
+        if (!mine || mine.hiddenAt || !isPending(mine.status)) return;
+        const [chat] = await db.select().from(chats).where(eq(chats.id, loaded.call.chatId)).limit(1);
+        if (!chat) return;
+        const silent = await silentUserIds(db, [userId], loaded.call.initiatorId);
+        const payload = (await buildIncomingPayloads(db, chat, toCall(loaded.call, loaded.parts), [userId], silent)).get(userId);
+        if (payload && !socket.disconnected) socket.emit('call:incoming', payload);
+      });
+    } catch (err) {
+      logOpError(err, 'late-device ring', callId);
+    }
   }
 }

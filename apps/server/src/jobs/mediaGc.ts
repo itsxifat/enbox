@@ -1,16 +1,19 @@
 /**
- * Media GC (hourly, docs "Media" / "Jobs"): delete media rows — and their files, thumbnails
+ * Media GC (hourly and at boot, docs "Media" / "Jobs"): stale multipart temp files are
+ * removed (`sweepUploadTmp`); then delete media rows — and their files, thumbnails
  * included — that no message, status, user, chat or community references and that are
  * older than ORPHAN_MEDIA_TTL_MS. Batches of 500 via `FOR UPDATE SKIP LOCKED`: a row being
  * referenced by an uncommitted transaction is KEY SHARE-locked (FK check /
  * `requireOwnedMedia`) and therefore skipped. Files are removed after the DELETE committed.
  */
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import { ORPHAN_MEDIA_TTL_MS } from '@enbox/shared';
 import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { rawRows } from '../services/sql.js';
-import { removeStoredFiles } from '../services/uploads.js';
+import { removeStoredFiles, uploadTmpDir } from '../services/uploads.js';
 import { registerJob } from './index.js';
 
 export async function runMediaGc(opts: { ttlMs?: number; batchSize?: number } = {}): Promise<number> {
@@ -43,4 +46,45 @@ export async function runMediaGc(opts: { ttlMs?: number; batchSize?: number } = 
   return total;
 }
 
-registerJob({ name: 'media-gc', intervalMs: 60 * 60_000, run: async () => void (await runMediaGc()) });
+/** Multipart temp files older than this are leftovers of a crashed/aborted upload. */
+const TMP_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * Remove stale entries of UPLOAD_DIR/.tmp (multer writes uploads there before they are
+ * validated and moved into the store; a crash in between leaves them behind).
+ */
+export async function sweepUploadTmp(opts: { maxAgeMs?: number } = {}): Promise<number> {
+  const dir = uploadTmpDir();
+  const cutoff = Date.now() - (opts.maxAgeMs ?? TMP_MAX_AGE_MS);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw err;
+  }
+  let removed = 0;
+  for (const name of names) {
+    const p = path.join(dir, name);
+    try {
+      const st = await fs.stat(p);
+      if (!st.isFile() || st.mtimeMs > cutoff) continue;
+      await fs.unlink(p);
+      removed += 1;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logger.warn({ err, path: p }, 'media gc: failed to remove a temp upload');
+    }
+  }
+  if (removed) logger.info({ removed }, 'media gc: stale temp uploads removed');
+  return removed;
+}
+
+registerJob({
+  name: 'media-gc',
+  intervalMs: 60 * 60_000,
+  runOnStart: true,
+  run: async () => {
+    await sweepUploadTmp();
+    await runMediaGc();
+  },
+});

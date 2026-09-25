@@ -19,14 +19,16 @@ import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { MAX_GROUP_MEMBERS, type Community, type CommunityGroup, type MemberRole } from '@enbox/shared';
 import type { DbOrTx, Tx } from '../db/index.js';
 import { chatMembers, chats, communities, communityMembers, media, type ChatRow, type CommunityMemberRow, type CommunityRow } from '../db/schema.js';
-import { limitReached, notFound } from '../lib/errors.js';
+import { conflict, limitReached, notFound } from '../lib/errors.js';
 import { emitToUser } from '../realtime/emit.js';
 import { getChat, getMembership, lockChats } from './chats.js';
 import type { Effects } from './effects.js';
+import { runChatDeletionHooks } from './hooks.js';
 import { mediaUrl } from './media.js';
 import { upsertMembership } from './membership.js';
 import { pairKey, uniq } from './sql.js';
 import { postSystemMessage } from './system.js';
+import { lockLiveUsers } from './users.js';
 
 // ---------------------------------------------------------------------------
 // Serialization
@@ -263,30 +265,43 @@ export async function lockCommunityScope(
   return { community, ann, groups, extra };
 }
 
+/** An attempt of `lockGroupScope` saw the community link change after locking the chat. */
+class GroupLinkChanged extends Error {}
+
 /**
  * Lock a group chat for a membership mutation honouring the lock order: when the group is
  * linked to a community, the community row is locked first, then the group and the
- * announcement group (one sorted call). Retries when the link changed concurrently.
- * 404 when the chat doesn't exist.
+ * announcement group (one sorted call). Each attempt runs in a savepoint: when the link
+ * changed concurrently after the chat was locked, rolling the savepoint back releases the
+ * chat lock BEFORE the next attempt locks a community row (never community-after-chat).
+ * 404 when the chat doesn't exist; `409 conflict` when the link keeps changing.
  */
 export async function lockGroupScope(tx: Tx, chatId: string): Promise<{ chat: ChatRow; scope: CommunityScope | null }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const pre = await getChat(tx, chatId);
     if (!pre) throw notFound('Chat');
     const communityId = pre.isAnnouncement ? null : pre.communityId;
-    if (!communityId || !(await getCommunity(tx, communityId))) {
-      const [chat] = await lockChats(tx, [chatId]);
-      if (!chat) throw notFound('Chat');
-      if (chat.communityId && !chat.isAnnouncement && chat.communityId !== communityId) continue; // linked meanwhile
-      return { chat, scope: null };
+    const linked = !!communityId && !!(await getCommunity(tx, communityId));
+    try {
+      return await tx.transaction(async (sp) => {
+        if (!linked) {
+          const [chat] = await lockChats(sp, [chatId]);
+          if (!chat) throw notFound('Chat');
+          if (chat.communityId && !chat.isAnnouncement && chat.communityId !== communityId) throw new GroupLinkChanged(); // linked meanwhile
+          return { chat, scope: null };
+        }
+        const scope = await lockCommunityScope(sp, communityId, { extraChatIds: [chatId] });
+        const chat = scope.extra.get(chatId);
+        if (!chat) throw notFound('Chat');
+        if (chat.communityId === communityId) return { chat, scope };
+        if (!chat.communityId) return { chat, scope: null }; // unlinked meanwhile (the extra locks are harmless)
+        throw new GroupLinkChanged(); // moved to another community meanwhile
+      });
+    } catch (err) {
+      if (!(err instanceof GroupLinkChanged)) throw err;
     }
-    const scope = await lockCommunityScope(tx, communityId, { extraChatIds: [chatId] });
-    const chat = scope.extra.get(chatId);
-    if (!chat) throw notFound('Chat');
-    if (chat.communityId === communityId) return { chat, scope };
-    if (!chat.communityId) return { chat, scope: null }; // unlinked meanwhile (extra locks are harmless)
   }
-  throw new Error('lockGroupScope: the community link kept changing');
+  throw conflict('The group changed, try again');
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +331,9 @@ export async function addCommunityMembers(
     .from(communityMembers)
     .where(and(eq(communityMembers.communityId, scope.community.id), inArray(communityMembers.userId, ids)));
   const known = new Set(existing.map((r) => r.userId));
-  const fresh = ids.filter((id) => !known.has(id));
+  // Accounts deleted meanwhile never become members (see lockLiveUsers).
+  const live = await lockLiveUsers(tx, ids.filter((id) => !known.has(id)));
+  const fresh = ids.filter((id) => !known.has(id) && live.has(id));
   if (fresh.length === 0) return [];
   if ((await communityMemberCount(tx, scope.community.id)) + fresh.length > MAX_GROUP_MEMBERS) {
     throw limitReached(`A community can have at most ${MAX_GROUP_MEMBERS} members`);
@@ -431,7 +448,8 @@ export async function removeCommunityMember(
 /**
  * Deactivation (docs "Communities → Deactivation"), inside the caller's tx with `scope`
  * locked (`groups: true`): per linked group `removed_from_community` → R(g) and
- * `community_id = null` → `chat:updated {communityId: null}` → R(g); `chat:removed` →
+ * `community_id = null` → `chat:updated {communityId: null}` → R(g); a live call of the
+ * announcement group ends (chat-deletion hooks: ring-stops, `call:ended`); `chat:removed` →
  * R(ann), `clearChatRoom(ann)`; the announcement chat is deleted (cascade), then the
  * community; `community:removed` → U(each former member) (unless `notify: false`).
  * Returns the former member ids.
@@ -450,6 +468,9 @@ export async function deactivateCommunity(
     await tx.update(chats).set({ communityId: null, updatedAt: new Date() }).where(eq(chats.id, group.id));
     fx.chatUpdated(group.id, { communityId: null });
   }
+  // A live call in the announcement group ends properly (call:ended, ring-stops, sockets
+  // released) instead of vanishing with the cascade.
+  await runChatDeletionHooks(tx, fx, [ann.id]);
   fx.toChat(ann.id, 'chat:removed', { chatId: ann.id }).clearRoom(ann.id);
   await tx.delete(chats).where(eq(chats.id, ann.id));
   await tx.delete(communities).where(eq(communities.id, community.id));

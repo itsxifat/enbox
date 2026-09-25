@@ -20,9 +20,11 @@ import { db, type DbOrTx } from '../../db/index.js';
 import { blocks, chats, contacts, users, type UserRow } from '../../db/schema.js';
 import { authCtx, authUserId } from '../../http/auth.js';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
+import { authLimiter } from '../../lib/rateLimit.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
 import { parse } from '../../lib/validate.js';
 import { emitToUser } from '../../realtime/emit.js';
+import { lockChats } from '../../services/chats.js';
 import { transact, type Effects } from '../../services/effects.js';
 import { requireAvatarMedia } from '../../services/media.js';
 import { rawRows, uniq } from '../../services/sql.js';
@@ -207,8 +209,8 @@ router.patch('/me/settings', async (req, res) => {
   res.json(settings);
 });
 
-/** DELETE /me — password required; soft delete (see account.ts). */
-router.delete('/me', async (req, res) => {
+/** DELETE /me — password required (per-IP `authLimiter`: it verifies a password); soft delete (see account.ts). */
+router.delete('/me', authLimiter, async (req, res) => {
   const { userId } = authCtx(req);
   const body = parse(deleteAccountSchema, req.body ?? {});
   const row = await requireUser(db, userId);
@@ -307,8 +309,10 @@ router.get('/contacts', async (req, res) => {
 
 /**
  * POST /contacts — by exactly one of userId / username / phone (+ optional saved name).
- * Rate-limited with user search. Deleted/unknown → 404; myself → 400. Existing contact:
- * 200 (name updated when given); new: 201.
+ * Rate-limited with user search. Deleted/unknown → 404; by username/phone also a user who
+ * blocked me (like search and by-username: the block stays invisible); myself → 400.
+ * Existing contact (also one added concurrently, e.g. a double tap): 200 (name updated when
+ * given); new: 201.
  * Events (matrix): `contacts:changed` → me; new contact: `user:changed {me}` → them (their
  * view of me changed) and presence re-evaluation of my subscribers.
  */
@@ -324,31 +328,30 @@ router.post('/contacts', async (req, res) => {
     .limit(1);
   if (!target) throw notFound('User');
   if (target.id === me) throw badRequest("You can't add yourself as a contact");
+  if (!body.userId && (await isBlocked(db, target.id, me))) throw notFound('User');
 
   const result = await transact(async (tx, fx) => {
-    const [existing] = await tx
-      .select()
-      .from(contacts)
-      .where(and(eq(contacts.ownerId, me), eq(contacts.contactId, target.id)))
-      .for('update');
-    if (existing) {
-      if (body.name !== undefined && body.name !== existing.name) {
-        const [row] = await tx
-          .update(contacts)
-          .set({ name: body.name })
-          .where(and(eq(contacts.ownerId, me), eq(contacts.contactId, target.id)))
-          .returning();
-        fx.toUser(me, 'contacts:changed', {});
-        return { row: row!, created: false };
-      }
-      return { row: existing, created: false };
-    }
+    const mine = and(eq(contacts.ownerId, me), eq(contacts.contactId, target.id));
+    /** Existing contact: 200, with the saved name updated when given. */
+    const keep = async (existing: typeof contacts.$inferSelect) => {
+      if (body.name === undefined || body.name === existing.name) return { row: existing, created: false };
+      const [row] = await tx.update(contacts).set({ name: body.name }).where(mine).returning();
+      fx.toUser(me, 'contacts:changed', {});
+      return { row: row!, created: false };
+    };
+    const [existing] = await tx.select().from(contacts).where(mine).for('update');
+    if (existing) return keep(existing);
     const [row] = await tx
       .insert(contacts)
       .values({ ownerId: me, contactId: target.id, name: body.name ?? null })
       .onConflictDoNothing()
       .returning();
-    if (!row) throw conflict('Contact was just added on another device');
+    if (!row) {
+      // Added concurrently (the unique index made us wait for it): idempotent, like above.
+      const [added] = await tx.select().from(contacts).where(mine).for('update');
+      if (!added) throw conflict('The contact changed, try again');
+      return keep(added);
+    }
     fx.toUser(me, 'contacts:changed', {}).toUser(target.id, 'user:changed', { userId: me });
     presenceEffect(fx, me);
     return { row, created: true };
@@ -426,7 +429,9 @@ router.get('/blocks', async (req, res) => {
  * Block (idempotent: already blocked → 204 without events). Events (matrix):
  * `blocks:changed` → me; `chat:upsert` (our direct chat, if visible to me) → me;
  * `user:changed {me}` → them; presence re-evaluated both ways; domain `user.blocked`
- * (calls: forced leave of a live call between us).
+ * (calls: forced leave of a live call between us). Our direct chat is locked first, which
+ * serializes the block with a `call:start` in it: either the start sees the block, or the
+ * block waits for the call to commit and the forced leave then finds it.
  */
 router.put('/blocks/:userId', async (req, res) => {
   const me = authUserId(req);
@@ -434,6 +439,8 @@ router.put('/blocks/:userId', async (req, res) => {
   if (userId === me) throw badRequest("You can't block yourself");
   await requireUser(db, userId);
   await transact(async (tx, fx) => {
+    const chatId = await directChatId(tx, me, userId);
+    if (chatId) await lockChats(tx, [chatId]);
     const inserted = await tx
       .insert(blocks)
       .values({ blockerId: me, blockedId: userId })

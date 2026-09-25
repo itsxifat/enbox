@@ -4,8 +4,9 @@
  * - The sender is `web-push` with the VAPID keys from config (timeout, no redirects: web-push
  *   issues a single https request); push is disabled when the keys are missing.
  * - `setPushSender(fn)` injects a different transport (tests assert payloads without network).
- * - `deliverPush` sends each entry to every subscription of its user; a 404/410 from the push
- *   service deletes the subscription. Failures are logged, never thrown.
+ * - `deliverPush` sends each entry to every subscription of its user (bounded concurrency); a
+ *   404/410 from the push service deletes the subscription, and so do repeated other failures
+ *   (MAX_CONSECUTIVE_FAILURES in a row, e.g. junk keys). Failures are logged, never thrown.
  * - Everything runs after commit (domain events); in-flight deliveries are tracked so tests
  *   can await them (`pushIdle`).
  */
@@ -71,7 +72,22 @@ function isGone(err: unknown): boolean {
   return status === 404 || status === 410;
 }
 
-/** Send every entry to all of its user's subscriptions. */
+/** At most this many push requests of one `deliverPush` call are in flight at once. */
+const PUSH_CONCURRENCY = 16;
+/** A subscription failing this many times in a row (other than 404/410) is dropped too (junk keys, dead endpoint). */
+const MAX_CONSECUTIVE_FAILURES = 5;
+/** Consecutive non-gone failures per subscription id (this process). */
+const failures = new Map<string, number>();
+
+async function dropSubscription(sub: { id: string; endpoint: string }): Promise<void> {
+  failures.delete(sub.id);
+  await db
+    .delete(pushSubscriptions)
+    .where(and(eq(pushSubscriptions.id, sub.id), eq(pushSubscriptions.endpoint, sub.endpoint)))
+    .catch((e: unknown) => logger.error({ err: e }, 'failed to delete a push subscription'));
+}
+
+/** Send every entry to all of its user's subscriptions (≤ PUSH_CONCURRENCY requests in flight). */
 export async function deliverPush(entries: PushEntry[]): Promise<void> {
   const sender = getPushSender();
   if (!sender || entries.length === 0) return;
@@ -82,24 +98,24 @@ export async function deliverPush(entries: PushEntry[]): Promise<void> {
   const byUser = new Map<string, typeof subs>();
   for (const s of subs) byUser.set(s.userId, [...(byUser.get(s.userId) ?? []), s]);
 
-  const sends: Promise<void>[] = [];
-  for (const entry of entries) {
-    for (const sub of byUser.get(entry.userId) ?? []) {
-      sends.push(
-        sender({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, entry.payload, entry.opts).catch(async (err: unknown) => {
-          if (isGone(err)) {
-            await db
-              .delete(pushSubscriptions)
-              .where(and(eq(pushSubscriptions.id, sub.id), eq(pushSubscriptions.endpoint, sub.endpoint)))
-              .catch((e: unknown) => logger.error({ err: e }, 'failed to delete an expired push subscription'));
-          } else {
-            logger.warn({ err, type: entry.payload.type }, 'push delivery failed');
-          }
-        }),
-      );
+  const jobs = entries.flatMap((entry) => (byUser.get(entry.userId) ?? []).map((sub) => ({ entry, sub })));
+  const sendOne = async ({ entry, sub }: (typeof jobs)[number]) => {
+    try {
+      await sender({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, entry.payload, entry.opts);
+      failures.delete(sub.id);
+    } catch (err) {
+      if (isGone(err)) return dropSubscription(sub);
+      const n = (failures.get(sub.id) ?? 0) + 1;
+      failures.set(sub.id, n);
+      logger.warn({ err, type: entry.payload.type, failures: n }, 'push delivery failed');
+      if (n >= MAX_CONSECUTIVE_FAILURES) await dropSubscription(sub);
     }
-  }
-  await Promise.all(sends);
+  };
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length) await sendOne(jobs[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(PUSH_CONCURRENCY, jobs.length) }, worker));
 }
 
 const inflight = new Set<Promise<unknown>>();

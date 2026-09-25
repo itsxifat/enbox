@@ -95,9 +95,11 @@ router.post('/media', uploadLimiter, receiveMultipart, async (req, res) => {
 
     const key = newStorageKey(sniffed?.ext ?? 'bin');
     const thumbKey = thumbExt ? newStorageKey(thumbExt) : null;
-    await moveIntoStore(file.path, key);
-    if (thumb && thumbKey) await moveIntoStore(thumb.path, thumbKey);
+    // Both moves and the row in one try: a failure anywhere (e.g. ENOSPC on the thumbnail)
+    // removes what was already stored — the GC only knows files through media rows.
     try {
+      await moveIntoStore(file.path, key);
+      if (thumb && thumbKey) await moveIntoStore(thumb.path, thumbKey);
       const [row] = await db
         .insert(media)
         .values({

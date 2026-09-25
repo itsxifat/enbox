@@ -170,7 +170,7 @@ router.delete('/auth/sessions/:sessionId', async (req, res) => {
 });
 
 /** Change my password; every OTHER session is revoked in the same transaction. */
-router.post('/auth/change-password', async (req, res) => {
+router.post('/auth/change-password', authLimiter, async (req, res) => {
   const me = authCtx(req);
   const body = parse(changePasswordSchema, req.body ?? {});
   const user = await requireUser(db, me.userId);

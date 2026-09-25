@@ -143,13 +143,20 @@ export async function addGroupMembersTx(
   const plan = await planAdds(tx, { adderId: actorId, userIds: input.userIds, activeIds: await activeMemberIds(tx, chat.id) });
   assertAddLimit(actorId, plan.toAdd.length);
   if (plan.toAdd.length === 0) return plan;
-  await upsertMembership(tx, fx, {
+  const { userIds: activated } = await upsertMembership(tx, fx, {
     kind: 'activate',
     chatId: chat.id,
     userIds: plan.toAdd,
     addedBy: actorId,
     systemEvent: { kind: 'members_added', actorId, userIds: plan.toAdd },
   });
+  // Accounts deleted concurrently are skipped by the membership write: report them as not_found.
+  if (activated.length !== plan.toAdd.length) {
+    const gone = plan.toAdd.filter((id) => !activated.includes(id));
+    plan.toAdd = plan.toAdd.filter((id) => activated.includes(id));
+    plan.failed.push(...gone.map((userId) => ({ userId, reason: 'not_found' as const })));
+    if (plan.toAdd.length === 0) return plan;
+  }
   fx.memberCountChanged(chat.id).membersChanged(chat);
   if (scope) {
     await addCommunityMembers(tx, fx, scope, plan.toAdd, { addedBy: actorId, upsert: false });

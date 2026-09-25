@@ -29,7 +29,7 @@ import { activeMemberIds, getMembership, lockChat, ownerId } from './chats.js';
 import type { Effects } from './effects.js';
 import { uniq } from './sql.js';
 import { insertSystemMessage, postSystemMessage, systemMessageAllowed } from './system.js';
-import { blockedEitherWayIds, getUserRows, ownersWhoSaved, settingsOf } from './users.js';
+import { blockedEitherWayIds, getUserRows, lockLiveUsers, ownersWhoSaved, settingsOf } from './users.js';
 
 export type MembershipChange =
   | {
@@ -87,9 +87,14 @@ export async function upsertMembership(tx: Tx, fx: Effects, change: MembershipCh
 
 async function activate(tx: Tx, fx: Effects, change: Extract<MembershipChange, { kind: 'activate' }>): Promise<MembershipResult> {
   let chat = await lockChat(tx, change.chatId);
-  const ids = uniq(change.userIds);
-  if (ids.length === 0) return { chat, userIds: [], systemMessage: null, newOwnerId: null };
   if (chat.type === 'direct') throw new Error('upsertMembership: direct chats have fixed members');
+  // Accounts deleted meanwhile (the caller's checks ran before the deletion committed) are
+  // dropped: `lockLiveUsers` waits for a concurrent deletion and re-checks deleted_at.
+  const live = await lockLiveUsers(tx, change.userIds);
+  const ids = uniq(change.userIds).filter((id) => live.has(id));
+  if (ids.length === 0) return { chat, userIds: [], systemMessage: null, newOwnerId: null };
+  let systemEvent = change.systemEvent ?? null;
+  if (systemEvent?.kind === 'members_added') systemEvent = { ...systemEvent, userIds: systemEvent.userIds.filter((id) => live.has(id)) };
 
   const existing = await tx
     .select({ userId: chatMembers.userId, leftAt: chatMembers.leftAt })
@@ -97,7 +102,7 @@ async function activate(tx: Tx, fx: Effects, change: Extract<MembershipChange, {
     .where(and(eq(chatMembers.chatId, chat.id), inArray(chatMembers.userId, ids)));
   if (existing.some((r) => !r.leftAt)) throw conflict('Already a member');
 
-  const sys = change.systemEvent ? await insertSystemMessage(tx, chat, change.systemEvent) : null;
+  const sys = systemEvent ? await insertSystemMessage(tx, chat, systemEvent) : null;
   if (sys) chat = sys.chat;
   const joinedSeq = change.initial || chat.type === 'channel' ? 0 : sys ? Number(sys.message.seq) - 1 : Number(chat.lastSeq);
   const marks = chat.type === 'channel' ? Number(chat.lastSeq) : joinedSeq;

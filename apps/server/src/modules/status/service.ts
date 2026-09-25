@@ -122,10 +122,14 @@ export async function toStatuses(dbx: DbOrTx, viewerId: string, rows: StatusRow[
 // Queries
 // ---------------------------------------------------------------------------
 
+/** `GET /status/feed` shows at most this many (the latest) live statuses per other author. */
+export const STATUS_FEED_PER_AUTHOR = 100;
+
 /**
  * `GET /status/feed`: my live statuses (oldest first) and other users' live statuses whose
- * audience includes me (author not deleted, no block either way now), grouped per author
- * (statuses oldest first); unviewed groups first, then by lastUpdatedAt desc.
+ * audience includes me (author not deleted, no block either way now; the latest
+ * STATUS_FEED_PER_AUTHOR per author), grouped per author (statuses oldest first); unviewed
+ * groups first, then by lastUpdatedAt desc.
  */
 export async function loadStatusFeed(dbx: DbOrTx, me: string): Promise<StatusFeed> {
   const now = new Date();
@@ -147,6 +151,10 @@ export async function loadStatusFeed(dbx: DbOrTx, me: string): Promise<StatusFee
           isNull(users.deletedAt),
           sql`not exists (select 1 from ${blocks} b where (b.blocker_id = ${me} and b.blocked_id = ${statuses.userId})
                 or (b.blocker_id = ${statuses.userId} and b.blocked_id = ${me}))`,
+          sql`${statuses.id} in (select r.id from (
+                select s.id, row_number() over (partition by s.user_id order by s.created_at desc, s.id desc) as rn
+                from ${statuses} s where s.audience @> ${uuidArray([me])} and s.expires_at > ${now.toISOString()}::timestamptz
+              ) r where r.rn <= ${STATUS_FEED_PER_AUTHOR})`,
         ),
       )
       .orderBy(asc(statuses.createdAt), asc(statuses.id))
@@ -290,7 +298,7 @@ async function notifyAuthor(
 /** `POST /status/:id/view` (audience; the author's own view is a no-op). First view only notifies. */
 export async function viewStatus(me: string, statusId: string): Promise<void> {
   await transact(async (tx, fx) => {
-    const status = await requireVisibleStatus(tx, me, statusId);
+    const status = await requireVisibleStatus(tx, me, statusId, { lock: true });
     if (status.userId === me) return;
     const [view] = await tx.insert(statusViews).values({ statusId, viewerId: me, viewedAt: new Date() }).onConflictDoNothing().returning();
     if (view) await notifyAuthor(tx, fx, status.userId, me, view);
@@ -300,7 +308,7 @@ export async function viewStatus(me: string, statusId: string): Promise<void> {
 /** `PUT /status/:id/reaction` (audience only): records a view with my reaction (replacing it). */
 export async function reactToStatus(me: string, statusId: string, emoji: string): Promise<void> {
   await transact(async (tx, fx) => {
-    const status = await requireVisibleStatus(tx, me, statusId);
+    const status = await requireVisibleStatus(tx, me, statusId, { lock: true });
     if (status.userId === me) throw forbidden("You can't react to your own status");
     const [view] = await tx
       .insert(statusViews)

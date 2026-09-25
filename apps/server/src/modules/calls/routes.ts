@@ -7,7 +7,7 @@ import { db } from '../../db/index.js';
 import { callParticipants, calls, chatMembers, chats, media } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
 import { conflict, notFound } from '../../lib/errors.js';
-import { parse } from '../../lib/validate.js';
+import { parse, storableDate } from '../../lib/validate.js';
 import { mediaUrl } from '../../services/media.js';
 import { uniq } from '../../services/sql.js';
 import { toUserPublicMap } from '../../services/users.js';
@@ -34,7 +34,7 @@ router.get('/calls', async (req, res) => {
     .select({ callId: calls.id, chatId: calls.chatId, myStatus: callParticipants.status })
     .from(callParticipants)
     .innerJoin(calls, eq(calls.id, callParticipants.callId))
-    .where(and(eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt), q.before ? lt(calls.createdAt, new Date(q.before)) : undefined))
+    .where(and(eq(callParticipants.userId, me), isNull(callParticipants.hiddenAt), q.before ? lt(calls.createdAt, storableDate(q.before, 'before')) : undefined))
     .orderBy(desc(calls.createdAt), desc(calls.id))
     .limit(q.limit);
   if (rows.length === 0) {

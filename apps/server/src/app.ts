@@ -18,7 +18,9 @@ const INLINE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  // Client IPs (per-IP rate limits, sessions.ip) come from X-Forwarded-For only behind a
+  // configured reverse proxy (TRUST_PROXY); by default the socket address is used.
+  app.set('trust proxy', config.trustProxy);
 
   app.use(
     helmet({

@@ -67,6 +67,10 @@ export async function initDb(opts: InitDbOptions): Promise<DbHandle> {
     const { Pool } = pg;
     const { drizzle } = await import('drizzle-orm/node-postgres');
     const pool = new Pool({ connectionString: opts.databaseUrl, max: 20 });
+    // An idle pooled client whose connection dies (Postgres restart/failover, network blip)
+    // is re-emitted as a pool 'error'; unhandled, it would crash the process. The pool
+    // replaces the client on the next checkout.
+    pool.on('error', (err) => logger.error({ err }, 'idle PostgreSQL client error'));
     const database = drizzle(pool, { schema });
     if (shouldMigrate) {
       const { migrate } = await import('drizzle-orm/node-postgres/migrator');

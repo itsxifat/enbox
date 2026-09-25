@@ -129,13 +129,17 @@ describe('POST /chats/:chatId/messages (send)', () => {
         expect(fwd.body).toHaveLength(1);
         for (let i = 0; i < USER_RATE_LIMITS.sendMessage.limit - 1; i++) await sendReq(t, dave, g).expect(201);
         await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl2', messageIds: [src.id], chatIds: [g] }).expect(429);
-        // A forward with more copies than the window allows consumes the whole window but can
-        // pass on a fresh one (the cost is capped at the limit).
+        // A forward is charged its real copy count: more copies than one window allows can
+        // never pass (400, nothing created or charged); a full window's worth passes on a
+        // fresh window and uses it up.
         resetUserLimits();
         const many = (await historyOf(t, dave, g, '?limit=13')).map((m) => m.id);
         const targets = [g, ...(await Promise.all([1, 2, 3, 4].map(() => createGroup(dave, []))))];
-        const big = await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl3', messageIds: many, chatIds: targets }).expect(201);
-        expect(big.body).toHaveLength(65);
+        const tooBig = await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl3', messageIds: many, chatIds: targets }).expect(400);
+        expect(tooBig.body.error.code).toBe('validation_error');
+        const twelve = many.slice(0, 12);
+        const big = await t.api(dave).post('/api/messages/forward').send({ clientId: 'rl4', messageIds: twelve, chatIds: targets }).expect(201);
+        expect(big.body).toHaveLength(USER_RATE_LIMITS.sendMessage.limit);
         await sendReq(t, dave, g).expect(429);
       } finally {
         config.rateLimit = false;

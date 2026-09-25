@@ -49,6 +49,25 @@ export function deletedUsername(userId: string): string {
 // ---------------------------------------------------------------------------
 
 /** User rows (deleted included) with avatar keys, keyed by id. Unknown ids are absent. */
+/**
+ * Membership writes (activate, community adds): `FOR SHARE`-lock the rows of those users that
+ * are not deleted and return their ids. `FOR SHARE` conflicts with account deletion's
+ * `FOR NO KEY UPDATE`, so a concurrent deletion is waited for, and once it committed the
+ * re-checked row (READ COMMITTED) no longer matches: a deleted account never becomes active
+ * anywhere. (A plain FK check only takes KEY SHARE, which a soft delete doesn't conflict with.)
+ */
+export async function lockLiveUsers(tx: DbOrTx, ids: Iterable<string>): Promise<Set<string>> {
+  const list = uniq(ids).sort();
+  if (list.length === 0) return new Set();
+  const rows = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(inArray(users.id, list), sql`${users.deletedAt} is null`))
+    .orderBy(users.id)
+    .for('share');
+  return new Set(rows.map((r) => r.id));
+}
+
 export async function getUserRows(dbx: DbOrTx, ids: Iterable<string>): Promise<Map<string, UserWithAvatar>> {
   const list = uniq(ids);
   const out = new Map<string, UserWithAvatar>();

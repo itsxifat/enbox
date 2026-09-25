@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createStatusSchema, idParamSchema, statusReactSchema } from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { authUserId } from '../../http/auth.js';
+import { SERVER_RATE_LIMITS, assertUserLimit } from '../../lib/userLimit.js';
 import { parse } from '../../lib/validate.js';
 import { registerAccountDeletionHook } from '../../services/hooks.js';
 import { createStatus, deleteStatus, deleteUserStatusesTx, loadStatusFeed, loadStatusViewers, reactToStatus, viewStatus } from './service.js';
@@ -9,7 +10,7 @@ import { createStatus, deleteStatus, deleteUserStatusesTx, loadStatusFeed, loadS
 /**
  * Status module — owns: /status/* (service.ts has the rules).
  * - GET /status/feed → StatusFeed
- * - POST /status → 201 Status (text/image/video; audience snapshot; `status:new`)
+ * - POST /status → 201 Status (text/image/video; audience snapshot; `status:new`; ≤ 30/h per user)
  * - DELETE /status/:statusId → 204 (author; `status:deleted`)
  * - POST /status/:statusId/view → 204 (audience; `status:viewed` unless read receipts off)
  * - PUT /status/:statusId/reaction → 204 (audience only)
@@ -29,6 +30,7 @@ router.get('/status/feed', async (req, res) => {
 router.post('/status', async (req, res) => {
   const me = authUserId(req);
   const body = parse(createStatusSchema, req.body);
+  assertUserLimit(me, 'statusPost', SERVER_RATE_LIMITS.statusPost);
   res.status(201).json(await createStatus(me, body));
 });
 

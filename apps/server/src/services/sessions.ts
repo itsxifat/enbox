@@ -42,9 +42,9 @@ export async function createSession(input: CreateSessionInput, dbx: DbOrTx = db)
   return { token, session: session! };
 }
 
-/** Resolve a bearer token to its user/session, or null if invalid/expired/revoked. */
-export async function resolveToken(token: string | undefined | null): Promise<AuthContext | null> {
-  if (!token || token.length > 200) return null;
+/** Resolve a bearer token to its user/session, or null if invalid/expired/revoked (or not a string: socket handshakes pass anything). */
+export async function resolveToken(token: unknown): Promise<AuthContext | null> {
+  if (typeof token !== 'string' || !token || token.length > 200) return null;
   const hash = sha256(token);
   const now = Date.now();
   const hit = cache.get(hash);
