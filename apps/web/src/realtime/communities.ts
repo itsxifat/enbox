@@ -1,5 +1,9 @@
 /**
  * Realtime: communities — OWNED BY FEATURE AGENT 3 (groups / communities / channels).
+ *
+ * `community:upsert` replaces my copy of a community (viewer-specific); `community:removed`
+ * drops it (left, removed, deactivated). On every `ready` the list is reloaded when it was
+ * loaded before (the socket never replays missed events).
  */
 import type { AppSocket, ReadyInfo } from '@/lib/socket';
 import { useCommunities } from '@/stores/communities';
