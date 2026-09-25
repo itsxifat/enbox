@@ -20,3 +20,4 @@ playwright/.cache/
 # capacitor native projects are generated on demand
 apps/web/android/
 apps/web/ios/
+data-e2e-*/

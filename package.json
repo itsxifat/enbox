@@ -15,7 +15,7 @@
     "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w @enbox/server\" \"npm run dev -w @enbox/web\"",
     "build": "npm run build -w @enbox/web && npm run build -w @enbox/server",
     "start": "npm run start -w @enbox/server",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
