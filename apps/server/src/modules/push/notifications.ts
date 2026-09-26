@@ -15,11 +15,14 @@
  *   callee's `callNotifications` is off.
  * - `call.ring-stopped` → `call_cancel` (body "Missed call" when the final status is missed)
  *   to users who got the `call` push (same silent / callNotifications rules).
+ * - Do not disturb (shared `isDnd`, docs "Users, privacy and presence"): none of the three
+ *   pushes reach a recipient whose effective availability is `dnd` (`dismiss` is unaffected).
  */
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
   CALL_RING_TIMEOUT_MS,
   PUSH_MESSAGE_TTL_SEC,
+  isDnd,
   isMuted,
   messagePreviewText,
   truncate,
@@ -97,6 +100,7 @@ export async function onMessageCreated({
     .filter((m) => {
       const row = rows.get(m.userId);
       if (!row || row.deletedAt || isMuted(m.mutedUntil?.toISOString(), now)) return false;
+      if (isDnd(row, now.getTime())) return false;
       const s = settingsOf(row);
       return chat.type === 'direct' ? s.messageNotifications : s.groupNotifications;
     })
@@ -182,7 +186,7 @@ export async function onCallRinging(e: DomainEventMap['call.ringing']): Promise<
   const rows = await getUserRows(db, targets);
   const eligible = targets.filter((id) => {
     const row = rows.get(id);
-    return !!row && !row.deletedAt && settingsOf(row).callNotifications;
+    return !!row && !row.deletedAt && settingsOf(row).callNotifications && !isDnd(row);
   });
   if (eligible.length === 0) return;
   const [chat] = e.isGroup
@@ -224,7 +228,7 @@ export async function onRingStopped(e: DomainEventMap['call.ring-stopped']): Pro
   if (!getPushSender()) return;
   if ((await subscribedUserIds([e.userId])).length === 0) return;
   const user = await getUserRow(db, e.userId);
-  if (!user || user.deletedAt || !settingsOf(user).callNotifications) return;
+  if (!user || user.deletedAt || !settingsOf(user).callNotifications || isDnd(user)) return;
 
   const [call] = await db
     .select({ initiatorId: calls.initiatorId, isGroup: calls.isGroup, chatName: chats.name })

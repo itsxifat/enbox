@@ -4,8 +4,12 @@
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import {
+  ANIMATED_IMAGE_MIME_TYPES,
   AVATAR_MIME_TYPES,
+  BANNER_MIME_TYPES,
+  MAX_ANIMATED_AVATAR_BYTES,
   MAX_AVATAR_BYTES,
+  MAX_BANNER_BYTES,
   type MediaAttachment,
   type MediaKind,
 } from '@enbox/shared';
@@ -88,15 +92,49 @@ export async function requireOwnedMedia(
   return row;
 }
 
-/** Avatars (user, group, community, channel): kind image, AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES, uploaded by the caller. */
+/**
+ * An owned image for a profile surface: `mimeTypes`/`maxBytes` per animation state, and an
+ * animated upload (`row.animated`) must carry its static poster (`thumbnail_key`) — the
+ * `avatarUrl`/`bannerUrl` renderers and push icons only ever show the poster.
+ */
+async function requireProfileImage(
+  dbx: DbOrTx,
+  mediaId: string,
+  userId: string,
+  rules: { static: OwnedMediaOptions; animated: OwnedMediaOptions },
+): Promise<MediaRow> {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, { kinds: ['image'] });
+  const opts = row.animated ? rules.animated : rules.static;
+  if (opts.mimeTypes && !opts.mimeTypes.includes(row.mimeType))
+    throw badRequest(`Unsupported media type ${row.mimeType}`);
+  if (opts.maxBytes !== undefined && Number(row.size) > opts.maxBytes)
+    throw badRequest('Media is too large');
+  if (row.animated && !row.thumbnailKey) throw badRequest('Animated images need a static poster');
+  return row;
+}
+
+/**
+ * Avatars (user, group, community, channel), uploaded by the caller: static → kind image,
+ * AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES; animated → ANIMATED_IMAGE_MIME_TYPES,
+ * ≤ MAX_ANIMATED_AVATAR_BYTES and a poster.
+ */
 export function requireAvatarMedia(
   dbx: DbOrTx,
   mediaId: string,
   userId: string,
 ): Promise<MediaRow> {
-  return requireOwnedMedia(dbx, mediaId, userId, {
-    kinds: ['image'],
-    mimeTypes: AVATAR_MIME_TYPES,
-    maxBytes: MAX_AVATAR_BYTES,
+  return requireProfileImage(dbx, mediaId, userId, {
+    static: { mimeTypes: AVATAR_MIME_TYPES, maxBytes: MAX_AVATAR_BYTES },
+    animated: { mimeTypes: ANIMATED_IMAGE_MIME_TYPES, maxBytes: MAX_ANIMATED_AVATAR_BYTES },
   });
+}
+
+/** Profile banners: kind image, BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, a poster when animated, uploaded by the caller. */
+export function requireBannerMedia(
+  dbx: DbOrTx,
+  mediaId: string,
+  userId: string,
+): Promise<MediaRow> {
+  const rule: OwnedMediaOptions = { mimeTypes: BANNER_MIME_TYPES, maxBytes: MAX_BANNER_BYTES };
+  return requireProfileImage(dbx, mediaId, userId, { static: rule, animated: rule });
 }
