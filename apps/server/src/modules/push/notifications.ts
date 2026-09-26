@@ -14,9 +14,14 @@
  * - `call.ringing` → `call` push (urgency high, TTL = ring timeout) unless silent or the
  *   callee's `callNotifications` is off.
  * - `call.ring-stopped` → `call_cancel` (body "Missed call" when the final status is missed)
- *   to users who got the `call` push (same silent / callNotifications rules).
+ *   to exactly the users the `call` push went to — recorded per call in this process when it
+ *   is sent (`callPushes`), so a callee who turned on DND after the push still gets the
+ *   cancel that clears it and one whose DND expired mid-ring, never pushed, gets no "Missed
+ *   call". Without a record (the call rang before a restart) the ring-time rules — silent,
+ *   hidden, `callNotifications`, DND — are re-evaluated when the ring stops instead.
  * - Do not disturb (shared `isDnd`, docs "Users, privacy and presence"): none of the three
- *   pushes reach a recipient whose effective availability is `dnd` (`dismiss` is unaffected).
+ *   pushes reach a recipient whose effective availability is `dnd` when the push is decided
+ *   (`dismiss` is unaffected).
  */
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import {
@@ -60,10 +65,35 @@ async function subscribedUserIds(ids: string[]): Promise<string[]> {
   return rows.map((r) => r.userId);
 }
 
+/** The group's icon as every renderer shows it: static (the poster of an animated one). */
 async function chatAvatarUrl(avatarMediaId: string | null): Promise<string | null> {
   if (!avatarMediaId) return null;
   const row = (await loadMediaMap(db, [avatarMediaId])).get(avatarMediaId);
   return row ? staticMediaUrl(row) : null;
+}
+
+/**
+ * callId → the users its `call` push went to (see the header). An entry exists from the
+ * first `call.ringing` this process handled for the call — empty when nobody was pushed —
+ * until `call.ended`, or CALL_PUSH_RECORD_TTL_MS after its last ring should those events
+ * never arrive.
+ */
+const callPushes = new Map<string, { at: number; userIds: Set<string> }>();
+const CALL_PUSH_RECORD_TTL_MS = 60 * 60_000;
+
+function recordCallPushes(callId: string, userIds: string[]): void {
+  const now = Date.now();
+  for (const [id, r] of callPushes) if (now - r.at > CALL_PUSH_RECORD_TTL_MS) callPushes.delete(id);
+  let r = callPushes.get(callId);
+  if (!r) callPushes.set(callId, (r = { at: now, userIds: new Set() }));
+  r.at = now;
+  for (const id of userIds) r.userIds.add(id);
+}
+
+/** Whether the `call` push went to `userId`; null without a record (the call rang before a restart). */
+function tookCallPush(callId: string, userId: string): boolean | null {
+  const r = callPushes.get(callId);
+  return r ? r.userIds.has(userId) : null;
 }
 
 export async function onMessageCreated({
@@ -182,12 +212,14 @@ export async function onCallRinging(e: DomainEventMap['call.ringing']): Promise<
   const targets = await subscribedUserIds(
     e.userIds.filter((id) => id !== e.callerId && !silent.has(id)),
   );
-  if (targets.length === 0) return;
   const rows = await getUserRows(db, targets);
   const eligible = targets.filter((id) => {
     const row = rows.get(id);
     return !!row && !row.deletedAt && settingsOf(row).callNotifications && !isDnd(row);
   });
+  // Recorded before delivery, an empty set included: a ring stop racing the delivery must
+  // find the record rather than re-evaluate the rules.
+  recordCallPushes(e.callId, eligible);
   if (eligible.length === 0) return;
   const [chat] = e.isGroup
     ? await db
@@ -225,10 +257,15 @@ export async function onCallRinging(e: DomainEventMap['call.ringing']): Promise<
 }
 
 export async function onRingStopped(e: DomainEventMap['call.ring-stopped']): Promise<void> {
-  if (!getPushSender()) return;
+  // Read before the first await: the same batch's `call.ended` listener forgets the record.
+  const pushed = tookCallPush(e.callId, e.userId);
+  if (!getPushSender() || pushed === false) return;
   if ((await subscribedUserIds([e.userId])).length === 0) return;
   const user = await getUserRow(db, e.userId);
-  if (!user || user.deletedAt || !settingsOf(user).callNotifications || isDnd(user)) return;
+  if (!user || user.deletedAt) return;
+  // No record: the best guess is the ring-time rules, evaluated now.
+  const guess = pushed === null;
+  if (guess && (!settingsOf(user).callNotifications || isDnd(user))) return;
 
   const [call] = await db
     .select({ initiatorId: calls.initiatorId, isGroup: calls.isGroup, chatName: chats.name })
@@ -238,18 +275,20 @@ export async function onRingStopped(e: DomainEventMap['call.ring-stopped']): Pro
     .limit(1);
   let title = '';
   if (call) {
-    // Only users who were rung with a push get the cancel (hidden = callee blocked the caller; silent rings push nothing).
-    const [p] = await db
-      .select({ hiddenAt: callParticipants.hiddenAt })
-      .from(callParticipants)
-      .where(and(eq(callParticipants.callId, e.callId), eq(callParticipants.userId, e.userId)))
-      .limit(1);
-    if (p?.hiddenAt) return;
-    if (
-      settingsOf(user).silenceUnknownCallers &&
-      !(await isContactOf(db, e.userId, call.initiatorId))
-    )
-      return;
+    if (guess) {
+      // Only users who were rung with a push get the cancel (hidden = callee blocked the caller; silent rings push nothing).
+      const [p] = await db
+        .select({ hiddenAt: callParticipants.hiddenAt })
+        .from(callParticipants)
+        .where(and(eq(callParticipants.callId, e.callId), eq(callParticipants.userId, e.userId)))
+        .limit(1);
+      if (p?.hiddenAt) return;
+      if (
+        settingsOf(user).silenceUnknownCallers &&
+        !(await isContactOf(db, e.userId, call.initiatorId))
+      )
+        return;
+    }
     const caller = (await toUserPublicMap(db, e.userId, [call.initiatorId])).get(call.initiatorId);
     title = call.isGroup ? (call.chatName ?? 'Group call') : userDisplayName(caller);
   }
@@ -274,3 +313,4 @@ domainEvents.on('message.created', (e) => trackPush(onMessageCreated(e)));
 domainEvents.on('chat.read', (e) => trackPush(onChatRead(e)));
 domainEvents.on('call.ringing', (e) => trackPush(onCallRinging(e)));
 domainEvents.on('call.ring-stopped', (e) => trackPush(onRingStopped(e)));
+domainEvents.on('call.ended', (e) => void callPushes.delete(e.callId));

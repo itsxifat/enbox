@@ -960,9 +960,13 @@ attachment` unless the extension is inline-safe.
 chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
 - `dismiss` (tag `chat:<chatId>`) when a read clears the chat's unread messages.
 - Calls: `call` push (urgency high, TTL = CALL_RING_TIMEOUT_MS / 1000, tag `call:<callId>`)
-  unless silent or `callNotifications` is off; `call_cancel` when the ring stops (body
-  "Missed call" if the final status is missed, else empty). Neither for a callee in
-  do-not-disturb.
+  unless silent, in do-not-disturb or `callNotifications` is off; `call_cancel` when the
+  ring stops (body "Missed call" if the final status is missed, else empty) to exactly the
+  users the `call` push went to — recorded per call in the process that sent it, forgotten
+  at `call.ended` — so a callee who switched to DND mid-ring still gets the cancel that
+  clears the notification and one whose DND expired mid-ring, never pushed, gets no "Missed
+  call". Without a record (the call rang before a restart) the ring-time rules are
+  re-evaluated when the ring stops.
 - Note: browsers require `userVisibleOnly`; `dismiss`/`call_cancel` pushes that show nothing
   may be counted against the site's silent-push budget — acceptable for v1.
 

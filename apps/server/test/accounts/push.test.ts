@@ -671,5 +671,59 @@ describe('push: subscriptions and notifications', () => {
       await pushIdle();
       expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call']);
     });
+
+    it('call_cancel follows the call push, whatever DND says when the ring stops', async () => {
+      const ring = (callId: string) =>
+        domainEvents.emit('call.ringing', {
+          callId,
+          chatId,
+          callerId: caller.id,
+          callType: 'audio',
+          isGroup: false,
+          userIds: [callee.id],
+          silentUserIds: [],
+        });
+      const stop = (callId: string) =>
+        domainEvents.emit('call.ring-stopped', {
+          callId,
+          chatId,
+          userId: callee.id,
+          reason: 'timeout',
+          finalStatus: 'missed',
+        });
+      // Pushed, then DND switched on from another device: the cancel still clears it.
+      const pushed = await insertCall();
+      ring(pushed);
+      await pushIdle();
+      expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call']);
+      await setAvailability(callee, 'dnd');
+      try {
+        stop(pushed);
+        await pushIdle();
+        expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call', 'call_cancel']);
+        // Rung in DND (never pushed), DND expired mid-ring: no "Missed call" either.
+        sent = [];
+        const quiet = await insertCall();
+        ring(quiet);
+        await pushIdle();
+        await setAvailability(callee, 'dnd', { until: new Date(Date.now() - 1000) });
+        stop(quiet);
+        await pushIdle();
+        expect(sent).toEqual([]);
+      } finally {
+        await setAvailability(callee, 'online');
+      }
+      // The call's end forgets the record; a stop without one falls back to the ring-time
+      // rules (the call rang before a restart).
+      domainEvents.emit('call.ended', {
+        callId: pushed,
+        chatId,
+        status: 'missed',
+        participantIds: [caller.id, callee.id],
+      });
+      stop(pushed);
+      await pushIdle();
+      expect(sent.map((s) => s.payload.type)).toEqual(['call_cancel']);
+    });
   });
 });
