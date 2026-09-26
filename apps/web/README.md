@@ -294,7 +294,8 @@ peer animated avatar), `UserAvatar` (`avatarAnimatedUrl` + presence state via
 `presenceBadge()`), `Logo`.
 
 Media helpers (`@/lib/media`): `probeImageFile(file)` (shared `readImageInfo` on the first
-`IMAGE_PROBE_BYTES`, GIFs read in full up to `FULL_PROBE_MAX_BYTES` — type by bytes, not by
+`IMAGE_PROBE_BYTES`; a head that does not settle the frame count — a GIF, an APNG whose `acTL`
+sits behind a large chunk — is read in full up to `FULL_PROBE_MAX_BYTES` — type by bytes, not by
 name; `animated` decides the upload path), `stripImageBlob(file)` (shared
 `stripImageMetadata`, best effort), `decodeAnimatedFrame(file)` (`ImageDecoder` poster
 frame). `api.upload(..., { thumbnail })` sends the poster part; `@/lib/serverConfig`

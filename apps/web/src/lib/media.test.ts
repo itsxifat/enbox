@@ -84,6 +84,34 @@ const jpeg = (w: number, h: number): Uint8Array =>
 const animatedGif = gif(4, 2, gifLoop(0), gifGce(10), gifFrame(4, 2), gifGce(10), gifFrame(2, 2));
 const staticGif = gif(3, 3, gifComment('made by'), gifFrame(3, 3));
 
+const u32be = (n: number): number[] => [...u16be(n >>> 16), ...u16be(n & 0xffff)];
+/** A PNG chunk with an arbitrary CRC (the parser does not check it). */
+const pngChunk = (type: string, data: number[]): number[] => [
+  ...u32be(data.length),
+  ...ascii(type),
+  ...data,
+  0,
+  0,
+  0,
+  0,
+];
+const png = (...chunks: number[][]): Uint8Array =>
+  Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...chunks.flat()]);
+const fctl = (seq: number): number[] =>
+  pngChunk('fcTL', [
+    ...u32be(seq),
+    ...u32be(4),
+    ...u32be(4),
+    ...u32be(0),
+    ...u32be(0),
+    0,
+    1,
+    0,
+    10,
+    0,
+    0,
+  ]);
+
 function file(bytes: Uint8Array, name: string, type: string): File {
   return new File([new Uint8Array(bytes)], name, { type });
 }
@@ -129,6 +157,24 @@ describe('probeImageFile', () => {
     expect(await probeImageFile(file(bigStill, 'big.gif', 'image/gif'))).toMatchObject({
       animated: false,
       frameCount: 1,
+    });
+  });
+
+  it('reads an APNG whose acTL sits behind a chunk larger than the probe head in full', async () => {
+    const big = png(
+      pngChunk('IHDR', [...u32be(4), ...u32be(4), 8, 6, 0, 0, 0]),
+      pngChunk('iCCP', new Array<number>(IMAGE_PROBE_BYTES).fill(0)),
+      pngChunk('acTL', [...u32be(2), ...u32be(0)]),
+      fctl(0),
+      pngChunk('IDAT', [0x78, 0x9c, 0x63, 0x00]),
+      fctl(1),
+      pngChunk('fdAT', [...u32be(2), 0x78, 0x9c, 0x63, 0x00]),
+      pngChunk('IEND', []),
+    );
+    expect(await probeImageFile(file(big, 'a.png', 'image/png'))).toMatchObject({
+      animated: true,
+      frameCount: 2,
+      settled: true,
     });
   });
 

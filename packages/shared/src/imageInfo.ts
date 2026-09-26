@@ -27,7 +27,10 @@ export interface ImageInfo {
   frameCount: number;
   /** Declared loop count (`0` = forever); `null` when the file does not carry one. */
   loopCount: number | null;
-  /** Whether `stripImageMetadata` would remove something (EXIF, XMP, ICC, comments, text). */
+  /**
+   * Whether `stripImageMetadata` would remove something from these bytes (EXIF, XMP, ICC,
+   * comments, text; for a JPEG also a trailer after its EOI).
+   */
   hasMetadata: boolean;
   /**
    * Whether every frame rectangle seen (GIF image descriptor, WebP ANMF, APNG fcTL) lies
@@ -36,6 +39,16 @@ export interface ImageInfo {
    * rejects the upload. Always true for a JPEG (its one frame is the canvas).
    */
   framesInCanvas: boolean;
+  /**
+   * Whether `animated` and `frameCount` are final for these bytes: the walk reached the end
+   * of the block structure (the GIF trailer, IEND, the declared RIFF size) or a point after
+   * which nothing can change them (the first IDAT of a PNG without an earlier acTL, a WebP
+   * whose VP8X flags say static, a JPEG frame header). False for the head of a larger file
+   * that is, or may still turn out to be, animated: the rest must be read for exact counts —
+   * an APNG's acTL may sit behind a chunk larger than the head, a GIF's second frame anywhere
+   * before the trailer.
+   */
+  settled: boolean;
 }
 
 /**
@@ -57,9 +70,11 @@ export function readImageInfo(bytes: Uint8Array): ImageInfo | null {
 
 /**
  * Removes the metadata blocks (EXIF, XMP, ICC profiles, comments, text) and nothing else:
- * kept blocks are copied byte for byte, so pixels, frames and timing are untouched. Returns
- * the SAME array when there is nothing to strip or the format is unknown. Truncated or
- * malformed tails are copied verbatim from the point where the walk stopped.
+ * kept blocks are copied byte for byte, so pixels, frames and timing are untouched. A JPEG
+ * also loses whatever follows its EOI (motion-photo videos, vendor trailers) and the APPn/COM
+ * segments between the scans of a progressive file. Returns the SAME array when there is
+ * nothing to strip or the format is unknown. Truncated or malformed tails are copied verbatim
+ * from the point where the walk stopped.
  */
 export function stripImageMetadata(bytes: Uint8Array): Uint8Array {
   try {
@@ -235,7 +250,7 @@ function readGif(b: Uint8Array): ImageInfo | null {
   let loopCount: number | null = null;
   let hasMetadata = false;
   let framesInCanvas = true;
-  walkGif(b, (block) => {
+  const { complete } = walkGif(b, (block) => {
     if (block.kind === 'image') {
       frameCount++;
       // Image descriptor: left (u16), top (u16), width (u16), height (u16) after the introducer.
@@ -258,6 +273,8 @@ function readGif(b: Uint8Array): ImageInfo | null {
     loopCount,
     hasMetadata,
     framesInCanvas,
+    // A second image descriptor may follow anywhere before the trailer.
+    settled: complete,
   };
 }
 
@@ -390,6 +407,9 @@ function readWebp(b: Uint8Array): ImageInfo | null {
     loopCount,
     hasMetadata: hasMetadata || (flags & VP8X_METADATA) !== 0,
     framesInCanvas: animated ? framesInCanvas : true,
+    // Decoders read up to the declared RIFF size (the u32 after 'RIFF' + 8) and ignore the
+    // rest, so the frames are all in once that many bytes are present.
+    settled: !animated || b.length >= u32le(b, 4) + 8,
   };
 }
 
@@ -431,25 +451,29 @@ function isPng(b: Uint8Array): boolean {
 /**
  * Walks the chunks (length u32 BE, type, data, CRC) up to and including IEND. A chunk cut
  * off by the end of the file is still visited with the file end as its `end`. Returns
- * where the walk stopped.
+ * where the walk stopped: after IEND (`complete`), at the file end, or at a chunk whose
+ * length cannot be trusted.
  */
-function walkPng(b: Uint8Array, visit: (type: string, start: number, end: number) => void): number {
+function walkPng(
+  b: Uint8Array,
+  visit: (type: string, start: number, end: number) => void,
+): { end: number; complete: boolean } {
   let pos = PNG_SIGNATURE.length;
   while (has(b, pos, 8)) {
     const length = u32be(b, pos);
     // Lengths above 2^31 - 1 are forbidden by the spec: stop rather than trust them.
-    if (length > 0x7fffffff) return pos;
+    if (length > 0x7fffffff) return { end: pos, complete: false };
     const type = fourcc(b, pos + 4);
     const end = pos + 12 + length;
     if (end > b.length) {
       visit(type, pos, b.length);
-      return b.length;
+      return { end: b.length, complete: false };
     }
     visit(type, pos, end);
-    if (type === 'IEND') return end;
+    if (type === 'IEND') return { end, complete: true };
     pos = end;
   }
-  return pos;
+  return { end: pos, complete: false };
 }
 
 function readPng(b: Uint8Array): ImageInfo | null {
@@ -463,7 +487,7 @@ function readPng(b: Uint8Array): ImageInfo | null {
   let hasMetadata = false;
   let framesInCanvas = true;
   let sawImageData = false;
-  walkPng(b, (type, start) => {
+  const { complete } = walkPng(b, (type, start) => {
     const data = start + 8;
     switch (type) {
       case 'IDAT':
@@ -499,6 +523,8 @@ function readPng(b: Uint8Array): ImageInfo | null {
     loopCount,
     hasMetadata,
     framesInCanvas: animated ? framesInCanvas : true,
+    // An acTL after the first IDAT no longer counts; before it, every fcTL up to IEND does.
+    settled: animated ? complete : sawImageData,
   };
 }
 
@@ -534,46 +560,70 @@ function isJpegStandaloneMarker(marker: number): boolean {
   return marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8);
 }
 
+/** EXIF/XMP (APP1), Photoshop IPTC (APP13) and comments; JFIF/ICC/Adobe segments are kept. */
+function isJpegMetadataMarker(marker: number): boolean {
+  return marker === JPEG_APP1 || marker === JPEG_APP13 || marker === JPEG_COM;
+}
+
 /**
- * Walks the marker segments after SOI up to the first SOS or EOI (the frame header and all
- * metadata precede the scan data). A segment cut off by the end of the file is still
- * visited with the file end as its `end`. Returns where the walk stopped: the SOS/EOI
- * marker, the file end, or the first byte that is not a marker.
+ * From `pos` (the first byte of a scan's entropy-coded data), the position of the next
+ * marker: a 0xFF that is not a stuffed 0x00, a fill 0xFF or a restart marker RST0-7. The
+ * file end when there is none.
+ */
+function skipJpegScan(b: Uint8Array, pos: number): number {
+  while (has(b, pos, 2)) {
+    if (b[pos] !== 0xff) pos++;
+    else if (b[pos + 1] === 0xff)
+      pos++; // fill byte: the next 0xFF may start the marker
+    else if (b[pos + 1] === 0x00 || (b[pos + 1] >= 0xd0 && b[pos + 1] <= 0xd7)) pos += 2;
+    else return pos;
+  }
+  return b.length;
+}
+
+/**
+ * Walks the marker segments after SOI: the frame header and metadata before the first SOS,
+ * then — skipping each scan's entropy-coded data — the tables, DNL and any APPn/COM segments
+ * between the scans of a progressive file, up to EOI. A segment cut off by the end of the
+ * file is still visited with the file end as its `end`. Returns where the walk stopped:
+ * after EOI (`complete`; what follows is a trailer, not part of the image), the file end, or
+ * the first byte that is not a marker.
  */
 function walkJpeg(
   b: Uint8Array,
   visit: (marker: number, start: number, end: number) => void,
-): number {
+): { end: number; complete: boolean } {
   let pos = 2;
   while (has(b, pos, 2)) {
-    if (b[pos] !== 0xff) return pos;
+    if (b[pos] !== 0xff) return { end: pos, complete: false };
     const marker = b[pos + 1];
     if (marker === 0xff) {
       // Fill byte before a marker.
       pos++;
       continue;
     }
-    if (marker === JPEG_SOS || marker === JPEG_EOI || marker === 0x00) return pos;
+    if (marker === JPEG_EOI) return { end: pos + 2, complete: true };
+    if (marker === 0x00) return { end: pos, complete: false };
     if (isJpegStandaloneMarker(marker)) {
       pos += 2;
       continue;
     }
     if (!has(b, pos, 4)) {
       visit(marker, pos, b.length);
-      return b.length;
+      return { end: b.length, complete: false };
     }
     // The length includes its own two bytes.
     const length = u16be(b, pos + 2);
-    if (length < 2) return pos;
+    if (length < 2) return { end: pos, complete: false };
     const end = pos + 2 + length;
     if (end > b.length) {
       visit(marker, pos, b.length);
-      return b.length;
+      return { end: b.length, complete: false };
     }
     visit(marker, pos, end);
-    pos = end;
+    pos = marker === JPEG_SOS ? skipJpegScan(b, end) : end;
   }
-  return b.length;
+  return { end: b.length, complete: false };
 }
 
 function readJpeg(b: Uint8Array): ImageInfo | null {
@@ -581,7 +631,7 @@ function readJpeg(b: Uint8Array): ImageInfo | null {
   let height = 0;
   let hasDims = false;
   let hasMetadata = false;
-  walkJpeg(b, (marker, start) => {
+  const { end, complete } = walkJpeg(b, (marker, start) => {
     const data = start + 4;
     if (isJpegFrameHeader(marker)) {
       // Sample precision (u8), lines (u16), samples per line (u16).
@@ -590,7 +640,7 @@ function readJpeg(b: Uint8Array): ImageInfo | null {
         width = u16be(b, data + 3);
         hasDims = true;
       }
-    } else if (marker === JPEG_APP1 || marker === JPEG_APP13 || marker === JPEG_COM) {
+    } else if (isJpegMetadataMarker(marker)) {
       hasMetadata = true;
     }
   });
@@ -602,15 +652,18 @@ function readJpeg(b: Uint8Array): ImageInfo | null {
     animated: false,
     frameCount: 1,
     loopCount: null,
-    hasMetadata,
+    hasMetadata: hasMetadata || (complete && end < b.length),
     framesInCanvas: true,
+    settled: true,
   };
 }
 
 function stripJpeg(b: Uint8Array): Uint8Array {
   const drop: number[] = [];
-  walkJpeg(b, (marker, start, end) => {
-    if (marker === JPEG_APP1 || marker === JPEG_APP13 || marker === JPEG_COM) drop.push(start, end);
+  const { end, complete } = walkJpeg(b, (marker, start, end) => {
+    if (isJpegMetadataMarker(marker)) drop.push(start, end);
   });
+  // Bytes after the image's EOI — motion-photo videos, vendor trailers — are not part of it.
+  if (complete && end < b.length) drop.push(end, b.length);
   return drop.length ? withoutRanges(b, drop) : b;
 }

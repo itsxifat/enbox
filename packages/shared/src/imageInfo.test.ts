@@ -214,6 +214,7 @@ describe('readImageInfo', () => {
       loopCount: null,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -227,6 +228,7 @@ describe('readImageInfo', () => {
       loopCount: 3,
       hasMetadata: true,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -251,6 +253,7 @@ describe('readImageInfo', () => {
       loopCount: null,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -273,6 +276,7 @@ describe('readImageInfo', () => {
       loopCount: 2,
       hasMetadata: true,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -295,6 +299,7 @@ describe('readImageInfo', () => {
       loopCount: null,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -308,6 +313,7 @@ describe('readImageInfo', () => {
       loopCount: 0,
       hasMetadata: true,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -321,6 +327,26 @@ describe('readImageInfo', () => {
     expect(readImageInfo(png(ihdr(1, 1), idat, time, iend))?.hasMetadata).toBe(true);
   });
 
+  it('says whether the bytes settle animated/frameCount (a head may need the rest of the file)', () => {
+    const cut = (b: Uint8Array) => b.subarray(0, b.length - 1);
+    // GIF: only the trailer does (a second frame may follow anywhere before it).
+    expect(readImageInfo(staticGif)?.settled).toBe(true);
+    expect(readImageInfo(cut(staticGif))?.settled).toBe(false);
+    // PNG: the first IDAT settles a static file; an APNG needs IEND. A head that stops in a
+    // chunk before either (a large iCCP/tEXt) settles nothing: acTL may still follow.
+    expect(readImageInfo(staticPng)?.settled).toBe(true);
+    expect(readImageInfo(png(ihdr(1, 1), text))?.settled).toBe(false);
+    expect(readImageInfo(cut(animatedPng))?.settled).toBe(false);
+    expect(readImageInfo(animatedPng)?.settled).toBe(true);
+    // WebP: the VP8X flags settle a static file; an animated one needs its declared RIFF size.
+    expect(readImageInfo(staticWebp)?.settled).toBe(true);
+    expect(readImageInfo(webp(vp8x(0x02, 6, 4), anim(2)))?.settled).toBe(true);
+    expect(readImageInfo(cut(animatedWebp))?.settled).toBe(false);
+    expect(readImageInfo(animatedWebp)?.settled).toBe(true);
+    // JPEG: the frame header (there is exactly one frame).
+    expect(readImageInfo(minimalJpeg)?.settled).toBe(true);
+  });
+
   it('reads a minimal JPEG', () => {
     expect(readImageInfo(minimalJpeg)).toEqual({
       mime: 'image/jpeg',
@@ -331,6 +357,7 @@ describe('readImageInfo', () => {
       loopCount: null,
       hasMetadata: true,
       framesInCanvas: true,
+      settled: true,
     });
   });
 
@@ -344,6 +371,7 @@ describe('readImageInfo', () => {
       loopCount: null,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
     expect(readImageInfo(jpeg(app13, sof0(1, 1)))?.hasMetadata).toBe(true);
     expect(readImageInfo(jpeg(comment, sof0(1, 1)))?.hasMetadata).toBe(true);
@@ -404,6 +432,7 @@ describe('stripImageMetadata', () => {
       loopCount: 3,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
     expect(out[out.length - 1]).toBe(0x3b);
   });
@@ -429,6 +458,7 @@ describe('stripImageMetadata', () => {
       loopCount: 2,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
     expect(out).toEqual(webp(vp8x(0x02, 6, 4), anim(2), anmf(6, 4), anmf(3, 2)));
   });
@@ -460,6 +490,7 @@ describe('stripImageMetadata', () => {
       loopCount: 0,
       hasMetadata: false,
       framesInCanvas: true,
+      settled: true,
     });
     const exif = pngChunk('eXIf', [0x49, 0x49, 0x2a, 0x00]);
     const ztxt = pngChunk('zTXt', [...ascii('Comment'), 0, 0, 0x78, 0x9c]);
@@ -473,6 +504,23 @@ describe('stripImageMetadata', () => {
     const out = stripImageMetadata(src);
     expect(out).toEqual(jpeg(app0Jfif, dqt, sof0(16, 8), sos, scanData));
     expect(readImageInfo(out)).toMatchObject({ width: 16, height: 8, hasMetadata: false });
+  });
+
+  it('drops JPEG segments between progressive scans and everything after EOI', () => {
+    // Tables and an APP1/COM pair between two scans, then a motion-photo MP4 after EOI.
+    const mp4 = bytes(u32be(24), 'ftypmp42', new Array<number>(12).fill(0));
+    const image = [app0Jfif, sof2(8, 8), sos, scanData];
+    const src = bytes(jpeg(...image, dqt, app1Exif, comment, sos, scanData), mp4);
+    expect(readImageInfo(src)).toMatchObject({ width: 8, height: 8, hasMetadata: true });
+    const out = stripImageMetadata(src);
+    expect(out).toEqual(jpeg(...image, dqt, sos, scanData));
+    expect(readImageInfo(out)).toMatchObject({ width: 8, height: 8, hasMetadata: false });
+    // A trailer alone counts as metadata; a file that never reaches EOI keeps its tail.
+    const trailer = bytes(jpeg(sof0(1, 1)), 'SEFT');
+    expect(readImageInfo(trailer)?.hasMetadata).toBe(true);
+    expect(stripImageMetadata(trailer)).toEqual(jpeg(sof0(1, 1)));
+    const unterminated = bytes([0xff, 0xd8], sof0(1, 1), sos, scanData, 'SEFT');
+    expect(stripImageMetadata(unterminated)).toBe(unterminated);
   });
 
   it('returns the same array when there is nothing to strip or the format is unknown', () => {

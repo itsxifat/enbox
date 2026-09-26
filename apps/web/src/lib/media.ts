@@ -165,9 +165,10 @@ export function fitWithin(width: number, height: number, maxW: number, maxH: num
 // ---------------------------------------------------------------------------
 
 /**
- * Largest file `probeImageFile` reads in full to settle a GIF's frame count (the biggest
- * animated profile media). A longer GIF whose head is inconclusive counts as animated: it is
- * then uploaded as-is, which is what every GIF got before the header parse existed.
+ * Largest file `probeImageFile` reads in full to settle a frame count the head left open
+ * (the biggest animated profile media). A longer file whose head is inconclusive counts as
+ * animated: it is then uploaded as-is, which is what every GIF got before the header parse
+ * existed — the server verifies it anyway.
  */
 export const FULL_PROBE_MAX_BYTES = MAX_BANNER_BYTES;
 
@@ -185,18 +186,19 @@ async function bytesOf(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
 
 /**
  * Header facts about an image file from the shared `readImageInfo` (type by magic bytes, not
- * `file.type`; declared size; animation). The first IMAGE_PROBE_BYTES settle WebP (VP8X
- * flag), PNG/APNG (`acTL` before `IDAT`) and a GIF whose head already holds two frames; a
- * longer GIF is read in full up to FULL_PROBE_MAX_BYTES. `null` for anything the parser does
- * not know (AVIF, HEIC, SVG, not an image): callers fall back to the browser decoder. Never
- * throws.
+ * `file.type`; declared size; animation). The first IMAGE_PROBE_BYTES settle most files
+ * (`info.settled`: a WebP's VP8X flag, a PNG's first IDAT, a JPEG's frame header, a GIF
+ * whose trailer is in the head); one they leave open — a GIF's second frame or an APNG's
+ * `acTL` behind a chunk larger than the head — is read in full up to FULL_PROBE_MAX_BYTES.
+ * `null` for anything the parser does not know (AVIF, HEIC, SVG, not an image): callers fall
+ * back to the browser decoder. Never throws.
  */
 export async function probeImageFile(file: Blob): Promise<ImageInfo | null> {
   try {
     const head = await bytesOf(file.slice(0, IMAGE_PROBE_BYTES));
     const info = readImageInfo(head);
     if (!info) return null;
-    if (info.mime !== 'image/gif' || info.animated || file.size <= head.length) return info;
+    if (info.settled || file.size <= head.length) return info;
     if (file.size <= FULL_PROBE_MAX_BYTES) return readImageInfo(await bytesOf(file)) ?? info;
     return { ...info, animated: true };
   } catch {
