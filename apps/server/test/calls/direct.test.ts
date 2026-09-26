@@ -19,6 +19,7 @@ import {
   createDirect,
   recordEvents,
   saveContact,
+  setAvailability,
   setSettings,
   settle,
 } from '../services/fixtures.js';
@@ -802,6 +803,39 @@ describe('calls: 1:1 signaling', () => {
       3000,
       'ringing',
     );
+    send(a1, 'call:leave', { callId: second.id });
+    await until(() => rb1.of('call:ended').length === 1, 3000, 'cancelled 2');
+  });
+
+  it('do not disturb: silent ring (silentUserIds, no call:ringing); the call can still be answered; an expired DND rings', async () => {
+    const { alice, bob, chatId } = await pair();
+    await setAvailability(bob, 'dnd');
+    const a1 = await t.connect(alice);
+    const b1 = await t.connect(bob);
+    const [ra1, rb1] = [a1, b1].map(recordEvents);
+    const call = await ackCall(a1, 'call:start', { chatId, type: 'audio' });
+    await until(() => rb1.of('call:incoming').length === 1, 3000, 'incoming');
+    expect(rb1.of('call:incoming')[0]!.silent).toBe(true);
+    expect(domainOf(call.id)[0]!.payload).toMatchObject({
+      userIds: [bob.id],
+      silentUserIds: [bob.id],
+    });
+    ra1.clear();
+    send(b1, 'call:ringing', { callId: call.id });
+    await settle(250);
+    expect(ra1.of('call:updated')).toHaveLength(0);
+    expect((await partOf(call.id, bob.id)).status).toBe('invited');
+    const answered = await ackCall(b1, 'call:accept', { callId: call.id });
+    expect(statusOf(answered, bob.id)).toBe('joined');
+    send(a1, 'call:leave', { callId: call.id });
+    await until(() => rb1.of('call:ended').length === 1, 3000, 'ended');
+
+    await setAvailability(bob, 'dnd', { until: new Date(Date.now() - 1000) }); // expired
+    rb1.clear();
+    const second = await ackCall(a1, 'call:start', { chatId, type: 'audio' });
+    await until(() => rb1.of('call:incoming').length === 1, 3000, 'incoming 2');
+    expect(rb1.of('call:incoming')[0]!.silent).toBe(false);
+    expect(domainOf(second.id)[0]!.payload).toMatchObject({ silentUserIds: [] });
     send(a1, 'call:leave', { callId: second.id });
     await until(() => rb1.of('call:ended').length === 1, 3000, 'cancelled 2');
   });
