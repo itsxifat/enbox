@@ -2,51 +2,31 @@
  * Renders message text: highlighted, tappable @mentions, links (open in a new tab),
  * *bold* _italic_ ~strike~ ```mono``` and in-chat search highlights.
  */
-import { memo, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
-import { MessageSquareText } from 'lucide-react';
+import { memo, useMemo } from 'react';
 import type { ID } from '@enbox/shared';
-import { Menu } from '@/components/ui';
+import { openProfile } from '@/features/profile/open';
 import { useAuth } from '@/stores/auth';
 import { useUserName } from '@/stores/users';
-import { openDirectChat } from '../actions';
 import { parseRichText, splitHighlight, type Inline } from '../lib/richText';
 
+/** A tappable @mention: opens the profile card (Message lives inside it). */
 function Mention({ userId }: { userId: ID }) {
   const me = useAuth((s) => s.user?.id);
   const name = useUserName(userId, { you: useAuth.getState().user?.displayName ?? 'You' });
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const navigate = useNavigate();
   if (userId === me) return <span className="font-medium text-brand-ink">@{name}</span>;
   return (
-    <>
-      <button
-        type="button"
-        className="rounded font-medium text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand"
-        onClick={(e) => {
-          e.stopPropagation();
-          setAnchor(e.currentTarget);
-        }}
-      >
-        @{name}
-      </button>
-      <Menu
-        open={!!anchor}
-        anchor={anchor}
-        onClose={() => setAnchor(null)}
-        aria-label={`Actions for ${name}`}
-        items={[
-          {
-            label: `Message ${name}`,
-            icon: MessageSquareText,
-            onSelect: () =>
-              void openDirectChat(userId).then((id) => {
-                if (id) navigate(`/chats/${id}`);
-              }),
-          },
-        ]}
-      />
-    </>
+    <button
+      type="button"
+      title={`Profile of ${name}`}
+      aria-haspopup="dialog"
+      className="rounded font-medium text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+      onClick={(e) => {
+        e.stopPropagation();
+        openProfile(userId, e.currentTarget);
+      }}
+    >
+      @{name}
+    </button>
   );
 }
 

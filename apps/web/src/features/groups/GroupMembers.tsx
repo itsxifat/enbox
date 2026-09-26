@@ -15,6 +15,7 @@ import { UserAvatar } from '@/components/common/UserAvatar';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { EmptyState, ListItemSkeleton, Menu, SearchInput, confirm, toast } from '@/components/ui';
 import type { MenuAnchor, MenuEntry } from '@/components/ui';
+import { openProfile } from '@/features/profile/open';
 import { cn } from '@/lib/cn';
 import { getMyId } from '@/stores/auth';
 import { canTransferGroupOwnership, roleLabel, sortMembers } from './members';
@@ -27,7 +28,6 @@ import {
 import { matchesUser } from './shared/candidates';
 import { RolePill } from './shared/InfoLayout';
 import { afterPaint } from './shared/share';
-import { UserProfileModal } from './shared/UserProfileModal';
 
 export function MemberRow({
   member,
@@ -78,7 +78,6 @@ export function MemberRow({
 export function useGroupMemberMenu(chat: ChatSummary, onChanged: () => void) {
   const navigate = useNavigate();
   const [state, setState] = useState<{ member: ChatMember; anchor: MenuAnchor } | null>(null);
-  const [profile, setProfile] = useState<ID | null>(null);
   const close = useCallback(() => setState(null), []);
 
   const open = useCallback(
@@ -113,7 +112,11 @@ export function useGroupMemberMenu(chat: ChatSummary, onChanged: () => void) {
             .catch((e: unknown) => toast.error(e));
         },
       },
-      { label: `View ${first}`, icon: Info, onSelect: () => setProfile(u.id) },
+      {
+        label: `View ${first}`,
+        icon: Info,
+        onSelect: () => openProfile(u.id, state.anchor),
+      },
     );
     const admin: MenuEntry[] = [];
     if (p.canManageAdmins && member.role === 'member')
@@ -167,17 +170,14 @@ export function useGroupMemberMenu(chat: ChatSummary, onChanged: () => void) {
   }
 
   const element = (
-    <>
-      <Menu
-        open={!!state}
-        anchor={state?.anchor ?? null}
-        onClose={close}
-        items={items}
-        align="end"
-        aria-label="Member options"
-      />
-      <UserProfileModal userId={profile} onClose={() => setProfile(null)} />
-    </>
+    <Menu
+      open={!!state}
+      anchor={state?.anchor ?? null}
+      onClose={close}
+      items={items}
+      align="end"
+      aria-label="Member options"
+    />
   );
   return { open, element };
 }

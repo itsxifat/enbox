@@ -2,11 +2,13 @@ import { NavLink, useLocation } from 'react-router';
 import { cn } from '@/lib/cn';
 import { Avatar, Badge } from '@/components/ui';
 import { LogoMark } from '@/components/common/Logo';
+import { selfPresenceState } from '@/features/profile/model';
+import { openProfile } from '@/features/profile/open';
 import { useMe } from '@/stores/auth';
 import { TABS, activeTab } from './tabs';
 import { tabBadgeText, useTabBadges } from './useTabBadges';
 
-/** Desktop (≥ lg) left navigation rail. */
+/** Desktop (≥ lg) left navigation rail. The avatar at the bottom opens my own profile card. */
 export function NavRail() {
   const { pathname } = useLocation();
   const current = activeTab(pathname);
@@ -74,14 +76,25 @@ export function NavRail() {
       {main.map(item)}
       <div className="flex-1" />
       {item(settings)}
-      <NavLink
-        to="/settings/profile"
-        aria-label="Profile"
-        title="Profile"
+      {/* My profile card: availability, custom status, Edit profile. */}
+      <button
+        type="button"
+        aria-label="Your profile"
+        aria-haspopup="dialog"
+        title="Your profile"
+        onClick={(e) => me && openProfile(me.id, e.currentTarget)}
         className="mt-1 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        data-testid="nav-self-avatar"
       >
-        <Avatar src={me?.avatarUrl} name={me?.displayName ?? 'Me'} colorSeed={me?.id} size={36} />
-      </NavLink>
+        <Avatar
+          src={me?.avatarUrl}
+          animatedSrc={me?.avatarAnimatedUrl}
+          name={me?.displayName ?? 'Me'}
+          colorSeed={me?.id}
+          size={36}
+          presence={me ? selfPresenceState(me) : null}
+        />
+      </button>
     </nav>
   );
 }

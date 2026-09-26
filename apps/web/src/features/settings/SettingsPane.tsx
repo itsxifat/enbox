@@ -1,9 +1,13 @@
 import { Link, useParams } from 'react-router';
 import { ChevronRight, LogOut } from 'lucide-react';
+import { activePresenceNote } from '@enbox/shared';
 import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { Avatar, type IconType } from '@/components/ui';
 import { PaneHeader } from '@/components/layout/PaneHeader';
+import { selfPresenceState } from '@/features/profile/model';
+import { openProfile } from '@/features/profile/open';
 import { cn } from '@/lib/cn';
+import { formatPresenceNote } from '@/lib/format';
 import { useMe } from '@/stores/auth';
 import { confirmLogout } from './account/AccountPage';
 import { SETTINGS_SECTIONS } from './sections';
@@ -23,33 +27,58 @@ function IconTile({ icon: Icon, color }: { icon: IconType; color: string }) {
   );
 }
 
-/** Settings tab list (/settings): my profile card, sections, log out. */
+/**
+ * Settings tab list (/settings): my profile card, sections, log out. The avatar on the
+ * profile card opens my profile card (availability, custom status) — the way phones, which
+ * have no nav rail, reach it; the rest of the row goes to Settings → Profile.
+ */
 export function SettingsPane() {
   const me = useMe();
   const { section } = useParams();
+  const note = activePresenceNote(me?.presenceNote);
   return (
     <>
       <PaneHeader title="Settings" large />
       <nav aria-label="Settings" className="min-h-0 flex-1 overflow-y-auto pb-4 scrollbar-thin">
         {me ? (
-          <Link
-            to="/settings/profile"
-            aria-current={section === 'profile' ? 'page' : undefined}
+          <div
             className={cn(
-              'mx-2 mb-2 flex items-center gap-4 rounded-2xl px-3 py-3 outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
+              'mx-2 mb-2 flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-hover',
               section === 'profile' && 'bg-selected hover:bg-selected',
             )}
             data-testid="settings-profile-card"
           >
-            <Avatar src={me.avatarUrl} name={me.displayName} colorSeed={me.id} size="xl" />
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate text-[19px] font-semibold text-fg">{me.displayName}</span>
-              <span className="truncate text-[14px] text-muted">
-                {me.about || `@${me.username}`}
+            <button
+              type="button"
+              aria-label="Your profile card"
+              aria-haspopup="dialog"
+              onClick={(e) => openProfile(me.id, e.currentTarget)}
+              className="shrink-0 rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              data-testid="settings-self-avatar"
+            >
+              <Avatar
+                src={me.avatarUrl}
+                animatedSrc={me.avatarAnimatedUrl}
+                name={me.displayName}
+                colorSeed={me.id}
+                size="xl"
+                presence={selfPresenceState(me)}
+              />
+            </button>
+            <Link
+              to="/settings/profile"
+              aria-current={section === 'profile' ? 'page' : undefined}
+              className="flex min-w-0 flex-1 items-center gap-4 rounded-xl outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-[19px] font-semibold text-fg">{me.displayName}</span>
+                <span className="truncate text-[14px] text-muted">
+                  {note ? formatPresenceNote(note) : me.about || `@${me.username}`}
+                </span>
               </span>
-            </span>
-            <ChevronRight size={18} className="shrink-0 text-subtle" aria-hidden />
-          </Link>
+              <ChevronRight size={18} className="shrink-0 text-subtle" aria-hidden />
+            </Link>
+          </div>
         ) : null}
         <div className="mx-4 mb-2 h-px bg-line" />
         <ul className="flex flex-col px-2">
