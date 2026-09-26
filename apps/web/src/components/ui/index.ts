@@ -9,6 +9,7 @@ export {
   type AvatarProps,
   type AvatarSize,
   type AvatarKind,
+  type AvatarAnimate,
 } from './Avatar';
 export { Badge, type BadgeProps } from './Badge';
 export {
@@ -57,6 +58,14 @@ export {
 } from './Menu';
 export { Modal, type ModalProps, type ModalSize } from './Modal';
 export { Portal, useOverlay, useScrollLock, useFocusTrap } from './overlay';
+export {
+  Popover,
+  placePopover,
+  type PopoverProps,
+  type PopoverAnchor,
+  type PopoverPlacement,
+  type PopoverAlign,
+} from './Popover';
 export { SearchInput, type SearchInputProps } from './SearchInput';
 export { Sheet, type SheetProps } from './Sheet';
 export { Skeleton, ListItemSkeleton } from './Skeleton';

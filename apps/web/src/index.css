@@ -314,6 +314,15 @@
       scroll-behavior: auto !important;
     }
   }
+  /* Device pref "Reduce motion: on" (stores/ui.ts applyAppearance): same clamp as the media query. */
+  html[data-reduce-motion='on'] *,
+  html[data-reduce-motion='on'] *::before,
+  html[data-reduce-motion='on'] *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @layer components {

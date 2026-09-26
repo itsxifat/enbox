@@ -328,6 +328,11 @@ export interface UploadOptions {
   signal?: AbortSignal;
   /** File name to send when `file` is a Blob (defaults to File.name or "upload"). */
   fileName?: string;
+  /**
+   * Poster / thumbnail (JPEG or WebP ≤ MAX_THUMBNAIL_BYTES) sent as the `thumbnail` part.
+   * Required by the server for animated profile media (avatars, banners).
+   */
+  thumbnail?: Blob | null;
 }
 
 /** Minimum time between two upload progress callbacks. */
@@ -418,6 +423,10 @@ function upload(
     }
     const name = opts.fileName ?? (file instanceof File ? file.name : 'upload');
     form.append('file', file, name);
+    if (opts.thumbnail) {
+      const ext = opts.thumbnail.type === 'image/webp' ? 'webp' : 'jpg';
+      form.append('thumbnail', opts.thumbnail, `thumbnail.${ext}`);
+    }
     xhr.send(form);
   });
 }

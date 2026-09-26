@@ -4,26 +4,38 @@ import type { ImageInfo } from '@enbox/shared';
 import { Button, Modal, Spinner, toast } from '@/components/ui';
 import { errorMessage } from '@/lib/api';
 import { probeImageFile } from '@/lib/media';
+import { loadImage } from './avatar';
 import {
   MAX_ZOOM,
   MIN_ZOOM,
-  animatedAvatarIssue,
+  animatedBannerIssue,
+  bannerViewport,
   clampCrop,
+  coverScale,
   cropRect,
   initialCrop,
-  loadImage,
-  renderAvatar,
-  renderPoster,
-  uploadAnimatedAvatar,
-  uploadAvatar,
+  renderBanner,
+  renderBannerPoster,
+  uploadAnimatedBanner,
+  uploadBanner,
   zoomCrop,
   type CropState,
   type ImageSize,
-} from './avatar';
+  type Viewport,
+} from './banner';
 
-const VIEWPORT = 280;
+/** Widest crop area; narrower on phones, where the modal is a bottom sheet. */
+const MAX_VIEWPORT_WIDTH = 480;
 
-export interface AvatarCropDialogProps {
+function viewportFor(): Viewport {
+  const width =
+    typeof window === 'undefined'
+      ? MAX_VIEWPORT_WIDTH
+      : Math.min(MAX_VIEWPORT_WIDTH, window.innerWidth - 64);
+  return bannerViewport(Math.max(240, width));
+}
+
+export interface BannerCropDialogProps {
   /** The picked image; the dialog is open while set. */
   file: File | null;
   onClose: () => void;
@@ -31,15 +43,17 @@ export interface AvatarCropDialogProps {
 }
 
 /**
- * Square crop editor for profile photos: drag to move, wheel / pinch / slider to zoom,
- * arrow keys and +/- for keyboard users. "Set photo" renders, uploads and saves it.
+ * 5:2 crop editor for profile banners: drag to move, wheel / pinch / slider to zoom, arrow
+ * keys and +/- for keyboard users (the same gestures as AvatarCropDialog). "Set banner"
+ * renders (JPEG ≤ MAX_BANNER_BYTES), uploads and saves it; an animated image goes up whole
+ * with the cropped still as its poster.
  */
-export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProps) {
+export function BannerCropDialog({ file, onClose, onDone }: BannerCropDialogProps) {
+  const [viewport, setViewport] = useState<Viewport>(viewportFor);
   const [src, setSrc] = useState<string | null>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [size, setSize] = useState<ImageSize | null>(null);
   const [crop, setCrop] = useState<CropState | null>(null);
-  /** Header facts (null when the parser does not know the format); `animated` bypasses the re-encode. */
   const [info, setInfo] = useState<ImageInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,6 +66,8 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     if (!file) return;
     const url = URL.createObjectURL(file);
     let cancelled = false;
+    const vp = viewportFor();
+    setViewport(vp);
     setSrc(url);
     setError(null);
     setImg(null);
@@ -61,7 +77,7 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     Promise.all([loadImage(url), probeImageFile(file)])
       .then(([el, probed]) => {
         if (cancelled) return;
-        const issue = probed?.animated ? animatedAvatarIssue(file, probed) : null;
+        const issue = probed?.animated ? animatedBannerIssue(file, probed) : null;
         if (issue) {
           setError(issue);
           return;
@@ -70,7 +86,7 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
         setInfo(probed);
         setImg(el);
         setSize(natural);
-        setCrop(initialCrop(natural, VIEWPORT));
+        setCrop(initialCrop(natural, vp));
       })
       .catch((e: unknown) => !cancelled && setError(errorMessage(e)));
     return () => {
@@ -114,9 +130,9 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     let next: CropState = { ...g.crop, x: g.crop.x + (cx - g.x), y: g.crop.y + (cy - g.y) };
     if (pts.length > 1 && g.dist > 0) {
       const dist = Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y);
-      next = zoomCrop(next, g.crop.zoom * (dist / g.dist), size, VIEWPORT, { x: cx, y: cy });
+      next = zoomCrop(next, g.crop.zoom * (dist / g.dist), size, viewport, { x: cx, y: cy });
     }
-    setCrop(clampCrop(next, size, VIEWPORT));
+    setCrop(clampCrop(next, size, viewport));
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
@@ -134,12 +150,12 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
       const r = el.getBoundingClientRect();
       const anchor = { x: e.clientX - r.left, y: e.clientY - r.top };
       setCrop((c) =>
-        c ? zoomCrop(c, c.zoom * Math.exp(-e.deltaY * 0.0015), size, VIEWPORT, anchor) : c,
+        c ? zoomCrop(c, c.zoom * Math.exp(-e.deltaY * 0.0015), size, viewport, anchor) : c,
       );
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [size]);
+  }, [size, viewport]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!crop || !size) return;
@@ -149,11 +165,11 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     else if (e.key === 'ArrowRight') next = { ...crop, x: crop.x - step };
     else if (e.key === 'ArrowUp') next = { ...crop, y: crop.y + step };
     else if (e.key === 'ArrowDown') next = { ...crop, y: crop.y - step };
-    else if (e.key === '+' || e.key === '=') next = zoomCrop(crop, crop.zoom * 1.1, size, VIEWPORT);
-    else if (e.key === '-') next = zoomCrop(crop, crop.zoom / 1.1, size, VIEWPORT);
+    else if (e.key === '+' || e.key === '=') next = zoomCrop(crop, crop.zoom * 1.1, size, viewport);
+    else if (e.key === '-') next = zoomCrop(crop, crop.zoom / 1.1, size, viewport);
     if (!next) return;
     e.preventDefault();
-    setCrop(clampCrop(next, size, VIEWPORT));
+    setCrop(clampCrop(next, size, viewport));
   };
 
   const save = async () => {
@@ -161,15 +177,15 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     setBusy(true);
     setProgress(0);
     try {
-      const rect = cropRect(crop, size, VIEWPORT);
+      const rect = cropRect(crop, size, viewport);
       if (info?.animated) {
         // The crop frames the still only; the animation is uploaded whole (stripped).
-        await uploadAnimatedAvatar(file, info, await renderPoster(img, rect), setProgress);
+        await uploadAnimatedBanner(file, info, await renderBannerPoster(img, rect), setProgress);
       } else {
-        const { blob, size: out } = await renderAvatar(img, rect);
-        await uploadAvatar(blob, out, setProgress);
+        const { blob, width, height } = await renderBanner(img, rect);
+        await uploadBanner(blob, { width, height }, setProgress);
       }
-      toast.success('Profile photo updated');
+      toast.success('Banner updated');
       onDone?.();
       onClose();
     } catch (e) {
@@ -179,19 +195,19 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     }
   };
 
-  const scale = size && crop ? (VIEWPORT / Math.min(size.width, size.height)) * crop.zoom : 1;
+  const scale = size && crop ? coverScale(size, viewport) * crop.zoom : 1;
 
   return (
     <Modal
       open={!!file}
       onClose={close}
-      title="Crop your photo"
+      title="Crop your banner"
       description={
         info?.animated
-          ? 'Animated photo: drag to frame the still image. The animation itself plays in full.'
+          ? 'Animated banner: drag to frame the still image. The animation itself plays in full.'
           : 'Drag to reposition. Scroll or pinch to zoom.'
       }
-      size="sm"
+      size="md"
       dismissible={!busy}
       footer={
         <>
@@ -199,7 +215,7 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
             Cancel
           </Button>
           <Button onClick={() => void save()} loading={busy} disabled={!crop}>
-            {busy ? `Uploading ${Math.round(progress * 100)}%` : 'Set photo'}
+            {busy ? `Uploading ${Math.round(progress * 100)}%` : 'Set banner'}
           </Button>
         </>
       }
@@ -208,7 +224,7 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
         <div
           ref={viewportRef}
           role="application"
-          aria-label="Photo crop area. Use arrow keys to move and plus or minus to zoom."
+          aria-label="Banner crop area. Use arrow keys to move and plus or minus to zoom."
           tabIndex={0}
           onKeyDown={onKeyDown}
           onPointerDown={onPointerDown}
@@ -216,7 +232,11 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           className="relative touch-none overflow-hidden rounded-2xl bg-neutral-900 select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-          style={{ width: VIEWPORT, height: VIEWPORT, cursor: crop ? 'grab' : 'default' }}
+          style={{
+            width: viewport.width,
+            height: viewport.height,
+            cursor: crop ? 'grab' : 'default',
+          }}
         >
           {src && size && crop ? (
             <img
@@ -239,14 +259,16 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
               <Spinner />
             </div>
           )}
-          {/* Circular mask */}
+          {/* The whole viewport is the crop: a thin frame instead of a mask. */}
           <div
-            className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-white/80"
-            style={{ boxShadow: '0 0 0 9999px rgb(0 0 0 / 0.5)' }}
+            className="pointer-events-none absolute inset-0 rounded-2xl ring-2 ring-white/80 ring-inset"
             aria-hidden
           />
         </div>
-        <label className="flex w-full max-w-[280px] items-center gap-3 text-muted">
+        <label
+          className="flex w-full items-center gap-3 text-muted"
+          style={{ maxWidth: viewport.width }}
+        >
           <ZoomOut size={18} aria-hidden />
           <input
             type="range"
@@ -256,7 +278,7 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
             value={crop?.zoom ?? 1}
             disabled={!crop || busy}
             onChange={(e) =>
-              size && setCrop((c) => (c ? zoomCrop(c, Number(e.target.value), size, VIEWPORT) : c))
+              size && setCrop((c) => (c ? zoomCrop(c, Number(e.target.value), size, viewport) : c))
             }
             aria-label="Zoom"
             className="h-1.5 flex-1 cursor-pointer accent-[var(--brand)]"

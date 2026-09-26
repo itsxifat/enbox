@@ -4,7 +4,8 @@
  *
  * State
  * - `theme`: 'light' | 'dark' | 'system'; `resolvedTheme`: 'light' | 'dark'
- * - `prefs`: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications }
+ * - `prefs`: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications,
+ *   reduceMotion, autoplayAnimatedMedia }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
  * Actions: `setTheme(t)`, `setPref(key, value)`, `pushToast`, `dismissToast`
@@ -16,7 +17,8 @@
  *     { value: 'everyone', label: 'Delete for everyone', danger: true },
  *     { value: 'me', label: 'Delete for me', danger: true } ] });  // → 'everyone' | 'me' | null
  *
- * Call `initTheme()` once at startup (main.tsx) to apply the theme, font size and wallpaper.
+ * Call `initTheme()` once at startup (main.tsx) to apply the theme, font size, wallpaper and
+ * the `data-reduce-motion` attribute.
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -29,6 +31,10 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export type FontSize = 'small' | 'medium' | 'large';
 export type WallpaperId = 'default' | 'lavender' | 'sky' | 'mint' | 'sand' | 'rose' | 'slate';
+/** 'system' follows `prefers-reduced-motion`; 'on' forces it; 'off' ignores the OS setting. */
+export type ReduceMotionPref = 'system' | 'on' | 'off';
+/** Animated images (GIF / WebP / APNG avatars, chat GIFs): play always, on hover/tap, or never. */
+export type AutoplayAnimatedMedia = 'always' | 'hover' | 'never';
 
 export interface DevicePrefs {
   /** Enter sends (Shift+Enter = newline). Mobile keyboards always insert newlines. */
@@ -42,6 +48,10 @@ export interface DevicePrefs {
   sounds: boolean;
   /** System notifications on this device while Enbox is in the background. */
   desktopNotifications: boolean;
+  /** Reduced motion: read through `useReducedMotion()`, mirrored on `html[data-reduce-motion]`. */
+  reduceMotion: ReduceMotionPref;
+  /** Animated avatars and GIF bubbles: 'hover' shows the poster until hovered or tapped. */
+  autoplayAnimatedMedia: AutoplayAnimatedMedia;
 }
 
 export const DEFAULT_PREFS: DevicePrefs = {
@@ -51,6 +61,8 @@ export const DEFAULT_PREFS: DevicePrefs = {
   wallpaperPattern: true,
   sounds: true,
   desktopNotifications: true,
+  reduceMotion: 'system',
+  autoplayAnimatedMedia: 'hover',
 };
 
 export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {
@@ -288,6 +300,8 @@ function applyAppearance(s: Pick<UiState, 'resolvedTheme' | 'prefs'>): void {
   if (!wp || s.prefs.wallpaper === 'default') root.style.removeProperty('--wallpaper');
   else root.style.setProperty('--wallpaper', dark ? wp.dark : wp.light);
   root.dataset.wallpaperPattern = s.prefs.wallpaperPattern ? 'on' : 'off';
+  // `html[data-reduce-motion='on'] *` (index.css) clamps animations like the OS media query.
+  root.dataset.reduceMotion = s.prefs.reduceMotion;
 }
 
 let themeInitialized = false;

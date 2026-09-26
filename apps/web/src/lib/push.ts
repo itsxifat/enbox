@@ -11,27 +11,15 @@
  * off unsubscribes, and the silent sync never re-subscribes while it is off.
  */
 import { useUi } from '@/stores/ui';
-import type { ApiResponse } from './api';
 import { api } from './api';
 import { notificationPermission, requestNotificationPermission } from './notify';
+import { getServerConfig } from './serverConfig';
 import { getServiceWorkerRegistration } from './sw';
 
 export type PushResult = 'subscribed' | 'unsupported' | 'denied' | 'no-key' | 'error';
 
-let configPromise: Promise<ApiResponse<'GET /api/config'>> | null = null;
-
-/** Cached `GET /api/config` (public). */
-export function getServerConfig(): Promise<ApiResponse<'GET /api/config'>> {
-  if (!configPromise) {
-    configPromise = api
-      .get<ApiResponse<'GET /api/config'>>('/api/config', { auth: false })
-      .catch((e: unknown) => {
-        configPromise = null;
-        throw e;
-      });
-  }
-  return configPromise;
-}
+// The cached `GET /api/config` lives in lib/serverConfig.ts; re-exported for existing callers.
+export { getServerConfig };
 
 export function pushSupported(): boolean {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
