@@ -26,6 +26,8 @@ export interface PreparedMedia {
   height?: number;
   durationMs?: number;
   thumbnail: Blob | null;
+  /** Animated image kept as-is; `thumbnail` is its poster. */
+  animated?: boolean;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
@@ -203,6 +205,7 @@ async function prepareAnimatedImage(file: File, info: ImageInfo): Promise<Prepar
     width: info.width,
     height: info.height,
     thumbnail,
+    animated: true,
   };
 }
 
