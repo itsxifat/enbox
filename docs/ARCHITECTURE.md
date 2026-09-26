@@ -294,7 +294,7 @@ acting device also receives the events (clients dedupe).
 | `DELETE /auth/sessions[/:id]`, `POST /auth/change-password`         | per revoked session s: `invalidateSessions` → `session:revoked {sessionId:s}` → S(s) → `disconnectSession(s)`                                                                                                                                                                                                                                                 |
 | `PATCH /me`                                                         | profile fields (name, about, avatar, banner, pronouns, bio, colours): `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels; announcement groups only where I'm an admin — their member lists are admin-only) and → U(x) for users who saved me as a contact. Never availability or the presence note (see `/me/presence*`)  |
 | `PATCH /me/settings`                                                | `me:updated` → U(me); presence-visibility change → re-evaluate my presence subscribers (per-socket `presence:update`); `readReceipts` change → recompute read watermarks of my direct chats → `chat:watermarks` → U(me), U(peer) where changed                                                                                                                |
-| `PUT /me/presence`                                                  | `me:updated` → U(me); re-evaluate my presence subscribers (per-socket `presence:update`; an invisible user looks offline, so switching to/from `invisible` reads as going offline/online); switching to `invisible` writes `last_seen_at = now()` in the same tx. **Never** `user:changed`                                                                    |
+| `PUT /me/presence`                                                  | `me:updated` → U(me); re-evaluate my presence subscribers (per-socket `presence:update`; an invisible user looks offline, so switching to/from `invisible` reads as going offline/online); switching to `invisible` while connected writes `last_seen_at = now()` in the same tx (already offline: the real last seen stays). **Never** `user:changed`        |
 | `PUT/DELETE /me/presence-note`                                      | `me:updated` → U(me); re-evaluate my presence subscribers (the note travels on `presence:update` and `me:updated` only). **Never** `user:changed`                                                                                                                                                                                                             |
 | `DELETE /me`                                                        | see "Account deletion"                                                                                                                                                                                                                                                                                                                                        |
 | `POST/PATCH/DELETE /contacts…`                                      | `contacts:changed` → U(me); `user:changed {userId: me}` → U(contact) (their view of me changed); re-evaluate my presence subscribers                                                                                                                                                                                                                          |
@@ -690,13 +690,15 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   or auto-idle), else `online`; `lastSeenAt = canSeeLastSeen && !effectiveOnline ?
 last_seen_at : null`; `note` = the unexpired note only while `state ∈ {online, idle, dnd}`,
   else null. `availability_until` reverts the choice to `online` when it passes
-  (`effectiveAvailability`; the expiry job catches up and re-emits).
+  (`effectiveAvailability`; the expiry job catches up and re-emits); an `until` sent with
+  `online` itself is dropped.
 - **Invisible invariants**: (1) an invisible connected user serialises **byte-identical** to
   a really offline one for every viewer (`online: false`, `state: 'offline'`, `note: null`,
   frozen `lastSeenAt`), so their connects, disconnects and idle changes emit nothing to
   subscribers (the per-socket last-sent dedupe sees no change); (2) `PUT /me/presence`
-  switching to `invisible` writes `last_seen_at = now()` in the same transaction — that is
-  the value viewers keep seeing; (3) the disconnect `last_seen_at` write is skipped while
+  switching to `invisible` while connected writes `last_seen_at = now()` in the same
+  transaction — that is the value viewers keep seeing (an already-offline user keeps the
+  real last seen); (3) the disconnect `last_seen_at` write is skipped while
   invisible (`… and availability <> 'invisible'` inside the existing counted/last-socket
   gate) **and** the in-memory `lastSeenAt` handed to the re-evaluation with the `offline`
   event is ignored for invisible rows — both are required, the override is applied from
