@@ -115,7 +115,13 @@ describe('services/users', () => {
     expect(p.online).toBe(false);
     expect(p.lastSeenAt).toBeNull();
     const [presence] = await loadPresences(db, viewer.id, [user.id]);
-    expect(presence).toEqual({ userId: user.id, online: false, lastSeenAt: null });
+    expect(presence).toEqual({
+      userId: user.id,
+      online: false,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
   });
 
   it('subject blocked viewer → avatar/about/phone/presence null, block never revealed', async () => {
@@ -177,10 +183,20 @@ describe('services/users', () => {
       username: deletedUsername(user.id),
       displayName: DELETED_ACCOUNT_NAME,
       avatarUrl: null,
+      avatarAnimatedUrl: null,
+      bannerUrl: null,
+      bannerAnimatedUrl: null,
       about: null,
+      pronouns: null,
+      bio: null,
+      profileColor: null,
+      accentColor: null,
       phone: null,
       online: null,
+      presenceState: null,
+      presenceNote: null,
       lastSeenAt: null,
+      createdAt: null,
       isContact: false,
       contactName: null,
       isBlocked: false,

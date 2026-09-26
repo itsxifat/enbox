@@ -340,7 +340,11 @@ export function canSeePresence(
   return { canSeeOnline, canSeeLastSeen };
 }
 
-/** Per-viewer presence (hidden = `{ online: null, lastSeenAt: null }`). Online = ≥ 1 socket on this instance. */
+/**
+ * Per-viewer presence (hidden = `{ online: null, state: null, note: null, lastSeenAt: null }`).
+ * Online = ≥ 1 socket on this instance. `state`/`note` (availability, idle, presence note)
+ * are still null for everyone: P1-S3 derives them.
+ */
 export function buildPresence(
   viewerId: string,
   subject: Pick<UserRow, 'id' | 'settings' | 'deletedAt' | 'lastSeenAt'>,
@@ -351,6 +355,8 @@ export function buildPresence(
   return {
     userId: subject.id,
     online: canSeeOnline ? online : null,
+    state: null,
+    note: null,
     lastSeenAt:
       canSeeLastSeen && !online && subject.lastSeenAt ? subject.lastSeenAt.toISOString() : null,
   };
@@ -368,10 +374,20 @@ export function buildUserPublic(
       username: subject.username,
       displayName: DELETED_ACCOUNT_NAME,
       avatarUrl: null,
+      avatarAnimatedUrl: null,
+      bannerUrl: null,
+      bannerAnimatedUrl: null,
       about: null,
+      pronouns: null,
+      bio: null,
+      profileColor: null,
+      accentColor: null,
       phone: null,
       online: null,
+      presenceState: null,
+      presenceNote: null,
       lastSeenAt: null,
+      createdAt: null,
       isContact: false,
       contactName: null,
       isBlocked: false,
@@ -389,15 +405,27 @@ export function buildUserPublic(
     self || (!hiddenByBlock && levelAllows(s.aboutVisibility, rel)) ? subject.about : null;
   const phone = self || (!hiddenByBlock && rel.subjectSavedViewer) ? subject.phone : null;
   const presence = buildPresence(viewerId, subject, rel);
+  // Banner, animated avatar, pronouns/bio/colours and presence state/note: P1-S3 (gated like
+  // avatarUrl / about); null for everyone until then.
   return {
     id: subject.id,
     username: subject.username,
     displayName: subject.displayName,
     avatarUrl,
+    avatarAnimatedUrl: null,
+    bannerUrl: null,
+    bannerAnimatedUrl: null,
     about,
+    pronouns: null,
+    bio: null,
+    profileColor: null,
+    accentColor: null,
     phone,
     online: presence.online,
+    presenceState: presence.state,
+    presenceNote: presence.note,
     lastSeenAt: presence.lastSeenAt,
+    createdAt: subject.createdAt.toISOString(),
     isContact: rel.viewerSavedSubject,
     contactName: rel.contactName,
     isBlocked: !self && rel.viewerBlockedSubject,
@@ -489,16 +517,26 @@ export async function loadPresences(
   );
 }
 
-/** The signed-in user's own profile. */
+/** The signed-in user's own profile. The P1 profile/presence fields are defaults until P1-S3 serialises the columns. */
 export function toUserSelf(row: UserWithAvatar): UserSelf {
   return {
     id: row.id,
     username: row.username,
     displayName: row.displayName,
     avatarUrl: row.avatarKey ? mediaUrl(row.avatarKey) : null,
+    avatarAnimatedUrl: null,
+    bannerUrl: null,
+    bannerAnimatedUrl: null,
     about: row.about,
+    pronouns: null,
+    bio: '',
+    profileColor: null,
+    accentColor: null,
     phone: row.phone,
     createdAt: row.createdAt.toISOString(),
+    availability: 'online',
+    availabilityUntil: null,
+    presenceNote: null,
     settings: settingsOf(row),
   };
 }

@@ -47,8 +47,8 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
     const s = await t.connect(viewer);
     const ack = await subscribe(s, [visible.id, crypto.randomUUID(), hidden.id]);
     expect(ack).toEqual([
-      { userId: visible.id, online: false, lastSeenAt: LAST_SEEN },
-      { userId: hidden.id, online: null, lastSeenAt: null },
+      { userId: visible.id, online: false, state: null, note: null, lastSeenAt: LAST_SEEN },
+      { userId: hidden.id, online: null, state: null, note: null, lastSeenAt: null },
     ]);
     await expect(emitAck(s, 'presence:subscribe', { userIds: 'nope' })).rejects.toMatchObject({
       ack: { ok: false, error: { code: 'validation_error' } },
@@ -66,7 +66,13 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
 
     const online = updatesOf(sv, subject.id);
     const s1 = await t.connect(subject);
-    expect(await online).toEqual({ userId: subject.id, online: true, lastSeenAt: null });
+    expect(await online).toEqual({
+      userId: subject.id,
+      online: true,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
 
     const s2 = await t.connect(subject); // second device: still online, nothing to say
     await presenceIdle();
@@ -116,14 +122,26 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
     });
     const sv = await t.connect(viewer);
     expect(await subscribe(sv, [subject.id])).toEqual([
-      { userId: subject.id, online: false, lastSeenAt: null },
+      { userId: subject.id, online: false, state: null, note: null, lastSeenAt: null },
     ]);
     const on = updatesOf(sv, subject.id);
     const s = await t.connect(subject);
-    expect(await on).toEqual({ userId: subject.id, online: true, lastSeenAt: null });
+    expect(await on).toEqual({
+      userId: subject.id,
+      online: true,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
     const off = updatesOf(sv, subject.id);
     await goOffline(subject, s);
-    expect(await off).toEqual({ userId: subject.id, online: false, lastSeenAt: null });
+    expect(await off).toEqual({
+      userId: subject.id,
+      online: false,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
   });
 
   it('hiding last seen via PATCH /me/settings updates subscribers immediately and stops later updates', async () => {
@@ -132,7 +150,7 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
     const ss = await t.connect(subject);
     const sv = await t.connect(viewer);
     expect(await subscribe(sv, [subject.id])).toEqual([
-      { userId: subject.id, online: true, lastSeenAt: null },
+      { userId: subject.id, online: true, state: null, note: null, lastSeenAt: null },
     ]);
 
     const hidden = updatesOf(sv, subject.id);
@@ -141,7 +159,13 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
       .patch('/api/me/settings')
       .send({ lastSeenVisibility: 'nobody', onlineVisibility: 'same_as_last_seen' })
       .expect(200);
-    expect(await hidden).toEqual({ userId: subject.id, online: null, lastSeenAt: null });
+    expect(await hidden).toEqual({
+      userId: subject.id,
+      online: null,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
 
     await goOffline(subject, ss);
     await presenceIdle();
@@ -172,24 +196,42 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
     const sf = await t.connect(friend);
     const so = await t.connect(other);
     expect(await subscribe(sf, [subject.id])).toEqual([
-      { userId: subject.id, online: null, lastSeenAt: null },
+      { userId: subject.id, online: null, state: null, note: null, lastSeenAt: null },
     ]);
     await subscribe(so, [subject.id]);
 
     const shown = updatesOf(sf, subject.id);
     await t.api(subject).post('/api/contacts').send({ userId: friend.id }).expect(201);
-    expect(await shown).toEqual({ userId: subject.id, online: false, lastSeenAt: LAST_SEEN });
+    expect(await shown).toEqual({
+      userId: subject.id,
+      online: false,
+      state: null,
+      note: null,
+      lastSeenAt: LAST_SEEN,
+    });
     await expectNoEvent(so, 'presence:update');
 
     // Online/offline now reach the contact but not the other viewer.
     const on = updatesOf(sf, subject.id);
     const ss = await t.connect(subject);
-    expect(await on).toEqual({ userId: subject.id, online: true, lastSeenAt: null });
+    expect(await on).toEqual({
+      userId: subject.id,
+      online: true,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
     await expectNoEvent(so, 'presence:update');
 
     const hiddenAgain = updatesOf(sf, subject.id);
     await t.api(subject).delete(`/api/contacts/${friend.id}`).expect(204);
-    expect(await hiddenAgain).toEqual({ userId: subject.id, online: null, lastSeenAt: null });
+    expect(await hiddenAgain).toEqual({
+      userId: subject.id,
+      online: null,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
     await goOffline(subject, ss);
     await presenceIdle();
     await expectNoEvent(sf, 'presence:update');
@@ -200,25 +242,53 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
     const b = await t.createUser();
     const sa = await t.connect(a);
     const sb = await t.connect(b);
-    expect(await subscribe(sa, [b.id])).toEqual([{ userId: b.id, online: true, lastSeenAt: null }]);
-    expect(await subscribe(sb, [a.id])).toEqual([{ userId: a.id, online: true, lastSeenAt: null }]);
+    expect(await subscribe(sa, [b.id])).toEqual([
+      { userId: b.id, online: true, state: null, note: null, lastSeenAt: null },
+    ]);
+    expect(await subscribe(sb, [a.id])).toEqual([
+      { userId: a.id, online: true, state: null, note: null, lastSeenAt: null },
+    ]);
 
     const aSeesB = updatesOf(sa, b.id);
     const bSeesA = updatesOf(sb, a.id);
     await t.api(a).put(`/api/blocks/${b.id}`).expect(204);
-    expect(await aSeesB).toEqual({ userId: b.id, online: null, lastSeenAt: null });
-    expect(await bSeesA).toEqual({ userId: a.id, online: null, lastSeenAt: null });
+    expect(await aSeesB).toEqual({
+      userId: b.id,
+      online: null,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
+    expect(await bSeesA).toEqual({
+      userId: a.id,
+      online: null,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
     // A fresh subscription is hidden too.
     const sb2 = await t.connect(b);
     expect(await subscribe(sb2, [a.id])).toEqual([
-      { userId: a.id, online: null, lastSeenAt: null },
+      { userId: a.id, online: null, state: null, note: null, lastSeenAt: null },
     ]);
 
     const aSeesB2 = updatesOf(sa, b.id);
     const bSeesA2 = updatesOf(sb, a.id);
     await t.api(a).delete(`/api/blocks/${b.id}`).expect(204);
-    expect(await aSeesB2).toEqual({ userId: b.id, online: true, lastSeenAt: null });
-    expect(await bSeesA2).toEqual({ userId: a.id, online: true, lastSeenAt: null });
+    expect(await aSeesB2).toEqual({
+      userId: b.id,
+      online: true,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
+    expect(await bSeesA2).toEqual({
+      userId: a.id,
+      online: true,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
   });
 
   it('subscriptions are per socket and end with presence:unsubscribe', async () => {

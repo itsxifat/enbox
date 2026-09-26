@@ -48,6 +48,8 @@ describe('users store', () => {
     expect(useUsers.getState().presence.u2).toEqual({
       userId: 'u2',
       online: null,
+      state: null,
+      note: null,
       lastSeenAt: null,
     });
   });

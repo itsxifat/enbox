@@ -104,6 +104,8 @@ export function enqueueMedia(chatId: ID, input: MediaSendInput): () => Promise<v
     size: input.blob.size,
     width: input.width ?? null,
     height: input.height ?? null,
+    animated: false,
+    frameCount: null,
     durationMs: input.durationMs ?? null,
     waveform: input.waveform ?? null,
   };

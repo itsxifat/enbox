@@ -117,7 +117,13 @@ export const useUsers = create<UsersState>((set, get) => ({
       let presence = s.presence;
       for (const u of users) {
         byId[u.id] = { ...byId[u.id], ...u };
-        const p: Presence = { userId: u.id, online: u.online, lastSeenAt: u.lastSeenAt };
+        const p: Presence = {
+          userId: u.id,
+          online: u.online,
+          state: u.presenceState,
+          note: u.presenceNote,
+          lastSeenAt: u.lastSeenAt,
+        };
         if (!samePresence(presence[u.id], p)) {
           if (presence === s.presence) presence = { ...presence };
           presence[u.id] = p;

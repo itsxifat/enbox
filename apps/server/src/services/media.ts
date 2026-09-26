@@ -30,6 +30,8 @@ export function toMediaAttachment(row: MediaRow): MediaAttachment {
     size: Number(row.size),
     width: row.width,
     height: row.height,
+    animated: row.animated,
+    frameCount: row.frameCount,
     durationMs: row.durationMs,
     waveform: row.waveform ?? null,
   };

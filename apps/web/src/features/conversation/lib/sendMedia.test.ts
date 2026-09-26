@@ -79,6 +79,8 @@ describe('media sends', () => {
       size: 1,
       width: 10,
       height: 10,
+      animated: false,
+      frameCount: null,
       durationMs: null,
       waveform: null,
     } as const;

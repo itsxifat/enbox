@@ -51,9 +51,19 @@ const me = {
   username: 'alex',
   displayName: 'Alex Morgan',
   avatarUrl: null,
+  avatarAnimatedUrl: null,
+  bannerUrl: null,
+  bannerAnimatedUrl: null,
   about: 'Building things ✨',
+  pronouns: null,
+  bio: '',
+  profileColor: null,
+  accentColor: null,
   phone: null,
   createdAt: ago(99999),
+  availability: 'online',
+  availabilityUntil: null,
+  presenceNote: null,
   settings,
 };
 
@@ -62,14 +72,24 @@ const user = (n, displayName, extra = {}) => ({
   username: displayName.split(' ')[0].toLowerCase(),
   displayName,
   avatarUrl: null,
+  avatarAnimatedUrl: null,
+  bannerUrl: null,
+  bannerAnimatedUrl: null,
   about: 'Hey there! I am using Enbox.',
+  pronouns: null,
+  bio: null,
+  profileColor: null,
+  accentColor: null,
   phone: null,
   isContact: true,
   contactName: null,
   isBlocked: false,
   isDeleted: false,
   online: false,
+  presenceState: null,
+  presenceNote: null,
   lastSeenAt: ago(42),
+  createdAt: ago(99999),
   ...extra,
 });
 const maya = user(10, 'Maya Patel', { online: true });
@@ -263,6 +283,8 @@ const chats = [
         size: 1,
         width: null,
         height: null,
+        animated: false,
+        frameCount: null,
         durationMs: 14000,
         waveform: null,
       },
@@ -430,7 +452,20 @@ async function mockApi(page, socket = 'ok') {
     const m = req.method();
     if (p === '/api/me' && m === 'GET') return json(route, 200, me);
     if (p === '/api/config')
-      return json(route, 200, { vapidPublicKey: null, maxUploadBytes: 1e8, version: '0.1.0' });
+      return json(route, 200, {
+        vapidPublicKey: null,
+        maxUploadBytes: 1e8,
+        version: '0.1.0',
+        publicUrl: 'http://localhost:5173',
+        voice: null,
+        limits: {
+          maxUploadBytes: 1e8,
+          maxAvatarBytes: 5e6,
+          maxAnimatedAvatarBytes: 8e6,
+          maxBannerBytes: 1e7,
+          maxWallpaperBytes: 1.5e7,
+        },
+      });
     if (p === '/api/chats' && m === 'GET') return json(route, 200, chats);
     let mm = p.match(/^\/api\/chats\/([^/]+)\/messages$/);
     if (mm && m === 'GET')
@@ -506,6 +541,8 @@ async function mockApi(page, socket = 'ok') {
             data: payload.userIds.map((u) => ({
               userId: u,
               online: u === maya.id,
+              state: u === maya.id ? 'online' : 'offline',
+              note: null,
               lastSeenAt: ago(42),
             })),
           };

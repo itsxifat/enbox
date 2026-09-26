@@ -266,7 +266,13 @@ describe('DELETE /api/me (account deletion)', () => {
       expect(bobLog.of('contacts:changed')).toEqual([{}]); // bob had saved alice
       expect(daveLog.of('blocks:changed')).toEqual([{}]); // dave had blocked alice
       expect(erinLog.names()).not.toContain('blocks:changed'); // erin was blocked BY alice: nothing to update
-      expect(await bobPresence).toEqual({ userId: alice.id, online: null, lastSeenAt: null });
+      expect(await bobPresence).toEqual({
+        userId: alice.id,
+        online: null,
+        state: null,
+        note: null,
+        lastSeenAt: null,
+      });
     });
 
     it('cannot be found, looked up or added anymore; the username and phone are free again', async () => {

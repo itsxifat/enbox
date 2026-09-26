@@ -468,6 +468,8 @@ describe('messages store: memory', () => {
         size: 1,
         width: null,
         height: null,
+        animated: false,
+        frameCount: null,
         durationMs: null,
         waveform: null,
       },
