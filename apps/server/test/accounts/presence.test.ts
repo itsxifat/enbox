@@ -457,6 +457,39 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
       await goOffline(subject, ss);
     });
 
+    it('an expired invisible choice is online: a disconnect writes last_seen_at, choosing invisible again refreshes it', async () => {
+      const viewer = await t.createUser();
+      const subject = await subjectWithLastSeen();
+      await setAvailability(subject, 'invisible', { until: new Date(Date.now() - 1000) });
+      const sv = await t.connect(viewer);
+      const s1 = await t.connect(subject);
+      expect(await subscribe(sv, [subject.id])).toEqual([online(subject.id)]);
+      // Viewers saw them online, so a disconnect is a real one: "last seen just now", not
+      // the value frozen when they first went invisible (the expiry job has not run yet).
+      const off = updatesOf(sv, subject.id);
+      const before = Date.now();
+      await goOffline(subject, s1);
+      const p = await off;
+      expect(p.state).toBe('offline');
+      expect(Date.parse(p.lastSeenAt!)).toBeGreaterThanOrEqual(before - 1000);
+      await settle(200); // the fire-and-forget last-seen write has settled
+      expect((await rowOf(subject.id)).lastSeenAt?.toISOString()).toBe(p.lastSeenAt);
+
+      // Choosing invisible again while the expired choice still sits on the row is a fresh
+      // switch: it writes last_seen_at = now() like the first one did.
+      const back = updatesOf(sv, subject.id);
+      const s2 = await t.connect(subject);
+      expect(await back).toEqual(online(subject.id));
+      const hidden = updatesOf(sv, subject.id);
+      const again = Date.now();
+      await t.api(subject).put('/api/me/presence').send({ availability: 'invisible' }).expect(200);
+      const q = await hidden;
+      expect(q).toEqual(offline(subject.id, q.lastSeenAt));
+      expect(Date.parse(q.lastSeenAt!)).toBeGreaterThanOrEqual(again - 1000);
+      expect((await rowOf(subject.id)).lastSeenAt?.toISOString()).toBe(q.lastSeenAt);
+      await goOffline(subject, s2);
+    });
+
     it('going invisible while offline keeps the real last seen', async () => {
       const viewer = await t.createUser();
       const subject = await subjectWithLastSeen();

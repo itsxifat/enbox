@@ -5,6 +5,7 @@ import {
   addContactSchema,
   deleteAccountSchema,
   directChatKey,
+  effectiveAvailability,
   idParamSchema,
   updateAvailabilitySchema,
   updateContactSchema,
@@ -269,7 +270,9 @@ const sameTime = (a: Date | null, b: Date | null) =>
  * subscribers — and NEVER `user:changed` (docs D7). Switching to `invisible` while connected
  * writes `last_seen_at = now()` in the same transaction: that is the value viewers keep
  * seeing (the disconnect write and the in-memory override skip invisible users); when already
- * offline the real last disconnect stays.
+ * offline the real last disconnect stays. "Switching" goes by `effectiveAvailability`: an
+ * invisible choice whose `until` has passed shows the user online, so choosing invisible
+ * again is a fresh switch and refreshes the frozen value.
  */
 router.put('/me/presence', async (req, res) => {
   const me = authUserId(req);
@@ -281,7 +284,8 @@ router.put('/me/presence', async (req, res) => {
     const row = await lockMe(tx, me);
     if (row.availability === body.availability && sameTime(row.availabilityUntil, until))
       return loadUserSelf(tx, me);
-    const goingInvisible = body.availability === 'invisible' && row.availability !== 'invisible';
+    const goingInvisible =
+      body.availability === 'invisible' && effectiveAvailability(row) !== 'invisible';
     await tx
       .update(users)
       .set({

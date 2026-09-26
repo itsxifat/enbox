@@ -699,10 +699,14 @@ last_seen_at : null`; `note` = the unexpired note only while `state ∈ {online,
   switching to `invisible` while connected writes `last_seen_at = now()` in the same
   transaction — that is the value viewers keep seeing (an already-offline user keeps the
   real last seen); (3) the disconnect `last_seen_at` write is skipped while
-  invisible (`… and availability <> 'invisible'` inside the existing counted/last-socket
-  gate) **and** the in-memory `lastSeenAt` handed to the re-evaluation with the `offline`
-  event is ignored for invisible rows — both are required, the override is applied from
-  memory regardless of (and possibly before) the write; (4) visibility settings and blocks
+  invisible (`… and not (availability = 'invisible' and availability_until still ahead)`
+  inside the existing counted/last-socket gate) **and** the in-memory `lastSeenAt` handed
+  to the re-evaluation with the `offline` event is ignored for invisible rows — both are
+  required, the override is applied from memory regardless of (and possibly before) the
+  write. "Invisible" in (2) and (3) means `effectiveAvailability(S) === 'invisible'`, like
+  the rules above: an invisible choice whose `until` has passed shows the user online until
+  the expiry job reverts the row, so their disconnect is a real one and choosing invisible
+  again is a fresh switch that refreshes the frozen value; (4) visibility settings and blocks
   keep precedence (invisible only hides more); (5) the user sees their own choice only via
   `UserSelf`. Residual side channels, exactly as for hidden online today: delivered ticks (a
   message to a connected-but-invisible user is delivered at once) and the `call:ringing`

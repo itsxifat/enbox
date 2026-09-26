@@ -12,7 +12,7 @@
  * Re-evaluations of one subject run strictly one after the other (per-subject queue), so a
  * quick online → offline sequence can't be emitted out of order.
  */
-import type { Presence } from '@enbox/shared';
+import { effectiveAvailability, type Presence } from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { logger } from '../../lib/logger.js';
 import { emitToSocket } from '../../realtime/emit.js';
@@ -87,9 +87,11 @@ async function evaluate(subjectId: string, override: { lastSeenAt?: Date }): Pro
   // The disconnect's in-memory `lastSeenAt` is applied when it is newer than the row — except
   // for an invisible row, whose `last_seen_at` stays frozen (docs "Invisible invariants":
   // io.ts skips the write too, but this override arrives from memory regardless of it).
+  // "Invisible" as `buildPresence` sees it: an expired choice showed the user online, so
+  // their disconnect is a real one.
   const subject =
     override.lastSeenAt &&
-    row.availability !== 'invisible' &&
+    effectiveAvailability(row) !== 'invisible' &&
     (!row.lastSeenAt || row.lastSeenAt < override.lastSeenAt)
       ? { ...row, lastSeenAt: override.lastSeenAt }
       : row;

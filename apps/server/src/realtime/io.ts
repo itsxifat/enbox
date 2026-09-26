@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, isNull, lte, ne, or } from 'drizzle-orm';
 import { rooms } from '@enbox/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
@@ -111,11 +111,18 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
       if (markDisconnected(userId, socket.id)) {
         // Last socket gone: last seen = now — unless the user is invisible, whose
         // `last_seen_at` stays the value written when they went invisible (docs "Invisible
-        // invariants"; the re-evaluation ignores the in-memory value for them too).
+        // invariants"; the re-evaluation ignores the in-memory value for them too). An
+        // invisible choice whose `until` has passed no longer hides them (`effectiveAvailability`
+        // shows them online until the expiry job reverts the row), so it is written then.
         const lastSeenAt = new Date();
         db.update(users)
           .set({ lastSeenAt })
-          .where(and(eq(users.id, userId), ne(users.availability, 'invisible')))
+          .where(
+            and(
+              eq(users.id, userId),
+              or(ne(users.availability, 'invisible'), lte(users.availabilityUntil, lastSeenAt)),
+            ),
+          )
           .catch((err) => logger.error({ err }, 'failed to update last seen'));
         presenceEvents.emit('offline', userId, lastSeenAt);
       } else if (autoIdle(userId) !== wasIdle) {
