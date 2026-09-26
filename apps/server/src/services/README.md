@@ -279,14 +279,17 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `sniffFile(path)`, `isAllowedMime(kind, mime)`, `sanitizeFileName(name)`,
   `newStorageKey(ext)`, `storagePath(key)`, `moveIntoStore`, `removeFiles`, `removeStoredFiles`.
   Sniffing uses the `file-type` package; MIME names are normalised to MEDIA_MIME_ALLOWLIST's.
-- `probeImageFile(path)` (every `kind: 'image'` upload, after the sniff): parses the header
-  and frame structure with the shared `readImageInfo` (GIF, WebP, PNG/APNG, JPEG) and
-  returns the verified `width`/`height`, `animated` and `frameCount`; throws `badRequest`
-  (400, never a 500) above IMAGE_HEADER_MAX_DIMENSION / ANIMATED_MAX_FRAMES /
-  ANIMATED_DECODED_PIXEL_BUDGET, for a frame outside the canvas or an unparsable file.
-  `stripImageFileMetadata(path)` rewrites the file in place without EXIF/XMP/ICC/comments
-  (shared `stripImageMetadata`) and returns the new size — run on the file and the
-  thumbnail before `moveIntoStore`, so nothing with metadata ever enters the store.
+- `probeImageFile(path, mime)` (every `kind: 'image'` upload, after the sniff): parses the
+  header and frame structure with the shared `readImageInfo` (GIF, WebP, PNG/APNG, JPEG)
+  and returns `{ ok: true, info }` with the verified `width`/`height`, `animated` and
+  `frameCount`, or `{ ok: false, code, reason }` — never throws on content — above
+  IMAGE_HEADER_MAX_DIMENSION / ANIMATED_MAX_FRAMES / ANIMATED_DECODED_PIXEL_BUDGET (`cap`),
+  for a frame outside the canvas or an unparsable file (`unreadable`), or an animated file
+  beyond IMAGE_WALK_LIMIT_BYTES (`oversize`); the route answers `400` with the reason (never
+  a 500). `stripImageFileMetadata(path)` rewrites the file in place without
+  EXIF/XMP/ICC/comments (shared `stripImageMetadata`) and returns the new size — run on the
+  file and the thumbnail before `moveIntoStore`, so nothing with metadata ever enters the
+  store.
 - `requireVisibleStatus(dbx, viewerId, statusId, { lock? })` (404; `lock` = `FOR KEY SHARE` for writes referencing it), `resolveStatusReply(dbx, { senderId, chat, statusId })`,
   `loadStatusesForReplies`, `toStatusReplyPayload`.
 - `generateUniqueInviteCode(dbx)`.
