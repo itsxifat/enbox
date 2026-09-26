@@ -1,6 +1,6 @@
 /** Reply quote (inside bubbles and above the composer) and status-reply quote. */
 import type { ReactNode } from 'react';
-import { CircleDashed, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 import {
   chatTitle,
   formatDuration,
@@ -8,6 +8,7 @@ import {
   type MessagePreview,
   type StatusReplyPayload,
 } from '@enbox/shared';
+import { UpdatesIcon } from '@/components/icons';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
@@ -195,7 +196,7 @@ export function StatusReplyQuote({ status }: { status: StatusReplyPayload }) {
       }
     >
       <span className="flex items-center gap-1 truncate text-[13px] font-semibold text-brand-ink">
-        <CircleDashed size={13} aria-hidden />
+        <UpdatesIcon size={14} aria-hidden />
         {author} · Status
       </span>
       <span className={cn('truncate text-[13px] text-muted', unavailable && 'italic')}>

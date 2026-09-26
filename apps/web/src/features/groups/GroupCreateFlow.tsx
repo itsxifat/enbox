@@ -295,7 +295,7 @@ function SettingRow({
       onClick={onClick}
       className="flex w-full items-center gap-5 px-5 py-3.5 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
-      <Icon size={21} strokeWidth={1.9} className="text-muted" aria-hidden />
+      <Icon size={22} className="text-muted" aria-hidden />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="text-[15.5px] text-fg">{label}</span>
         <span className="text-[13px] text-muted">{value}</span>

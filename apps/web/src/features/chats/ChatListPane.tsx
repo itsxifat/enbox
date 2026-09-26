@@ -8,16 +8,15 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { Virtuoso } from 'react-virtuoso';
 import {
   Archive,
-  CheckCheck,
   EllipsisVertical,
   LogOut,
-  MessageSquarePlus,
   Settings,
   SquarePen,
   Star,
   UsersRound,
 } from 'lucide-react';
 import type { ChatSummary } from '@enbox/shared';
+import { DoubleTickIcon, NewChatIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Button,
@@ -175,7 +174,7 @@ export function ChatListPane() {
   if (!loaded && loadError && !loading) {
     body = (
       <EmptyState
-        icon={MessageSquarePlus}
+        icon={NewChatIcon}
         title="Couldn't load your chats"
         description={loadError}
         action={
@@ -213,7 +212,7 @@ export function ChatListPane() {
       <>
         {showArchived ? <ArchivedEntry count={archivedCount} unread={archivedUnread} /> : null}
         <EmptyState
-          icon={MessageSquarePlus}
+          icon={NewChatIcon}
           title={
             filter !== 'all' ? `No ${FILTER_LABELS[filter].toLowerCase()} chats` : 'No chats yet'
           }
@@ -268,7 +267,7 @@ export function ChatListPane() {
                 { label: 'Archived', icon: Archive, onSelect: () => navigate('/archived') },
                 unreadCount > 0 && {
                   label: 'Mark all as read',
-                  icon: CheckCheck,
+                  icon: DoubleTickIcon,
                   onSelect: markAllRead,
                 },
                 { label: 'Settings', icon: Settings, onSelect: () => navigate('/settings') },
@@ -310,7 +309,7 @@ export function ChatListPane() {
       {!desktop ? (
         <div className="absolute right-4 bottom-4 z-10">
           <IconButton
-            icon={MessageSquarePlus}
+            icon={NewChatIcon}
             label="New chat"
             variant="brand"
             size="xl"

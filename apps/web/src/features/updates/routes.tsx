@@ -3,7 +3,7 @@
  * (agent 3) and features/status/routes.tsx (agent 4).
  */
 import type { RouteObject } from 'react-router';
-import { CircleDashed } from 'lucide-react';
+import { UpdatesIcon } from '@/components/icons';
 import { MainEmpty } from '@/components/layout/MainEmpty';
 import { SplitView } from '@/components/layout/SplitView';
 import { channelRoutes } from '@/features/channels/routes';
@@ -20,7 +20,7 @@ export const updatesRoutes: RouteObject[] = [
         list={<UpdatesPane />}
         empty={
           <MainEmpty
-            icon={CircleDashed}
+            icon={UpdatesIcon}
             title="Status & channels"
             description="Share photos, videos and text that disappear after 24 hours, and follow channels about the things you care about."
           />

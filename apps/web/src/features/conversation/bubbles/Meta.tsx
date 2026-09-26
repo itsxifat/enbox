@@ -25,9 +25,9 @@ export function MetaContent({
     <>
       {m.starred ? (
         spacer ? (
-          <span className="inline-block w-[11px]" />
+          <span className="inline-block w-3" />
         ) : (
-          <Star size={11} className="shrink-0 fill-current" aria-label="Starred" />
+          <Star size={12} className="shrink-0 fill-current" aria-label="Starred" />
         )
       ) : null}
       {m.editedAt && !m.deletedAt ? <span>Edited</span> : null}

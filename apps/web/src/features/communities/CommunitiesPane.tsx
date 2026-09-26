@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ChevronRight, Plus, UsersRound } from 'lucide-react';
 import type { Community } from '@enbox/shared';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Avatar, Button, EmptyState, IconButton, ListItemSkeleton, toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -50,7 +51,7 @@ export function CommunitiesPane() {
           <span className="relative flex size-12 shrink-0 items-center justify-center rounded-[28%] bg-surface-2 text-muted">
             <UsersRound size={24} aria-hidden />
             <span className="absolute -right-1 -bottom-1 flex size-5 items-center justify-center rounded-full bg-brand text-on-brand ring-2 ring-surface">
-              <Plus size={14} strokeWidth={3} aria-hidden />
+              <Plus size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden />
             </span>
           </span>
           <span className="text-[16px] font-medium text-fg">New community</span>

@@ -18,17 +18,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
-import {
-  Check,
-  Mic,
-  Paperclip,
-  Pencil,
-  SendHorizontal,
-  Smile,
-  X,
-  Camera,
-  Keyboard,
-} from 'lucide-react';
+import { Check, Mic, Paperclip, Pencil, Smile, X, Camera, Keyboard } from 'lucide-react';
 import {
   MAX_MESSAGE_LENGTH,
   MAX_UPLOAD_BYTES,
@@ -37,6 +27,7 @@ import {
   type ChatSummary,
   type UserPublic,
 } from '@enbox/shared';
+import { ICON_STROKE_ON_FILL, SendIcon } from '@/components/icons';
 import { IconButton, Spinner } from '@/components/ui';
 import { useIsDesktop, useIsTouch } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
@@ -669,7 +660,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
 
         {showSend ? (
           <IconButton
-            icon={editing ? Check : SendHorizontal}
+            icon={editing ? Check : SendIcon}
             label={editing ? 'Save edit' : 'Send'}
             variant="brand"
             size="lg"
@@ -708,7 +699,11 @@ export function Composer({ chat }: { chat: ChatSummary }) {
               voice && !voice.locked && 'scale-125 bg-danger',
             )}
           >
-            {starting ? <Spinner size={20} label={null} /> : <Mic size={22} aria-hidden />}
+            {starting ? (
+              <Spinner size={20} label={null} />
+            ) : (
+              <Mic size={24} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
+            )}
           </button>
         )}
       </div>

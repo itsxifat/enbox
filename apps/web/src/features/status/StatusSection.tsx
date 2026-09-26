@@ -5,9 +5,10 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { Camera, CircleDashed, EllipsisVertical, Lock, Pencil, Plus } from 'lucide-react';
+import { Camera, EllipsisVertical, Lock, Pencil, Plus } from 'lucide-react';
 import { userDisplayName, type StatusFeedItem } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { ICON_STROKE_BOLD, UpdatesIcon } from '@/components/icons';
 import { DropdownMenu, IconButton, ListSection, Skeleton, toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { formatRelativeShort } from '@/lib/format';
@@ -95,7 +96,7 @@ function MyStatusRow() {
           )}
           {!latest ? (
             <span className="absolute -right-0.5 bottom-0 flex size-5 items-center justify-center rounded-full bg-brand text-on-brand ring-2 ring-surface">
-              <Plus size={14} strokeWidth={3} aria-hidden />
+              <Plus size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden />
             </span>
           ) : null}
         </span>
@@ -195,7 +196,7 @@ export function StatusSection() {
             mine.length
               ? {
                   label: 'My status updates',
-                  icon: CircleDashed,
+                  icon: UpdatesIcon,
                   onSelect: () => navigate('/updates/status/mine'),
                 }
               : null,

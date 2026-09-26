@@ -204,6 +204,7 @@ export function MapPreview({
       ) : null}
       <MapPin
         size={34}
+        nonScalingStroke={false}
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full fill-danger text-white drop-shadow-md"
         aria-hidden
       />
@@ -239,7 +240,7 @@ export function ShowMapButton({
         className,
       )}
     >
-      <MapIcon size={13} aria-hidden />
+      <MapIcon size={14} aria-hidden />
       Show map
     </button>
   );
@@ -355,7 +356,7 @@ export function ContactBody({ m }: { m: ClientMessage }) {
               }}
               className="flex flex-1 items-center justify-center gap-1.5 border-l border-black/10 py-2.5 text-[14px] font-semibold text-brand-ink hover:bg-black/5 disabled:opacity-50 dark:border-white/10 dark:hover:bg-white/5"
             >
-              <UserPlus size={15} aria-hidden /> Add contact
+              <UserPlus size={16} aria-hidden /> Add contact
             </button>
           ) : null}
         </div>

@@ -194,6 +194,8 @@
   --animate-slide-in-right: slide-in-right 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-slide-down: slide-down 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-pop: pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  /* Tab/toggle icons swapping to their filled state. */
+  --animate-icon-pop: icon-pop 240ms cubic-bezier(0.2, 0.9, 0.3, 1.5) both;
 
   @keyframes fade-in {
     from {
@@ -226,6 +228,11 @@
     from {
       opacity: 0;
       transform: scale(0.6);
+    }
+  }
+  @keyframes icon-pop {
+    from {
+      transform: scale(0.82);
     }
   }
 }

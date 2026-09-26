@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router';
 import { Link2, Plus, UsersRound } from 'lucide-react';
 import { chatTitle, type ChatSummary, type Community } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Button, EmptyState, toast } from '@/components/ui';
 import { GroupCreateFlow } from '@/features/groups/GroupCreateFlow';
@@ -106,7 +107,7 @@ function MenuRow({
       className="flex w-full items-center gap-4 px-5 py-3 text-left outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand text-on-brand">
-        <Icon size={22} aria-hidden />
+        <Icon size={22} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
       </span>
       <span className="min-w-0">
         <span className="block text-[16px] font-medium text-fg">{title}</span>

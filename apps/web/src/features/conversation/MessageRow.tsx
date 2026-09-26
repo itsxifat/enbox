@@ -16,6 +16,7 @@ import {
 import { Ban, Check, ChevronDown, FastForward, Forward, RotateCw, SmilePlus } from 'lucide-react';
 import { FORWARDED_MANY_TIMES_THRESHOLD, type ChatSummary } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { cn } from '@/lib/cn';
 import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
@@ -79,7 +80,7 @@ function ForwardedLabel({ count }: { count: number }) {
   const Icon = many ? FastForward : Forward;
   return (
     <span className="flex items-center gap-1 px-1 pt-0.5 text-[12px] text-muted italic">
-      <Icon size={13} aria-hidden />
+      <Icon size={14} aria-hidden />
       {many ? 'Forwarded many times' : 'Forwarded'}
     </span>
   );
@@ -196,7 +197,7 @@ export const MessageRow = memo(function MessageRow({
   if (deleted) {
     content = (
       <div className="relative px-1.5 pt-1 pb-1.5 text-chat text-muted italic">
-        <Ban size={15} className="mr-1.5 inline -translate-y-px" aria-hidden />
+        <Ban size={16} className="mr-1.5 inline -translate-y-px" aria-hidden />
         {mine ? 'You deleted this message' : 'This message was deleted'}
         <InlineMeta m={m} mine={mine} chat={chat} />
       </div>
@@ -338,7 +339,7 @@ export const MessageRow = memo(function MessageRow({
               mine && 'absolute left-2 sm:left-3',
             )}
           >
-            {selected ? <Check size={13} strokeWidth={3} aria-hidden /> : null}
+            {selected ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden /> : null}
           </span>
         ) : null}
 
@@ -458,7 +459,7 @@ export const MessageRow = memo(function MessageRow({
                   }}
                   className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
                 >
-                  <SmilePlus size={17} aria-hidden />
+                  <SmilePlus size={18} aria-hidden />
                 </button>
               ) : null}
               <button

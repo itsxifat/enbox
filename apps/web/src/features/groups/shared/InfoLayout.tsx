@@ -84,8 +84,7 @@ export function InfoRow({
     <>
       {Icon ? (
         <Icon
-          size={21}
-          strokeWidth={1.9}
+          size={22}
           className={cn('shrink-0', danger ? 'text-danger' : 'text-muted')}
           aria-hidden
         />
@@ -150,7 +149,7 @@ export function QuickAction({
       disabled={disabled}
       className="flex w-[84px] flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-2.5 text-[13px] font-medium text-brand-ink transition-colors outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-40"
     >
-      <Icon size={22} strokeWidth={1.9} aria-hidden />
+      <Icon size={22} aria-hidden />
       <span className="text-fg">{label}</span>
     </button>
   );

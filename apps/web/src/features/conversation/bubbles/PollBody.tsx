@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Check, ListChecks } from 'lucide-react';
 import type { ChatSummary } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { Modal } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
@@ -87,7 +88,7 @@ export function PollBody({
           mine ? 'text-bubble-out-meta' : 'text-bubble-in-meta',
         )}
       >
-        <ListChecks size={13} aria-hidden />
+        <ListChecks size={14} aria-hidden />
         {poll.allowMultiple ? 'Select one or more' : 'Select one'}
       </p>
       {poll.options.map((o) => {
@@ -114,7 +115,7 @@ export function PollBody({
               )}
               aria-hidden
             >
-              {selected ? <Check size={13} strokeWidth={3} /> : null}
+              {selected ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} /> : null}
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-1.5">
               <span className="flex items-start justify-between gap-2">

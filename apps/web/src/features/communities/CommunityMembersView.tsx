@@ -23,6 +23,7 @@ import {
   type ID,
   type UserPublic,
 } from '@enbox/shared';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Button,
@@ -208,7 +209,7 @@ export function CommunityMembersView({
           className="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-hover"
         >
           <span className="flex size-10 items-center justify-center rounded-full bg-brand text-on-brand">
-            <UserPlus size={20} aria-hidden />
+            <UserPlus size={20} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
           </span>
           <span className="text-[15.5px] font-medium text-fg">Add members</span>
         </button>

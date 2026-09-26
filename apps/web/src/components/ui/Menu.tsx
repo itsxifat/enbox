@@ -204,12 +204,7 @@ export function Menu({
               )}
             >
               {entry.icon ? (
-                <entry.icon
-                  size={18}
-                  strokeWidth={1.9}
-                  className={entry.danger ? '' : 'text-muted'}
-                  aria-hidden
-                />
+                <entry.icon size={20} className={entry.danger ? '' : 'text-muted'} aria-hidden />
               ) : null}
               <span className="min-w-0 flex-1 truncate">{entry.label}</span>
               {entry.hint ? <span className="text-xs text-subtle">{entry.hint}</span> : null}

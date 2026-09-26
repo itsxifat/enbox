@@ -280,7 +280,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
               className="pointer-events-auto relative flex size-10 shrink-0 items-center justify-center rounded-full text-brand-ink transition-colors hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-brand"
             >
               {head.call.type === 'video' ? (
-                <Video size={21} aria-hidden />
+                <Video size={20} aria-hidden />
               ) : (
                 <Phone size={20} aria-hidden />
               )}
@@ -369,9 +369,9 @@ function OngoingRow({ call }: { call: Call }) {
           />
           <span className="absolute -right-0.5 -bottom-0.5 flex size-5 items-center justify-center rounded-full bg-success text-white ring-2 ring-surface">
             {call.type === 'video' ? (
-              <Video size={11} aria-hidden />
+              <Video size={12} aria-hidden />
             ) : (
-              <Phone size={11} aria-hidden />
+              <Phone size={12} aria-hidden />
             )}
           </span>
         </span>

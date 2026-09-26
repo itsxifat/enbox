@@ -29,7 +29,7 @@ export function ConnectionBanner() {
         role="status"
         className="flex shrink-0 items-center justify-center gap-2 bg-warning-soft px-4 pt-[max(6px,env(safe-area-inset-top))] pb-1.5 text-[13px] font-medium text-warning-ink"
       >
-        <WifiOff size={15} aria-hidden /> You're offline. Messages will send when you reconnect.
+        <WifiOff size={16} aria-hidden /> You're offline. Messages will send when you reconnect.
       </div>
     );
   }

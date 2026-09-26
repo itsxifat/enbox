@@ -1,7 +1,7 @@
 /** Communities routes — OWNED BY FEATURE AGENT 3. */
 import type { RouteObject } from 'react-router';
-import { UsersRound } from 'lucide-react';
 import type { RouteHandle } from '@/app/routeHandle';
+import { CommunitiesIcon } from '@/components/icons';
 import { MainEmpty } from '@/components/layout/MainEmpty';
 import { SplitView } from '@/components/layout/SplitView';
 import { lazyNamed } from '@/lib/lazy';
@@ -20,7 +20,7 @@ export const communitiesRoutes: RouteObject[] = [
         list={<CommunitiesPane />}
         empty={
           <MainEmpty
-            icon={UsersRound}
+            icon={CommunitiesIcon}
             title="Communities"
             description="Bring related groups together under one community, with announcements that reach every member."
           />

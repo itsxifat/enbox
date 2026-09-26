@@ -1,8 +1,9 @@
 /** Message info (sender only, not channels): read by / delivered to / pending. */
 import { useEffect, useState } from 'react';
-import { CheckCheck, Clock3 } from 'lucide-react';
+import { Clock3 } from 'lucide-react';
 import { renderMentions, type MessageInfo, type UserPublic } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { DoubleTickIcon } from '@/components/icons';
 import { ListSection, PageSpinner, Sheet } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatChatListTime, formatTime } from '@/lib/format';
@@ -81,7 +82,7 @@ export function MessageInfoSheet() {
               <ListSection
                 title={
                   <span className="inline-flex items-center gap-1.5">
-                    <CheckCheck size={16} className="text-tick-read" aria-hidden /> Read by
+                    <DoubleTickIcon size={16} className="text-tick-read" aria-hidden /> Read by
                   </span>
                 }
               >
@@ -98,7 +99,7 @@ export function MessageInfoSheet() {
               <ListSection
                 title={
                   <span className="inline-flex items-center gap-1.5">
-                    <CheckCheck size={16} aria-hidden /> Delivered to
+                    <DoubleTickIcon size={16} aria-hidden /> Delivered to
                   </span>
                 }
               >
@@ -116,7 +117,7 @@ export function MessageInfoSheet() {
                 <ListSection
                   title={
                     <span className="inline-flex items-center gap-1.5">
-                      <Clock3 size={15} aria-hidden /> Not delivered yet
+                      <Clock3 size={16} aria-hidden /> Not delivered yet
                     </span>
                   }
                 >

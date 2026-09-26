@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef, ComponentType, ReactNode } from 'react';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { cn } from '@/lib/cn';
 import { Spinner } from './Spinner';
 
@@ -7,6 +8,8 @@ export interface IconProps {
   className?: string;
   size?: number | string;
   strokeWidth?: number | string;
+  /** Stroke in screen px (the app default); `false` scales it with the icon (illustrations). */
+  nonScalingStroke?: boolean;
   'aria-hidden'?: boolean | 'true' | 'false';
 }
 export type IconType = ComponentType<IconProps>;
@@ -30,6 +33,9 @@ const SIZES: Record<ButtonSize, string> = {
 };
 
 const ICON_SIZES: Record<ButtonSize, number> = { sm: 16, md: 18, lg: 20 };
+
+/** Variants whose icons sit on a filled color (heavier stroke, see ICON_STROKE_ON_FILL). */
+const FILLED_VARIANTS = new Set<string>(['primary', 'danger', 'brand', 'success', 'glass']);
 
 /** Class string for button-looking elements (e.g. a react-router `<Link>`). */
 export function buttonClasses(
@@ -73,6 +79,7 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const iconSize = ICON_SIZES[size];
+  const iconStroke = FILLED_VARIANTS.has(variant) ? ICON_STROKE_ON_FILL : undefined;
   return (
     <button
       type={type}
@@ -84,10 +91,10 @@ export function Button({
       {loading ? (
         <Spinner size={iconSize} label={null} />
       ) : Left ? (
-        <Left size={iconSize} aria-hidden />
+        <Left size={iconSize} strokeWidth={iconStroke} aria-hidden />
       ) : null}
       {children}
-      {Right && !loading ? <Right size={iconSize} aria-hidden /> : null}
+      {Right && !loading ? <Right size={iconSize} strokeWidth={iconStroke} aria-hidden /> : null}
     </button>
   );
 }
@@ -165,11 +172,7 @@ export function IconButton({
       )}
       {...rest}
     >
-      {loading ? (
-        <Spinner size={s.icon - 2} label={null} />
-      ) : (
-        <Icon size={s.icon} strokeWidth={1.9} aria-hidden />
-      )}
+      {loading ? <Spinner size={s.icon - 2} label={null} /> : <Icon size={s.icon} aria-hidden />}
       {badge ? (
         <span className="pointer-events-none absolute -top-0.5 -right-0.5">{badge}</span>
       ) : null}

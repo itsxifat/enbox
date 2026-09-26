@@ -108,7 +108,7 @@ export function AddContactDialog({ open, onClose, initialQuery, onAdded }: AddCo
               value: 'username',
               label: (
                 <>
-                  <AtSign size={15} aria-hidden /> Username
+                  <AtSign size={16} aria-hidden /> Username
                 </>
               ),
             },
@@ -116,7 +116,7 @@ export function AddContactDialog({ open, onClose, initialQuery, onAdded }: AddCo
               value: 'phone',
               label: (
                 <>
-                  <Phone size={15} aria-hidden /> Phone
+                  <Phone size={16} aria-hidden /> Phone
                 </>
               ),
             },

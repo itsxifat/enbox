@@ -28,7 +28,7 @@ export function CallAvatar({
         style={{ width: size, height: size }}
         aria-hidden
       >
-        <UsersRound size={Math.round(size * 0.46)} strokeWidth={1.8} />
+        <UsersRound size={Math.round(size * 0.46)} strokeWidth={1.75} nonScalingStroke={false} />
       </span>
     );
   }

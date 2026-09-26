@@ -3,6 +3,7 @@ import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from 'r
 import { Headphones, Mic, Pause, Play } from 'lucide-react';
 import { formatDuration } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import type { ClientMessage } from '@/stores/messages';
@@ -210,7 +211,7 @@ export function VoiceBody({
         <UserAvatar userId={m.senderId} size={44} />
         <Mic
           size={16}
-          strokeWidth={2.4}
+          strokeWidth={ICON_STROKE_BOLD}
           className={cn(
             'absolute -right-0.5 -bottom-0.5 rounded-full p-px',
             t.progress > 0 || t.playing ? 'text-brand-ink' : 'text-tick-read',

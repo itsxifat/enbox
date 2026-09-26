@@ -97,7 +97,6 @@ export function SettingsRow({
       {Icon ? (
         <Icon
           size={22}
-          strokeWidth={1.8}
           className={cn('shrink-0', danger ? 'text-danger' : 'text-muted')}
           aria-hidden
         />
@@ -167,9 +166,7 @@ export function SwitchRow({
 }) {
   return (
     <div className="flex items-center gap-4 px-4 lg:px-5">
-      {Icon ? (
-        <Icon size={22} strokeWidth={1.8} className="shrink-0 text-muted" aria-hidden />
-      ) : null}
+      {Icon ? <Icon size={22} className="shrink-0 text-muted" aria-hidden /> : null}
       <Switch
         label={<span className="text-[16px]">{title}</span>}
         description={description}
@@ -206,7 +203,7 @@ export function SettingsHero({
       <div className="relative">
         <div className="absolute inset-0 scale-150 rounded-full bg-brand/10 blur-2xl" aria-hidden />
         <div className="relative flex size-20 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
-          <Icon size={36} strokeWidth={1.6} aria-hidden />
+          <Icon size={36} strokeWidth={1.6} nonScalingStroke={false} aria-hidden />
         </div>
       </div>
       <h2 className="text-lg font-semibold text-fg">{title}</h2>

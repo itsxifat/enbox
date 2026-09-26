@@ -88,7 +88,7 @@ function ListHeader({ context }: { context?: HeaderContext }) {
       {context.disappearing ? (
         <Pill className="text-[12px]">
           <span className="inline-flex items-center gap-1.5">
-            <Timer size={13} aria-hidden />
+            <Timer size={14} aria-hidden />
             Disappearing messages are on. New messages disappear after{' '}
             {formatTimer(context.disappearing)}.
           </span>

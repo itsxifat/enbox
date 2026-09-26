@@ -29,6 +29,7 @@ import {
   type ChatSummary,
   type Message,
 } from '@enbox/shared';
+import { ICON_STROKE_BOLD } from '@/components/icons';
 import { IconButton, Menu, confirm, toast, type MenuAnchor, type MenuEntry } from '@/components/ui';
 import { Lightbox } from '@/features/groups/shared/MediaGallery';
 import { RichText } from '@/features/groups/shared/RichText';
@@ -175,7 +176,7 @@ export const ChannelPost = memo(function ChannelPost({
                 className="flex items-center gap-1 font-medium text-danger"
               >
                 <AlertCircle size={12} aria-hidden /> Failed · Retry
-                <RotateCcw size={11} aria-hidden />
+                <RotateCcw size={12} aria-hidden />
               </button>
             ) : null}
           </div>
@@ -451,7 +452,7 @@ function PollView({ m, canVote }: { m: Message; canVote: boolean }) {
                   )}
                   aria-hidden
                 >
-                  {selected ? <Check size={12} strokeWidth={3.5} /> : null}
+                  {selected ? <Check size={12} strokeWidth={ICON_STROKE_BOLD} /> : null}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">

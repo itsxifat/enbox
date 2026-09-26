@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  CircleDashed,
   EllipsisVertical,
   Eye,
   Heart,
@@ -26,7 +25,6 @@ import {
   MessageCircle,
   Pause,
   Play,
-  SendHorizontal,
   Trash2,
   Volume2,
   VolumeX,
@@ -40,6 +38,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { SendIcon, UpdatesIcon } from '@/components/icons';
 import {
   EmptyState,
   ListItemSkeleton,
@@ -586,7 +585,7 @@ function StoryView({
                 { label: 'Viewers', icon: Eye, onSelect: () => setSheet(true) },
                 {
                   label: 'All my updates',
-                  icon: CircleDashed,
+                  icon: UpdatesIcon,
                   onSelect: () => navigate('/updates/status/mine', { replace: true }),
                 },
                 { label: 'Status privacy', icon: Lock, onSelect: () => setPrivacy(true) },
@@ -630,7 +629,7 @@ function StoryView({
             >
               <ChevronUp size={18} aria-hidden />
               <span className="flex items-center gap-1.5">
-                <Eye size={17} aria-hidden /> {status.viewCount ?? 0}{' '}
+                <Eye size={18} aria-hidden /> {status.viewCount ?? 0}{' '}
                 {status.viewCount === 1 ? 'view' : 'views'}
               </span>
             </button>
@@ -851,11 +850,7 @@ function ReplyBar({
             disabled={sending}
             className="flex size-12 shrink-0 items-center justify-center rounded-full bg-brand text-on-brand hover:bg-brand-strong disabled:opacity-60"
           >
-            {sending ? (
-              <Spinner size={20} label={null} />
-            ) : (
-              <SendHorizontal size={21} aria-hidden />
-            )}
+            {sending ? <Spinner size={20} label={null} /> : <SendIcon size={20} aria-hidden />}
           </button>
         ) : (
           <button

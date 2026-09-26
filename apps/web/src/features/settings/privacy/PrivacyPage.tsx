@@ -1,5 +1,4 @@
 import {
-  CircleDashed,
   CircleUserRound,
   Clock,
   Eye,
@@ -9,6 +8,7 @@ import {
   Timer,
   UsersRound,
 } from 'lucide-react';
+import { UpdatesIcon } from '@/components/icons';
 import { useMe } from '@/stores/auth';
 import { useBlockedUsers } from '@/stores/contacts';
 import {
@@ -52,7 +52,7 @@ export function PrivacyPage() {
           to="/settings/privacy/about"
         />
         <SettingsRow
-          icon={CircleDashed}
+          icon={UpdatesIcon}
           title="Status"
           description={statusPrivacySummary(s)}
           to="/settings/privacy/status"

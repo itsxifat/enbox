@@ -85,7 +85,7 @@ export function ChannelsSection() {
                   highlight={unread && !muted}
                   trailing={
                     <>
-                      {muted ? <BellOff size={15} aria-label="Muted" /> : null}
+                      {muted ? <BellOff size={16} aria-label="Muted" /> : null}
                       {unread ? (
                         <Badge
                           count={c.unreadCount || undefined}
@@ -113,7 +113,7 @@ export function ChannelsSection() {
           to="/updates/channels/discover"
           className="inline-flex h-9 items-center gap-1.5 rounded-full bg-brand-soft px-4 text-[14px] font-semibold text-brand-ink hover:brightness-95"
         >
-          <Compass size={17} aria-hidden /> Explore channels
+          <Compass size={18} aria-hidden /> Explore channels
         </Link>
       </div>
     </ListSection>

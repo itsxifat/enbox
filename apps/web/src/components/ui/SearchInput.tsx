@@ -48,8 +48,7 @@ export function SearchInput({
         </button>
       ) : (
         <Search
-          size={17}
-          strokeWidth={2}
+          size={18}
           className="pointer-events-none absolute left-3.5 text-subtle group-focus-within:text-brand-ink"
           aria-hidden
         />

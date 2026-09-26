@@ -56,7 +56,7 @@ function CallIcons({
         disabled={disabled}
         onClick={() => onCall('video')}
       >
-        <Video size={21} aria-hidden />
+        <Video size={20} aria-hidden />
       </button>
     </span>
   );

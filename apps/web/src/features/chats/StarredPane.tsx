@@ -99,7 +99,7 @@ function StarredRow({
               mine ? 'text-bubble-out-meta' : 'text-bubble-in-meta',
             )}
           >
-            <Star size={11} className="fill-current" aria-label="Starred" />
+            <Star size={12} className="fill-current" aria-label="Starred" />
             {formatTime(m.createdAt)}
           </span>
         </div>

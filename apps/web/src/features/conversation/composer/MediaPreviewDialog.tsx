@@ -3,8 +3,9 @@
  * (add more / remove), send. Images are re-encoded and videos get a poster on send.
  */
 import { useEffect, useRef, useState } from 'react';
-import { ImagePlus, Play, SendHorizontal, X } from 'lucide-react';
+import { ImagePlus, Play, X } from 'lucide-react';
 import { MAX_CAPTION_LENGTH, chatTitle, type ChatSummary } from '@enbox/shared';
+import { SendIcon } from '@/components/icons';
 import { IconButton, Portal, useFocusTrap, useOverlay, useScrollLock } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
@@ -222,13 +223,7 @@ export function MediaPreviewDialog({
               aria-label="Caption"
               className="max-h-32 min-h-11 flex-1 resize-none rounded-3xl bg-white/10 px-4 py-2.5 text-[15px] text-white outline-none placeholder:text-white/50 focus:bg-white/15 focus:ring-2 focus:ring-brand/50"
             />
-            <IconButton
-              icon={SendHorizontal}
-              label="Send"
-              variant="brand"
-              size="lg"
-              onClick={send}
-            />
+            <IconButton icon={SendIcon} label="Send" variant="brand" size="lg" onClick={send} />
           </div>
         </div>
       </div>

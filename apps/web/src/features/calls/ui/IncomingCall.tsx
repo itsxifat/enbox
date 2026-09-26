@@ -138,7 +138,7 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
       >
         <div className="flex flex-1 flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+64px)] text-center">
           <p className="flex items-center gap-1.5 text-[14px] text-white/70">
-            {d.video ? <Video size={15} aria-hidden /> : <Phone size={15} aria-hidden />}
+            {d.video ? <Video size={16} aria-hidden /> : <Phone size={16} aria-hidden />}
             {d.subtitle}
           </p>
           <h2 className="mt-2 max-w-full truncate text-[30px] font-semibold tracking-tight">
@@ -209,7 +209,7 @@ export function SilencedCallCard({ payload }: { payload: IncomingCallPayload }) 
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-semibold">{d.title}</p>
           <p className="flex items-center gap-1 truncate text-[12.5px] text-muted">
-            <BellOff size={13} aria-hidden /> Silenced unknown caller
+            <BellOff size={14} aria-hidden /> Silenced unknown caller
           </p>
         </div>
         <button

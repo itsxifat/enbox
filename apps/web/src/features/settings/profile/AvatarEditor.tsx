@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { Camera, Eye, ImagePlus, Trash2 } from 'lucide-react';
 import { AVATAR_MIME_TYPES } from '@enbox/shared';
+import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { Avatar, Menu, Spinner, confirm, toast, type MenuEntry } from '@/components/ui';
 import { PhotoViewer } from '@/features/contacts/PhotoViewer';
 import { cn } from '@/lib/cn';
@@ -97,7 +98,7 @@ export function AvatarEditor({ size = 160, className }: { size?: number; classNa
         style={{ width: badge, height: badge }}
         aria-hidden
       >
-        <Camera size={Math.round(badge * 0.48)} />
+        <Camera size={Math.round(badge * 0.48)} strokeWidth={ICON_STROKE_ON_FILL} />
       </span>
       <input
         ref={inputRef}

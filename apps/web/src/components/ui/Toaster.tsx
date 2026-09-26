@@ -60,7 +60,7 @@ function ToastView({ t }: { t: Toast }) {
         onClick={() => dismiss(t.id)}
         className="-mr-1 flex size-6 shrink-0 items-center justify-center rounded-full text-subtle hover:bg-hover hover:text-fg"
       >
-        <X size={15} aria-hidden />
+        <X size={16} aria-hidden />
       </button>
     </div>
   );
