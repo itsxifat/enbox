@@ -17,6 +17,7 @@ import { Ban, Check, ChevronDown, FastForward, Forward, RotateCw, SmilePlus } fr
 import { FORWARDED_MANY_TIMES_THRESHOLD, type ChatSummary } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { ICON_STROKE_BOLD } from '@/components/icons';
+import { openProfile } from '@/features/profile/open';
 import { cn } from '@/lib/cn';
 import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
@@ -62,16 +63,44 @@ function Tail({ mine }: { mine: boolean }) {
   );
 }
 
-function SenderName({ userId }: { userId: string }) {
+/** Group messages: the sender's name opens their profile card (a plain click in select mode). */
+function SenderName({ userId, selecting }: { userId: string; selecting: boolean }) {
   const name = useUserName(userId);
   const dark = useUi((s) => s.resolvedTheme === 'dark');
   return (
-    <span
-      className="block truncate px-1 pt-0.5 text-[13px] font-semibold"
+    <button
+      type="button"
+      aria-label={`Profile of ${name}`}
+      aria-haspopup="dialog"
+      onClick={(e) => {
+        if (selecting) return;
+        e.stopPropagation();
+        openProfile(userId, e.currentTarget);
+      }}
+      className="block max-w-full truncate rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand"
       style={{ color: senderColor(userId, dark) }}
     >
       {name}
-    </span>
+    </button>
+  );
+}
+
+function SenderAvatar({ userId, selecting }: { userId: string; selecting: boolean }) {
+  const name = useUserName(userId);
+  return (
+    <button
+      type="button"
+      aria-label={`Profile of ${name}`}
+      aria-haspopup="dialog"
+      onClick={(e) => {
+        if (selecting) return;
+        e.stopPropagation();
+        openProfile(userId, e.currentTarget);
+      }}
+      className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+    >
+      <UserAvatar userId={userId} size={32} />
+    </button>
   );
 }
 
@@ -320,6 +349,7 @@ export const MessageRow = memo(function MessageRow({
         )}
         onClick={selecting ? toggleSelected : undefined}
         onContextMenu={onContextMenu}
+        data-animate-avatars
       >
         {selecting ? (
           <span
@@ -356,7 +386,9 @@ export const MessageRow = memo(function MessageRow({
 
         {showAvatar ? (
           <span className="mr-1.5 w-8 shrink-0 self-start pt-0.5">
-            {row.firstInGroup && m.senderId ? <UserAvatar userId={m.senderId} size={32} /> : null}
+            {row.firstInGroup && m.senderId ? (
+              <SenderAvatar userId={m.senderId} selecting={selecting} />
+            ) : null}
           </span>
         ) : null}
 
@@ -385,7 +417,7 @@ export const MessageRow = memo(function MessageRow({
             )}
           >
             {!bare && row.firstInGroup ? <Tail mine={mine} /> : null}
-            {showSender ? <SenderName userId={m.senderId!} /> : null}
+            {showSender ? <SenderName userId={m.senderId!} selecting={selecting} /> : null}
             {m.forwardCount > 0 && !deleted ? <ForwardedLabel count={m.forwardCount} /> : null}
             {m.replyTo && !deleted ? (
               <ReplyQuote

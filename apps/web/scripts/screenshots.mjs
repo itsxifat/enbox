@@ -451,6 +451,8 @@ async function mockApi(page, socket = 'ok') {
     const p = url.pathname;
     const m = req.method();
     if (p === '/api/me' && m === 'GET') return json(route, 200, me);
+    if (p === '/api/me/presence' || p === '/api/me/presence-note') return json(route, 200, me);
+    if (/^\/api\/users\/[^/]+\/common-groups$/.test(p)) return json(route, 200, []);
     if (p === '/api/config')
       return json(route, 200, {
         vapidPublicKey: null,

@@ -199,6 +199,91 @@ export async function pngFixture(
   ]);
 }
 
+/**
+ * A small valid animated GIF (GIF89a, 256-colour global table, NETSCAPE loop, `frames`
+ * frames of a moving stripe) generated in memory. The LZW stream is the "uncompressed"
+ * form: a clear code every 200 pixels keeps the codes at 9 bits, so any decoder — the
+ * browser making the poster, the server's frame walk — reads it.
+ */
+export function gifFixture(width = 96, height = 96, frames = 2): Buffer {
+  const minCodeSize = 8;
+  const clear = 1 << minCodeSize;
+  const eoi = clear + 1;
+  const codeWidth = minCodeSize + 1;
+  const runLength = 200;
+  const encode = (pixels: Uint8Array): Buffer => {
+    const bytes: number[] = [];
+    let acc = 0;
+    let nbits = 0;
+    const put = (code: number) => {
+      acc |= code << nbits;
+      nbits += codeWidth;
+      while (nbits >= 8) {
+        bytes.push(acc & 0xff);
+        acc >>>= 8;
+        nbits -= 8;
+      }
+    };
+    put(clear);
+    let run = 0;
+    for (const p of pixels) {
+      if (run === runLength) {
+        put(clear);
+        run = 0;
+      }
+      put(p);
+      run++;
+    }
+    put(eoi);
+    if (nbits > 0) bytes.push(acc & 0xff);
+    const blocks: Buffer[] = [];
+    for (let i = 0; i < bytes.length; i += 255) {
+      const chunk = bytes.slice(i, i + 255);
+      blocks.push(Buffer.from([chunk.length, ...chunk]));
+    }
+    blocks.push(Buffer.from([0]));
+    return Buffer.concat(blocks);
+  };
+  const palette = [
+    [109, 93, 252],
+    [14, 127, 192],
+    [15, 138, 106],
+    [194, 65, 12],
+  ];
+  const gct = Buffer.alloc(256 * 3);
+  palette.forEach((rgb, i) => gct.set(rgb, i * 3));
+  const lsd = Buffer.alloc(7);
+  lsd.writeUInt16LE(width, 0);
+  lsd.writeUInt16LE(height, 2);
+  lsd[4] = 0xf7; // global colour table, 8 bits/pixel, 256 entries
+  const parts: Buffer[] = [
+    Buffer.from('GIF89a', 'ascii'),
+    lsd,
+    gct,
+    Buffer.from([0x21, 0xff, 0x0b, ...Buffer.from('NETSCAPE2.0', 'ascii'), 0x03, 0x01, 0, 0, 0]),
+  ];
+  for (let f = 0; f < frames; f++) {
+    const pixels = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const stripe = Math.floor((x + y + f * 12) / 24) % 2 === 0;
+        pixels[y * width + x] = stripe ? f % palette.length : (f + 1) % palette.length;
+      }
+    const desc = Buffer.alloc(10);
+    desc[0] = 0x2c;
+    desc.writeUInt16LE(width, 5);
+    desc.writeUInt16LE(height, 7);
+    parts.push(
+      Buffer.from([0x21, 0xf9, 0x04, 0x00, 50, 0, 0x00, 0x00]), // graphic control: 500 ms
+      desc,
+      Buffer.from([minCodeSize]),
+      encode(pixels),
+    );
+  }
+  parts.push(Buffer.from([0x3b]));
+  return Buffer.concat(parts);
+}
+
 /** A short 16-bit mono WAV tone (valid audio for voice-note uploads). */
 export function wavFixture(seconds = 2, rate = 8000): Buffer {
   const n = seconds * rate;

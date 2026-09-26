@@ -51,6 +51,14 @@ export interface BusEvents {
   // --- Navigation ---
   /** Ask the router to navigate (used by notifications / service worker clicks). */
   navigate: { to: string; replace?: boolean };
+
+  // --- Profiles (features/profile: one ProfileCardHost is mounted in AppShell) ---
+  /**
+   * Open the profile card of a user: a popover anchored to an element or point on desktop, a
+   * sheet on phones; `anchor: null` always opens the dialog form. My own id opens the self
+   * card (availability, custom status, edit profile).
+   */
+  'profile:open': { userId: ID; anchor: HTMLElement | { x: number; y: number } | null };
 }
 
 export type BusEventName = keyof BusEvents;

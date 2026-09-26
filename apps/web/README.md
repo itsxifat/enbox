@@ -150,7 +150,7 @@ per-account store registers a reset in `lib/session.ts`, run on logout.
 | `auth`                      | `token`, `user: UserSelf \| null`, `status: 'booting'\|'authenticated'\|'anonymous'`, `bootError`                                                                                                                                    | `bootstrap()`, `login(req)`, `register(req)`, `logout({ remote? })`, `setUser(u)`, `patchUser(p)`; `useMe()`, `getMe()`, `getMyId()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `chats`                     | `byId`, `loaded`, `loading`, `error`, `typing[chatId][userId]`, `pins[chatId]`, `openChatId`                                                                                                                                         | `loadChats({ fresh? })` (changes applied while it is in flight are replayed onto the snapshot; `fresh` never reuses an in-flight request), `refreshChat(id)`, `upsertChat(s)` (an older summary keeps the newer preview/unread), `patchChat(id, p)` (a direct chat's `permissions` follow its `peer`), `mutateChat(id, chat => partial)` (relative changes: counters, watermarks), `applyChatUpdate(id, changes)` (`chat:updated`; recomputes `permissions`), `removeChat(id)`, `setTyping(chatId, userId, state)` (auto-expires), `clearTyping()`, `setPins`, `forgetPins`, `resetPins`, `setOpenChat`; `useSortedChats({ archived?, filter?: 'all'\|'unread'\|'groups', kind?: 'chats'\|'channels'\|'all', query? })` (pinned first, then `lastActivityAt` desc), `useChat(id)`, `getChat(id)`, `useTypingUsers(chatId)`, `useUnreadChatsCount()`, `isChatUnread(c)` |
 | `messages`                  | `byChat[chatId]: { items, hasMoreBefore, hasMoreAfter, loaded, loadingLatest, loadingBefore, loadingAfter, error }`                                                                                                                  | `loadLatest(chatId, { fresh? })`, `loadOlder`, `loadNewer`, `loadAround(chatId, seq)` (pages' side-loaded `users` go to the users store; messages received while a page is in flight are kept), `upsertMessage(m, { onlyIfPresent })` (keeps `starred`/`myReaction`/`poll.myOptionIds`, see `mergeMessage`), `upsertMessages`, `patchMessage`, `removeMessages`, `markQuotesDeleted(messageId)`, `clearChat(chatId, clearedSeq)`, `dropChat`, `discardConfirmed` (keeps unsent messages); windows of closed chats are trimmed/evicted (`MAX_CACHED_WINDOWS`) and `blob:` URLs of removed messages revoked, `addOptimistic`, `patchOptimistic`, `markFailed`, `removeOptimistic`, `sendMessage(chatId, req, { optimistic })`, `retryMessage`; `useChatMessages(chatId)`. Type `ClientMessage = Message & { pending?, failed?, localUrl?, uploadProgress? }`             |
-| `users`                     | `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>` (`online: null` = hidden)                                                                                                                                           | `upsertUsers`, `fetchUser(id, { force })` (deduped), `fetchUsers(ids, { force })` (batched `POST /api/users/batch`, one request per tick), `invalidateUser`, `setPresence`, `subscribePresence(ids)` / `unsubscribePresence(ids)` (ref-counted, coalesced into batched emits under the per-socket rate limit, retried on rejection, unsubscribed after a linger; re-sent on reconnect); `useUser(id)` (auto-fetch), `usePresence(id)` (auto-subscribe), `useUserName(id)`, `nameOf(id)`                                                                                                                                                                                                                                                                                                                                                                                |
+| `users`                     | `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>` (`online/state/note/lastSeenAt`; `online: null` = hidden; seeded from `UserPublic.presenceState/presenceNote`)                                                      | `upsertUsers`, `fetchUser(id, { force })` (deduped), `fetchUsers(ids, { force })` (batched `POST /api/users/batch`, one request per tick), `invalidateUser`, `setPresence` (field-wise compare incl. state/note), `subscribePresence(ids)` / `unsubscribePresence(ids)` (ref-counted, coalesced into batched emits under the per-socket rate limit, retried on rejection, unsubscribed after a linger; re-sent on reconnect); `useUser(id)` (auto-fetch), `usePresence(id)` (auto-subscribe), `useUserName(id)`, `nameOf(id)`                                                                                                                                                                                                                                                                                                                                          |
 | `ui` (persisted `enbox.ui`) | `theme`, `resolvedTheme`, `prefs: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications, reduceMotion: 'system'\|'on'\|'off', autoplayAnimatedMedia: 'always'\|'hover'\|'never' }`, `toasts`, `dialogs` | `setTheme`, `setPref(key, value)`; imperative `toast.success/error/info`, `confirm({...}) → Promise<boolean>`, `choose({ options }) → Promise<value \| null>`; `WALLPAPERS`, `FONT_SIZES`. `applyAppearance` mirrors `reduceMotion` on `<html data-reduce-motion>` (index.css clamps animations for `'on'` like `prefers-reduced-motion`); read it through `useReducedMotion()` (hooks/useMediaQuery.ts: media query OR pref `'on'`, pref `'off'` overrides the OS)                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `calls` _(agent 4)_         | `incoming: IncomingCallPayload \| null`, `active: ActiveCall \| null`                                                                                                                                                                | `setIncoming`, `setActive`, `patchActive`, `startCall(chatId, type, userIds?)`, `acceptIncoming()`, `declineIncoming()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `status` _(agent 4)_        | `feed: StatusFeed \| null`, `loaded`                                                                                                                                                                                                 | `loadFeed()`, `applyNew`, `applyDeleted`, `applyViewed`; `useHasUnseenStatus()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -177,8 +177,9 @@ from `myRole`/`groupSettings`.
    **discard every cached message page** except the open chat (unsent messages stay) and the
    other chats' pin ids, reload the open chat's latest page and pins
    (never `after=` catch-up: it would miss edits/deletes/reactions/votes), mark the open chat
-   read, re-subscribe presence (subscriptions are per socket), refresh `/api/me` after a
-   reconnect, reload status/communities (calls: agent 4 refetches `/api/calls/active`). Then
+   read, re-send this device's idle state (`presence:activity`, `lib/activity.ts`) and
+   re-subscribe presence (both are per socket), refresh `/api/me` after a reconnect, reload
+   status/communities (calls: agent 4 refetches `/api/calls/active`). Then
    the bus emits `realtime:ready` — use it for your own resync.
 3. `message:new` (`{ message }` only; the server sends `chat:upsert` first when a chat becomes
    visible) → upsert the message (replacing the optimistic entry by `clientId`), update the
@@ -207,8 +208,9 @@ from `myRole`/`groupSettings`.
    `features/calls`. `call:ring-stop` (any reason) clears the incoming-call UI.
 
 Bus (`lib/bus.ts`, typed): `realtime:ready`, `chat:members-changed`, `user:changed`,
-`contacts:changed`, `blocks:changed`, `status:*`, `call:*`, `navigate`. In components:
-`useBus('contacts:changed', refetch)`.
+`contacts:changed`, `blocks:changed`, `status:*`, `call:*`, `navigate`,
+`profile:open { userId, anchor }` (the profile card, see "Profiles & presence"). In
+components: `useBus('contacts:changed', refetch)`.
 
 ## Optimistic sends
 
@@ -358,6 +360,51 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node apps/web/scripts/screenshots.mjs 
 
 ---
 
+## Profiles & presence (P1)
+
+- **Profile card** (`features/profile/`): `openProfile(userId, anchor)` (or
+  `bus.emit('profile:open', …)`) from anywhere; the one `ProfileCardHost` mounted in
+  `AppShell` renders `ProfilePopover` — a `Popover` beside the trigger on desktop with a fine
+  pointer, a `Modal` sheet otherwise or for `anchor: null` — closing on Escape, outside click,
+  a navigation from inside the card or any route change. `ProfileCard` shows the banner (or
+  the `profileColor → accentColor` gradient, `profileGradient()`), the avatar with the presence
+  badge (`animate="always"`: the card is where animated media plays), name / saved name,
+  `@username · pronouns`, the custom status, "About me" (bio), about, member since
+  (`UserPublic.createdAt`), groups in common (`GET /api/users/:id/common-groups`) and the
+  actions: Message (`POST /api/chats/direct` → navigate), Voice / Video (when the cached
+  direct chat's `permissions.canCall` allows), Add / Edit contact, Block / Unblock, "View full
+  profile" (`/u/:username`). Fields hidden by privacy arrive as `null` and are not rendered.
+  Opened from: message sender names and avatars (`MessageRow`, buttons "Profile of X"),
+  `@mentions` (`RichText`), group / community member "View", the nav-rail avatar and the
+  Settings profile-card avatar (the **self card**: `AvailabilityPicker`, "Set a custom status",
+  Edit profile). The status and contact dialogs are rendered by the host, outside the popover
+  (a click inside them would otherwise close it). `preview` mode (no actions) is the live
+  preview at the top of Settings → Profile; `selfCardUser(me)` maps `UserSelf` onto the card.
+- **Availability & custom status** (`features/profile/presenceApi.ts`): `setAvailability(a,
+until)` → `PUT /api/me/presence`, `setPresenceNote` / `clearPresenceNote` →
+  `PUT|DELETE /api/me/presence-note`; the echoed `UserSelf` replaces the cached one. The
+  picker offers Online / Idle / Do not disturb / Invisible, the last three for 30 min / 1 h /
+  8 h / until changed; the note dialog takes an emoji (lazy emoji picker), text ≤
+  `PRESENCE_NOTE_MAX_LENGTH` and clears after 30 min / 1 h / 4 h / today / never.
+- **Presence** (`stores/users.ts`): entries carry `state` and `note` (seeded from
+  `UserPublic.presenceState/presenceNote`, kept live by `presence:update`; `samePresence`
+  compares them). `formatLastSeen` labels `idle` / `do not disturb` and appends an active note
+  (`activePresenceNote`), so chat headers, contact info and `/u/:username` show them; avatars
+  with `showPresence` show the glyphs. **Idle**: `lib/activity.ts` watches pointer / keyboard /
+  wheel / touch input and page visibility, sends `presence:activity { idle }` on transitions
+  (after `PRESENCE_IDLE_AFTER_MS` without input, or when hidden) and re-sends the state on
+  every `ready` (`resyncUsers`); started by `registerUserHandlers`, stopped with the session.
+  **Do not disturb** (`isDnd(me)`): `notifyIncoming` plays no sound and shows no notification
+  (badges unaffected) and an incoming call is forced `silent` (silenced card, no ringtone, no
+  `call:ringing`).
+- **Settings → Profile**: preview card, `BannerEditor`, `AvatarEditor`, rows for name, pronouns
+  (`profile/pronouns`), about, bio (`profile/bio`, textarea + preview), profile colours
+  (`profile/colours`, hex fields validated with `hexColorSchema`, native pickers, presets,
+  preview), username, phone. `updateProfile` applies the text / colour fields optimistically
+  and reverts them on failure. Tests: `features/profile/*.test.tsx`, `lib/activity.test.ts`,
+  `settings/profile/ProfilePage.test.tsx` + `ProfileFieldPages.test.tsx`; e2e
+  `e2e/profile.spec.ts` (`gifFixture()` in `e2e/helpers.ts` builds an animated GIF).
+
 ## Groups, communities, channels & invites (agent 3)
 
 Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/new`,
@@ -371,7 +418,8 @@ Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/
 - **Reusable pieces** (`features/groups/shared/`): `UserPicker` (contacts + recent chats +
   user search, chips), `EditableAvatar` + `AvatarCropModal` (crop → canvas JPEG ≤
   AVATAR_MAX_DIMENSION → upload), `InviteLinkView`, `AddResultModal` (needsInvite / failed),
-  `MediaGalleryView`, `StarredView`, `UserProfileModal`, `InfoLayout` rows, mute /
+  `MediaGalleryView`, `StarredView`, `UserProfileModal` (now a thin forwarder to the
+  app-wide profile card — prefer `openProfile()`), `InfoLayout` rows, mute /
   disappearing / edit dialogs, and `chatActions.ts` (REST calls that update the stores).
 - **Communities store** (appended actions): `createCommunity`, `updateCommunity`,
   `deactivateCommunity`, `leaveCommunity`, `createCommunityGroup`, `linkGroups`, `unlinkGroup`,

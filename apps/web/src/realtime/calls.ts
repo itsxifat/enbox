@@ -22,7 +22,7 @@ import {
   type IncomingCallPayload,
   type Message,
 } from '@enbox/shared';
-import { chatTitle, userDisplayName } from '@enbox/shared';
+import { chatTitle, isDnd, userDisplayName } from '@enbox/shared';
 import { api, isSessionChangedError, type ApiResponse } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { showNotification } from '@/lib/notify';
@@ -134,8 +134,13 @@ function trackRinging(payload: IncomingCallPayload): void {
 }
 
 function showIncoming(payload: IncomingCallPayload): void {
-  calls().setIncoming(payload);
-  if (!payload.silent) {
+  // Do not disturb rings silently (the silenced card, no ringtone, no `call:ringing`): the
+  // server marks the ring `silent` for DND callees; the shared predicate on my own profile
+  // covers a choice the server hasn't applied yet.
+  const me = getMe();
+  const silent = payload.silent || (!!me && isDnd(me));
+  calls().setIncoming(silent ? { ...payload, silent: true } : payload);
+  if (!silent) {
     sendEvent('call:ringing', { callId: payload.call.id });
     notifyIncoming(payload);
   }

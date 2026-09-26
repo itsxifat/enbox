@@ -21,7 +21,10 @@ import { DefaultTimerPage, LastSeenPage, PrivacyLevelPage } from './privacy/Priv
 import { PrivacyPage } from './privacy/PrivacyPage';
 import { StatusListPage, StatusPrivacyPage } from './privacy/StatusPrivacyPages';
 import { AboutPage } from './profile/AboutPage';
+import { BioPage } from './profile/BioPage';
+import { ColoursPage } from './profile/ColoursPage';
 import { ProfilePage } from './profile/ProfilePage';
+import { PronounsPage } from './profile/PronounsPage';
 
 interface PageDef {
   title: string;
@@ -33,6 +36,9 @@ interface PageDef {
 export const SETTINGS_PAGES: Record<string, PageDef> = {
   profile: { title: 'Profile', render: () => <ProfilePage /> },
   'profile/about': { title: 'About', render: () => <AboutPage /> },
+  'profile/bio': { title: 'Bio', render: () => <BioPage /> },
+  'profile/pronouns': { title: 'Pronouns', render: () => <PronounsPage /> },
+  'profile/colours': { title: 'Profile colours', render: () => <ColoursPage /> },
   account: { title: 'Account', render: () => <AccountPage /> },
   'account/password': { title: 'Change password', render: () => <ChangePasswordPage /> },
   'account/delete': { title: 'Delete account', render: () => <DeleteAccountPage /> },

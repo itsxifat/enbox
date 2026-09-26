@@ -4,10 +4,13 @@ import {
   formatCount,
   formatDaySeparator,
   formatLastSeen,
+  formatMonthYear,
+  formatPresenceNote,
   formatRelativeShort,
   formatTime,
   initials,
   isSameLocalDay,
+  presenceLabel,
 } from './format';
 
 const locale = 'en-GB';
@@ -60,6 +63,48 @@ describe('formatLastSeen', () => {
     );
     expect(formatLastSeen({ online: false, lastSeenAt: null }, { now, locale })).toBe('');
     expect(formatLastSeen(undefined)).toBe('');
+  });
+
+  it('labels idle / do not disturb and appends an active presence note', () => {
+    const online = { online: true, lastSeenAt: null };
+    expect(formatLastSeen({ ...online, state: 'online', note: null })).toBe('online');
+    expect(formatLastSeen({ ...online, state: 'idle', note: null })).toBe('idle');
+    expect(formatLastSeen({ ...online, state: 'dnd', note: null })).toBe('do not disturb');
+    expect(
+      formatLastSeen({
+        ...online,
+        state: 'idle',
+        note: { text: 'Focus time', emoji: '🎧', expiresAt: null },
+      }),
+    ).toBe('idle · 🎧 Focus time');
+    expect(formatLastSeen({ ...online, note: { text: null, emoji: '🌴', expiresAt: null } })).toBe(
+      'online · 🌴',
+    );
+    // An expired note is hidden locally before the presence-expiry job clears it.
+    expect(
+      formatLastSeen(
+        { ...online, state: 'online', note: { text: 'Lunch', emoji: null, expiresAt: at(12, 12) } },
+        { now },
+      ),
+    ).toBe('online');
+    // Offline users never show a note (the server sends none), only their last seen.
+    expect(
+      formatLastSeen(
+        { online: false, state: 'offline', note: null, lastSeenAt: at(12) },
+        { now, locale },
+      ),
+    ).toBe('last seen today at 10:42');
+  });
+
+  it('presenceLabel / formatPresenceNote / formatMonthYear', () => {
+    expect(presenceLabel('online')).toBe('online');
+    expect(presenceLabel('dnd')).toBe('do not disturb');
+    expect(presenceLabel('offline')).toBe('');
+    expect(presenceLabel(null)).toBe('');
+    expect(formatPresenceNote({ text: 'Away', emoji: '🏖️', expiresAt: null })).toBe('🏖️ Away');
+    expect(formatPresenceNote({ text: 'Away', emoji: null, expiresAt: null })).toBe('Away');
+    expect(formatPresenceNote(null)).toBe('');
+    expect(formatMonthYear(at(12), { locale })).toBe('March 2025');
   });
 });
 

@@ -54,6 +54,43 @@ describe('users store', () => {
     });
   });
 
+  it('seeds state and note, and a presence:update that changes only them is applied', () => {
+    const note = { text: 'Heads down', emoji: '🎧', expiresAt: null };
+    useUsers
+      .getState()
+      .upsertUsers([
+        makeUser({ id: 'u3', online: true, presenceState: 'dnd', presenceNote: note }),
+      ]);
+    expect(useUsers.getState().presence.u3).toEqual({
+      userId: 'u3',
+      online: true,
+      state: 'dnd',
+      note,
+      lastSeenAt: null,
+    });
+    // Field-wise equal → the presence map is left untouched (no re-render of every row).
+    const before = useUsers.getState().presence;
+    useUsers
+      .getState()
+      .setPresence({
+        userId: 'u3',
+        online: true,
+        state: 'dnd',
+        note: { ...note },
+        lastSeenAt: null,
+      });
+    expect(useUsers.getState().presence).toBe(before);
+    // The same online flag with another state / a cleared note is a change.
+    useUsers
+      .getState()
+      .setPresence({ userId: 'u3', online: true, state: 'idle', note, lastSeenAt: null });
+    expect(useUsers.getState().presence.u3?.state).toBe('idle');
+    useUsers
+      .getState()
+      .setPresence({ userId: 'u3', online: true, state: 'idle', note: null, lastSeenAt: null });
+    expect(useUsers.getState().presence.u3?.note).toBeNull();
+  });
+
   it('drops a batch response that lands after a logout (no cross-account profile leak)', async () => {
     let resolve!: (users: UserPublic[]) => void;
     vi.spyOn(api, 'post').mockReturnValue(new Promise<UserPublic[]>((r) => (resolve = r)) as never);
