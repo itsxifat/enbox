@@ -6,7 +6,9 @@ import {
   deleteAccountSchema,
   directChatKey,
   idParamSchema,
+  updateAvailabilitySchema,
   updateContactSchema,
+  updatePresenceNoteSchema,
   updateProfileSchema,
   updateSettingsSchema,
   userSearchQuerySchema,
@@ -22,11 +24,12 @@ import { authCtx, authUserId } from '../../http/auth.js';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { authLimiter } from '../../lib/rateLimit.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
-import { parse } from '../../lib/validate.js';
+import { parse, storableDate } from '../../lib/validate.js';
 import { emitToUser } from '../../realtime/emit.js';
+import { isOnline } from '../../realtime/presence.js';
 import { lockChats } from '../../services/chats.js';
 import { transact, type Effects } from '../../services/effects.js';
-import { requireAvatarMedia } from '../../services/media.js';
+import { requireAvatarMedia, requireBannerMedia } from '../../services/media.js';
 import { rawRows, uniq } from '../../services/sql.js';
 import { toChatSummaries } from '../../services/summaries.js';
 import {
@@ -47,11 +50,13 @@ import { reevaluatePresence } from './presence.js';
 import { searchUserIds } from './search.js';
 
 /**
- * Users module — owns: /me, /me/settings, /users/*, /contacts*, /blocks*.
+ * Users module — owns: /me, /me/settings, /me/presence, /me/presence-note, /users/*,
+ * /contacts*, /blocks*.
  * Paths are relative to /api (see ApiRoutes in @enbox/shared); mounted behind requireAuth.
  * Normative rules: docs/ARCHITECTURE.md "Users, privacy and presence", "Accounts, sessions
- * and deletion" and the mutation → event matrix (PATCH /me, PATCH /me/settings, contacts,
- * blocks, DELETE /me). Literal `/users/*` paths are registered before `/users/:userId`.
+ * and deletion" and the mutation → event matrix (PATCH /me, PATCH /me/settings, PUT
+ * /me/presence, PUT|DELETE /me/presence-note, contacts, blocks, DELETE /me). Literal
+ * `/users/*` paths are registered before `/users/:userId`.
  */
 export const router = Router();
 
@@ -127,13 +132,16 @@ router.get('/me', async (req, res) => {
 });
 
 /**
- * PATCH /me — displayName, about, avatar (own image upload or null), username, phone (null
- * removes it). Unchanged/omitted fields are ignored; with no change nothing is emitted.
- * Events: `me:updated` → me; `user:changed` → rooms of my direct/group chats + users who saved me.
+ * PATCH /me — displayName, about, avatar / banner (own image uploads or null), username,
+ * phone (null removes it), pronouns, bio, profile/accent colours. Unchanged/omitted fields
+ * are ignored; with no change nothing is emitted. Rate limit `profileUpdate` (shared with
+ * `/me/presence*`). Events: `me:updated` → me; `user:changed` → rooms of my direct/group
+ * chats + users who saved me. Availability and the presence note have their own routes below.
  */
 router.patch('/me', async (req, res) => {
   const me = authUserId(req);
   const body = parse(updateProfileSchema, req.body ?? {});
+  assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
   const user = await transact(async (tx, fx) => {
     const row = await lockMe(tx, me);
     const patch: Partial<typeof users.$inferInsert> = {};
@@ -144,6 +152,17 @@ router.patch('/me', async (req, res) => {
       if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);
       patch.avatarMediaId = body.avatarMediaId;
     }
+    if (body.bannerMediaId !== undefined && body.bannerMediaId !== row.bannerMediaId) {
+      if (body.bannerMediaId) await requireBannerMedia(tx, body.bannerMediaId, me);
+      patch.bannerMediaId = body.bannerMediaId;
+    }
+    if (body.pronouns !== undefined && body.pronouns !== row.pronouns)
+      patch.pronouns = body.pronouns;
+    if (body.bio !== undefined && body.bio !== row.bio) patch.bio = body.bio;
+    if (body.profileColor !== undefined && body.profileColor !== row.profileColor)
+      patch.profileColor = body.profileColor;
+    if (body.accentColor !== undefined && body.accentColor !== row.accentColor)
+      patch.accentColor = body.accentColor;
     if (body.username !== undefined && body.username !== row.username) {
       const [taken] = await tx
         .select({ id: users.id })
@@ -237,6 +256,104 @@ router.patch('/me/settings', async (req, res) => {
     return next;
   });
   res.json(settings);
+});
+
+/** Same instant, or both unset. */
+const sameTime = (a: Date | null, b: Date | null) =>
+  (a?.getTime() ?? null) === (b?.getTime() ?? null);
+
+/**
+ * PUT /me/presence — my availability choice (`online | idle | dnd | invisible`), optionally
+ * `until` a time (then back to `online`; meaningless with `online` itself, so dropped there).
+ * Rate limit `profileUpdate`. Events (matrix): `me:updated` → me; re-evaluate my presence
+ * subscribers — and NEVER `user:changed` (docs D7). Switching to `invisible` while connected
+ * writes `last_seen_at = now()` in the same transaction: that is the value viewers keep
+ * seeing (the disconnect write and the in-memory override skip invisible users); when already
+ * offline the real last disconnect stays.
+ */
+router.put('/me/presence', async (req, res) => {
+  const me = authUserId(req);
+  const body = parse(updateAvailabilitySchema, req.body ?? {});
+  assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
+  const until =
+    body.availability !== 'online' && body.until ? storableDate(body.until, 'until') : null;
+  const user = await transact(async (tx, fx) => {
+    const row = await lockMe(tx, me);
+    if (row.availability === body.availability && sameTime(row.availabilityUntil, until))
+      return loadUserSelf(tx, me);
+    const goingInvisible = body.availability === 'invisible' && row.availability !== 'invisible';
+    await tx
+      .update(users)
+      .set({
+        availability: body.availability,
+        availabilityUntil: until,
+        ...(goingInvisible && isOnline(me) ? { lastSeenAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, me));
+    meUpdatedEffect(fx, me);
+    presenceEffect(fx, me);
+    return loadUserSelf(tx, me);
+  });
+  res.json(user);
+});
+
+/**
+ * PUT /me/presence-note — replaces the whole note (text and/or emoji, optional `expiresAt`);
+ * DELETE clears it (idempotent). Rate limit `profileUpdate`. Events: `me:updated` → me;
+ * re-evaluate my presence subscribers (the note travels on `presence:update` and `me:updated`
+ * only) — NEVER `user:changed` (docs D7: a note edit must not make every co-member refetch me).
+ */
+router.put('/me/presence-note', async (req, res) => {
+  const me = authUserId(req);
+  const body = parse(updatePresenceNoteSchema, req.body ?? {});
+  assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
+  const expiresAt = body.expiresAt ? storableDate(body.expiresAt, 'expiresAt') : null;
+  const user = await transact(async (tx, fx) => {
+    const row = await lockMe(tx, me);
+    if (
+      row.presenceNoteText === body.text &&
+      row.presenceNoteEmoji === body.emoji &&
+      sameTime(row.presenceNoteExpiresAt, expiresAt)
+    )
+      return loadUserSelf(tx, me);
+    await tx
+      .update(users)
+      .set({
+        presenceNoteText: body.text,
+        presenceNoteEmoji: body.emoji,
+        presenceNoteExpiresAt: expiresAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, me));
+    meUpdatedEffect(fx, me);
+    presenceEffect(fx, me);
+    return loadUserSelf(tx, me);
+  });
+  res.json(user);
+});
+
+router.delete('/me/presence-note', async (req, res) => {
+  const me = authUserId(req);
+  assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
+  const user = await transact(async (tx, fx) => {
+    const row = await lockMe(tx, me);
+    if (row.presenceNoteText === null && row.presenceNoteEmoji === null)
+      return loadUserSelf(tx, me);
+    await tx
+      .update(users)
+      .set({
+        presenceNoteText: null,
+        presenceNoteEmoji: null,
+        presenceNoteExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, me));
+    meUpdatedEffect(fx, me);
+    presenceEffect(fx, me);
+    return loadUserSelf(tx, me);
+  });
+  res.json(user);
 });
 
 /** DELETE /me — password required (per-IP `authLimiter`: it verifies a password); soft delete (see account.ts). */

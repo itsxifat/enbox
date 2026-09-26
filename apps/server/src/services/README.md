@@ -368,8 +368,9 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
 - `PUT /me/presence` and `PUT|DELETE /me/presence-note` register only the presence
   re-evaluation and `me:updated` — never `user:changed`: a note edited several times a day
   must not make every co-member's client refetch me (`PATCH /me` does, for profile fields).
-  Switching to `invisible` writes `last_seen_at = now()` in the same transaction; the
-  disconnect write in `realtime/io.ts` is predicated on `availability <> 'invisible'`.
+  Switching to `invisible` while connected writes `last_seen_at = now()` in the same
+  transaction (already offline: the real last seen stays); the disconnect write in
+  `realtime/io.ts` is predicated on `availability <> 'invisible'`.
 - Clamping: marks move to the highest visible seq ≤ the requested seq (not just `min(seq, max)`),
   so a withheld message never reads as delivered/read while the block lasts.
 - Membership changes (leave/remove) also emit `chat:watermarks` to members whose ticks changed

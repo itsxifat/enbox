@@ -69,7 +69,7 @@ describe('users: profiles, lookups, search, common groups', () => {
         accentColor: null,
         phone: null,
         online: false,
-        presenceState: null,
+        presenceState: 'offline',
         presenceNote: null,
         lastSeenAt: '2026-01-01T00:00:00.000Z',
         createdAt: me.createdAt,
@@ -240,7 +240,7 @@ describe('users: profiles, lookups, search, common groups', () => {
         .send({ userIds: [online.id, hidden.id, crypto.randomUUID()] })
         .expect(200);
       expect(res.body as Presence[]).toEqual([
-        { userId: online.id, online: true, state: null, note: null, lastSeenAt: null },
+        { userId: online.id, online: true, state: 'online', note: null, lastSeenAt: null },
         { userId: hidden.id, online: null, state: null, note: null, lastSeenAt: null },
       ]);
       await goOffline(online, s);

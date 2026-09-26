@@ -84,8 +84,13 @@ async function evaluate(subjectId: string, override: { lastSeenAt?: Date }): Pro
   if (subs.length === 0) return;
   const row = await getUserRow(db, subjectId);
   if (!row) return;
+  // The disconnect's in-memory `lastSeenAt` is applied when it is newer than the row — except
+  // for an invisible row, whose `last_seen_at` stays frozen (docs "Invisible invariants":
+  // io.ts skips the write too, but this override arrives from memory regardless of it).
   const subject =
-    override.lastSeenAt && (!row.lastSeenAt || row.lastSeenAt < override.lastSeenAt)
+    override.lastSeenAt &&
+    row.availability !== 'invisible' &&
+    (!row.lastSeenAt || row.lastSeenAt < override.lastSeenAt)
       ? { ...row, lastSeenAt: override.lastSeenAt }
       : row;
   const viewerIds = new Set(subs.map((s) => s.viewerId));

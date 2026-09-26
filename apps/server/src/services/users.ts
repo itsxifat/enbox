@@ -4,19 +4,28 @@
  *
  * Privacy (docs/ARCHITECTURE.md "Users, privacy and presence"), for viewer V and subject S:
  * - "contacts" = people S saved (S's contact rows); only S's settings apply (no reciprocity).
- * - avatar per `profilePhotoVisibility`, about per `aboutVisibility`, phone only if S saved V;
+ * - avatar (+ animated avatar, banner) per `profilePhotoVisibility`, about (+ bio, pronouns,
+ *   colours) per `aboutVisibility`, phone only if S saved V;
  * - S blocked V → avatar/about/phone/presence null (V never learns about the block);
  * - V blocked S → presence null (no block either way is required for presence), profile per
  *   settings, `isBlocked: true`;
  * - deleted S → `isDeleted: true`, name DELETED_ACCOUNT_NAME, everything optional null;
- * - V = S (self view) → everything visible.
+ * - V = S (self view) → everything visible (the raw availability choice only via `UserSelf`).
+ * Presence: `buildPresence` is the single place deriving `Presence` (state/note rules and the
+ * invisible invariants, docs "PresenceState rules").
  */
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   DELETED_ACCOUNT_NAME,
   DELETED_USERNAME_PREFIX,
+  activePresenceNote,
+  effectiveAvailability,
+  isDnd,
   resolveUserSettings,
   type Presence,
+  type PresenceNote,
+  type PresenceState,
   type UserPublic,
   type UserSelf,
   type UserSettings,
@@ -33,12 +42,26 @@ import {
   type UserRow,
 } from '../db/schema.js';
 import { notFound } from '../lib/errors.js';
-import { isOnline } from '../realtime/presence.js';
+import { autoIdle, isOnline } from '../realtime/presence.js';
 import { mediaUrl } from './media.js';
 import { pairKey, rawRows, uniq, uuidArray } from './sql.js';
 
-/** A users row plus its avatar's storage key (left join on media). */
-export type UserWithAvatar = UserRow & { avatarKey: string | null };
+/**
+ * A users row plus its avatar's and banner's storage/poster keys and `animated` flags (two
+ * left joins on media). `avatarUrl`/`bannerUrl` are always the static image (the poster of an
+ * animated upload); the original of an animated one goes in the `*AnimatedUrl` fields.
+ */
+export type UserWithAvatar = UserRow & {
+  avatarKey: string | null;
+  avatarThumbnailKey: string | null;
+  avatarAnimated: boolean;
+  bannerKey: string | null;
+  bannerThumbnailKey: string | null;
+  bannerAnimated: boolean;
+};
+
+/** The banner's media row, aliased so it can be joined next to the avatar's. */
+const banner = alias(media, 'banner');
 
 /** Complete settings of a user row (stored overrides merged over DEFAULT_USER_SETTINGS). */
 export function settingsOf(row: Pick<UserRow, 'settings'>): UserSettings {
@@ -85,11 +108,29 @@ export async function getUserRows(
   const out = new Map<string, UserWithAvatar>();
   if (list.length === 0) return out;
   const rows = await dbx
-    .select({ user: users, avatarKey: media.storageKey })
+    .select({
+      user: users,
+      avatarKey: media.storageKey,
+      avatarThumbnailKey: media.thumbnailKey,
+      avatarAnimated: media.animated,
+      bannerKey: banner.storageKey,
+      bannerThumbnailKey: banner.thumbnailKey,
+      bannerAnimated: banner.animated,
+    })
     .from(users)
     .leftJoin(media, eq(media.id, users.avatarMediaId))
+    .leftJoin(banner, eq(banner.id, users.bannerMediaId))
     .where(inArray(users.id, list));
-  for (const r of rows) out.set(r.user.id, { ...r.user, avatarKey: r.avatarKey });
+  for (const r of rows)
+    out.set(r.user.id, {
+      ...r.user,
+      avatarKey: r.avatarKey,
+      avatarThumbnailKey: r.avatarThumbnailKey,
+      avatarAnimated: r.avatarAnimated ?? false,
+      bannerKey: r.bannerKey,
+      bannerThumbnailKey: r.bannerThumbnailKey,
+      bannerAnimated: r.bannerAnimated ?? false,
+    });
   return out;
 }
 
@@ -340,25 +381,87 @@ export function canSeePresence(
   return { canSeeOnline, canSeeLastSeen };
 }
 
+/** The columns `buildPresence` reads (a users row, or one with the disconnect override applied). */
+export type PresenceSubject = Pick<
+  UserRow,
+  | 'id'
+  | 'settings'
+  | 'deletedAt'
+  | 'lastSeenAt'
+  | 'availability'
+  | 'availabilityUntil'
+  | 'presenceNoteText'
+  | 'presenceNoteEmoji'
+  | 'presenceNoteExpiresAt'
+>;
+
+/** The stored presence note as written (null when unset); expiry is applied by the callers. */
+function storedPresenceNote(
+  row: Pick<UserRow, 'presenceNoteText' | 'presenceNoteEmoji' | 'presenceNoteExpiresAt'>,
+): PresenceNote | null {
+  if (row.presenceNoteText === null && row.presenceNoteEmoji === null) return null;
+  return {
+    text: row.presenceNoteText,
+    emoji: row.presenceNoteEmoji,
+    expiresAt: row.presenceNoteExpiresAt ? row.presenceNoteExpiresAt.toISOString() : null,
+  };
+}
+
 /**
- * Per-viewer presence (hidden = `{ online: null, state: null, note: null, lastSeenAt: null }`).
- * Online = ≥ 1 socket on this instance. `state`/`note` (availability, idle, presence note)
- * are still null for everyone: P1-S3 derives them.
+ * Per-viewer presence (hidden = `{ online: null, state: null, note: null, lastSeenAt: null }`),
+ * docs "PresenceState rules". Online = ≥ 1 socket on this instance AND not `invisible`
+ * (`effectiveAvailability`: an expired `availability_until` already counts as `online`), so
+ * an invisible connected user is byte-identical to an offline one: `online: false`, `state:
+ * 'offline'`, `note: null` and the frozen `last_seen_at`. `state` is null exactly when
+ * `online` is; the note shows only while the user appears online/idle/dnd and is unexpired.
  */
 export function buildPresence(
   viewerId: string,
-  subject: Pick<UserRow, 'id' | 'settings' | 'deletedAt' | 'lastSeenAt'>,
+  subject: PresenceSubject,
   rel: Relationship,
+  now: Date = new Date(),
 ): Presence {
   const { canSeeOnline, canSeeLastSeen } = canSeePresence(viewerId, subject, rel);
-  const online = isOnline(subject.id);
+  const availability = effectiveAvailability(subject, now.getTime());
+  const effectiveOnline = isOnline(subject.id) && availability !== 'invisible';
+  const state: PresenceState | null = !canSeeOnline
+    ? null
+    : !effectiveOnline
+      ? 'offline'
+      : isDnd(subject, now.getTime())
+        ? 'dnd'
+        : availability === 'idle' || autoIdle(subject.id)
+          ? 'idle'
+          : 'online';
   return {
     userId: subject.id,
-    online: canSeeOnline ? online : null,
-    state: null,
-    note: null,
+    online: canSeeOnline ? effectiveOnline : null,
+    state,
+    note:
+      state && state !== 'offline'
+        ? activePresenceNote(storedPresenceNote(subject), now.getTime())
+        : null,
     lastSeenAt:
-      canSeeLastSeen && !online && subject.lastSeenAt ? subject.lastSeenAt.toISOString() : null,
+      canSeeLastSeen && !effectiveOnline && subject.lastSeenAt
+        ? subject.lastSeenAt.toISOString()
+        : null,
+  };
+}
+
+/**
+ * Static and animated URLs of a profile image: the static one is the poster of an animated
+ * upload (required by the media requirers; the original is the fallback should a row lack it)
+ * or the file itself, the animated one only exists for animated uploads.
+ */
+function profileImageUrls(
+  key: string | null,
+  thumbnailKey: string | null,
+  animated: boolean,
+): { url: string | null; animatedUrl: string | null } {
+  if (!key) return { url: null, animatedUrl: null };
+  return {
+    url: mediaUrl(animated && thumbnailKey ? thumbnailKey : key),
+    animatedUrl: animated ? mediaUrl(key) : null,
   };
 }
 
@@ -397,29 +500,29 @@ export function buildUserPublic(
   const self = viewerId === subject.id;
   const s = settingsOf(subject);
   const hiddenByBlock = !self && rel.subjectBlockedViewer;
-  const avatarUrl =
-    subject.avatarKey && (self || (!hiddenByBlock && levelAllows(s.profilePhotoVisibility, rel)))
-      ? mediaUrl(subject.avatarKey)
-      : null;
-  const about =
-    self || (!hiddenByBlock && levelAllows(s.aboutVisibility, rel)) ? subject.about : null;
+  const showPhoto = self || (!hiddenByBlock && levelAllows(s.profilePhotoVisibility, rel));
+  const showAbout = self || (!hiddenByBlock && levelAllows(s.aboutVisibility, rel));
+  const avatar = showPhoto
+    ? profileImageUrls(subject.avatarKey, subject.avatarThumbnailKey, subject.avatarAnimated)
+    : { url: null, animatedUrl: null };
+  const bannerUrls = showPhoto
+    ? profileImageUrls(subject.bannerKey, subject.bannerThumbnailKey, subject.bannerAnimated)
+    : { url: null, animatedUrl: null };
   const phone = self || (!hiddenByBlock && rel.subjectSavedViewer) ? subject.phone : null;
   const presence = buildPresence(viewerId, subject, rel);
-  // Banner, animated avatar, pronouns/bio/colours and presence state/note: P1-S3 (gated like
-  // avatarUrl / about); null for everyone until then.
   return {
     id: subject.id,
     username: subject.username,
     displayName: subject.displayName,
-    avatarUrl,
-    avatarAnimatedUrl: null,
-    bannerUrl: null,
-    bannerAnimatedUrl: null,
-    about,
-    pronouns: null,
-    bio: null,
-    profileColor: null,
-    accentColor: null,
+    avatarUrl: avatar.url,
+    avatarAnimatedUrl: avatar.animatedUrl,
+    bannerUrl: bannerUrls.url,
+    bannerAnimatedUrl: bannerUrls.animatedUrl,
+    about: showAbout ? subject.about : null,
+    pronouns: showAbout ? subject.pronouns : null,
+    bio: showAbout && subject.bio ? subject.bio : null,
+    profileColor: showAbout ? subject.profileColor : null,
+    accentColor: showAbout ? subject.accentColor : null,
     phone,
     online: presence.online,
     presenceState: presence.state,
@@ -517,26 +620,28 @@ export async function loadPresences(
   );
 }
 
-/** The signed-in user's own profile. The P1 profile/presence fields are defaults until P1-S3 serialises the columns. */
+/** The signed-in user's own profile: raw values (the `invisible` choice included), the note unless expired. */
 export function toUserSelf(row: UserWithAvatar): UserSelf {
+  const avatar = profileImageUrls(row.avatarKey, row.avatarThumbnailKey, row.avatarAnimated);
+  const bannerUrls = profileImageUrls(row.bannerKey, row.bannerThumbnailKey, row.bannerAnimated);
   return {
     id: row.id,
     username: row.username,
     displayName: row.displayName,
-    avatarUrl: row.avatarKey ? mediaUrl(row.avatarKey) : null,
-    avatarAnimatedUrl: null,
-    bannerUrl: null,
-    bannerAnimatedUrl: null,
+    avatarUrl: avatar.url,
+    avatarAnimatedUrl: avatar.animatedUrl,
+    bannerUrl: bannerUrls.url,
+    bannerAnimatedUrl: bannerUrls.animatedUrl,
     about: row.about,
-    pronouns: null,
-    bio: '',
-    profileColor: null,
-    accentColor: null,
+    pronouns: row.pronouns,
+    bio: row.bio,
+    profileColor: row.profileColor,
+    accentColor: row.accentColor,
     phone: row.phone,
     createdAt: row.createdAt.toISOString(),
-    availability: 'online',
-    availabilityUntil: null,
-    presenceNote: null,
+    availability: row.availability,
+    availabilityUntil: row.availabilityUntil ? row.availabilityUntil.toISOString() : null,
+    presenceNote: activePresenceNote(storedPresenceNote(row)),
     settings: settingsOf(row),
   };
 }
@@ -579,6 +684,16 @@ export async function scrubDeletedUser(
       phone: null,
       about: '',
       avatarMediaId: null,
+      bannerMediaId: null,
+      pronouns: null,
+      bio: '',
+      profileColor: null,
+      accentColor: null,
+      availability: 'online',
+      availabilityUntil: null,
+      presenceNoteText: null,
+      presenceNoteEmoji: null,
+      presenceNoteExpiresAt: null,
       passwordHash: '!',
       settings: {},
       deletedAt: new Date(),

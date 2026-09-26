@@ -8,6 +8,7 @@ import {
   DEFAULT_CHANNEL_SETTINGS,
   DEFAULT_GROUP_SETTINGS,
   directChatKey,
+  type Availability,
   type ChannelSettings,
   type GroupSettings,
   type ServerToClientEvents,
@@ -218,6 +219,33 @@ export async function setSettings(user: Id | { id: Id }, patch: Record<string, u
   await db
     .update(users)
     .set({ settings: sql`${users.settings} || ${JSON.stringify(patch)}::jsonb` })
+    .where(eq(users.id, idOf(user)));
+}
+
+/** Store an availability choice directly (what `PUT /me/presence` writes, without its events). */
+export async function setAvailability(
+  user: Id | { id: Id },
+  availability: Availability,
+  opts: { until?: Date | null } = {},
+) {
+  await db
+    .update(users)
+    .set({ availability, availabilityUntil: opts.until ?? null })
+    .where(eq(users.id, idOf(user)));
+}
+
+/** Store a presence note directly (null clears it), without the route's events. */
+export async function setPresenceNote(
+  user: Id | { id: Id },
+  note: { text?: string | null; emoji?: string | null; expiresAt?: Date | null } | null,
+) {
+  await db
+    .update(users)
+    .set({
+      presenceNoteText: note?.text ?? null,
+      presenceNoteEmoji: note?.emoji ?? null,
+      presenceNoteExpiresAt: note?.expiresAt ?? null,
+    })
     .where(eq(users.id, idOf(user)));
 }
 

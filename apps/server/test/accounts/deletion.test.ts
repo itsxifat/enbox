@@ -29,9 +29,11 @@ import {
   recordEvents,
   saveContact,
   send,
+  setAvailability,
+  setPresenceNote,
   settle,
 } from '../services/fixtures.js';
-import { newDevice, waitDisconnect } from './util.js';
+import { giveBanner, giveProfile, newDevice, waitDisconnect } from './util.js';
 
 describe('DELETE /api/me (account deletion)', () => {
   let t: TestServer;
@@ -108,6 +110,16 @@ describe('DELETE /api/me (account deletion)', () => {
         audience: [bob.id],
         expiresAt: new Date(Date.now() + 3_600_000),
       });
+      // P1 profile/presence columns: all scrubbed too.
+      await giveProfile(alice.id, {
+        pronouns: 'she/her',
+        bio: 'about me',
+        profileColor: '#123456',
+        accentColor: '#abcdef',
+      });
+      await giveBanner(alice.id, true);
+      await setAvailability(alice, 'dnd', { until: new Date(Date.now() + 3_600_000) });
+      await setPresenceNote(alice, { text: 'busy', emoji: '🔥' });
 
       registerAccountDeletionHook('accounts-test', async (tx, _fx, userId) => {
         if (userId !== alice.id) return;
@@ -168,6 +180,16 @@ describe('DELETE /api/me (account deletion)', () => {
         phone: null,
         about: '',
         avatarMediaId: null,
+        bannerMediaId: null,
+        pronouns: null,
+        bio: '',
+        profileColor: null,
+        accentColor: null,
+        availability: 'online',
+        availabilityUntil: null,
+        presenceNoteText: null,
+        presenceNoteEmoji: null,
+        presenceNoteExpiresAt: null,
         passwordHash: '!',
         settings: {},
       });

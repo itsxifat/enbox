@@ -29,6 +29,7 @@ import {
   createGroup,
   saveContact,
   send,
+  setAvailability,
   setSettings,
 } from '../services/fixtures.js';
 import { giveProfile, newDevice } from './util.js';
@@ -306,6 +307,18 @@ describe('push: subscriptions and notifications', () => {
       await send(alice, direct, 'unmuted');
       await pushIdle();
       expect(to(bobEp).map((s) => s.payload.body)).toEqual(['unmuted']);
+    });
+
+    it('do not disturb: no message push while the recipient is in DND (until it expires)', async () => {
+      await setAvailability(bob, 'dnd');
+      await send(alice, direct, 'shh');
+      await pushIdle();
+      expect(sent).toEqual([]);
+      await setAvailability(bob, 'dnd', { until: new Date(Date.now() - 1000) }); // expired: online again
+      await send(alice, direct, 'heard');
+      await pushIdle();
+      expect(to(bobEp).map((s) => s.payload.body)).toEqual(['heard']);
+      await setAvailability(bob, 'online');
     });
 
     it('never for channels, call messages or messages withheld by a block', async () => {
@@ -611,6 +624,38 @@ describe('push: subscriptions and notifications', () => {
       });
       await pushIdle();
       expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call_cancel']);
+    });
+
+    it('do not disturb: neither call nor call_cancel pushes reach a callee in DND', async () => {
+      const ring = (callId: string) =>
+        domainEvents.emit('call.ringing', {
+          callId,
+          chatId,
+          callerId: caller.id,
+          callType: 'audio',
+          isGroup: false,
+          userIds: [callee.id],
+          silentUserIds: [],
+        });
+      await setAvailability(callee, 'dnd');
+      try {
+        ring(crypto.randomUUID());
+        const stopped = await insertCall();
+        domainEvents.emit('call.ring-stopped', {
+          callId: stopped,
+          chatId,
+          userId: callee.id,
+          reason: 'timeout',
+          finalStatus: 'missed',
+        });
+        await pushIdle();
+        expect(sent).toEqual([]);
+      } finally {
+        await setAvailability(callee, 'online');
+      }
+      ring(crypto.randomUUID());
+      await pushIdle();
+      expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call']);
     });
   });
 });
