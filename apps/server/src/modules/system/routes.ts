@@ -17,8 +17,9 @@ publicRouter.get('/health', (_req, res) => {
 });
 
 /**
- * `ServerConfig` (shared api.ts): `publicUrl` is PUBLIC_URL without its trailing slash;
- * `voice` stays null until P3c wires LiveKit; `limits` mirror the shared MAX_* constants
+ * `ServerConfig` (shared api.ts): `publicUrl` is PUBLIC_URL without its trailing slash, or
+ * null when it is unset (clients build share links on their own origin then); `voice` stays
+ * null until P3c wires LiveKit; `limits` mirror the shared MAX_* constants
  * (`maxWallpaperBytes` is enforced from P2, exposed now so clients need no build-time copy).
  */
 publicRouter.get('/config', (_req, res) => {
@@ -27,7 +28,7 @@ publicRouter.get('/config', (_req, res) => {
       config.vapid.publicKey && config.vapid.privateKey ? config.vapid.publicKey : null,
     maxUploadBytes: MAX_UPLOAD_BYTES,
     version: config.version,
-    publicUrl: config.publicUrl.replace(/\/+$/, ''),
+    publicUrl: config.publicUrl,
     voice: null,
     limits: {
       maxUploadBytes: MAX_UPLOAD_BYTES,

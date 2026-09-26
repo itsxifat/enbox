@@ -117,14 +117,14 @@ Migrations run automatically on startup.
 All server settings are environment variables, documented in [.env.example](.env.example).
 The most important ones:
 
-| Variable                                | Purpose                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------ |
-| `DATABASE_URL`                          | PostgreSQL connection string (unset = embedded PGlite)                   |
-| `PUBLIC_URL`                            | Canonical origin of the web app (`/api/config.publicUrl`, invite links)  |
-| `CORS_ORIGINS`                          | Allowed browser origins                                                  |
-| `STUN_URLS`, `TURN_URLS`, `TURN_SECRET` | WebRTC ICE servers; configure TURN for reliable calls behind strict NATs |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`)              |
-| `REDIS_URL`                             | Optional Socket.IO Redis adapter                                         |
+| Variable                                | Purpose                                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                          | PostgreSQL connection string (unset = embedded PGlite)                                                        |
+| `PUBLIC_URL`                            | Canonical origin of the web app (`/api/config.publicUrl`, invite links); unset → clients use their own origin |
+| `CORS_ORIGINS`                          | Allowed browser origins                                                                                       |
+| `STUN_URLS`, `TURN_URLS`, `TURN_SECRET` | WebRTC ICE servers; configure TURN for reliable calls behind strict NATs                                      |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`)                                                   |
+| `REDIS_URL`                             | Optional Socket.IO Redis adapter                                                                              |
 
 ## Deployment
 

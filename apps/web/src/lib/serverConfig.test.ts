@@ -45,6 +45,14 @@ describe('serverConfig', () => {
     await expect(publicUrl('/join/abc')).resolves.toBe('https://enbox.dev/join/abc');
   });
 
+  it('keeps this origin when the server has no PUBLIC_URL (publicUrl: null)', async () => {
+    const { api, getServerConfig, publicOrigin, inviteUrl } = await load();
+    vi.spyOn(api, 'get').mockResolvedValue({ ...CONFIG, publicUrl: null });
+    await getServerConfig();
+    expect(publicOrigin()).toBe(window.location.origin);
+    expect(inviteUrl('abc')).toBe(`${window.location.origin}/join/abc`);
+  });
+
   it('retries a failed load on the next call and keeps links usable meanwhile', async () => {
     const { api, getServerConfig, publicOrigin, publicUrl } = await load();
     const get = vi

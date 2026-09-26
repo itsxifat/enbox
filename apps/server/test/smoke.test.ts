@@ -7,7 +7,7 @@ import {
   MAX_WALLPAPER_BYTES,
   type ServerConfig,
 } from '@enbox/shared';
-import { config } from '../src/config.js';
+import { config, loadConfig } from '../src/config.js';
 import { startTestServer, type TestServer } from './helpers.js';
 
 describe('server smoke', () => {
@@ -36,6 +36,21 @@ describe('server smoke', () => {
       },
     });
     expect(cfg.publicUrl).not.toMatch(/\/$/);
+  });
+
+  it('PUBLIC_URL: trailing slashes dropped, null when unset (never a localhost default)', () => {
+    const saved = process.env.PUBLIC_URL;
+    try {
+      process.env.PUBLIC_URL = 'https://enbox.dev//';
+      expect(loadConfig().publicUrl).toBe('https://enbox.dev');
+      delete process.env.PUBLIC_URL;
+      expect(loadConfig().publicUrl).toBeNull();
+      process.env.PUBLIC_URL = '';
+      expect(loadConfig().publicUrl).toBeNull();
+    } finally {
+      if (saved === undefined) delete process.env.PUBLIC_URL;
+      else process.env.PUBLIC_URL = saved;
+    }
   });
 
   it('rejects unauthenticated API calls and unknown endpoints', async () => {

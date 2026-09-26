@@ -130,8 +130,11 @@ export interface ServerConfig {
   /** Same as `limits.maxUploadBytes` (kept for older clients). */
   maxUploadBytes: number;
   version: string;
-  /** Canonical origin for invite/profile links (server PUBLIC_URL), no trailing slash. */
-  publicUrl: string;
+  /**
+   * Canonical origin for invite/profile links (server PUBLIC_URL), no trailing slash; null
+   * when the server has none configured — build links on the page's own origin then.
+   */
+  publicUrl: string | null;
   /** Voice channels (LiveKit) when configured: the signalling URL clients connect to. */
   voice: { url: string } | null;
   limits: {

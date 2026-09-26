@@ -37,8 +37,12 @@ export interface Config {
   env: 'development' | 'production' | 'test';
   host: string;
   port: number;
-  /** Public origin of the web app, used to build invite links. */
-  publicUrl: string;
+  /**
+   * Canonical origin of the web app for links shared outside it (invites, profiles), no
+   * trailing slash; null when PUBLIC_URL is unset — clients then use the origin they are
+   * served from. Never a default: one would point every production link at it.
+   */
+  publicUrl: string | null;
   /** PostgreSQL connection string. When unset, an embedded PGlite database is used. */
   databaseUrl: string | undefined;
   /** PGlite data dir, or 'memory' for an in-memory database. */
@@ -82,7 +86,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     env,
     host: str('HOST', '0.0.0.0')!,
     port: int('PORT', 4000),
-    publicUrl: str('PUBLIC_URL', 'http://localhost:5173')!,
+    publicUrl: str('PUBLIC_URL')?.replace(/\/+$/, '') || null,
     databaseUrl: str('DATABASE_URL'),
     pgliteDir: str('PGLITE_DIR', path.join(dataDir, 'pglite'))!,
     dataDir,

@@ -37,7 +37,8 @@ export function serverConfig(): ServerConfig | null {
 /**
  * Origin for links people share outside the app (invites, profiles): the server's PUBLIC_URL
  * once the config is loaded (the app may be served from an alias domain, and native wrappers
- * have no useful window origin), this page's origin until then.
+ * have no useful window origin), this page's origin until then — and for good when the
+ * server has no PUBLIC_URL (`publicUrl: null`).
  */
 export function publicOrigin(): string {
   if (loaded?.publicUrl) return loaded.publicUrl;
