@@ -111,6 +111,16 @@ describe('Avatar (animated)', () => {
     expect(img()).toHaveAttribute('src', POSTER);
     expect(root).toHaveAttribute('data-animated', 'poster');
   });
+
+  it('only an avatar with an animation follows the window focus (static ones add no listener)', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const types = () => add.mock.calls.map(([type]) => type);
+    const still = render(<Avatar src={POSTER} name="Ada" />);
+    expect(types()).not.toContain('focus');
+    expect(still.container.firstElementChild).not.toHaveAttribute('data-animated');
+    animated();
+    expect(types()).toContain('focus');
+  });
 });
 
 describe('Avatar (presence)', () => {

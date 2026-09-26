@@ -934,7 +934,10 @@ attachment` unless the extension is inline-safe.
   have no animated variant on the wire: an animated icon is served as its poster everywhere
   (`staticMediaKey`/`staticMediaUrl`, services/media.ts). Push icons, lists and every
   non-hover renderer use the static URL; the web client animates on hover/focus and in the
-  profile card only, never under reduced motion or while the app is hidden.
+  profile card only, never under reduced motion or while the app is hidden. Chat bubbles
+  treat `media.animated` and any `image/gif` row as animated (poster + GIF badge; a still
+  tile when a row has no poster) so those gates hold for every attachment, and the web
+  client sends an animation it could not make a poster for as a still photo.
 - **Client-side processing** (web): photos are re-encoded through a canvas (strips EXIF/GPS,
   longest side ≤ IMAGE_MAX_DIMENSION, avatars ≤ AVATAR_MAX_DIMENSION) and get a thumbnail;
   animated images skip the re-encode, are metadata-stripped client-side (best effort) and

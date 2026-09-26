@@ -338,8 +338,11 @@ function ContactInfo({
   const [common, setCommon] = useState<ChatSummary[] | null>(null);
   const starred = useStarredCount(chat.id);
   const [deleting, setDeleting] = useState(false);
-  // Banner (or the profile colours) behind the avatar; hidden fields arrive as null.
-  const banner = useProfileBannerSrc(!self && !deleted ? user : null);
+  // Banner (or the profile colours) behind the avatar; hidden fields arrive as null. The
+  // panel sits beside the chat all the time, so animated media plays only while the hero is
+  // hovered or focused (the profile card is the surface that always plays it).
+  const [heroHot, setHeroHot] = useState(false);
+  const banner = useProfileBannerSrc(!self && !deleted ? user : null, heroHot);
   const showBanner =
     !self && !deleted && !!user && !!(user.bannerUrl || user.profileColor || user.accentColor);
 
@@ -423,7 +426,14 @@ function ContactInfo({
       />
 
       {/* Hero: the banner (or profile colours) with the avatar overlapping it. */}
-      <section className="flex flex-col items-center bg-surface pb-5 text-center">
+      <section
+        className="flex flex-col items-center bg-surface pb-5 text-center"
+        data-animate-avatars
+        onPointerEnter={() => setHeroHot(true)}
+        onPointerLeave={() => setHeroHot(false)}
+        onFocus={() => setHeroHot(true)}
+        onBlur={() => setHeroHot(false)}
+      >
         {showBanner && user ? (
           <div
             className="relative w-full"
@@ -453,13 +463,12 @@ function ContactInfo({
             <Avatar
               src={me.avatarUrl}
               animatedSrc={me.avatarAnimatedUrl}
-              animate="always"
               name={me.displayName}
               colorSeed={me.id}
               size="3xl"
             />
           ) : user && !deleted ? (
-            <UserAvatar user={user} size="3xl" showPresence animate="always" />
+            <UserAvatar user={user} size="3xl" showPresence />
           ) : (
             <ChatAvatar chat={chat} size="3xl" />
           )}

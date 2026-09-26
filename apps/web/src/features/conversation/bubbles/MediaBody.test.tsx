@@ -8,7 +8,7 @@ import { MediaBody } from './MediaBody';
 const POSTER = '/uploads/fun.webp';
 const GIF = '/uploads/fun.gif';
 
-function gifMessage(animated = true) {
+function gifMessage(animated = true, extra: Partial<MediaAttachment> = {}) {
   const media: MediaAttachment = {
     id: 'm1',
     kind: 'image',
@@ -23,6 +23,7 @@ function gifMessage(animated = true) {
     frameCount: animated ? 12 : null,
     durationMs: null,
     waveform: null,
+    ...extra,
   };
   return makeMessage({ type: 'image', media, text: null });
 }
@@ -86,9 +87,49 @@ describe('MediaBody (animated images)', () => {
   });
 
   it('renders a still image as a photo without a badge', () => {
-    const { img, container } = renderBody(gifMessage(false));
-    expect(img()).toHaveAttribute('src', GIF);
+    const photo = gifMessage(false, { url: '/uploads/pic.jpg', mimeType: 'image/jpeg' });
+    const { img, container } = renderBody(photo);
+    expect(img()).toHaveAttribute('src', '/uploads/pic.jpg');
     expect(container).not.toHaveTextContent('GIF');
     expect(screen.getByRole('button', { name: 'Open photo' })).toBeInTheDocument();
+  });
+
+  it('gates a GIF stored before uploads were probed (animated: false) like an animated one', () => {
+    useUi.getState().setPref('reduceMotion', 'on');
+    const { img, container } = renderBody(gifMessage(false));
+    expect(img()).toHaveAttribute('src', POSTER);
+    expect(container).toHaveTextContent('GIF');
+  });
+
+  it('shows a still tile for an animation without a poster under reduced motion, never or a hidden app', () => {
+    const noPoster = () => gifMessage(true, { thumbnailUrl: null });
+    const stillOnly = (view: ReturnType<typeof renderBody>) => {
+      expect(view.container.querySelector('img')).toBeNull();
+      expect(view.getByTestId('animated-still')).toBeInTheDocument();
+      expect(view.container).toHaveTextContent('GIF');
+      view.unmount();
+    };
+    useUi.getState().setPref('reduceMotion', 'on');
+    useUi.getState().setPref('autoplayAnimatedMedia', 'always');
+    stillOnly(renderBody(noPoster()));
+    useUi.getState().setPref('reduceMotion', 'off');
+    useUi.getState().setPref('autoplayAnimatedMedia', 'never');
+    const never = renderBody(noPoster());
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Play GIF' }), {
+      pointerType: 'mouse',
+    });
+    stillOnly(never);
+    useUi.getState().setPref('autoplayAnimatedMedia', 'always');
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    stillOnly(renderBody(noPoster()));
+    // With motion allowed it plays on hover, as with a poster.
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    useUi.getState().setPref('autoplayAnimatedMedia', 'hover');
+    const { img, container } = renderBody(noPoster());
+    expect(container.querySelector('img')).toBeNull();
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Play GIF' }), {
+      pointerType: 'mouse',
+    });
+    expect(img()).toHaveAttribute('src', GIF);
   });
 });

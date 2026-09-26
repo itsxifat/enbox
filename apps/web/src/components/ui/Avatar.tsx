@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Megaphone, UserRound, UsersRound } from 'lucide-react';
 import type { PresenceState } from '@enbox/shared';
 import { useAppVisible } from '@/hooks/useAppVisible';
@@ -81,29 +81,24 @@ export interface AvatarProps {
   presence?: PresenceState | null;
 }
 
-export function Avatar({
-  src,
-  name,
-  colorSeed,
-  size = 'md',
-  kind = 'user',
-  online,
-  ring,
-  className,
-  decorative = true,
-  animatedSrc,
-  animate = 'hover',
-  presence,
-}: AvatarProps) {
-  const px = typeof size === 'number' ? size : AVATAR_PX[size];
+/**
+ * Only an avatar with an animation subscribes to the prefs and the app's focus (each such
+ * subscription re-renders on every window focus change): the static ones — nearly all of
+ * them, in member lists up to the group cap — render without a single subscription.
+ */
+export function Avatar(props: AvatarProps) {
+  if (props.animatedSrc) return <AnimatedAvatar {...props} />;
+  return <AvatarShell {...props} shown={mediaUrl(props.src)} />;
+}
+
+/** Poster by default, the animation only while it is wanted AND allowed (see `AvatarProps.animate`). */
+function AnimatedAvatar(props: AvatarProps) {
+  const { src, animatedSrc, animate = 'hover' } = props;
   const url = mediaUrl(src);
   const animatedUrl = mediaUrl(animatedSrc);
-  const [failed, setFailed] = useState(false);
   const [animatedFailed, setAnimatedFailed] = useState(false);
-  useEffect(() => setFailed(false), [url]);
   useEffect(() => setAnimatedFailed(false), [animatedUrl]);
 
-  // Animated avatars: poster by default, the animation only while it is wanted AND allowed.
   const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
@@ -137,7 +132,51 @@ export function Avatar({
     };
   }, [onHover]);
   const playing = canAnimate && (!onHover || hot);
-  const shown = playing ? animatedUrl : url;
+  return (
+    <AvatarShell
+      {...props}
+      shown={playing ? animatedUrl : url}
+      playing={playing}
+      onPlayingError={() => setAnimatedFailed(true)}
+      rootRef={rootRef}
+      animatedState={playing ? 'playing' : 'poster'}
+    />
+  );
+}
+
+interface AvatarShellProps extends AvatarProps {
+  /** The image to show now: the poster, or the animation while it plays. */
+  shown: string | null | undefined;
+  playing?: boolean;
+  /** The playing animation failed to load (the poster takes over). */
+  onPlayingError?: () => void;
+  rootRef?: RefObject<HTMLSpanElement | null>;
+  /** `data-animated` on the root: whether an animated avatar is playing or showing its poster. */
+  animatedState?: 'playing' | 'poster';
+}
+
+/** The frame, image or fallback glyph, and the presence badge — no subscriptions. */
+function AvatarShell({
+  src,
+  name,
+  colorSeed,
+  size = 'md',
+  kind = 'user',
+  online,
+  ring,
+  className,
+  decorative = true,
+  presence,
+  shown,
+  playing = false,
+  onPlayingError,
+  rootRef,
+  animatedState,
+}: AvatarShellProps) {
+  const px = typeof size === 'number' ? size : AVATAR_PX[size];
+  const url = mediaUrl(src);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
   const showImage = !!shown && !failed;
 
   // Communities use a rounded square like WhatsApp; everything else is a circle.
@@ -163,7 +202,7 @@ export function Avatar({
       role={decorative ? undefined : 'img'}
       aria-label={decorative ? undefined : name}
       aria-hidden={decorative || undefined}
-      data-animated={playing ? 'playing' : animatedUrl ? 'poster' : undefined}
+      data-animated={animatedState}
     >
       <span
         className={cn(
@@ -189,7 +228,7 @@ export function Avatar({
             loading="lazy"
             decoding="async"
             draggable={false}
-            onError={() => (playing ? setAnimatedFailed(true) : setFailed(true))}
+            onError={() => (playing ? onPlayingError?.() : setFailed(true))}
           />
         ) : kind === 'user' && text !== '?' ? (
           <span aria-hidden>{text}</span>

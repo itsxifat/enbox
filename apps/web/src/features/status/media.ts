@@ -54,7 +54,10 @@ async function decode(
   }
 }
 
-/** Re-encode a photo as JPEG (animated images keep their animation: stripped bytes + poster). */
+/**
+ * Re-encode a photo as JPEG (animated images keep their animation: stripped bytes + poster;
+ * one without a poster to stand in is posted as a still photo instead).
+ */
 export async function prepareStatusImage(file: File): Promise<PreparedMedia> {
   const info = await probeImageFile(file);
   if (info?.animated) {
@@ -62,12 +65,13 @@ export async function prepareStatusImage(file: File): Promise<PreparedMedia> {
       stripImageBlob(file),
       animatedPoster(file).catch(() => null),
     ]);
-    return {
-      blob,
-      meta: { kind: 'image', width: info.width, height: info.height },
-      fileName: file.name,
-      thumbnail,
-    };
+    if (thumbnail)
+      return {
+        blob,
+        meta: { kind: 'image', width: info.width, height: info.height },
+        fileName: file.name,
+        thumbnail,
+      };
   }
   const img = await decode(file);
   try {

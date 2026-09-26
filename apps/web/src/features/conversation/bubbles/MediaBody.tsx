@@ -1,8 +1,9 @@
 /**
  * Photo / video bubble content: sized preview, upload progress (cancel), play badge → viewer.
- * Animated images (GIF / WebP / APNG with a poster) show the poster and a GIF badge until
- * hovered or tapped (device pref `autoplayAnimatedMedia` 'hover'), play right away ('always')
- * or stay still ('never', reduced motion, hidden app — the viewer plays them).
+ * Animated images (GIF / WebP / APNG) show their poster and a GIF badge until hovered or
+ * tapped (device pref `autoplayAnimatedMedia` 'hover'), play right away ('always') or stay
+ * still ('never', reduced motion, hidden app — the viewer plays them). One without a poster
+ * (an upload that came without one) shows a still tile instead: the gates hold either way.
  */
 import { useState, type ReactNode } from 'react';
 import { ImageOff, Play, RotateCw, X } from 'lucide-react';
@@ -119,12 +120,13 @@ export function MediaBody({
   const box = mediaBox(media.width, media.height);
   const video = m.type === 'video';
   const uploading = !!m.pending && m.uploadProgress !== undefined && m.uploadProgress < 1;
-  // Animated images with a poster (see the header); without one the animation shows as-is.
+  // Animated images (see the header): `media.animated`, or a GIF stored before uploads were
+  // probed (migration 0001 marks those animated too; this covers a row it did not reach).
   const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
   const poster = media.thumbnailUrl ? mediaUrl(media.thumbnailUrl) : undefined;
-  const animated = !video && media.animated && !!poster;
+  const animated = !video && (media.animated || media.mimeType === 'image/gif');
   const canPlay = animated && autoplay !== 'never' && !reduceMotion && appVisible;
   const playing = canPlay && (autoplay === 'always' || hot);
   const src = video || (animated && !playing) ? poster : mediaUrl(m.localUrl ?? media.url);
@@ -181,6 +183,15 @@ export function MediaBody({
             playsInline
             className="absolute inset-0 size-full object-cover"
           />
+        ) : animated && !broken ? (
+          // No poster to stand in: a still tile until the animation may play.
+          <span
+            className="absolute inset-0 flex items-center justify-center text-muted"
+            aria-hidden
+            data-testid="animated-still"
+          >
+            <Play size={28} className="fill-current opacity-70" />
+          </span>
         ) : (
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted">
             <ImageOff size={28} aria-hidden />

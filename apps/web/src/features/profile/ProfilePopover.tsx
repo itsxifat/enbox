@@ -107,8 +107,10 @@ export function ProfilePopover({
         {body}
       </Popover>
     );
+  // A titled sheet with the usual close button: a phone sheet up to 92dvh tall leaves little
+  // backdrop to tap, and touch screen readers need a focusable way out.
   return (
-    <Modal open onClose={onClose} size="sm" hideClose aria-label="Profile">
+    <Modal open onClose={onClose} size="sm" title="Profile">
       <div className="-mx-6 -my-3">{body}</div>
     </Modal>
   );

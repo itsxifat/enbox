@@ -38,7 +38,9 @@ export function UserProfilePage() {
   const presence = usePresence(userId && !isMe ? userId : null);
   // My own link shows the raw profile (no privacy gating, my availability choice).
   const user = isMe && me ? selfCardUser(me) : fetched;
-  const banner = useProfileBannerSrc(user);
+  // A full page is not the profile card: animated media plays while the hero is hovered/focused.
+  const [heroHot, setHeroHot] = useState(false);
+  const banner = useProfileBannerSrc(user, heroHot);
 
   useEffect(() => {
     let alive = true;
@@ -114,7 +116,14 @@ export function UserProfilePage() {
           <PageSpinner />
         ) : (
           <div className="mx-auto flex w-full max-w-md flex-col pb-10 sm:px-6 sm:pt-6">
-            <div className="overflow-hidden bg-surface sm:rounded-3xl sm:shadow-bubble">
+            <div
+              className="overflow-hidden bg-surface sm:rounded-3xl sm:shadow-bubble"
+              data-animate-avatars
+              onPointerEnter={() => setHeroHot(true)}
+              onPointerLeave={() => setHeroHot(false)}
+              onFocus={() => setHeroHot(true)}
+              onBlur={() => setHeroHot(false)}
+            >
               <div
                 className="relative w-full"
                 style={{
@@ -139,7 +148,6 @@ export function UserProfilePage() {
                   <Avatar
                     src={user.avatarUrl}
                     animatedSrc={user.avatarAnimatedUrl}
-                    animate="always"
                     name={userDisplayName(user)}
                     colorSeed={user.id}
                     size="3xl"

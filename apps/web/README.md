@@ -279,7 +279,9 @@ UI kit (`@/components/ui`): `Avatar` (image → initials/icon fallback, determin
 `ring`, `kind: user|group|channel|community`; `animatedSrc` + `animate: 'hover'|'always'|'never'`
 plays a GIF/WebP/APNG avatar while the avatar or its closest `[data-animate-avatars]` ancestor
 is hovered/focused — never under `useReducedMotion()`, the pref `autoplayAnimatedMedia:
-'never'` or a hidden app; `src` is always the static poster), `Badge` (99+, dot),
+'never'` or a hidden app; `src` is always the static poster; only an avatar with an
+`animatedSrc` subscribes to the prefs and the app focus, static ones render subscription-free),
+`Badge` (99+, dot),
 `Button`, `IconButton` (aria-label + native tooltip), `Input`, `Textarea` (auto-resize),
 `Field`, `Switch`, `Checkbox`, `RadioGroup`, `Modal` (focus trap, Esc, backdrop, bottom
 sheet on phones), `confirm()`/`choose()` + `DialogHost`, `Menu` (anchor element or point —
@@ -369,10 +371,13 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node apps/web/scripts/screenshots.mjs 
 - **Profile card** (`features/profile/`): `openProfile(userId, anchor)` (or
   `bus.emit('profile:open', …)`) from anywhere; the one `ProfileCardHost` mounted in
   `AppShell` renders `ProfilePopover` — a `Popover` beside the trigger on desktop with a fine
-  pointer, a `Modal` sheet otherwise or for `anchor: null` — closing on Escape, outside click,
-  a navigation from inside the card or any route change. `ProfileCard` shows the banner (or
-  the `profileColor → accentColor` gradient, `profileGradient()`), the avatar with the presence
-  badge (`animate="always"`: the card is where animated media plays), name / saved name,
+  pointer, a titled `Modal` sheet with a close button otherwise or for `anchor: null` — closing
+  on Escape, outside click, a navigation from inside the card or any route change.
+  `ProfileCard` shows the banner (or the `profileColor → accentColor` gradient,
+  `profileGradient()`), the avatar with the presence badge (`animate="always"`: the card is
+  the one surface where animated media always plays; `ContactInfoPanel` and `/u/:username`
+  mark their hero `data-animate-avatars` and pass its hover/focus to `useProfileBannerSrc`, so
+  avatar and banner animate there only while it is hovered or focused), name / saved name,
   `@username · pronouns`, the custom status, "About me" (bio), about, member since
   (`UserPublic.createdAt`), groups in common (`GET /api/users/:id/common-groups`) and the
   actions: Message (`POST /api/chats/direct` → navigate), Voice / Video (when the cached

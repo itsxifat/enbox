@@ -190,13 +190,15 @@ export async function animatedPoster(
 /**
  * Animated GIF / WebP / APNG: re-encoding would drop the animation, so the bytes are kept
  * (metadata stripped, best effort) with a poster frame as the thumbnail; the dimensions come
- * from the header (the server verifies them again).
+ * from the header (the server verifies them again). Null when no poster could be made: an
+ * animation nothing can stand in for is not sent as one.
  */
-async function prepareAnimatedImage(file: File, info: ImageInfo): Promise<PreparedMedia> {
+async function prepareAnimatedImage(file: File, info: ImageInfo): Promise<PreparedMedia | null> {
   const [blob, thumbnail] = await Promise.all([
     stripImageBlob(file),
     animatedPoster(file).catch(() => null),
   ]);
+  if (!thumbnail) return null;
   return {
     kind: 'image',
     blob,
@@ -211,7 +213,11 @@ async function prepareAnimatedImage(file: File, info: ImageInfo): Promise<Prepar
 
 export async function prepareImage(file: File): Promise<PreparedMedia> {
   const info = await probeImageFile(file);
-  if (info?.animated) return prepareAnimatedImage(file, info);
+  if (info?.animated) {
+    const animated = await prepareAnimatedImage(file, info);
+    if (animated) return animated;
+    // No poster: sent as a still photo below (or the decode fails there like it did here).
+  }
   const img = await decodeImage(file);
   try {
     const thumbnail = await makeThumbnail(img.source, img.width, img.height).catch(() => null);

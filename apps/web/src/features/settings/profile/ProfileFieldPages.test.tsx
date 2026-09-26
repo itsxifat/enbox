@@ -102,6 +102,20 @@ describe('ColoursPage', () => {
     expect(useAuth.getState().user?.accentColor).toBe('#0e7fc0');
   });
 
+  it('a valid colour edited into an invalid one blocks Save and leaves the preview', () => {
+    mockPatch();
+    wrap(<ColoursPage />);
+    const save = screen.getByRole('button', { name: 'Save' });
+    const profile = screen.getByTestId('profile-color-input');
+    fireEvent.change(profile, { target: { value: '#6d5dfc' } });
+    expect(save).toBeEnabled();
+    expect(screen.getByTestId('card-banner').style.background).toContain('#6d5dfc');
+    fireEvent.change(profile, { target: { value: '#6d5df' } });
+    expect(screen.getByText('Use a #rrggbb colour')).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    expect(screen.getByTestId('card-banner').style.background).not.toContain('#6d5dfc');
+  });
+
   it('"Use default" clears both colours', async () => {
     useAuth.setState({
       user: makeMe({ id: 'me', profileColor: '#112233', accentColor: '#445566' }),
