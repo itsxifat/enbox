@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Mic, MicOff, MonitorUp, PhoneOff, SwitchCamera, Volume2 } from 'lucide-react';
-import { VideoIcon, VideoOffIcon } from '@/components/icons';
+import { Mic, MicOff, MonitorUp, SwitchCamera, Volume2 } from 'lucide-react';
+import { PhoneOffIcon, VideoIcon, VideoOffIcon } from '@/components/icons';
 import { DropdownMenu } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useCalls, type ActiveCall } from '@/stores/calls';
@@ -100,7 +100,7 @@ export function CallControls({ active }: { active: ActiveCall }) {
           />
         ) : null}
         <CallButton
-          icon={PhoneOff}
+          icon={PhoneOffIcon}
           label={active.outgoing && !active.connectedAt ? 'Cancel call' : 'End call'}
           tone="danger"
           size={desktop ? 'md' : 'lg'}

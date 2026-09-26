@@ -9,7 +9,6 @@ import {
   Eraser,
   Info,
   LogOut,
-  Phone,
   Search,
   Timer,
   Trash2,
@@ -24,7 +23,7 @@ import {
   type ChatSummary,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
-import { VideoIcon } from '@/components/icons';
+import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { DropdownMenu, IconButton, choose, toast, type MenuEntry } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -219,7 +218,7 @@ export function ConversationHeader({
                 onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
               />
               <IconButton
-                icon={Phone}
+                icon={PhoneIcon}
                 label="Voice call"
                 onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
               />

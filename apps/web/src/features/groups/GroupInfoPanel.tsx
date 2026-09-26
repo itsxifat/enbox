@@ -16,7 +16,6 @@ import {
   LogOut,
   Megaphone,
   Pencil,
-  Phone,
   Search,
   Settings2,
   Star,
@@ -35,7 +34,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
-import { ICON_STROKE_ON_FILL, VideoIcon } from '@/components/icons';
+import { ICON_STROKE_ON_FILL, PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Button, IconButton, Switch, confirm, toast } from '@/components/ui';
 import type { InfoPanelProps } from '@/features/contacts/ContactInfoPanel';
@@ -348,7 +347,7 @@ function GroupInfoMain({
               {p.canCall ? (
                 <>
                   <QuickAction
-                    icon={Phone}
+                    icon={PhoneIcon}
                     label="Audio"
                     onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
                   />

@@ -141,14 +141,16 @@ export const CallsFilledIcon = createIcon('enbox-calls-filled', () => (
 ));
 
 // ---------------------------------------------------------------------------
-// Video — camera with a squarer, taller body than lucide's (14 vs 12 units), so it matches the
-// optical size of the handset and search glyphs beside it (chat header, call buttons, call
-// log). Use these instead of lucide's Video / VideoOff (enforced by ESLint). Off: the slash
-// cuts a clean gap through the camera.
+// Call actions — camera and handsets drawn as one optically matched set (chat header, call
+// buttons, call log, bubbles, call screens). At 22px lucide's camera is 12.5px tall beside a
+// 19.8px handset and reads much smaller. Here the camera has a squarer 15-unit body and every
+// call handset is lucide's geometry at 90% (same line weight), so camera, handset and the
+// search glyph measure about the same: 18.9×15.3, 18×18 and 18×18px. Use these instead of
+// lucide's Video* / Phone* icons (enforced by ESLint). Off variants: the slash cuts a clean gap.
 // ---------------------------------------------------------------------------
-const CAMERA_BODY = { x: 2, y: 5, width: 14, height: 14, rx: 3 } as const;
+const CAMERA_BODY = { x: 2.5, y: 4.5, width: 14, height: 15, rx: 3.25 } as const;
 const CAMERA_LENS =
-  'M16 10.25l4.893-2.65a.75.75 0 0 1 1.107.659v7.482a.75.75 0 0 1-1.107.659L16 13.75';
+  'M16.5 10.25l3.82-2.674a.75.75 0 0 1 1.18.614v7.62a.75.75 0 0 1-1.18.614L16.5 13.75';
 const SLASH = 'M2 2l20 20';
 
 export const VideoIcon = createIcon('enbox-video', () => (
@@ -171,6 +173,42 @@ export const VideoOffIcon = createIcon('enbox-video-off', ({ uid, sw }) => (
     <path d={SLASH} />
   </>
 ));
+
+/** 90% around the center; the stroke is scaled back up so the line weight stays the same. */
+const CALL_SCALE = 0.9;
+const CALL_TRANSFORM = 'matrix(.9 0 0 .9 1.2 1.2)';
+
+const callIcon = (name: string, paths: readonly string[]) =>
+  createIcon(name, ({ sw }) => (
+    <g transform={CALL_TRANSFORM} strokeWidth={sw / CALL_SCALE}>
+      {paths.map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </g>
+  ));
+
+export const PhoneIcon = callIcon('enbox-phone', [HANDSET]);
+export const PhoneCallIcon = callIcon('enbox-phone-call', [
+  'M13 2a9 9 0 0 1 9 9',
+  'M13 6a5 5 0 0 1 5 5',
+  HANDSET,
+]);
+export const PhoneIncomingIcon = callIcon('enbox-phone-incoming', [
+  'M16 2v6h6',
+  'm22 2-6 6',
+  HANDSET,
+]);
+export const PhoneOutgoingIcon = callIcon('enbox-phone-outgoing', [
+  'm16 8 6-6',
+  'M22 8V2h-6',
+  HANDSET,
+]);
+export const PhoneMissedIcon = callIcon('enbox-phone-missed', ['m16 2 6 6', 'm22 2-6 6', HANDSET]);
+export const PhoneOffIcon = callIcon('enbox-phone-off', [
+  'M10.1 13.9a14 14 0 0 0 3.732 2.668 1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2 18 18 0 0 1-12.728-5.272',
+  'M22 2 2 22',
+  'M4.76 13.582A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 .244.473',
+]);
 
 // ---------------------------------------------------------------------------
 // Settings — gear (filled: solid gear with a round hub hole)

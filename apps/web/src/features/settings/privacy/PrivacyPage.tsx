@@ -1,14 +1,5 @@
-import {
-  CircleUserRound,
-  Clock,
-  Eye,
-  Info,
-  PhoneOff,
-  ShieldBan,
-  Timer,
-  UsersRound,
-} from 'lucide-react';
-import { UpdatesIcon } from '@/components/icons';
+import { CircleUserRound, Clock, Eye, Info, ShieldBan, Timer, UsersRound } from 'lucide-react';
+import { PhoneOffIcon, UpdatesIcon } from '@/components/icons';
 import { useMe } from '@/stores/auth';
 import { useBlockedUsers } from '@/stores/contacts';
 import {
@@ -86,7 +77,7 @@ export function PrivacyPage() {
           to="/settings/privacy/groups"
         />
         <SwitchRow
-          icon={PhoneOff}
+          icon={PhoneOffIcon}
           title="Silence unknown callers"
           description="Calls from people who aren't in your contacts won't ring. They still show in your call history."
           checked={s.silenceUnknownCallers}

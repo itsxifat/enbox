@@ -1,9 +1,10 @@
 /** Quick profile card for a member (group/community/channel member lists). */
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { AtSign, MessageCircle, Phone, Info } from 'lucide-react';
+import { AtSign, MessageCircle, Info } from 'lucide-react';
 import { userDisplayName, type ID } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { PhoneIcon } from '@/components/icons';
 import { Button, Modal, toast } from '@/components/ui';
 import { formatLastSeen } from '@/lib/format';
 import { getMyId } from '@/stores/auth';
@@ -46,7 +47,7 @@ export function UserProfileModal({ userId, onClose }: { userId: ID | null; onClo
       <dl className="mt-3 flex flex-col gap-3 rounded-2xl bg-surface-2 p-4 text-left">
         {user?.username ? <Row icon={AtSign} label="Username" value={`@${user.username}`} /> : null}
         {user?.about ? <Row icon={Info} label="About" value={user.about} /> : null}
-        {user?.phone ? <Row icon={Phone} label="Phone" value={user.phone} /> : null}
+        {user?.phone ? <Row icon={PhoneIcon} label="Phone" value={user.phone} /> : null}
       </dl>
       {!me && !user?.isDeleted ? (
         <div className="mt-4 flex justify-center pb-2">

@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { AtSign, Phone } from 'lucide-react';
+import { AtSign } from 'lucide-react';
 import {
   DISPLAY_NAME_MAX_LENGTH,
   type AddContactRequest,
   type Contact,
   type UserPublic,
 } from '@enbox/shared';
+import { PhoneIcon } from '@/components/icons';
 import { Button, Input, Modal, Tabs, toast } from '@/components/ui';
 import { canonicalPhone, normalizeUsernameInput, usernameIssue } from '@/features/auth/validation';
 import { ApiError, errorMessage } from '@/lib/api';
@@ -116,7 +117,7 @@ export function AddContactDialog({ open, onClose, initialQuery, onAdded }: AddCo
               value: 'phone',
               label: (
                 <>
-                  <Phone size={16} aria-hidden /> Phone
+                  <PhoneIcon size={16} aria-hidden /> Phone
                 </>
               ),
             },

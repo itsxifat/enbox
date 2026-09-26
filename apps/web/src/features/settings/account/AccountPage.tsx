@@ -1,4 +1,5 @@
-import { KeyRound, Laptop, LogOut, Phone, Trash2, UserRoundCog } from 'lucide-react';
+import { KeyRound, Laptop, LogOut, Trash2, UserRoundCog } from 'lucide-react';
+import { PhoneIcon } from '@/components/icons';
 import { confirm } from '@/components/ui';
 import { formatShortDate } from '@/lib/format';
 import { useAuth, useMe } from '@/stores/auth';
@@ -42,7 +43,7 @@ export function AccountPage() {
           to="/settings/profile"
         />
         <SettingsRow
-          icon={Phone}
+          icon={PhoneIcon}
           title="Phone number"
           description={me.phone ?? 'Not added'}
           to="/settings/profile"

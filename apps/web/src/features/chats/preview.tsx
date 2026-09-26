@@ -11,10 +11,6 @@ import {
   Headphones,
   MapPin,
   Mic,
-  Phone,
-  PhoneIncoming,
-  PhoneMissed,
-  PhoneOutgoing,
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,7 +23,13 @@ import {
   type Message,
   type MessageType,
 } from '@enbox/shared';
-import { VideoIcon } from '@/components/icons';
+import {
+  PhoneIcon,
+  PhoneIncomingIcon,
+  PhoneMissedIcon,
+  PhoneOutgoingIcon,
+  VideoIcon,
+} from '@/components/icons';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
 import { nameOf } from '@/stores/users';
@@ -81,12 +83,12 @@ export function previewParts(
       m.call.callType === 'video'
         ? VideoIcon
         : missed
-          ? PhoneMissed
+          ? PhoneMissedIcon
           : outcome === 'ongoing'
-            ? Phone
+            ? PhoneIcon
             : direction === 'outgoing'
-              ? PhoneOutgoing
-              : PhoneIncoming;
+              ? PhoneOutgoingIcon
+              : PhoneIncomingIcon;
     return { icon, text, danger: missed };
   }
   if (m.type === 'voice') {
