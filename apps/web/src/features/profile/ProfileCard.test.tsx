@@ -55,16 +55,16 @@ beforeEach(() => {
 describe('ProfileCard: fields', () => {
   it('renders the banner, names, pronouns, state, note, bio, about and member since', () => {
     const { container } = renderCard(<ProfileCard user={bob()} />);
-    expect(screen.getByTestId('profile-name')).toHaveTextContent('Bobby');
+    expect(screen.getByTestId('card-name')).toHaveTextContent('Bobby');
     expect(screen.getByText('~Bob Stone')).toBeInTheDocument();
     expect(screen.getByText(/@bobstone/)).toBeInTheDocument();
-    expect(screen.getByTestId('profile-pronouns')).toHaveTextContent('he/him');
-    expect(screen.getByTestId('profile-state')).toHaveTextContent('Idle');
-    expect(screen.getByTestId('profile-note')).toHaveTextContent('🎧 Focus');
-    expect(screen.getByTestId('profile-bio')).toHaveTextContent('Climber. Coffee.');
-    expect(screen.getByTestId('profile-about')).toHaveTextContent('At the gym');
-    expect(screen.getByTestId('profile-member-since')).toHaveTextContent('January 2025');
-    const banner = screen.getByTestId('profile-banner');
+    expect(screen.getByTestId('card-pronouns')).toHaveTextContent('he/him');
+    expect(screen.getByTestId('card-state')).toHaveTextContent('Idle');
+    expect(screen.getByTestId('card-note')).toHaveTextContent('🎧 Focus');
+    expect(screen.getByTestId('card-bio')).toHaveTextContent('Climber. Coffee.');
+    expect(screen.getByTestId('card-about')).toHaveTextContent('At the gym');
+    expect(screen.getByTestId('card-member-since')).toHaveTextContent('January 2025');
+    const banner = screen.getByTestId('card-banner');
     expect(banner.querySelector('img')).toHaveAttribute('src', '/uploads/banner.webp');
     expect(banner.style.background).toContain('#112233');
     expect(container.querySelector('[data-presence="idle"]')).toBeInTheDocument();
@@ -78,14 +78,14 @@ describe('ProfileCard: fields', () => {
         user={makeUser({ id: 'u', displayName: 'Quiet Person', online: null, about: null })}
       />,
     );
-    expect(screen.getByTestId('profile-name')).toHaveTextContent('Quiet Person');
-    expect(screen.queryByTestId('profile-pronouns')).toBeNull();
-    expect(screen.queryByTestId('profile-bio')).toBeNull();
-    expect(screen.queryByTestId('profile-about')).toBeNull();
-    expect(screen.queryByTestId('profile-note')).toBeNull();
-    expect(screen.queryByTestId('profile-state')).toBeNull();
-    expect(screen.getByTestId('profile-banner').querySelector('img')).toBeNull();
-    expect(screen.getByTestId('profile-banner').style.background).toContain('var(--brand)');
+    expect(screen.getByTestId('card-name')).toHaveTextContent('Quiet Person');
+    expect(screen.queryByTestId('card-pronouns')).toBeNull();
+    expect(screen.queryByTestId('card-bio')).toBeNull();
+    expect(screen.queryByTestId('card-about')).toBeNull();
+    expect(screen.queryByTestId('card-note')).toBeNull();
+    expect(screen.queryByTestId('card-state')).toBeNull();
+    expect(screen.getByTestId('card-banner').querySelector('img')).toBeNull();
+    expect(screen.getByTestId('card-banner').style.background).toContain('var(--brand)');
     expect(container.querySelector('[data-presence]')).toBeNull();
   });
 
@@ -96,8 +96,8 @@ describe('ProfileCard: fields', () => {
         presence={{ userId: 'bob', online: true, state: 'dnd', note: null, lastSeenAt: null }}
       />,
     );
-    expect(screen.getByTestId('profile-state')).toHaveTextContent('Do not disturb');
-    expect(screen.queryByTestId('profile-note')).toBeNull();
+    expect(screen.getByTestId('card-state')).toHaveTextContent('Do not disturb');
+    expect(screen.queryByTestId('card-note')).toBeNull();
     expect(container.querySelector('[data-presence="dnd"]')).toBeInTheDocument();
   });
 
@@ -109,7 +109,7 @@ describe('ProfileCard: fields', () => {
         })}
       />,
     );
-    expect(screen.queryByTestId('profile-note')).toBeNull();
+    expect(screen.queryByTestId('card-note')).toBeNull();
   });
 
   it('lists groups in common and opens one', () => {
@@ -118,14 +118,14 @@ describe('ProfileCard: fields', () => {
     const { rerender } = renderCard(
       <ProfileCard user={bob()} commonGroups={null} onNavigate={onNavigate} />,
     );
-    expect(screen.queryByTestId('profile-common-groups')).toBeNull();
+    expect(screen.queryByTestId('card-common-groups')).toBeNull();
     rerender(
       <MemoryRouter initialEntries={['/contacts']}>
         <Path />
         <ProfileCard user={bob()} commonGroups={groups} onNavigate={onNavigate} />
       </MemoryRouter>,
     );
-    expect(screen.getByTestId('profile-common-groups')).toHaveTextContent('2 groups in common');
+    expect(screen.getByTestId('card-common-groups')).toHaveTextContent('2 groups in common');
     fireEvent.click(screen.getByRole('button', { name: 'Hiking' }));
     expect(onNavigate).toHaveBeenCalled();
     expect(screen.getByTestId('path')).toHaveTextContent('/chats/g1');
@@ -218,7 +218,7 @@ describe('ProfileCard: actions', () => {
         <ProfileCard user={makeUser({ isDeleted: true, displayName: 'Gone' })} />
       </MemoryRouter>,
     );
-    expect(screen.getByTestId('profile-name')).toHaveTextContent('Deleted account');
+    expect(screen.getByTestId('card-name')).toHaveTextContent('Deleted account');
     expect(screen.getByText('This account was deleted.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Message' })).toBeNull();
   });

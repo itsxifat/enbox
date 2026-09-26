@@ -1,16 +1,30 @@
 import { useState } from 'react';
-import { AtSign, Check, CircleUserRound, Copy, Info, Link2, Share2 } from 'lucide-react';
+import {
+  AtSign,
+  Check,
+  CircleUserRound,
+  Copy,
+  Info,
+  Link2,
+  Palette,
+  ScrollText,
+  Share2,
+  Tag,
+} from 'lucide-react';
 import { DISPLAY_NAME_MAX_LENGTH } from '@enbox/shared';
 import { PhoneIcon } from '@/components/icons';
 import { Button, IconButton, Spinner, toast } from '@/components/ui';
 import { useUsernameAvailability } from '@/features/auth/usernameAvailability';
 import { canonicalPhone, normalizeUsernameInput, usernameIssue } from '@/features/auth/validation';
+import { selfCardUser } from '@/features/profile/model';
+import { ProfileCard } from '@/features/profile/ProfileCard';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/stores/auth';
 import { EditFieldModal } from '../EditFieldModal';
 import { updateProfile } from '../settingsApi';
 import { SettingsGroup, SettingsRow, SettingsScroller } from '../ui';
 import { AvatarEditor } from './AvatarEditor';
+import { BannerEditor } from './BannerEditor';
 
 /** Public share link for my profile (`/u/<username>`, opened by features/contacts). */
 export function profileLink(username: string): string {
@@ -19,7 +33,21 @@ export function profileLink(username: string): string {
 
 type Editing = 'name' | 'username' | 'phone' | null;
 
-/** Settings → Profile: photo, name, about, username, phone, share link. */
+/** Small colour chip for the "Profile colours" row. */
+function Swatch({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden
+      className="inline-block size-3 rounded-full ring-1 ring-line-strong ring-inset"
+      style={{ backgroundColor: color }}
+    />
+  );
+}
+
+/**
+ * Settings → Profile: a live preview of my profile card, banner, photo, name, pronouns,
+ * about, bio, profile colours, username, phone and the share link.
+ */
 export function ProfilePage() {
   const me = useMe();
   const [editing, setEditing] = useState<Editing>(null);
@@ -48,6 +76,27 @@ export function ProfilePage() {
 
   return (
     <SettingsScroller>
+      {/* What others see on the card (their privacy view may hide some of it). */}
+      <SettingsGroup title="Preview">
+        <div className="p-4 lg:p-5" data-testid="profile-preview">
+          <ProfileCard
+            user={selfCardUser(me)}
+            self
+            preview
+            className="rounded-2xl border border-line"
+          />
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Banner"
+        footer="Shown at the top of your profile card. JPEG, PNG, WebP or GIF, cropped to 5:2."
+      >
+        <div className="p-4 lg:p-5">
+          <BannerEditor />
+        </div>
+      </SettingsGroup>
+
       <div className="flex flex-col items-center gap-3 px-6 pt-8 pb-6 lg:pt-2 lg:pb-0">
         <AvatarEditor size={160} />
         <div className="mt-2 text-center">
@@ -65,11 +114,50 @@ export function ProfilePage() {
           testId="profile-name"
         />
         <SettingsRow
+          icon={Tag}
+          title="Pronouns"
+          description={me.pronouns ?? 'Add your pronouns'}
+          to="/settings/profile/pronouns"
+          testId="profile-pronouns"
+        />
+        <SettingsRow
           icon={Info}
           title="About"
           description={me.about || 'Add a few words about yourself'}
           to="/settings/profile/about"
           testId="profile-about"
+        />
+        <SettingsRow
+          icon={ScrollText}
+          title="Bio"
+          description={
+            me.bio ? (
+              <span className="line-clamp-2 whitespace-pre-line">{me.bio}</span>
+            ) : (
+              'Tell people about yourself'
+            )
+          }
+          to="/settings/profile/bio"
+          testId="profile-bio"
+        />
+        <SettingsRow
+          icon={Palette}
+          title="Profile colours"
+          description={
+            me.profileColor || me.accentColor ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Swatch color={me.profileColor ?? 'var(--brand)'} />
+                {me.profileColor ?? 'Default'}
+                <span aria-hidden>·</span>
+                <Swatch color={me.accentColor ?? me.profileColor ?? 'var(--brand)'} />
+                {me.accentColor ?? 'Default'}
+              </span>
+            ) : (
+              'Default'
+            )
+          }
+          to="/settings/profile/colours"
+          testId="profile-colours"
         />
         <SettingsRow
           icon={AtSign}

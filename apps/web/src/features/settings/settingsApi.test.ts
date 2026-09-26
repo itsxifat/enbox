@@ -69,6 +69,32 @@ describe('updateSettings', () => {
     expect(useUi.getState().toasts.at(-1)).toMatchObject({ kind: 'error', message: 'Boom' });
   });
 
+  it('updateProfile applies the text fields optimistically and reverts them on failure', async () => {
+    useAuth.setState({ user: makeMe({ bio: 'old', pronouns: null, profileColor: '#112233' }) });
+    let reject!: (e: unknown) => void;
+    vi.spyOn(api, 'patch').mockReturnValue(new Promise((_, r) => (reject = r)));
+    const p = updateProfile({
+      bio: 'new',
+      pronouns: 'they/them',
+      profileColor: null,
+      avatarMediaId: 'media-1',
+    });
+    expect(useAuth.getState().user).toMatchObject({
+      bio: 'new',
+      pronouns: 'they/them',
+      profileColor: null,
+    });
+    // Media ids are not profile fields: nothing to apply before the response.
+    expect(useAuth.getState().user?.avatarUrl).toBeNull();
+    reject(new Error('boom'));
+    await expect(p).rejects.toThrow('boom');
+    expect(useAuth.getState().user).toMatchObject({
+      bio: 'old',
+      pronouns: null,
+      profileColor: '#112233',
+    });
+  });
+
   it('updateProfile replaces the cached user with the response', async () => {
     const next = makeMe({ displayName: 'New Name' });
     vi.spyOn(api, 'patch').mockResolvedValue(next);

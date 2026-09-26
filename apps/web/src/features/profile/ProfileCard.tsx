@@ -104,7 +104,7 @@ export function ProfileCard({
           background: profileGradient(user.profileColor, user.accentColor),
           borderBottom: user.accentColor ? `3px solid ${user.accentColor}` : undefined,
         }}
-        data-testid="profile-banner"
+        data-testid="card-banner"
       >
         {banner ? (
           <img src={banner} alt="" className="size-full object-cover" draggable={false} />
@@ -128,7 +128,7 @@ export function ProfileCard({
         <div className="min-w-0">
           <h2
             className="truncate text-[19px] leading-tight font-semibold text-fg"
-            data-testid="profile-name"
+            data-testid="card-name"
           >
             {name}
           </h2>
@@ -139,20 +139,20 @@ export function ProfileCard({
               {user.pronouns ? (
                 <>
                   {' · '}
-                  <span data-testid="profile-pronouns">{user.pronouns}</span>
+                  <span data-testid="card-pronouns">{user.pronouns}</span>
                 </>
               ) : null}
             </p>
           ) : null}
           {state && state !== 'offline' ? (
-            <p className="mt-1 text-[12.5px] text-subtle" data-testid="profile-state">
+            <p className="mt-1 text-[12.5px] text-subtle" data-testid="card-state">
               {capitalize(presenceLabel(state))}
             </p>
           ) : null}
           {note ? (
             <p
               className="mt-1.5 inline-block max-w-full rounded-lg bg-surface-2 px-2.5 py-1.5 text-[13.5px] break-words text-fg"
-              data-testid="profile-note"
+              data-testid="card-note"
             >
               {formatPresenceNote(note)}
             </p>
@@ -164,7 +164,7 @@ export function ProfileCard({
             <h3 className={LABEL}>About me</h3>
             <p
               className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-fg"
-              data-testid="profile-bio"
+              data-testid="card-bio"
             >
               {user.bio}
             </p>
@@ -173,7 +173,7 @@ export function ProfileCard({
         {user.about ? (
           <section>
             <h3 className={LABEL}>About</h3>
-            <p className="text-[14px] break-words text-fg" data-testid="profile-about">
+            <p className="text-[14px] break-words text-fg" data-testid="card-about">
               {user.about}
             </p>
           </section>
@@ -181,7 +181,7 @@ export function ProfileCard({
         {user.createdAt ? (
           <section>
             <h3 className={LABEL}>Member since</h3>
-            <p className="text-[14px] text-fg" data-testid="profile-member-since">
+            <p className="text-[14px] text-fg" data-testid="card-member-since">
               {formatMonthYear(user.createdAt)}
             </p>
           </section>
@@ -216,7 +216,7 @@ function CommonGroups({
   if (!groups.length) return null;
   const shown = groups.slice(0, 3);
   return (
-    <section data-testid="profile-common-groups">
+    <section data-testid="card-common-groups">
       <h3 className={LABEL}>
         {groups.length === 1 ? '1 group in common' : `${groups.length} groups in common`}
       </h3>

@@ -24,7 +24,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'profile',
     title: 'Profile',
-    description: 'Name, photo, about, username',
+    description: 'Name, photo, banner, bio, colours',
     icon: CircleUserRound,
     tint: '#7c6cf8',
   },
