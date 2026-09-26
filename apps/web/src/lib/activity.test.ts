@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRESENCE_IDLE_AFTER_MS } from '@enbox/shared';
+import { PRESENCE_HIDDEN_IDLE_MS, PRESENCE_IDLE_AFTER_MS } from '@enbox/shared';
 import { sendEvent } from '@/lib/socket';
 import type * as SocketModule from '@/lib/socket';
-import { isIdle, reportActivity, startActivityTracking, stopActivityTracking } from './activity';
+import {
+  SEND_MIN_INTERVAL_MS,
+  isIdle,
+  reportActivity,
+  startActivityTracking,
+  stopActivityTracking,
+} from './activity';
 
 vi.mock('@/lib/socket', async (importOriginal) => {
   const actual = await importOriginal<typeof SocketModule>();
@@ -42,7 +48,35 @@ describe('activity tracking', () => {
 
     window.dispatchEvent(new Event('pointerdown'));
     expect(isIdle()).toBe(false);
+    vi.advanceTimersByTime(SEND_MIN_INTERVAL_MS);
     expect(activitySends()).toEqual([{ idle: true }, { idle: false }]);
+  });
+
+  it('coalesces quick transitions into one trailing send of the latest state', () => {
+    vi.advanceTimersByTime(PRESENCE_IDLE_AFTER_MS);
+    expect(activitySends()).toEqual([{ idle: true }]);
+    // Active again right after: sent once the minimum interval has passed.
+    window.dispatchEvent(new Event('pointerdown'));
+    expect(isIdle()).toBe(false);
+    expect(activitySends()).toEqual([{ idle: true }]);
+    vi.advanceTimersByTime(SEND_MIN_INTERVAL_MS - 1);
+    expect(activitySends()).toEqual([{ idle: true }]);
+    window.dispatchEvent(new Event('keydown')); // more input meanwhile: still one send
+    vi.advanceTimersByTime(1);
+    expect(activitySends()).toEqual([{ idle: true }, { idle: false }]);
+    // A reconnect's report sends at once and supersedes a pending trailing send.
+    vi.advanceTimersByTime(PRESENCE_IDLE_AFTER_MS);
+    expect(activitySends()).toEqual([{ idle: true }, { idle: false }, { idle: true }]);
+    window.dispatchEvent(new Event('pointerdown'));
+    reportActivity();
+    expect(activitySends()).toEqual([
+      { idle: true },
+      { idle: false },
+      { idle: true },
+      { idle: false },
+    ]);
+    vi.advanceTimersByTime(SEND_MIN_INTERVAL_MS);
+    expect(activitySends()).toHaveLength(4);
   });
 
   it('input keeps the device active (the timer restarts) and sends nothing while active', () => {
@@ -55,14 +89,22 @@ describe('activity tracking', () => {
     expect(isIdle()).toBe(true);
   });
 
-  it('a hidden page is idle at once; showing it again is activity', () => {
+  it('a page hidden for PRESENCE_HIDDEN_IDLE_MS is idle; a quick switch away and back sends nothing', () => {
     setVisibility('hidden');
+    vi.advanceTimersByTime(PRESENCE_HIDDEN_IDLE_MS - 1);
+    expect(isIdle()).toBe(false);
+    setVisibility('visible');
+    expect(activitySends()).toEqual([]);
+
+    setVisibility('hidden');
+    vi.advanceTimersByTime(PRESENCE_HIDDEN_IDLE_MS);
     expect(isIdle()).toBe(true);
     expect(activitySends()).toEqual([{ idle: true }]);
     // Input while hidden (a key repeat, a wheel event) doesn't count.
     window.dispatchEvent(new Event('wheel'));
     expect(isIdle()).toBe(true);
 
+    vi.advanceTimersByTime(SEND_MIN_INTERVAL_MS);
     setVisibility('visible');
     expect(isIdle()).toBe(false);
     expect(activitySends()).toEqual([{ idle: true }, { idle: false }]);

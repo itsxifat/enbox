@@ -715,7 +715,11 @@ last_seen_at : null`; `note` = the unexpired note only while `state ∈ {online,
   PRESENCE_IDLE_AFTER_MS, or the app hidden) and after every `ready`; the server keeps an
   idle flag per counted socket (ignored until the socket counts, dropped with it); the user
   is auto-idle when **every** counted socket is idle; a change re-evaluates their
-  subscribers. Rate limit `presenceActivity` per socket, excess dropped silently.
+  subscribers. Rate limit `presenceActivity` per socket: an excess event still sets the flag
+  (it is state, not a pulse — a dropped transition must not leave a device idle or active
+  for good) and only its re-evaluation is dropped, silently. The web client goes idle only
+  after the page has been hidden for PRESENCE_HIDDEN_IDLE_MS and coalesces quick
+  transitions, so tab switching stays far below the limit.
 - **Do not disturb** (`isDnd`, shared, checked on the server and on clients): no `message`,
   `call` or `call_cancel` push; clients play no sounds and show no in-app notifications;
   calls ring silently — the callee joins `silentUserIds` (no ringtone, no `call:ringing`,
@@ -981,7 +985,7 @@ chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
 | Per IP (lib/rateLimit.ts)               | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min                                                                                 |
 | Per user (`USER_RATE_LIMITS`)           | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact), profileUpdate 20/min (`PATCH /me`, `PUT /me/presence`, `PUT/DELETE /me/presence-note`) |
 | Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                                                                                                   |
-| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min, presenceActivity 30/min (dropped silently); server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)                                                   |
+| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min, presenceActivity 30/min (the flag still applies; the re-evaluation is dropped silently); server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)      |
 
 ## Jobs
 

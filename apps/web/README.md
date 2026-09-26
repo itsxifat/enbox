@@ -396,8 +396,11 @@ until)` → `PUT /api/me/presence`, `setPresenceNote` / `clearPresenceNote` →
   (`activePresenceNote`), so chat headers, contact info and `/u/:username` show them; avatars
   with `showPresence` show the glyphs. **Idle**: `lib/activity.ts` watches pointer / keyboard /
   wheel / touch input and page visibility, sends `presence:activity { idle }` on transitions
-  (after `PRESENCE_IDLE_AFTER_MS` without input, or when hidden) and re-sends the state on
-  every `ready` (`resyncUsers`); started by `registerUserHandlers`, stopped with the session.
+  (after `PRESENCE_IDLE_AFTER_MS` without input, or `PRESENCE_HIDDEN_IDLE_MS` hidden — a quick
+  tab switch sends nothing; transitions closer together than `SEND_MIN_INTERVAL_MS` become one
+  trailing send of the latest state, so the server's per-socket limit is never reached) and
+  re-sends the state on every `ready` (`resyncUsers`); started by `registerUserHandlers`,
+  stopped with the session.
   **Do not disturb** (`isDnd(me)`): `notifyIncoming` plays no sound and shows no notification
   (badges unaffected) and an incoming call is forced `silent` (silenced card, no ringtone, no
   `call:ringing`).

@@ -30,6 +30,11 @@ export const PRONOUNS_MAX_LENGTH = 40;
 export const PRESENCE_NOTE_MAX_LENGTH = 128;
 /** A device reports `presence:activity { idle: true }` after this long without user input. */
 export const PRESENCE_IDLE_AFTER_MS = 600_000;
+/**
+ * …or after this long with the page hidden: a quick tab switch or an occluded window
+ * (Chrome reports it hidden) is not absence, and every transition costs a rate-limited event.
+ */
+export const PRESENCE_HIDDEN_IDLE_MS = 30_000;
 
 /** User search (`GET /api/users/search`): username prefix matching needs this many chars. */
 export const USER_SEARCH_MIN_PREFIX = 3;

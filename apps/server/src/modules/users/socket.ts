@@ -27,9 +27,12 @@ presenceEvents.on('activity', (userId) => void reevaluatePresence(userId));
  *   MAX_PRESENCE_SUBSCRIPTIONS per socket are ignored);
  * - `presence:unsubscribe { userIds }`;
  * - `presence:activity { idle }` (no ack: this device's idle flag, kept per counted socket in
- *   realtime/presence.ts and ignored until the socket counts; excess events beyond
- *   USER_RATE_LIMITS.presenceActivity are dropped). When the user's auto-idle state changes
- *   (idle iff every counted socket is idle) their subscribers are re-evaluated.
+ *   realtime/presence.ts and ignored until the socket counts). When the user's auto-idle
+ *   state changes (idle iff every counted socket is idle) their subscribers are
+ *   re-evaluated. The flag is state, not a pulse, so it is applied even beyond
+ *   USER_RATE_LIMITS.presenceActivity — only the re-evaluation is dropped then, and the next
+ *   allowed event or any other re-evaluation shows the right state; a dropped transition
+ *   can never leave a device idle or active for good.
  * Subscriptions are per socket and die with it (clients re-subscribe after every `ready`,
  * and re-send their idle state).
  */
@@ -50,8 +53,9 @@ export const registerUsersSocket: SocketRegistrar = (_io, socket) => {
   socket.on(
     'presence:activity',
     socketHandler(socket, presenceActivitySchema, ({ idle }, { userId }) => {
+      const changed = setSocketIdle(userId, socket.id, idle);
       assertUserLimit(socket.id, 'presenceActivity', USER_RATE_LIMITS.presenceActivity);
-      if (setSocketIdle(userId, socket.id, idle)) presenceEvents.emit('activity', userId);
+      if (changed) presenceEvents.emit('activity', userId);
     }),
   );
   socket.on('disconnect', () => forgetPresenceSocket(socket.id));

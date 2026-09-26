@@ -7,7 +7,7 @@ import { users } from '../../src/db/schema.js';
 import { runJobsOnce } from '../../src/jobs/index.js';
 import { resetUserLimits } from '../../src/lib/userLimit.js';
 import { presenceIdle } from '../../src/modules/users/presence.js';
-import { isOnline } from '../../src/realtime/presence.js';
+import { autoIdle, isOnline } from '../../src/realtime/presence.js';
 import { rawAck } from '../calls/helpers.js';
 import {
   emitAck,
@@ -691,9 +691,14 @@ describe('presence: subscribe, updates, per-viewer privacy', () => {
           ok: false,
           error: { code: 'rate_limited' },
         });
-        s.emit('presence:activity', { idle: true }); // without an ack: dropped silently
+        // The flag is state, not a pulse: it is applied even when the event is over the
+        // limit (only the re-evaluation is skipped), so a dropped transition cannot leave
+        // the device idle — or active — for good.
+        expect(autoIdle(u.id)).toBe(true);
+        s.emit('presence:activity', { idle: false }); // without an ack: dropped silently
         await settle(100);
         expect(s.connected).toBe(true);
+        expect(autoIdle(u.id)).toBe(false);
         const other = await t.connect(u); // another socket has its own budget
         expect((await rawAck(other, 'presence:activity', { idle: true })).ok).toBe(true);
       } finally {
