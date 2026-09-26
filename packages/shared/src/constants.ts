@@ -23,6 +23,13 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const DISPLAY_NAME_MAX_LENGTH = 64;
 export const ABOUT_MAX_LENGTH = 140;
 export const DEFAULT_ABOUT = 'Hey there! I am using Enbox.';
+/** Profile card "About me" (`bio`, multi-line). `about` stays the one-line status shown in chats. */
+export const BIO_MAX_LENGTH = 190;
+export const PRONOUNS_MAX_LENGTH = 40;
+/** Custom presence note text (`PresenceNote.text`). */
+export const PRESENCE_NOTE_MAX_LENGTH = 128;
+/** A device reports `presence:activity { idle: true }` after this long without user input. */
+export const PRESENCE_IDLE_AFTER_MS = 600_000;
 
 /** User search (`GET /api/users/search`): username prefix matching needs this many chars. */
 export const USER_SEARCH_MIN_PREFIX = 3;
@@ -201,8 +208,33 @@ export const MAX_FILE_NAME_LENGTH = 200;
 export const IMAGE_MAX_DIMENSION = 2_560;
 /** Clients re-encode avatars so the longest side is at most this. */
 export const AVATAR_MAX_DIMENSION = 640;
-/** Raster types accepted as avatars (user, group, community, channel). */
+/** Raster types accepted as static avatars (user, group, community, channel). */
 export const AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/**
+ * Animated avatars (GIF, animated WebP, APNG — `MediaAttachment.animated`) may be larger
+ * than static ones and MUST carry a static poster (multipart `thumbnail`): `avatarUrl` is
+ * always the static image, `avatarAnimatedUrl` the animation.
+ */
+export const MAX_ANIMATED_AVATAR_BYTES = 8 * 1024 * 1024;
+/** Raster types that can be animated (APNG sniffs as `image/png`). Never AVIF for profile media. */
+export const ANIMATED_IMAGE_MIME_TYPES = ['image/gif', 'image/webp', 'image/png'] as const;
+/** Profile banners: static or animated (same poster rule as avatars), cropped to BANNER_ASPECT. */
+export const MAX_BANNER_BYTES = 10 * 1024 * 1024;
+export const BANNER_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
+/** Banner aspect ratio, width : height. */
+export const BANNER_ASPECT = [5, 2] as const;
+/** Chat wallpapers (per-viewer, P2); exposed in `GET /api/config.limits` from P1. */
+export const MAX_WALLPAPER_BYTES = 15 * 1024 * 1024;
+/**
+ * Server-side image checks (`POST /api/media`, kind image; shared `readImageInfo`): a side
+ * above IMAGE_HEADER_MAX_DIMENSION, more than ANIMATED_MAX_FRAMES frames, or
+ * width × height × frames above ANIMATED_DECODED_PIXEL_BUDGET → 400.
+ */
+export const IMAGE_HEADER_MAX_DIMENSION = 8192;
+export const ANIMATED_MAX_FRAMES = 400;
+export const ANIMATED_DECODED_PIXEL_BUDGET = 200_000_000;
+/** Bytes a client sniffs (`readImageInfo`) to detect type, dimensions and animation. */
+export const IMAGE_PROBE_BYTES = 65_536;
 /** Unreferenced media rows/files older than this are garbage-collected. */
 export const ORPHAN_MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -267,12 +299,14 @@ export const PUSH_MESSAGE_TTL_SEC = 24 * 60 * 60;
 
 /**
  * `limit` actions per `windowMs`. Exceeding one returns 429 `rate_limited` (acks: `{ ok:false }`),
- * except `typing`, which is dropped silently. Per-IP limits (auth, invites, uploads, general
- * API) are separate (server lib/rateLimit.ts).
+ * except `typing` and `presenceActivity` (no ack), which are dropped silently. Per-IP limits
+ * (auth, invites, uploads, general API) are separate (server lib/rateLimit.ts).
  */
 export const USER_RATE_LIMITS = {
   /** Message sends and forwards, per user. */
   sendMessage: { limit: 60, windowMs: 10_000 },
+  /** `PATCH /me`, `PUT /me/presence`, `PUT|DELETE /me/presence-note`, per user. */
+  profileUpdate: { limit: 20, windowMs: 60_000 },
   /** Users added to groups/communities (counted per added user), per user. */
   addMembers: { limit: 200, windowMs: 60 * 60_000 },
   /** `call:start`, per user. */
@@ -281,6 +315,8 @@ export const USER_RATE_LIMITS = {
   typing: { limit: 1, windowMs: 1_000 },
   /** `presence:subscribe` events, per socket. */
   presenceSubscribe: { limit: 30, windowMs: 60_000 },
+  /** `presence:activity` events, per socket. */
+  presenceActivity: { limit: 30, windowMs: 60_000 },
   /** `GET /api/users/search` and `POST /api/contacts`, per user. */
   userSearch: { limit: 60, windowMs: 60_000 },
 } as const;

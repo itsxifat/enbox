@@ -19,7 +19,8 @@
  * 2. Discard ALL cached message pages; refetch the open chat's latest page (no cursor) and
  *    `GET /api/chats/:id/pins`. Other chats reload when opened. (Never catch up with
  *    `after=<seq>`: it misses edits, deletes, reactions, votes and call-status changes.)
- * 3. Re-send `presence:subscribe` for displayed users (subscriptions are per socket).
+ * 3. Re-send `presence:subscribe` for displayed users (subscriptions are per socket) and
+ *    `presence:activity` with this device's current idle state (tracked per socket too).
  * 4. Refetch `GET /api/calls/active` (a joined call → `call:rejoin`), clear typing indicators.
  *
  * Client rules
@@ -60,6 +61,7 @@ import type {
   CallMediaStatePayload,
   CallSignalPayload,
   CallStartPayload,
+  PresenceActivityPayload,
   PresenceSubscribePayload,
   ReceiptPayload,
   TypingPayload,
@@ -159,7 +161,11 @@ export interface ServerToClientEvents {
   'chat:members-changed': (payload: { chatId: ID }) => void;
 
   // --- Users ---
-  /** Per-viewer presence of a subscribed user (hidden = online null). */
+  /**
+   * Per-viewer presence of a subscribed user (hidden = online/state/note null). Carries the
+   * `state` (online/idle/dnd/offline; an invisible user looks offline) and the unexpired
+   * `note` — the note travels here and on `me:updated` only, never via `user:changed`.
+   */
   'presence:update': (payload: Presence) => void;
   /** A user's public profile changed; refetch it (`POST /api/users/batch`) if cached. */
   'user:changed': (payload: { userId: ID }) => void;
@@ -241,6 +247,12 @@ export interface ClientToServerEvents {
   /** Subscribe this socket to presence of these users; acks their current (per-viewer) presence. */
   'presence:subscribe': (payload: PresenceSubscribePayload, ack: AckFn<Presence[]>) => void;
   'presence:unsubscribe': (payload: PresenceSubscribePayload) => void;
+  /**
+   * This device went idle (no input for PRESENCE_IDLE_AFTER_MS, or hidden) or active again;
+   * sent on transitions and after every `ready`. The user is auto-idle when every counted
+   * socket is idle. No ack; excess events are dropped (USER_RATE_LIMITS.presenceActivity).
+   */
+  'presence:activity': (payload: PresenceActivityPayload) => void;
 
   /**
    * Start a call; this socket becomes my call socket. If the chat already has a live call →

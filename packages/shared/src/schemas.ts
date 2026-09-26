@@ -13,6 +13,7 @@
 import { z } from 'zod';
 import {
   ABOUT_MAX_LENGTH,
+  BIO_MAX_LENGTH,
   DELETED_USERNAME_PREFIX,
   DISAPPEARING_OPTIONS,
   DISPLAY_NAME_MAX_LENGTH,
@@ -36,6 +37,8 @@ import {
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
+  PRESENCE_NOTE_MAX_LENGTH,
+  PRONOUNS_MAX_LENGTH,
   PUSH_SERVICE_HOST_SUFFIXES,
   PUSH_SERVICE_HOSTS,
   SEARCH_RESULTS_LIMIT,
@@ -93,6 +96,13 @@ function optionalQueryString(max: number) {
     z.string().trim().max(max).optional(),
   );
 }
+/** Nullable trimmed text body field; blank ('' or whitespace) = null. */
+function nullableText(max: number) {
+  return z.preprocess(
+    (v: string | null | undefined) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().trim().max(max).nullable(),
+  );
+}
 
 /** Username shape only (trimmed, lowercased, USERNAME_REGEX) — `usernameSchema` adds the reserved-prefix rule. */
 export const usernameFormatSchema = z
@@ -145,6 +155,13 @@ export const emojiSchema = z
       if (++n > 1) return false;
     return true;
   }, 'Must be a single emoji');
+
+/** A CSS `#rrggbb` colour, normalised to lowercase (uppercase input is accepted). */
+export const hexColorSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^#[0-9a-f]{6}$/, 'Use a #rrggbb colour');
 
 const privacyLevel = z.enum(['everyone', 'contacts', 'nobody']);
 const disappearingSeconds = z
@@ -209,10 +226,43 @@ export const updateProfileSchema = z.object({
   about: z.string().trim().max(ABOUT_MAX_LENGTH).optional(),
   /** Media id of an image uploaded by the caller, or null to remove the photo. */
   avatarMediaId: idSchema.nullable().optional(),
+  /** Media id of a banner image uploaded by the caller (BANNER_MIME_TYPES), or null to remove it. */
+  bannerMediaId: idSchema.nullable().optional(),
   username: usernameSchema.optional(),
   /** null (or '') removes the phone number. */
   phone: z.preprocess((v) => (v === '' ? null : v), phoneSchema.nullable().optional()),
+  /** null (or blank) clears them. */
+  pronouns: nullableText(PRONOUNS_MAX_LENGTH).optional(),
+  /** Profile card "About me" (multi-line); '' clears it. `about` stays the one-line status. */
+  bio: z.string().trim().max(BIO_MAX_LENGTH).optional(),
+  /** Lowercase `#rrggbb` (uppercase accepted); null = default. */
+  profileColor: hexColorSchema.nullable().optional(),
+  accentColor: hexColorSchema.nullable().optional(),
 });
+
+/** `PUT /api/me/presence`: my availability choice, optionally until a time (then back to `online`). */
+export const updateAvailabilitySchema = z.object({
+  availability: z.enum(['online', 'idle', 'dnd', 'invisible']),
+  /** ISO time the choice expires; null/absent = until changed. */
+  until: z.iso.datetime({ offset: true }).nullable().optional(),
+});
+
+/**
+ * `PUT /api/me/presence-note`: replaces the whole note (omitted fields = null). Needs text
+ * and/or an emoji; `DELETE /api/me/presence-note` clears it.
+ */
+export const updatePresenceNoteSchema = z
+  .object({
+    /** Trimmed; blank = null. */
+    text: nullableText(PRESENCE_NOTE_MAX_LENGTH).default(null),
+    emoji: emojiSchema.nullable().default(null),
+    /** ISO time the note clears itself; null = until changed. */
+    expiresAt: z.iso.datetime({ offset: true }).nullable().default(null),
+  })
+  .refine((v) => v.text !== null || v.emoji !== null, {
+    message: 'Add some text or an emoji',
+    path: ['text'],
+  });
 
 export const updateSettingsSchema = z
   .object({
@@ -670,6 +720,11 @@ export const presenceSubscribeSchema = z.object({
   userIds: ids(MAX_USERS_BATCH),
 });
 
+/** `presence:activity`: this device went idle (no input for PRESENCE_IDLE_AFTER_MS) or active again. */
+export const presenceActivitySchema = z.object({
+  idle: z.boolean(),
+});
+
 /** Optional initial media state (default: unmuted; video off for audio calls). */
 const callMediaInit = {
   audioMuted: z.boolean().optional(),
@@ -739,6 +794,8 @@ export type UsernameAvailabilityQuery = z.input<typeof usernameAvailabilityQuery
 export type ChangePasswordRequest = z.input<typeof changePasswordSchema>;
 export type DeleteAccountRequest = z.input<typeof deleteAccountSchema>;
 export type UpdateProfileRequest = z.input<typeof updateProfileSchema>;
+export type UpdateAvailabilityRequest = z.input<typeof updateAvailabilitySchema>;
+export type UpdatePresenceNoteRequest = z.input<typeof updatePresenceNoteSchema>;
 export type UpdateSettingsRequest = z.input<typeof updateSettingsSchema>;
 export type UserSearchQuery = z.input<typeof userSearchQuerySchema>;
 export type UsersBatchRequest = z.input<typeof usersBatchSchema>;
@@ -782,6 +839,7 @@ export type PushUnsubscribeRequest = z.input<typeof pushUnsubscribeSchema>;
 export type TypingPayload = z.infer<typeof typingPayloadSchema>;
 export type ReceiptPayload = z.infer<typeof receiptPayloadSchema>;
 export type PresenceSubscribePayload = z.infer<typeof presenceSubscribeSchema>;
+export type PresenceActivityPayload = z.infer<typeof presenceActivitySchema>;
 export type CallStartPayload = z.input<typeof callStartSchema>;
 export type CallIdPayload = z.infer<typeof callIdSchema>;
 export type CallJoinPayload = z.input<typeof callJoinSchema>;

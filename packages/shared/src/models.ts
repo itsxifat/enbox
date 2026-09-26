@@ -66,23 +66,69 @@ export interface UserSettings {
 }
 
 /**
+ * The user's own availability choice (`PUT /api/me/presence`). Persisted; `invisible` is never
+ * put on the wire for other viewers (they see `offline`). Never called "status" — that word
+ * means stories.
+ */
+export type Availability = 'online' | 'idle' | 'dnd' | 'invisible';
+
+/**
+ * Presence as other viewers see it: `online`/`idle` (every device idle, or chosen)/`dnd`, or
+ * `offline` — which is also what an invisible user looks like (byte-identical to really
+ * offline). `null` where used = hidden from the viewer.
+ */
+export type PresenceState = 'online' | 'idle' | 'dnd' | 'offline';
+
+/** Custom presence note ("custom status" in Discord terms): text and/or emoji, optionally expiring. */
+export interface PresenceNote {
+  /** At least one of `text`/`emoji` is set. */
+  text: string | null;
+  emoji: string | null;
+  /** Clients hide the note locally once this passes; the server clears it (presence-expiry job). */
+  expiresAt: ISODate | null;
+}
+
+/**
  * Another user's profile as seen by the viewer. Viewer-specific: fields hidden by the
  * subject's privacy settings (or because a block exists in either direction) are `null`.
  * A deleted account has `isDeleted: true`, displayName `DELETED_ACCOUNT_NAME` and all
  * optional profile data null.
+ *
+ * Profile media: `avatarUrl` and `bannerUrl` are ALWAYS static images (the poster when the
+ * upload is animated), so every renderer and push icon can use them as-is. The
+ * `*AnimatedUrl` fields are additive: the GIF/animated WebP/APNG itself, null when the media
+ * is static. Banner and animated avatar follow `profilePhotoVisibility`; `pronouns`, `bio`
+ * and the colours follow `aboutVisibility`.
  */
 export interface UserPublic {
   id: ID;
   username: string;
   displayName: string;
   avatarUrl: string | null;
+  /** Animated avatar (poster in `avatarUrl`); null when static or hidden. */
+  avatarAnimatedUrl: string | null;
+  /** Profile banner, static (BANNER_ASPECT). */
+  bannerUrl: string | null;
+  bannerAnimatedUrl: string | null;
   about: string | null;
+  pronouns: string | null;
+  /** Profile card "About me" (≤ BIO_MAX_LENGTH); null = hidden or empty. */
+  bio: string | null;
+  /** Lowercase `#rrggbb`, or null = default/hidden. */
+  profileColor: string | null;
+  accentColor: string | null;
   /** Visible only if the subject saved the viewer as a contact (and no block exists). */
   phone: string | null;
   /** `null` = the viewer may not see online status (or the account is deleted). */
   online: boolean | null;
+  /** Mirrors `Presence.state`; null exactly when `online` is null. */
+  presenceState: PresenceState | null;
+  /** Mirrors `Presence.note`; null when hidden, unset, expired, or the user appears offline. */
+  presenceNote: PresenceNote | null;
   /** `null` = hidden, never seen, or currently online. */
   lastSeenAt: ISODate | null;
+  /** Member since; null for a deleted account. */
+  createdAt: ISODate | null;
   /** Viewer has saved this user in their contacts. */
   isContact: boolean;
   /** The name the viewer saved this contact under (overrides displayName in UI). */
@@ -93,15 +139,30 @@ export interface UserPublic {
   isDeleted: boolean;
 }
 
-/** The signed-in user's own profile. */
+/** The signed-in user's own profile (raw values, no privacy gating). */
 export interface UserSelf {
   id: ID;
   username: string;
   displayName: string;
+  /** Always static (the poster when animated), like `UserPublic.avatarUrl`. */
   avatarUrl: string | null;
+  avatarAnimatedUrl: string | null;
+  bannerUrl: string | null;
+  bannerAnimatedUrl: string | null;
   about: string;
+  pronouns: string | null;
+  /** '' when unset. */
+  bio: string;
+  profileColor: string | null;
+  accentColor: string | null;
   phone: string | null;
   createdAt: ISODate;
+  /** My availability choice (raw: `invisible` included). */
+  availability: Availability;
+  /** When set, `availability` reverts to `online` at this time (see `effectiveAvailability()`). */
+  availabilityUntil: ISODate | null;
+  /** My presence note, unexpired; null when unset. */
+  presenceNote: PresenceNote | null;
   /** Always complete (defaults merged). */
   settings: UserSettings;
 }
@@ -126,12 +187,17 @@ export interface SessionInfo {
 
 /**
  * Presence of a user as seen by the viewer (per-viewer privacy). Hidden presence is sent as
- * `{ online: null, lastSeenAt: null }` — never omitted.
+ * `{ online: null, state: null, note: null, lastSeenAt: null }` — never omitted. An invisible
+ * user serialises exactly like an offline one.
  */
 export interface Presence {
   userId: ID;
   /** `null` = hidden from the viewer. */
   online: boolean | null;
+  /** `online`/`idle`/`dnd` while `online`, `offline` otherwise; null exactly when `online` is null. */
+  state: PresenceState | null;
+  /** Unexpired custom note, only while `state` ∈ {online, idle, dnd}; null otherwise or when hidden. */
+  note: PresenceNote | null;
   /** `null` = hidden, unknown, or currently online. */
   lastSeenAt: ISODate | null;
 }
@@ -154,8 +220,13 @@ export interface MediaAttachment {
   /** Sanitised original file name (basename, no control/bidi chars, ≤ MAX_FILE_NAME_LENGTH). */
   fileName: string | null;
   size: number;
+  /** Server-verified for images (parsed from the file, not the client's claim). */
   width: number | null;
   height: number | null;
+  /** Animated image (GIF, animated WebP, APNG). Animated profile media must carry a static poster. */
+  animated: boolean;
+  /** Frames of an animated image (≤ ANIMATED_MAX_FRAMES); null for static images and non-images. */
+  frameCount: number | null;
   durationMs: number | null;
   /** Voice-note waveform: 0..1 amplitudes (≤ WAVEFORM_MAX_SAMPLES samples). */
   waveform: number[] | null;

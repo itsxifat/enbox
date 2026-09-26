@@ -11,6 +11,7 @@ import {
   MAX_MENTIONS,
 } from './constants.js';
 import type {
+  Availability,
   CallDirection,
   CallMessagePayload,
   CallOutcome,
@@ -19,7 +20,9 @@ import type {
   ChatPermissions,
   ChatSummary,
   ID,
+  ISODate,
   Message,
+  PresenceNote,
   SystemEvent,
   UserPublic,
   UserSettings,
@@ -48,6 +51,33 @@ export function resolveUserSettings(
 
 export function isMuted(mutedUntil: string | null | undefined, now: Date = new Date()): boolean {
   return !!mutedUntil && new Date(mutedUntil).getTime() > now.getTime();
+}
+
+/** The persisted availability choice and its expiry: `UserSelf`, or a `users` row (Date). */
+export interface AvailabilityInput {
+  availability: Availability;
+  availabilityUntil: ISODate | Date | null;
+}
+
+/** `availability`, or `online` once `availabilityUntil` has passed (the expiry job catches up later). */
+export function effectiveAvailability(x: AvailabilityInput, now = Date.now()): Availability {
+  if (x.availability === 'online' || !x.availabilityUntil) return x.availability;
+  return new Date(x.availabilityUntil).getTime() > now ? x.availability : 'online';
+}
+
+/** Do-not-disturb: no push, no ringtone/notification sounds, calls ring silently (server AND clients). */
+export function isDnd(x: AvailabilityInput, now = Date.now()): boolean {
+  return effectiveAvailability(x, now) === 'dnd';
+}
+
+/** The presence note unless it has expired (clients hide it locally at `expiresAt`, before the server clears it). */
+export function activePresenceNote(
+  note: PresenceNote | null | undefined,
+  now = Date.now(),
+): PresenceNote | null {
+  if (!note) return null;
+  if (note.expiresAt && new Date(note.expiresAt).getTime() <= now) return null;
+  return note;
 }
 
 /** Name to show for a user: "Deleted account", saved contact name, then display name. */
