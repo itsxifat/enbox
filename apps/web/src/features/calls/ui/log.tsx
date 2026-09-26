@@ -1,7 +1,7 @@
 /** Presentation helpers shared by the call log list and the call details page. */
-import { ArrowDownLeft, ArrowUpRight, Video } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 import { chatTitle, formatDuration, type CallLogEntry } from '@enbox/shared';
-import { ICON_STROKE_BOLD } from '@/components/icons';
+import { ICON_STROKE_BOLD, VideoIcon } from '@/components/icons';
 import { Avatar, toast, type AvatarSize } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useCalls } from '@/stores/calls';
@@ -65,7 +65,7 @@ export function DirectionIcon({ entry, className }: { entry: CallLogEntry; class
         role="img"
       />
       {entry.call.type === 'video' ? (
-        <Video size={14} className="text-subtle" aria-label="Video" role="img" />
+        <VideoIcon size={14} className="text-subtle" aria-label="Video" role="img" />
       ) : null}
     </span>
   );

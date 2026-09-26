@@ -4,10 +4,11 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Phone, UserRoundSearch, Video } from 'lucide-react';
+import { Phone, UserRoundSearch } from 'lucide-react';
 import { chatTitle, userDisplayName, type Contact, type ID } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   EmptyState,
@@ -56,7 +57,7 @@ function CallIcons({
         disabled={disabled}
         onClick={() => onCall('video')}
       >
-        <Video size={20} aria-hidden />
+        <VideoIcon size={20} aria-hidden />
       </button>
     </span>
   );

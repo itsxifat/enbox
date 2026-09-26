@@ -16,7 +16,6 @@ import {
   PhoneMissed,
   PhoneOutgoing,
   UserRound,
-  Video,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -28,13 +27,14 @@ import {
   type Message,
   type MessageType,
 } from '@enbox/shared';
+import { VideoIcon } from '@/components/icons';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
 import { nameOf } from '@/stores/users';
 
 const TYPE_ICONS: Partial<Record<MessageType, LucideIcon>> = {
   image: Camera,
-  video: Video,
+  video: VideoIcon,
   voice: Mic,
   audio: Headphones,
   file: FileText,
@@ -79,7 +79,7 @@ export function previewParts(
     const missed = outcome === 'missed';
     const icon =
       m.call.callType === 'video'
-        ? Video
+        ? VideoIcon
         : missed
           ? PhoneMissed
           : outcome === 'ongoing'

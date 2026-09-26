@@ -3,9 +3,10 @@
  * `<OngoingCallBanner chatId={chat.id} />` under the header). Shows the live group call with
  * who's in it and a Join / Return button; renders nothing when there is no live call.
  */
-import { Phone, Video } from 'lucide-react';
+import { Phone } from 'lucide-react';
 import type { ID } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { VideoIcon } from '@/components/icons';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
@@ -23,7 +24,7 @@ export function OngoingCallBanner({ chatId, className }: { chatId: ID; className
   if (!state.inCallHere && !state.canJoin && !state.inCallElsewhere) return null;
 
   const video = call.type === 'video';
-  const Icon = video ? Video : Phone;
+  const Icon = video ? VideoIcon : Phone;
   const joined = joinedOthers(call, me);
   const label = state.inCallHere
     ? `You're in this call${duration ? ` · ${duration}` : ''}`

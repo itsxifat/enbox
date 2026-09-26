@@ -4,8 +4,9 @@
  * an active call.
  */
 import { useEffect, useRef, useState } from 'react';
-import { BellOff, Phone, PhoneOff, Video, X } from 'lucide-react';
+import { BellOff, Phone, PhoneOff, X } from 'lucide-react';
 import { chatTitle, userDisplayName, type IncomingCallPayload } from '@enbox/shared';
+import { VideoIcon } from '@/components/icons';
 import { Portal } from '@/components/ui';
 import { useFocusTrap } from '@/components/ui/overlay';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -96,7 +97,7 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
             <div className="min-w-0 flex-1">
               <p className="truncate text-[17px] font-semibold">{d.title}</p>
               <p className="mt-0.5 flex items-center gap-1.5 truncate text-[13px] text-white/70">
-                {d.video ? <Video size={14} aria-hidden /> : <Phone size={14} aria-hidden />}
+                {d.video ? <VideoIcon size={14} aria-hidden /> : <Phone size={14} aria-hidden />}
                 {d.subtitle}
               </p>
             </div>
@@ -114,7 +115,8 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
               onClick={accept}
               className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#22c55e] text-[15px] font-semibold hover:bg-[#16a34a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
-              {d.video ? <Video size={18} aria-hidden /> : <Phone size={18} aria-hidden />} Accept
+              {d.video ? <VideoIcon size={18} aria-hidden /> : <Phone size={18} aria-hidden />}{' '}
+              Accept
             </button>
           </div>
         </div>
@@ -138,7 +140,7 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
       >
         <div className="flex flex-1 flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+64px)] text-center">
           <p className="flex items-center gap-1.5 text-[14px] text-white/70">
-            {d.video ? <Video size={16} aria-hidden /> : <Phone size={16} aria-hidden />}
+            {d.video ? <VideoIcon size={16} aria-hidden /> : <Phone size={16} aria-hidden />}
             {d.subtitle}
           </p>
           <h2 className="mt-2 max-w-full truncate text-[30px] font-semibold tracking-tight">
@@ -175,7 +177,7 @@ export function IncomingCallScreen({ payload }: { payload: IncomingCallPayload }
             onClick={decline}
           />
           <CallButton
-            icon={d.video ? Video : Phone}
+            icon={d.video ? VideoIcon : Phone}
             label="Accept"
             caption="Accept"
             tone="success"

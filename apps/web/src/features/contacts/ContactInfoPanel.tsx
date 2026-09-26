@@ -25,7 +25,6 @@ import {
   UserPlus,
   UserRoundX,
   UsersRound,
-  Video,
 } from 'lucide-react';
 import {
   DISAPPEARING_OPTIONS,
@@ -40,6 +39,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Avatar,
@@ -461,7 +461,7 @@ function ContactInfo({
                   onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
                 />
                 <QuickAction
-                  icon={Video}
+                  icon={VideoIcon}
                   label="Video"
                   onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
                 />

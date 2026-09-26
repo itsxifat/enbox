@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react';
-import {
-  Mic,
-  MicOff,
-  MonitorUp,
-  PhoneOff,
-  SwitchCamera,
-  Video,
-  VideoOff,
-  Volume2,
-} from 'lucide-react';
+import { Mic, MicOff, MonitorUp, PhoneOff, SwitchCamera, Volume2 } from 'lucide-react';
+import { VideoIcon, VideoOffIcon } from '@/components/icons';
 import { DropdownMenu } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useCalls, type ActiveCall } from '@/stores/calls';
@@ -59,7 +51,7 @@ export function CallControls({ active }: { active: ActiveCall }) {
           />
         ) : null}
         <CallButton
-          icon={camOn ? Video : VideoOff}
+          icon={camOn ? VideoIcon : VideoOffIcon}
           label={camOn ? 'Turn camera off' : 'Turn camera on'}
           tone={camOn ? 'light' : 'glass'}
           pressed={camOn}

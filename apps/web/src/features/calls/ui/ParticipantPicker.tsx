@@ -3,9 +3,10 @@
  * other members, or adding people to an ongoing group call.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Phone, UserPlus, Video } from 'lucide-react';
+import { Phone, UserPlus } from 'lucide-react';
 import { MAX_CALL_PARTICIPANTS, userDisplayName, type ChatMember } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { VideoIcon } from '@/components/icons';
 import { Button, EmptyState, ListItemSkeleton, Modal, SearchInput } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { useMe } from '@/stores/auth';
@@ -105,7 +106,7 @@ export function ParticipantPicker({ request }: { request: PickerRequest }) {
           </Button>
           <Button
             leftIcon={
-              request.mode === 'invite' ? UserPlus : request.type === 'video' ? Video : Phone
+              request.mode === 'invite' ? UserPlus : request.type === 'video' ? VideoIcon : Phone
             }
             disabled={!selected.length}
             loading={busy}

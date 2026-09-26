@@ -141,6 +141,38 @@ export const CallsFilledIcon = createIcon('enbox-calls-filled', () => (
 ));
 
 // ---------------------------------------------------------------------------
+// Video — camera with a squarer, taller body than lucide's (14 vs 12 units), so it matches the
+// optical size of the handset and search glyphs beside it (chat header, call buttons, call
+// log). Use these instead of lucide's Video / VideoOff (enforced by ESLint). Off: the slash
+// cuts a clean gap through the camera.
+// ---------------------------------------------------------------------------
+const CAMERA_BODY = { x: 2, y: 5, width: 14, height: 14, rx: 3 } as const;
+const CAMERA_LENS =
+  'M16 10.25l4.893-2.65a.75.75 0 0 1 1.107.659v7.482a.75.75 0 0 1-1.107.659L16 13.75';
+const SLASH = 'M2 2l20 20';
+
+export const VideoIcon = createIcon('enbox-video', () => (
+  <>
+    <rect {...CAMERA_BODY} />
+    <path d={CAMERA_LENS} />
+  </>
+));
+
+export const VideoOffIcon = createIcon('enbox-video-off', ({ uid, sw }) => (
+  <>
+    <mask id={uid} maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28">
+      <rect x="-2" y="-2" width="28" height="28" fill="#fff" stroke="none" />
+      <path d={SLASH} stroke="#000" strokeWidth={sw * 3} />
+    </mask>
+    <g mask={`url(#${uid})`}>
+      <rect {...CAMERA_BODY} />
+      <path d={CAMERA_LENS} />
+    </g>
+    <path d={SLASH} />
+  </>
+));
+
+// ---------------------------------------------------------------------------
 // Settings — gear (filled: solid gear with a round hub hole)
 // ---------------------------------------------------------------------------
 const GEAR =

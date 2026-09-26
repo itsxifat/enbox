@@ -47,6 +47,26 @@ export default tseslint.config(
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'lucide-react',
+              importNames: [
+                'Video',
+                'VideoIcon',
+                'LucideVideo',
+                'VideoOff',
+                'VideoOffIcon',
+                'LucideVideoOff',
+              ],
+              message:
+                "Use VideoIcon / VideoOffIcon from '@/components/icons': lucide's camera reads smaller than the phone and search icons beside it.",
+            },
+          ],
+        },
+      ],
     },
   },
   {
