@@ -1,18 +1,28 @@
 /**
  * Profile photo pipeline (agent 1): square crop → canvas re-encode (JPEG, longest side ≤
  * AVATAR_MAX_DIMENSION, strips EXIF/GPS) → `api.upload(kind: 'image')` → `PATCH /api/me`.
+ * Animated input (GIF / animated WebP / APNG by its bytes — `probeImageFile`) skips the
+ * re-encode: the original is uploaded metadata-stripped, ≤ MAX_ANIMATED_AVATAR_BYTES, with
+ * the cropped still as its poster (`thumbnail` part); the crop only frames that still, the
+ * animation itself is shown whole (object-cover) by `Avatar`.
  *
  * Crop geometry: the image is drawn inside a square viewport of `viewport` px at
  * `scale = coverScale × zoom`; `x`/`y` are the image's top-left offset relative to the
  * viewport (always ≤ 0 so the viewport stays covered).
  */
 import {
+  ANIMATED_IMAGE_MIME_TYPES,
   AVATAR_MAX_DIMENSION,
   AVATAR_MIME_TYPES,
+  MAX_ANIMATED_AVATAR_BYTES,
   MAX_AVATAR_BYTES,
+  formatBytes,
+  type ImageInfo,
   type UserSelf,
 } from '@enbox/shared';
+import { makeThumbnail } from '@/features/conversation/lib/mediaProcessing';
 import { api } from '@/lib/api';
+import { stripImageBlob } from '@/lib/media';
 import { useAuth } from '@/stores/auth';
 
 export const MIN_ZOOM = 1;
@@ -166,6 +176,72 @@ export async function uploadAvatar(
 
 export async function removeAvatar(): Promise<UserSelf> {
   const user = await api.patch<UserSelf>('/api/me', { avatarMediaId: null });
+  useAuth.getState().setUser(user);
+  return user;
+}
+
+// ---------------------------------------------------------------------------
+// Animated photos (GIF / animated WebP / APNG)
+// ---------------------------------------------------------------------------
+
+/** Why an animated file cannot be a profile photo (null when it can). */
+export function animatedAvatarIssue(file: Blob, info: ImageInfo): string | null {
+  if (!(ANIMATED_IMAGE_MIME_TYPES as readonly string[]).includes(info.mime))
+    return 'Animated photos must be a GIF, WebP or PNG.';
+  if (file.size > MAX_ANIMATED_AVATAR_BYTES)
+    return `Animated photos can be up to ${formatBytes(MAX_ANIMATED_AVATAR_BYTES)}. Choose a smaller one or a still photo.`;
+  return null;
+}
+
+/**
+ * The cropped still of an animated photo — its poster (WebP, alpha kept, ≤ MAX_THUMBNAIL_BYTES;
+ * JPEG where WebP can't be encoded). `image` is the animating <img>, so the frame on screen
+ * when the user confirms becomes the still.
+ */
+export async function renderPoster(
+  image: CanvasImageSource,
+  rect: { sx: number; sy: number; size: number },
+): Promise<Blob> {
+  const size = outputSize(rect.size);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not process the photo');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(image, rect.sx, rect.sy, rect.size, rect.size, 0, 0, size, size);
+  try {
+    const poster = await makeThumbnail(canvas, size, size, { format: 'webp' });
+    if (!poster) throw new Error('Could not make a still image for this animation');
+    return poster;
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+/**
+ * Upload an animated photo as-is (metadata stripped) with its cropped poster and set it as
+ * my profile photo. The server keeps `avatarUrl` static (the poster) and serves the animation
+ * as `avatarAnimatedUrl`.
+ */
+export async function uploadAnimatedAvatar(
+  file: File,
+  info: ImageInfo,
+  poster: Blob,
+  onProgress?: (fraction: number) => void,
+): Promise<UserSelf> {
+  const issue = animatedAvatarIssue(file, info);
+  if (issue) throw new Error(issue);
+  const blob = await stripImageBlob(file);
+  const media = await api.upload(
+    blob,
+    { kind: 'image', width: info.width, height: info.height },
+    onProgress,
+    { fileName: file.name, thumbnail: poster },
+  );
+  const user = await api.patch<UserSelf>('/api/me', { avatarMediaId: media.id });
   useAuth.getState().setUser(user);
   return user;
 }

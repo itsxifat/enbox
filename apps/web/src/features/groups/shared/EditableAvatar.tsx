@@ -1,7 +1,8 @@
 /**
- * Avatar with a camera badge: pick an image → crop → upload (re-encoded JPEG) → `onUploaded`.
- * With a current photo and `onRemove`, a menu offers "Change" / "Remove". Used for group,
- * community and channel icons (creation flows and info panels).
+ * Avatar with a camera badge: pick an image → crop → upload (re-encoded JPEG, or the stripped
+ * animated original with its cropped poster as the `thumbnail` part) → `onUploaded`. With a
+ * current photo and `onRemove`, a menu offers "Change" / "Remove". Used for group, community
+ * and channel icons (creation flows and info panels).
  */
 import { useRef, useState } from 'react';
 import { Camera, ImageUp, Trash2 } from 'lucide-react';
@@ -10,11 +11,12 @@ import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { Avatar, Menu, toast, type AvatarKind } from '@/components/ui';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { readImageDimensions } from '@/lib/media';
-import { AvatarCropModal } from './AvatarCropModal';
+import { AvatarCropModal, type CropResultMeta } from './AvatarCropModal';
 
 export interface EditableAvatarProps {
   src: string | null | undefined;
+  /** The animated original when the icon is a GIF / WebP / APNG (poster in `src`). */
+  animatedSrc?: string | null;
   name: string;
   colorSeed?: string;
   kind: AvatarKind;
@@ -33,6 +35,7 @@ const ACCEPT = [...AVATAR_MIME_TYPES, 'image/gif', 'image/avif', 'image/heic'].j
 
 export function EditableAvatar({
   src,
+  animatedSrc,
   name,
   colorSeed,
   kind,
@@ -51,6 +54,7 @@ export function EditableAvatar({
   const avatar = (
     <Avatar
       src={src}
+      animatedSrc={animatedSrc}
       name={name || 'New'}
       colorSeed={colorSeed}
       kind={kind}
@@ -62,16 +66,15 @@ export function EditableAvatar({
 
   const pick = () => input.current?.click();
 
-  const upload = async (blob: Blob) => {
+  const upload = async (blob: Blob, meta: CropResultMeta) => {
     setFile(null);
     setProgress(0);
     try {
-      const dims = await readImageDimensions(blob).catch(() => null);
       const media = await api.upload(
         blob,
-        { kind: 'image', width: dims?.width, height: dims?.height },
+        { kind: 'image', width: meta.width, height: meta.height },
         (p) => setProgress(p),
-        { fileName: 'icon.jpg' },
+        { fileName: meta.fileName, thumbnail: meta.thumbnail },
       );
       await onUploaded(media);
     } catch (e) {
@@ -146,7 +149,7 @@ export function EditableAvatar({
           e.target.value = '';
           if (!f) return;
           if (!f.type.startsWith('image/') || f.type === 'image/svg+xml') {
-            toast.error('Choose a photo (JPEG, PNG or WebP)');
+            toast.error('Choose a photo (JPEG, PNG, WebP or GIF)');
             return;
           }
           setFile(f);

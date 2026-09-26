@@ -1,11 +1,21 @@
 /**
  * Square avatar cropper: drag to reposition, slider / wheel / keyboard to zoom. The result is
- * re-encoded through a canvas (strips EXIF/GPS, ≤ AVATAR_MAX_DIMENSION) as a JPEG blob.
+ * re-encoded through a canvas (strips EXIF/GPS, ≤ AVATAR_MAX_DIMENSION) as a JPEG blob. An
+ * animated icon (GIF / animated WebP / APNG by its bytes) skips the re-encode: the stripped
+ * original is handed back with the cropped still as its poster (`CropResultMeta.thumbnail`).
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { Minus, Plus } from 'lucide-react';
+import {
+  ANIMATED_IMAGE_MIME_TYPES,
+  MAX_ANIMATED_AVATAR_BYTES,
+  formatBytes,
+  type ImageInfo,
+} from '@enbox/shared';
 import { Button, Modal, Spinner } from '@/components/ui';
+import { makeThumbnail } from '@/features/conversation/lib/mediaProcessing';
 import { cn } from '@/lib/cn';
+import { probeImageFile, stripImageBlob } from '@/lib/media';
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -20,13 +30,32 @@ import {
 
 const VIEW = 288;
 
+export interface CropResultMeta {
+  width: number;
+  height: number;
+  /** Poster of an animated icon (the upload's `thumbnail` part); null for a static crop. */
+  thumbnail: Blob | null;
+  fileName: string;
+  animated: boolean;
+}
+
 export interface AvatarCropModalProps {
   file: File | null;
   onCancel: () => void;
-  onDone: (blob: Blob) => void | Promise<void>;
+  /** The bytes to upload: the JPEG crop, or the stripped animated original + its poster. */
+  onDone: (blob: Blob, meta: CropResultMeta) => void | Promise<void>;
   /** Rounded square (communities) instead of a circle mask. */
   shape?: 'circle' | 'square';
   title?: string;
+}
+
+/** Why an animated file cannot be an icon (null when it can). */
+function animatedIconIssue(file: File, info: ImageInfo): string | null {
+  if (!(ANIMATED_IMAGE_MIME_TYPES as readonly string[]).includes(info.mime))
+    return 'Animated icons must be a GIF, WebP or PNG.';
+  if (file.size > MAX_ANIMATED_AVATAR_BYTES)
+    return `Animated icons can be up to ${formatBytes(MAX_ANIMATED_AVATAR_BYTES)}.`;
+  return null;
 }
 
 export function AvatarCropModal({
@@ -38,6 +67,8 @@ export function AvatarCropModal({
 }: AvatarCropModalProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
+  /** Header facts once probed (`undefined` while probing; null for formats the parser doesn't know). */
+  const [info, setInfo] = useState<ImageInfo | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
@@ -47,6 +78,7 @@ export function AvatarCropModal({
 
   useEffect(() => {
     setImg(null);
+    setInfo(undefined);
     setError(null);
     setZoom(1);
     setOffset({ x: 0, y: 0 });
@@ -56,12 +88,23 @@ export function AvatarCropModal({
     }
     const u = URL.createObjectURL(file);
     setUrl(u);
+    let cancelled = false;
+    void probeImageFile(file).then((probed) => {
+      if (cancelled) return;
+      const issue = probed?.animated ? animatedIconIssue(file, probed) : null;
+      if (issue) setError(issue);
+      else setInfo(probed);
+    });
     const el = new Image();
     el.onload = () => setImg(el);
     el.onerror = () => setError("This image can't be opened. Try a JPEG or PNG.");
     el.src = u;
-    return () => URL.revokeObjectURL(u);
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(u);
+    };
   }, [file]);
+  const animated = !!info?.animated;
 
   const size: Size | null = useMemo(
     () => (img ? { width: img.naturalWidth, height: img.naturalHeight } : null),
@@ -136,7 +179,7 @@ export function AvatarCropModal({
   };
 
   const done = async () => {
-    if (!img || !size) return;
+    if (!img || !size || !file) return;
     setBusy(true);
     try {
       const r = cropRect(size, VIEW, zoom, offset);
@@ -146,6 +189,20 @@ export function AvatarCropModal({
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas unavailable');
       ctx.imageSmoothingQuality = 'high';
+      if (info?.animated) {
+        // The crop frames the poster only (the frame on screen); the animation goes up whole.
+        ctx.drawImage(img, r.sx, r.sy, r.size, r.size, 0, 0, r.out, r.out);
+        const poster = await makeThumbnail(canvas, r.out, r.out, { format: 'webp' });
+        if (!poster) throw new Error("Couldn't make a still image for this animation");
+        await onDone(await stripImageBlob(file), {
+          width: info.width,
+          height: info.height,
+          thumbnail: poster,
+          fileName: file.name,
+          animated: true,
+        });
+        return;
+      }
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, r.out, r.out);
       ctx.drawImage(img, r.sx, r.sy, r.size, r.size, 0, 0, r.out, r.out);
@@ -153,7 +210,13 @@ export function AvatarCropModal({
         canvas.toBlob(resolve, 'image/jpeg', 0.9),
       );
       if (!blob) throw new Error("Couldn't process the image");
-      await onDone(blob);
+      await onDone(blob, {
+        width: r.out,
+        height: r.out,
+        thumbnail: null,
+        fileName: 'icon.jpg',
+        animated: false,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't process the image");
     } finally {
@@ -173,7 +236,11 @@ export function AvatarCropModal({
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void done()} loading={busy} disabled={!img}>
+          <Button
+            onClick={() => void done()}
+            loading={busy}
+            disabled={!img || info === undefined || !!error}
+          >
             Done
           </Button>
         </>
@@ -260,6 +327,11 @@ export function AvatarCropModal({
             <Plus size={18} aria-hidden />
           </button>
         </div>
+        {animated ? (
+          <p className="max-w-[288px] text-center text-xs text-muted">
+            Animated icon: the crop sets the still image; the animation itself plays in full.
+          </p>
+        ) : null}
       </div>
     </Modal>
   );

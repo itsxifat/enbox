@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
+import type { ImageInfo } from '@enbox/shared';
 import { Button, Modal, Spinner, toast } from '@/components/ui';
 import { errorMessage } from '@/lib/api';
+import { probeImageFile } from '@/lib/media';
 import {
   MAX_ZOOM,
   MIN_ZOOM,
+  animatedAvatarIssue,
   clampCrop,
   cropRect,
   initialCrop,
   loadImage,
   renderAvatar,
+  renderPoster,
+  uploadAnimatedAvatar,
   uploadAvatar,
   zoomCrop,
   type CropState,
@@ -34,6 +39,8 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [size, setSize] = useState<ImageSize | null>(null);
   const [crop, setCrop] = useState<CropState | null>(null);
+  /** Header facts (null when the parser does not know the format); `animated` bypasses the re-encode. */
+  const [info, setInfo] = useState<ImageInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -50,10 +57,17 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
     setImg(null);
     setSize(null);
     setCrop(null);
-    loadImage(url)
-      .then((el) => {
+    setInfo(null);
+    Promise.all([loadImage(url), probeImageFile(file)])
+      .then(([el, probed]) => {
         if (cancelled) return;
+        const issue = probed?.animated ? animatedAvatarIssue(file, probed) : null;
+        if (issue) {
+          setError(issue);
+          return;
+        }
         const natural = { width: el.naturalWidth, height: el.naturalHeight };
+        setInfo(probed);
         setImg(el);
         setSize(natural);
         setCrop(initialCrop(natural, VIEWPORT));
@@ -143,12 +157,18 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
   };
 
   const save = async () => {
-    if (!img || !size || !crop) return;
+    if (!file || !img || !size || !crop) return;
     setBusy(true);
     setProgress(0);
     try {
-      const { blob, size: out } = await renderAvatar(img, cropRect(crop, size, VIEWPORT));
-      await uploadAvatar(blob, out, setProgress);
+      const rect = cropRect(crop, size, VIEWPORT);
+      if (info?.animated) {
+        // The crop frames the still only; the animation is uploaded whole (stripped).
+        await uploadAnimatedAvatar(file, info, await renderPoster(img, rect), setProgress);
+      } else {
+        const { blob, size: out } = await renderAvatar(img, rect);
+        await uploadAvatar(blob, out, setProgress);
+      }
       toast.success('Profile photo updated');
       onDone?.();
       onClose();
@@ -166,7 +186,11 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
       open={!!file}
       onClose={close}
       title="Crop your photo"
-      description="Drag to reposition. Scroll or pinch to zoom."
+      description={
+        info?.animated
+          ? 'Animated photo: drag to frame the still image. The animation itself plays in full.'
+          : 'Drag to reposition. Scroll or pinch to zoom.'
+      }
       size="sm"
       dismissible={!busy}
       footer={
