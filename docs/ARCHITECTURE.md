@@ -921,9 +921,12 @@ attachment` unless the extension is inline-safe.
   Forwarding reuses media ids server-side.
 - **Static by default**: `avatarUrl`/`bannerUrl` are always the static image (the poster
   when the upload is animated); `avatarAnimatedUrl`/`bannerAnimatedUrl` carry the animation
-  (null when static or hidden). Push icons, lists and every non-hover renderer use the
-  static URL; the web client animates on hover/focus and in the profile card only, never
-  under reduced motion or while the app is hidden.
+  (null when static or hidden). Group, community and channel icons (`ChatSummary`,
+  `Community`, `ChannelDirectoryEntry`, `InvitePreview`, `ChatInfoChanges`, call payloads)
+  have no animated variant on the wire: an animated icon is served as its poster everywhere
+  (`staticMediaKey`/`staticMediaUrl`, services/media.ts). Push icons, lists and every
+  non-hover renderer use the static URL; the web client animates on hover/focus and in the
+  profile card only, never under reduced motion or while the app is hidden.
 - **Client-side processing** (web): photos are re-encoded through a canvas (strips EXIF/GPS,
   longest side ≤ IMAGE_MAX_DIMENSION, avatars ≤ AVATAR_MAX_DIMENSION) and get a thumbnail;
   animated images skip the re-encode, are metadata-stripped client-side (best effort) and

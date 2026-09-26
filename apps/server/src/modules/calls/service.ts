@@ -64,7 +64,7 @@ import {
   requireActiveMember,
 } from '../../services/chats.js';
 import { transact, type Effects } from '../../services/effects.js';
-import { loadMediaMap, mediaUrl } from '../../services/media.js';
+import { loadMediaMap, staticMediaUrl } from '../../services/media.js';
 import { createMessage } from '../../services/messages.js';
 import { pairKey, uniq } from '../../services/sql.js';
 import {
@@ -218,7 +218,7 @@ async function buildIncomingPayloads(
   let avatarUrl: string | null = null;
   if (chat.type !== 'direct' && chat.avatarMediaId) {
     const m = (await loadMediaMap(dbx, [chat.avatarMediaId])).get(chat.avatarMediaId);
-    avatarUrl = m ? mediaUrl(m.storageKey) : null;
+    avatarUrl = m ? staticMediaUrl(m) : null;
   }
   for (const viewerId of calleeIds) {
     const caller = callers.get(pairKey(viewerId, call.initiatorId));

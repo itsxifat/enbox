@@ -21,7 +21,7 @@ import {
 } from '../db/schema.js';
 import { emitToChat, emitToUser } from '../realtime/emit.js';
 import { computePermissions, memberVisibleSql, membershipOf, type PeerInfo } from './chats.js';
-import { mediaUrl } from './media.js';
+import { mediaUrl, staticMediaKey } from './media.js';
 import { toMessages } from './messages.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
 import { getUserRows, settingsOf, toUserPublicsForPairs, type UserWithAvatar } from './users.js';
@@ -45,7 +45,7 @@ export async function chatSummariesForPairs(
   if (pairs.length === 0) return new Map();
   const wanted = new Set(pairs.map((p) => pairKey(p.chatId, p.userId)));
   const rows = await dbx
-    .select({ member: chatMembers, chat: chats, avatarKey: media.storageKey })
+    .select({ member: chatMembers, chat: chats, avatarKey: staticMediaKey })
     .from(chatMembers)
     .innerJoin(chats, eq(chats.id, chatMembers.chatId))
     .leftJoin(media, eq(media.id, chats.avatarMediaId))
@@ -74,7 +74,7 @@ export async function toChatSummaries(
 ): Promise<ChatSummary[]> {
   if (chatIds && chatIds.length === 0) return [];
   const rows = await dbx
-    .select({ member: chatMembers, chat: chats, avatarKey: media.storageKey })
+    .select({ member: chatMembers, chat: chats, avatarKey: staticMediaKey })
     .from(chatMembers)
     .innerJoin(chats, eq(chats.id, chatMembers.chatId))
     .leftJoin(media, eq(media.id, chats.avatarMediaId))

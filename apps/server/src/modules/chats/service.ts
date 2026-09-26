@@ -43,7 +43,7 @@ import {
   type ChatAccess,
 } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
-import { mediaUrl } from '../../services/media.js';
+import { mediaUrl, staticMediaKey } from '../../services/media.js';
 import { loadVisibleMessage, toMessages } from '../../services/messages.js';
 import { uniq } from '../../services/sql.js';
 import { toChatSummaries, toChatSummary } from '../../services/summaries.js';
@@ -574,7 +574,7 @@ export async function chatPreviews(
   const out = new Map<string, ChatPreview>();
   if (ids.length === 0) return out;
   const rows = await dbx
-    .select({ id: chats.id, type: chats.type, name: chats.name, avatarKey: media.storageKey })
+    .select({ id: chats.id, type: chats.type, name: chats.name, avatarKey: staticMediaKey })
     .from(chats)
     .leftJoin(media, eq(media.id, chats.avatarMediaId))
     .where(inArray(chats.id, ids));

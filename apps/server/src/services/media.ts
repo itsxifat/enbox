@@ -3,7 +3,7 @@
  * Upload handling lives in modules/media (route) + services/uploads.ts (sniffing, storage)
  * + services/imageProbe.ts (image verification and metadata stripping).
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
   ANIMATED_IMAGE_MIME_TYPES,
   AVATAR_MIME_TYPES,
@@ -22,6 +22,24 @@ import { uniq } from './sql.js';
 /** Public URL path of a stored file (served by app.ts under /uploads). */
 export function mediaUrl(key: string): string {
   return `/uploads/${key}`;
+}
+
+/**
+ * The key of the image every renderer shows for a `media` row that may be animated: the
+ * poster of an animated upload (the requirers guarantee one), else the file itself. Select
+ * it as `avatarKey` wherever a group, community or channel icon is serialised — docs
+ * "Media": `avatarUrl` is always static, and chat icons have no animated variant on the wire
+ * in P1, so the animation of an animated icon is never served anywhere.
+ */
+export const staticMediaKey = sql<
+  string | null
+>`case when ${media.animated} and ${media.thumbnailKey} is not null then ${media.thumbnailKey} else ${media.storageKey} end`;
+
+/** `mediaUrl` of the static image of a loaded row (the rule of `staticMediaKey`). */
+export function staticMediaUrl(
+  row: Pick<MediaRow, 'storageKey' | 'thumbnailKey' | 'animated'>,
+): string {
+  return mediaUrl(row.animated && row.thumbnailKey ? row.thumbnailKey : row.storageKey);
 }
 
 export function toMediaAttachment(row: MediaRow): MediaAttachment {

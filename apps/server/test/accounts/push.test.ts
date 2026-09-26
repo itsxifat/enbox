@@ -32,6 +32,7 @@ import {
   setAvailability,
   setSettings,
 } from '../services/fixtures.js';
+import { uploadImage } from '../groups/util.js';
 import { giveProfile, newDevice } from './util.js';
 
 interface Sent {
@@ -244,6 +245,11 @@ describe('push: subscriptions and notifications', () => {
       const carolEp = await subscribe(carol);
       await saveContact(carol, bob, 'Bobby');
       const group = await createGroup(alice, [bob, carol], { name: 'Friends' });
+      await t
+        .api(alice)
+        .patch(`/api/groups/${group}`)
+        .send({ avatarMediaId: await uploadImage(t, alice, { animated: true }) })
+        .expect(200);
       await pushIdle(); // system messages never push
       expect(sent).toEqual([]);
       await send(alice, group, `hey ${mentionToken(bob.id)} and ${mentionToken(carol.id)}`);
@@ -255,6 +261,8 @@ describe('push: subscriptions and notifications', () => {
         tag: `chat:${group}`,
         url: `/chats/${group}`,
         chatId: group,
+        // An animated group icon reaches the notification as its static poster.
+        icon: expect.stringMatching(/^\/uploads\/.+\.jpg$/),
       });
       expect(to(carolEp)[0]!.payload.body).toBe('Alice: hey @Bobby and @Carol');
       expect(to(aliceEp)).toEqual([]);
@@ -516,8 +524,13 @@ describe('push: subscriptions and notifications', () => {
       expect(to(mutedEp)).toEqual([]);
     });
 
-    it('group calls are titled with the group name', async () => {
+    it('group calls are titled with the group name and carry its static icon', async () => {
       const group = await createGroup(caller, [callee], { name: 'Team' });
+      await t
+        .api(caller)
+        .patch(`/api/groups/${group}`)
+        .send({ avatarMediaId: await uploadImage(t, caller, { animated: true }) })
+        .expect(200);
       const callId = crypto.randomUUID();
       domainEvents.emit('call.ringing', {
         callId,
@@ -538,6 +551,7 @@ describe('push: subscriptions and notifications', () => {
           url: `/chats/${group}`,
           chatId: group,
           callId,
+          icon: expect.stringMatching(/^\/uploads\/.+\.jpg$/),
         },
       ]);
     });

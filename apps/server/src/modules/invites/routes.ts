@@ -23,7 +23,7 @@ import {
   toCommunity,
 } from '../../services/communities.js';
 import { transact } from '../../services/effects.js';
-import { mediaUrl } from '../../services/media.js';
+import { mediaUrl, staticMediaKey } from '../../services/media.js';
 import { wasRemovedByAdmin, wasRemovedFromCommunity } from '../../services/membership.js';
 import { toChatSummary } from '../../services/summaries.js';
 import { followChannelTx } from '../channels/service.js';
@@ -45,7 +45,7 @@ type Target =
 
 async function findInvite(dbx: DbOrTx, code: string): Promise<Target> {
   const [c] = await dbx
-    .select({ chat: chats, avatarKey: media.storageKey })
+    .select({ chat: chats, avatarKey: staticMediaKey })
     .from(chats)
     .leftJoin(media, eq(media.id, chats.avatarMediaId))
     .where(eq(chats.inviteCode, code))
@@ -56,7 +56,7 @@ async function findInvite(dbx: DbOrTx, code: string): Promise<Target> {
     throw notFound('Invite');
   }
   const [k] = await dbx
-    .select({ community: communities, avatarKey: media.storageKey })
+    .select({ community: communities, avatarKey: staticMediaKey })
     .from(communities)
     .leftJoin(media, eq(media.id, communities.avatarMediaId))
     .where(eq(communities.inviteCode, code))

@@ -9,6 +9,7 @@ import { chatMembers, communityMembers, messages } from '../../src/db/schema.js'
 import { toChatSummary } from '../../src/services/summaries.js';
 import type { TestServer, TestSocket, TestUser } from '../helpers.js';
 import { goOffline } from '../services/fixtures.js';
+import { ANIMATED_GIF, JPEG_EXIF } from '../support/images.js';
 
 export const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -24,14 +25,20 @@ export function expectError(
   expect({ status: res.status, code: res.body.error?.code }).toEqual({ status, code });
 }
 
-/** Upload a PNG as `user` and return the media id. */
-export async function uploadImage(t: TestServer, user: TestUser): Promise<string> {
-  const res = await t
-    .api(user)
-    .post('/api/media')
-    .field('kind', 'image')
-    .attach('file', PNG, { filename: 'a.png', contentType: 'image/png' })
-    .expect(201);
+/** Upload a PNG as `user` — or, `animated`, a two-frame GIF with a JPEG poster — and return the media id. */
+export async function uploadImage(
+  t: TestServer,
+  user: TestUser,
+  opts: { animated?: boolean } = {},
+): Promise<string> {
+  const req = t.api(user).post('/api/media').field('kind', 'image');
+  const res = await (
+    opts.animated
+      ? req
+          .attach('file', ANIMATED_GIF, { filename: 'a.gif', contentType: 'image/gif' })
+          .attach('thumbnail', JPEG_EXIF, { filename: 'poster.jpg', contentType: 'image/jpeg' })
+      : req.attach('file', PNG, { filename: 'a.png', contentType: 'image/png' })
+  ).expect(201);
   return res.body.id as string;
 }
 

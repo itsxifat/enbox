@@ -313,6 +313,10 @@ export interface ChatSummary {
   /** Group/channel name. For direct chats this is null — render `peer`. */
   name: string | null;
   description: string | null;
+  /**
+   * Group/channel icon, always static: the poster of an animated upload (there is no
+   * animated variant of a chat icon on the wire). Direct chats: null — render `peer`.
+   */
   avatarUrl: string | null;
   /** Direct chats only: the other participant (the viewer themself in a "Message yourself" chat). */
   peer: UserPublic | null;

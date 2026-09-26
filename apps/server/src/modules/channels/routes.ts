@@ -27,7 +27,7 @@ import {
 } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
 import { generateUniqueInviteCode } from '../../services/invites.js';
-import { mediaUrl, requireAvatarMedia } from '../../services/media.js';
+import { requireAvatarMedia, staticMediaUrl } from '../../services/media.js';
 import { changeRole, transferOwnership, upsertMembership } from '../../services/membership.js';
 import { loadMessagePage } from '../../services/messages.js';
 import { toChatSummary } from '../../services/summaries.js';
@@ -161,7 +161,7 @@ router.patch('/channels/:chatId', async (req, res) => {
         ? await requireAvatarMedia(tx, body.avatarMediaId, me)
         : null;
       set.avatarMediaId = avatar?.id ?? null;
-      changes.avatarUrl = avatar ? mediaUrl(avatar.storageKey) : null;
+      changes.avatarUrl = avatar ? staticMediaUrl(avatar) : null;
       events.push({ kind: 'avatar_changed', actorId: me });
     }
     const current = chat.channelSettings ?? DEFAULT_CHANNEL_SETTINGS;

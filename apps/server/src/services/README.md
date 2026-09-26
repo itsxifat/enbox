@@ -267,7 +267,10 @@ Standalone post-commit publishers (use only outside transactions; they read with
 
 ### media.ts / uploads.ts / imageProbe.ts / statuses.ts / invites.ts / events.ts
 
-- `mediaUrl(key)`, `toMediaAttachment(row)` (`animated`, `frameCount`), `loadMediaMap(dbx, ids)`,
+- `mediaUrl(key)`, `staticMediaKey` (SQL: the poster's key when the joined `media` row is
+  animated, else the file's — selected as `avatarKey` by every group/community/channel icon
+  serializer) and `staticMediaUrl(row)` (the same on a loaded row: push icons, call
+  payloads), `toMediaAttachment(row)` (`animated`, `frameCount`), `loadMediaMap(dbx, ids)`,
   `requireOwnedMedia(dbx, mediaId, userId, { kinds?, mimeTypes?, maxBytes? })` (404 not mine,
   400 mismatch; `FOR KEY SHARE` so the GC can't race).
 - `requireAvatarMedia(dbx, mediaId, userId)` (user, group, community and channel avatars):

@@ -34,7 +34,7 @@ import { db } from '../../db/index.js';
 import { callParticipants, calls, chatMembers, chats, pushSubscriptions } from '../../db/schema.js';
 import { chatKindOfRow } from '../../services/chats.js';
 import { domainEvents, type DomainEventMap } from '../../services/events.js';
-import { loadMediaMap, mediaUrl } from '../../services/media.js';
+import { loadMediaMap, staticMediaUrl } from '../../services/media.js';
 import { toMessages } from '../../services/messages.js';
 import { pairKey, uniq } from '../../services/sql.js';
 import {
@@ -63,7 +63,7 @@ async function subscribedUserIds(ids: string[]): Promise<string[]> {
 async function chatAvatarUrl(avatarMediaId: string | null): Promise<string | null> {
   if (!avatarMediaId) return null;
   const row = (await loadMediaMap(db, [avatarMediaId])).get(avatarMediaId);
-  return row ? mediaUrl(row.storageKey) : null;
+  return row ? staticMediaUrl(row) : null;
 }
 
 export async function onMessageCreated({
