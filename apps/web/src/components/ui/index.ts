@@ -9,6 +9,7 @@ export {
   type AvatarProps,
   type AvatarSize,
   type AvatarKind,
+  type AvatarAnimate,
 } from './Avatar';
 export { Badge, type BadgeProps } from './Badge';
 export {
