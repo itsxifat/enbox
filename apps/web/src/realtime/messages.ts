@@ -6,6 +6,7 @@
 import {
   chatKindOf,
   chatTitle,
+  isDnd,
   isMuted,
   messagePreviewText,
   referencedUserIds,
@@ -131,6 +132,8 @@ function notifyIncoming(message: Message, chat: ChatSummary): void {
   if (!me) return;
   const s = me.settings;
   if (chat.type === 'direct' ? !s.messageNotifications : !s.groupNotifications) return;
+  // Do not disturb: no sound and no system notification (the unread badge still counts it).
+  if (isDnd(me)) return;
 
   const { prefs } = useUi.getState();
   const focused = isAppFocused();
