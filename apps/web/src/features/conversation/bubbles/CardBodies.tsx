@@ -16,7 +16,6 @@ import {
   PhoneMissed,
   PhoneOutgoing,
   UserPlus,
-  Video,
 } from 'lucide-react';
 import {
   callOutcome,
@@ -25,6 +24,7 @@ import {
   type ChatSummary,
   type Contact,
 } from '@enbox/shared';
+import { VideoIcon } from '@/components/icons';
 import { Avatar } from '@/components/ui';
 import { api, mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -423,7 +423,7 @@ export function CallBody({
   const { outcome } = callOutcome(call, me);
   const Icon =
     call.callType === 'video'
-      ? Video
+      ? VideoIcon
       : info.missed
         ? PhoneMissed
         : info.ongoing

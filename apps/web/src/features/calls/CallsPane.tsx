@@ -4,16 +4,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import {
-  EllipsisVertical,
-  Phone,
-  PhoneCall,
-  PhoneMissed,
-  RefreshCw,
-  Trash2,
-  Video,
-} from 'lucide-react';
+import { EllipsisVertical, Phone, PhoneCall, PhoneMissed, RefreshCw, Trash2 } from 'lucide-react';
 import { chatTitle, type Call } from '@enbox/shared';
+import { VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Button,
@@ -280,7 +273,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
               className="pointer-events-auto relative flex size-10 shrink-0 items-center justify-center rounded-full text-brand-ink transition-colors hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-brand"
             >
               {head.call.type === 'video' ? (
-                <Video size={20} aria-hidden />
+                <VideoIcon size={20} aria-hidden />
               ) : (
                 <Phone size={20} aria-hidden />
               )}
@@ -294,7 +287,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
         onClose={() => setMenu(null)}
         items={[
           callable && { label: 'Voice call', icon: Phone, onSelect: () => callBack('audio') },
-          callable && { label: 'Video call', icon: Video, onSelect: () => callBack('video') },
+          callable && { label: 'Video call', icon: VideoIcon, onSelect: () => callBack('video') },
           { label: 'Call info', onSelect: () => navigate(`/calls/${head.call.id}`) },
           'separator',
           {
@@ -369,7 +362,7 @@ function OngoingRow({ call }: { call: Call }) {
           />
           <span className="absolute -right-0.5 -bottom-0.5 flex size-5 items-center justify-center rounded-full bg-success text-white ring-2 ring-surface">
             {call.type === 'video' ? (
-              <Video size={12} aria-hidden />
+              <VideoIcon size={12} aria-hidden />
             ) : (
               <Phone size={12} aria-hidden />
             )}

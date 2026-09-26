@@ -23,7 +23,6 @@ import {
   Trash2,
   UserPlus,
   UsersRound,
-  Video,
 } from 'lucide-react';
 import {
   MAX_DESCRIPTION_LENGTH,
@@ -36,7 +35,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
-import { ICON_STROKE_ON_FILL } from '@/components/icons';
+import { ICON_STROKE_ON_FILL, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Button, IconButton, Switch, confirm, toast } from '@/components/ui';
 import type { InfoPanelProps } from '@/features/contacts/ContactInfoPanel';
@@ -354,7 +353,7 @@ function GroupInfoMain({
                     onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
                   />
                   <QuickAction
-                    icon={Video}
+                    icon={VideoIcon}
                     label="Video"
                     onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
                   />

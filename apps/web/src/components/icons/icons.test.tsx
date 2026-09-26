@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { Search } from 'lucide-react';
 import { Ticks } from '@/features/conversation/bubbles/Ticks';
-import { ChatsFilledIcon, ChatsIcon, IconProvider, ICON_STROKE, TickIcon } from './index';
+import {
+  ChatsFilledIcon,
+  ChatsIcon,
+  IconProvider,
+  ICON_STROKE,
+  TickIcon,
+  VideoIcon,
+  VideoOffIcon,
+} from './index';
 
 const svg = (container: HTMLElement) => container.querySelector('svg')!;
 
@@ -59,6 +67,23 @@ describe('Enbox icons', () => {
       m.getAttribute('mask'),
     );
     expect(masked).toEqual(ids.map((id) => `url(#${id})`));
+  });
+
+  it('draw the camera tall enough to sit beside the phone icon, and cut the "off" slash cleanly', () => {
+    const { container } = render(
+      <>
+        <VideoIcon />
+        <VideoOffIcon />
+      </>,
+    );
+    const [video, off] = Array.from(container.querySelectorAll('svg'));
+    // lucide's camera body is 12 units tall and reads smaller than the handset next to it.
+    expect(video!.querySelector('rect')).toHaveAttribute('height', '14');
+    expect(video).toHaveClass('lucide-enbox-video');
+    // The "off" variant masks the same camera around its slash, then draws the slash on top.
+    const mask = off!.querySelector('mask')!;
+    expect(off!.querySelector(`g[mask="url(#${mask.id})"] rect`)).toHaveAttribute('height', '14');
+    expect(off!.lastElementChild).toHaveAttribute('d', 'M2 2l20 20');
   });
 });
 

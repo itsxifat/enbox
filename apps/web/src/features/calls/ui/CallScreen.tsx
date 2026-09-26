@@ -12,10 +12,10 @@ import {
   RotateCcw,
   UserPlus,
   UsersRound,
-  Video,
   WifiOff,
 } from 'lucide-react';
 import { chatTitle, type Call, type ID } from '@enbox/shared';
+import { VideoIcon } from '@/components/icons';
 import { Avatar, Spinner, useFocusTrap, useOverlay } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
@@ -477,7 +477,7 @@ function EndedView({
             onClick={() => useCalls.getState().leaveCall()}
           />
           <CallButton
-            icon={call.type === 'video' ? Video : RotateCcw}
+            icon={call.type === 'video' ? VideoIcon : RotateCcw}
             label="Call again"
             caption="Call again"
             tone="success"

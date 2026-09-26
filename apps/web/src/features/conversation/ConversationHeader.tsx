@@ -13,7 +13,6 @@ import {
   Search,
   Timer,
   Trash2,
-  Video,
   XCircle,
 } from 'lucide-react';
 import {
@@ -25,6 +24,7 @@ import {
   type ChatSummary,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { DropdownMenu, IconButton, choose, toast, type MenuEntry } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -214,7 +214,7 @@ export function ConversationHeader({
           {canCall ? (
             <>
               <IconButton
-                icon={Video}
+                icon={VideoIcon}
                 label="Video call"
                 onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
               />

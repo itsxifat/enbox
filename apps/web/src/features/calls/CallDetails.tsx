@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { MessageCircle, Phone, PhoneMissed, Trash2, Video } from 'lucide-react';
+import { MessageCircle, Phone, PhoneMissed, Trash2 } from 'lucide-react';
 import {
   chatTitle,
   type CallLogEntry,
@@ -14,6 +14,7 @@ import {
   type CallParticipantStatus,
 } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   EmptyState,
@@ -175,7 +176,7 @@ export function CallDetails() {
               {callable ? (
                 <>
                   <ActionButton icon={Phone} label="Voice" onClick={() => start('audio')} />
-                  <ActionButton icon={Video} label="Video" onClick={() => start('video')} />
+                  <ActionButton icon={VideoIcon} label="Video" onClick={() => start('video')} />
                 </>
               ) : null}
             </div>
