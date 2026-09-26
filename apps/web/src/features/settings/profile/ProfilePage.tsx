@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { AtSign, Check, CircleUserRound, Copy, Info, Link2, Phone, Share2 } from 'lucide-react';
+import { AtSign, Check, CircleUserRound, Copy, Info, Link2, Share2 } from 'lucide-react';
 import { DISPLAY_NAME_MAX_LENGTH } from '@enbox/shared';
+import { PhoneIcon } from '@/components/icons';
 import { Button, IconButton, Spinner, toast } from '@/components/ui';
 import { useUsernameAvailability } from '@/features/auth/usernameAvailability';
 import { canonicalPhone, normalizeUsernameInput, usernameIssue } from '@/features/auth/validation';
@@ -78,7 +79,7 @@ export function ProfilePage() {
           testId="profile-username"
         />
         <SettingsRow
-          icon={Phone}
+          icon={PhoneIcon}
           title="Phone"
           description={me.phone ?? 'Not added'}
           onClick={() => setEditing('phone')}

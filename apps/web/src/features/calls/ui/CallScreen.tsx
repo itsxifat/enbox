@@ -5,17 +5,9 @@
  * Always dark, like native call screens.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ChevronDown,
-  MicOff,
-  PhoneOff,
-  RotateCcw,
-  UserPlus,
-  UsersRound,
-  WifiOff,
-} from 'lucide-react';
+import { ChevronDown, MicOff, RotateCcw, UserPlus, UsersRound, WifiOff } from 'lucide-react';
 import { chatTitle, type Call, type ID } from '@enbox/shared';
-import { VideoIcon } from '@/components/icons';
+import { PhoneOffIcon, VideoIcon } from '@/components/icons';
 import { Avatar, Spinner, useFocusTrap, useOverlay } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
@@ -469,7 +461,7 @@ function EndedView({
       {retry ? (
         <div className="mt-6 flex items-start gap-10">
           <CallButton
-            icon={PhoneOff}
+            icon={PhoneOffIcon}
             label="Close"
             caption="Close"
             tone="glass"

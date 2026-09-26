@@ -4,9 +4,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { EllipsisVertical, Phone, PhoneCall, PhoneMissed, RefreshCw, Trash2 } from 'lucide-react';
+import { EllipsisVertical, RefreshCw, Trash2 } from 'lucide-react';
 import { chatTitle, type Call } from '@enbox/shared';
-import { VideoIcon } from '@/components/icons';
+import { PhoneCallIcon, PhoneIcon, PhoneMissedIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Button,
@@ -89,14 +89,18 @@ export function CallsPane() {
         large
         actions={
           <>
-            <IconButton icon={PhoneCall} label="New call" onClick={() => navigate('/calls/new')} />
+            <IconButton
+              icon={PhoneCallIcon}
+              label="New call"
+              onClick={() => navigate('/calls/new')}
+            />
             <DropdownMenu
               aria-label="Calls menu"
               trigger={(t) => (
                 <IconButton {...t} icon={EllipsisVertical} label="Menu" active={t.active} />
               )}
               items={[
-                { label: 'New call', icon: PhoneCall, onSelect: () => navigate('/calls/new') },
+                { label: 'New call', icon: PhoneCallIcon, onSelect: () => navigate('/calls/new') },
                 {
                   label: 'Clear call log',
                   icon: Trash2,
@@ -127,7 +131,7 @@ export function CallsPane() {
           <ListItemSkeleton count={8} />
         ) : !log.loaded && log.error ? (
           <EmptyState
-            icon={PhoneMissed}
+            icon={PhoneMissedIcon}
             title="Couldn't load your calls"
             description={log.error}
             action={
@@ -145,7 +149,7 @@ export function CallsPane() {
           !query &&
           filter === 'all' ? null : groups.length === 0 ? (
           <EmptyState
-            icon={filter === 'missed' ? PhoneMissed : Phone}
+            icon={filter === 'missed' ? PhoneMissedIcon : PhoneIcon}
             title={
               query ? 'No calls found' : filter === 'missed' ? 'No missed calls' : 'No calls yet'
             }
@@ -158,7 +162,7 @@ export function CallsPane() {
             }
             action={
               !query && filter === 'all' ? (
-                <Button leftIcon={PhoneCall} onClick={() => navigate('/calls/new')}>
+                <Button leftIcon={PhoneCallIcon} onClick={() => navigate('/calls/new')}>
                   Start a call
                 </Button>
               ) : undefined
@@ -275,7 +279,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
               {head.call.type === 'video' ? (
                 <VideoIcon size={20} aria-hidden />
               ) : (
-                <Phone size={20} aria-hidden />
+                <PhoneIcon size={20} aria-hidden />
               )}
             </button>
           ) : null}
@@ -286,7 +290,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
         anchor={menu}
         onClose={() => setMenu(null)}
         items={[
-          callable && { label: 'Voice call', icon: Phone, onSelect: () => callBack('audio') },
+          callable && { label: 'Voice call', icon: PhoneIcon, onSelect: () => callBack('audio') },
           callable && { label: 'Video call', icon: VideoIcon, onSelect: () => callBack('video') },
           { label: 'Call info', onSelect: () => navigate(`/calls/${head.call.id}`) },
           'separator',
@@ -364,7 +368,7 @@ function OngoingRow({ call }: { call: Call }) {
             {call.type === 'video' ? (
               <VideoIcon size={12} aria-hidden />
             ) : (
-              <Phone size={12} aria-hidden />
+              <PhoneIcon size={12} aria-hidden />
             )}
           </span>
         </span>

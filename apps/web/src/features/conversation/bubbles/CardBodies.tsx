@@ -11,10 +11,6 @@ import {
   FileVideo,
   Map as MapIcon,
   MapPin,
-  Phone,
-  PhoneIncoming,
-  PhoneMissed,
-  PhoneOutgoing,
   UserPlus,
 } from 'lucide-react';
 import {
@@ -24,7 +20,13 @@ import {
   type ChatSummary,
   type Contact,
 } from '@enbox/shared';
-import { VideoIcon } from '@/components/icons';
+import {
+  PhoneIcon,
+  PhoneIncomingIcon,
+  PhoneMissedIcon,
+  PhoneOutgoingIcon,
+  VideoIcon,
+} from '@/components/icons';
 import { Avatar } from '@/components/ui';
 import { api, mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -425,12 +427,12 @@ export function CallBody({
     call.callType === 'video'
       ? VideoIcon
       : info.missed
-        ? PhoneMissed
+        ? PhoneMissedIcon
         : info.ongoing
-          ? Phone
+          ? PhoneIcon
           : info.outgoing
-            ? PhoneOutgoing
-            : PhoneIncoming;
+            ? PhoneOutgoingIcon
+            : PhoneIncomingIcon;
   const sub =
     outcome === 'answered' && call.durationSec
       ? formatDuration(call.durationSec * 1000)

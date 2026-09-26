@@ -7,6 +7,9 @@ import {
   ChatsIcon,
   IconProvider,
   ICON_STROKE,
+  PhoneIcon,
+  PhoneMissedIcon,
+  PhoneOffIcon,
   TickIcon,
   VideoIcon,
   VideoOffIcon,
@@ -78,12 +81,28 @@ describe('Enbox icons', () => {
     );
     const [video, off] = Array.from(container.querySelectorAll('svg'));
     // lucide's camera body is 12 units tall and reads smaller than the handset next to it.
-    expect(video!.querySelector('rect')).toHaveAttribute('height', '14');
+    expect(video!.querySelector('rect')).toHaveAttribute('height', '15');
     expect(video).toHaveClass('lucide-enbox-video');
     // The "off" variant masks the same camera around its slash, then draws the slash on top.
     const mask = off!.querySelector('mask')!;
-    expect(off!.querySelector(`g[mask="url(#${mask.id})"] rect`)).toHaveAttribute('height', '14');
+    expect(off!.querySelector(`g[mask="url(#${mask.id})"] rect`)).toHaveAttribute('height', '15');
     expect(off!.lastElementChild).toHaveAttribute('d', 'M2 2l20 20');
+  });
+
+  it('draw call handsets at 90% with the same line weight as every other icon', () => {
+    const { container } = render(
+      <IconProvider>
+        {[PhoneIcon, PhoneMissedIcon, PhoneOffIcon].map((Icon, i) => (
+          <Icon key={i} size={22} />
+        ))}
+      </IconProvider>,
+    );
+    for (const el of Array.from(container.querySelectorAll('svg'))) {
+      const group = el.querySelector('g')!;
+      expect(group).toHaveAttribute('transform', 'matrix(.9 0 0 .9 1.2 1.2)');
+      // Scaled back up inside the 90% group: still 1.5 screen px at 22px.
+      expect(Number(group.getAttribute('stroke-width')) * 0.9).toBeCloseTo((ICON_STROKE * 24) / 22);
+    }
   });
 });
 

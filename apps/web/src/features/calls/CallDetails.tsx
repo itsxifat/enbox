@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { MessageCircle, Phone, PhoneMissed, Trash2 } from 'lucide-react';
+import { MessageCircle, Trash2 } from 'lucide-react';
 import {
   chatTitle,
   type CallLogEntry,
@@ -14,7 +14,7 @@ import {
   type CallParticipantStatus,
 } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
-import { VideoIcon } from '@/components/icons';
+import { PhoneIcon, PhoneMissedIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   EmptyState,
@@ -116,7 +116,7 @@ export function CallDetails() {
         <PaneHeader title="Call info" back={desktop ? undefined : '/calls'} border />
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
-            icon={PhoneMissed}
+            icon={PhoneMissedIcon}
             title="Call not found"
             description="It may have been removed from your call log."
           />
@@ -175,7 +175,7 @@ export function CallDetails() {
               />
               {callable ? (
                 <>
-                  <ActionButton icon={Phone} label="Voice" onClick={() => start('audio')} />
+                  <ActionButton icon={PhoneIcon} label="Voice" onClick={() => start('audio')} />
                   <ActionButton icon={VideoIcon} label="Video" onClick={() => start('video')} />
                 </>
               ) : null}
@@ -238,7 +238,7 @@ function ActionButton({
   label,
   onClick,
 }: {
-  icon: typeof Phone;
+  icon: typeof PhoneIcon;
   label: string;
   onClick: () => void;
 }) {

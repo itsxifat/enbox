@@ -3,8 +3,9 @@
  * the app. Desktop: video/avatar + name, timer and quick controls. Phones: a compact bubble
  * with the timer and an end button; tap to return to the call.
  */
-import { Maximize2, Mic, MicOff, PhoneOff } from 'lucide-react';
+import { Maximize2, Mic, MicOff } from 'lucide-react';
 import { chatTitle, type ID } from '@enbox/shared';
+import { PhoneOffIcon } from '@/components/icons';
 import { Avatar, Portal } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
@@ -137,7 +138,7 @@ export function CallMiniWindow({ active }: { active: ActiveCall }) {
               onClick={() => useCalls.getState().leaveCall()}
               className="flex h-10 w-14 items-center justify-center rounded-full bg-[#ef4444] hover:bg-[#dc2626]"
             >
-              <PhoneOff size={18} aria-hidden />
+              <PhoneOffIcon size={18} aria-hidden />
             </button>
           </div>
         ) : (
@@ -147,7 +148,7 @@ export function CallMiniWindow({ active }: { active: ActiveCall }) {
             onClick={() => useCalls.getState().leaveCall()}
             className="flex h-9 w-full items-center justify-center bg-[#ef4444] hover:bg-[#dc2626]"
           >
-            <PhoneOff size={16} aria-hidden />
+            <PhoneOffIcon size={16} aria-hidden />
           </button>
         )}
       </div>

@@ -4,11 +4,11 @@ import {
   Eye,
   MessageCircle,
   MonitorSmartphone,
-  Phone,
   Send,
   UsersRound,
   Volume2,
 } from 'lucide-react';
+import { PhoneIcon } from '@/components/icons';
 import { Button, toast } from '@/components/ui';
 import {
   notificationPermission,
@@ -135,7 +135,7 @@ export function NotificationsPage() {
           onChange={(v) => void updateSettings({ groupNotifications: v })}
         />
         <SwitchRow
-          icon={Phone}
+          icon={PhoneIcon}
           title="Call notifications"
           description="Incoming voice and video calls"
           checked={s.callNotifications}

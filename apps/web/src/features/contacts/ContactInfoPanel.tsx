@@ -18,7 +18,6 @@ import {
   Image as ImageIcon,
   NotebookPen,
   Pencil,
-  Phone,
   Star,
   Timer,
   Trash2,
@@ -39,7 +38,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
-import { VideoIcon } from '@/components/icons';
+import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
   Avatar,
@@ -456,7 +455,7 @@ function ContactInfo({
             {chat.permissions.canCall ? (
               <>
                 <QuickAction
-                  icon={Phone}
+                  icon={PhoneIcon}
                   label="Voice"
                   onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
                 />

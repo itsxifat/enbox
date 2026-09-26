@@ -53,16 +53,19 @@ export default tseslint.config(
           paths: [
             {
               name: 'lucide-react',
+              // lucide exports every icon as X, XIcon and LucideX
               importNames: [
                 'Video',
-                'VideoIcon',
-                'LucideVideo',
                 'VideoOff',
-                'VideoOffIcon',
-                'LucideVideoOff',
-              ],
+                'Phone',
+                'PhoneCall',
+                'PhoneIncoming',
+                'PhoneOutgoing',
+                'PhoneMissed',
+                'PhoneOff',
+              ].flatMap((n) => [n, `${n}Icon`, `Lucide${n}`]),
               message:
-                "Use VideoIcon / VideoOffIcon from '@/components/icons': lucide's camera reads smaller than the phone and search icons beside it.",
+                "Use the call icons from '@/components/icons' (VideoIcon, PhoneIcon, …): they're drawn as one optically matched set.",
             },
           ],
         },
