@@ -1,10 +1,13 @@
 /** Invite-link helpers: absolute join URL, copy and native share (with copy fallback). */
 import { toast } from '@/components/ui';
+import { publicOrigin } from '@/lib/serverConfig';
 
-/** Absolute `/join/:code` URL on this origin. */
+/**
+ * Absolute `/join/:code` URL on the canonical origin (the server's PUBLIC_URL once
+ * `GET /api/config` loaded — the app may be served from an alias domain — else this origin).
+ */
 export function inviteUrl(code: string): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `${origin}/join/${code}`;
+  return `${publicOrigin()}/join/${code}`;
 }
 
 /** Copy text to the clipboard (with a textarea fallback for insecure contexts). */

@@ -297,8 +297,10 @@ Media helpers (`@/lib/media`): `probeImageFile(file)` (shared `readImageInfo` on
 name; `animated` decides the upload path), `stripImageBlob(file)` (shared
 `stripImageMetadata`, best effort), `decodeAnimatedFrame(file)` (`ImageDecoder` poster
 frame). `api.upload(..., { thumbnail })` sends the poster part; `@/lib/serverConfig`
-caches `GET /api/config` (`getServerConfig()`, sync `serverConfig()`, `publicOrigin()` /
-`publicUrl(path)` for share links; `@/lib/push` re-exports `getServerConfig`).
+caches `GET /api/config` (`getServerConfig()`, warmed in `main.tsx`; sync `serverConfig()`,
+`publicOrigin()` / `publicUrl(path)` for share links — `inviteUrl()` builds on it, so invite
+links carry the server's PUBLIC_URL, not an alias domain; `@/lib/push` re-exports
+`getServerConfig`).
 
 ### Icons (`@/components/icons`)
 

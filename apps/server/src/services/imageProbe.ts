@@ -1,9 +1,10 @@
 /**
  * Image verification for `POST /api/media` (docs "Media": images are parsed, not trusted).
  * The shared `readImageInfo` parses the header and block structure of a GIF, WebP, PNG/APNG
- * or JPEG; this module feeds it a file, decides how much of the file it has to read and
+ * or JPEG; this module feeds it a file, decides how much of the file it has to read,
  * applies the decode caps (IMAGE_HEADER_MAX_DIMENSION, ANIMATED_MAX_FRAMES,
- * ANIMATED_DECODED_PIXEL_BUDGET). `stripImageFileMetadata` then rewrites the temp file
+ * ANIMATED_DECODED_PIXEL_BUDGET) and refuses a frame outside the canvas (the budget would
+ * not cover what a decoder grows it to). `stripImageFileMetadata` then rewrites the temp file
  * without EXIF/XMP/ICC/comments (shared `stripImageMetadata`) before it enters the store.
  *
  * Neither function throws on hostile content: the shared parsers are total and nothing is
@@ -53,8 +54,9 @@ export type ImageProbeResult =
   | {
       ok: false;
       /**
-       * `unreadable`: not a valid image of the sniffed type; `oversize`: needs a full walk
-       * but exceeds the walk limit; `cap`: over a decode cap.
+       * `unreadable`: not a valid image of the sniffed type (no pixels, no frames, a frame
+       * outside the canvas); `oversize`: needs a full walk but exceeds the walk limit;
+       * `cap`: over a decode cap.
        */
       code: 'unreadable' | 'oversize' | 'cap';
       /** Human-readable, phrased to follow the multipart field name (`file: …`). */
@@ -124,6 +126,7 @@ export async function probeImageFile(
     if (!info || info.mime !== mime) return fail('unreadable', 'Not a readable image');
     if (info.width < 1 || info.height < 1) return fail('unreadable', 'Image has no pixels');
     if (info.frameCount < 1) return fail('unreadable', 'Image has no frames');
+    if (!info.framesInCanvas) return fail('unreadable', 'A frame lies outside the image canvas');
     const cap = imageCapViolation(info);
     if (cap) return fail('cap', cap);
     return { ok: true, info };

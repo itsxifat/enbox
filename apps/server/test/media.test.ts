@@ -37,9 +37,14 @@ import {
   PNG,
   STATIC_GIF,
   WEBM,
+  actl,
+  anim,
+  anmf,
   app0Jfif,
+  fctl,
   gif,
   gifFrame,
+  gifFrameAt,
   gifWithFrames,
   idat,
   iend,
@@ -52,6 +57,8 @@ import {
   sof0,
   sos,
   text,
+  vp8x,
+  webp,
 } from './support/images.js';
 
 const JPEG = JPEG_HEADERLESS;
@@ -283,6 +290,24 @@ describe('POST /api/media', () => {
       expect(res.body.error.code).toBe('validation_error');
       expect(res.body.error.message).toMatch(/^file: /);
     }
+    expect(fs.readdirSync(path.join(t.uploadDir, '.tmp'))).toEqual([]);
+  });
+
+  it('rejects a frame outside the canvas with 400', async () => {
+    const cases: [string, Buffer][] = [
+      ['offscreen.gif', gif(2, 2, gifFrame(1, 1), gifFrameAt(1, 0, 2, 2))],
+      ['offscreen.webp', webp(vp8x(0x02, 4, 4), anim(0), anmf(2, 2, 4, 0))],
+      ['offscreen.png', png(ihdr(4, 4), actl(1, 0), fctl(0, 4, 2, 0, 3), idat, iend)],
+    ];
+    for (const [name, buf] of cases) {
+      const res = await upload({ kind: 'image' }, { buf, name }).expect(400);
+      expect(res.body.error.message, name).toBe('file: A frame lies outside the image canvas');
+    }
+    // The same frames placed inside the canvas pass.
+    await upload(
+      { kind: 'image' },
+      { buf: gif(3, 2, gifFrame(1, 1), gifFrameAt(1, 0, 2, 2)), name: 'onscreen.gif' },
+    ).expect(201);
     expect(fs.readdirSync(path.join(t.uploadDir, '.tmp'))).toEqual([]);
   });
 

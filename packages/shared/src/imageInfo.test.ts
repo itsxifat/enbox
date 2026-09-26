@@ -33,11 +33,11 @@ const readU32le = (b: Uint8Array, at: number): number =>
 /** 'GIF89a', logical screen, a 2-entry global colour table, `blocks`, trailer. */
 const gif = (w: number, h: number, ...blocks: number[][]): Uint8Array =>
   bytes('GIF89a', u16le(w), u16le(h), 0x80, 0, 0, [0, 0, 0, 255, 255, 255], ...blocks, 0x3b);
-/** Image descriptor with a 2-entry local colour table, LZW min code size 2 and one data sub-block. */
-const gifFrame = (w: number, h: number): number[] => [
+/** Image descriptor at (`left`, `top`) with a 2-entry local colour table, LZW min code size 2 and one data sub-block. */
+const gifFrame = (w: number, h: number, left = 0, top = 0): number[] => [
   0x2c,
-  ...u16le(0),
-  ...u16le(0),
+  ...u16le(left),
+  ...u16le(top),
   ...u16le(w),
   ...u16le(h),
   0x80,
@@ -108,10 +108,11 @@ const vp8 = (w: number, h: number): number[] =>
 const vp8x = (flags: number, w: number, h: number): number[] =>
   riffChunk('VP8X', [flags, 0, 0, 0, ...u24le(w - 1), ...u24le(h - 1)]);
 const anim = (loops: number): number[] => riffChunk('ANIM', [...u32le(0), ...u16le(loops)]);
-const anmf = (w: number, h: number): number[] =>
+/** Animation frame at (`x`, `y`) — stored halved, so pass even offsets. */
+const anmf = (w: number, h: number, x = 0, y = 0): number[] =>
   riffChunk('ANMF', [
-    ...u24le(0),
-    ...u24le(0),
+    ...u24le(x / 2),
+    ...u24le(y / 2),
     ...u24le(w - 1),
     ...u24le(h - 1),
     ...u24le(100),
@@ -145,13 +146,13 @@ const idat = pngChunk('IDAT', [0x78, 0x9c, 0x63, 0x00]);
 const iend = pngChunk('IEND', []);
 const actl = (frames: number, plays: number): number[] =>
   pngChunk('acTL', [...u32be(frames), ...u32be(plays)]);
-const fctl = (seq: number, w: number, h: number): number[] =>
+const fctl = (seq: number, w: number, h: number, x = 0, y = 0): number[] =>
   pngChunk('fcTL', [
     ...u32be(seq),
     ...u32be(w),
     ...u32be(h),
-    ...u32be(0),
-    ...u32be(0),
+    ...u32be(x),
+    ...u32be(y),
     ...u16be(1),
     ...u16be(10),
     0,
@@ -212,6 +213,7 @@ describe('readImageInfo', () => {
       frameCount: 1,
       loopCount: null,
       hasMetadata: false,
+      framesInCanvas: true,
     });
   });
 
@@ -224,6 +226,7 @@ describe('readImageInfo', () => {
       frameCount: 2,
       loopCount: 3,
       hasMetadata: true,
+      framesInCanvas: true,
     });
   });
 
@@ -247,6 +250,7 @@ describe('readImageInfo', () => {
       frameCount: 1,
       loopCount: null,
       hasMetadata: false,
+      framesInCanvas: true,
     });
   });
 
@@ -268,6 +272,7 @@ describe('readImageInfo', () => {
       frameCount: 2,
       loopCount: 2,
       hasMetadata: true,
+      framesInCanvas: true,
     });
   });
 
@@ -289,6 +294,7 @@ describe('readImageInfo', () => {
       frameCount: 1,
       loopCount: null,
       hasMetadata: false,
+      framesInCanvas: true,
     });
   });
 
@@ -301,6 +307,7 @@ describe('readImageInfo', () => {
       frameCount: 2,
       loopCount: 0,
       hasMetadata: true,
+      framesInCanvas: true,
     });
   });
 
@@ -323,6 +330,7 @@ describe('readImageInfo', () => {
       frameCount: 1,
       loopCount: null,
       hasMetadata: true,
+      framesInCanvas: true,
     });
   });
 
@@ -335,9 +343,40 @@ describe('readImageInfo', () => {
       frameCount: 1,
       loopCount: null,
       hasMetadata: false,
+      framesInCanvas: true,
     });
     expect(readImageInfo(jpeg(app13, sof0(1, 1)))?.hasMetadata).toBe(true);
     expect(readImageInfo(jpeg(comment, sof0(1, 1)))?.hasMetadata).toBe(true);
+  });
+
+  it('flags a frame that leaves the canvas', () => {
+    // GIF image descriptor: left/top + size against the logical screen.
+    expect(readImageInfo(gif(4, 4, gifFrame(2, 2, 2, 2)))?.framesInCanvas).toBe(true);
+    expect(readImageInfo(gif(4, 4, gifFrame(2, 2, 3, 0)))?.framesInCanvas).toBe(false);
+    expect(readImageInfo(gif(4, 4, gifFrame(1, 1), gifFrame(2, 2, 0, 3)))?.framesInCanvas).toBe(
+      false,
+    );
+    // WebP ANMF against the VP8X canvas (offsets are stored halved).
+    const animatedFrame = (x: number, y: number) =>
+      webp(vp8x(0x02, 6, 4), anim(0), anmf(2, 2, x, y));
+    expect(readImageInfo(animatedFrame(4, 2))?.framesInCanvas).toBe(true);
+    expect(readImageInfo(animatedFrame(4, 4))?.framesInCanvas).toBe(false);
+    expect(readImageInfo(animatedFrame(6, 0))?.framesInCanvas).toBe(false);
+    // Without the animation flag an ANMF chunk is not a frame.
+    expect(readImageInfo(webp(vp8x(0x00, 6, 4), anmf(8, 8), vp8l(6, 4)))?.framesInCanvas).toBe(
+      true,
+    );
+    // APNG fcTL: x_offset + width and y_offset + height against IHDR.
+    const apngFrame = (w: number, h: number, x: number, y: number) =>
+      png(ihdr(4, 4), actl(1, 0), fctl(0, w, h, x, y), idat, iend);
+    expect(readImageInfo(apngFrame(2, 2, 2, 2))?.framesInCanvas).toBe(true);
+    expect(readImageInfo(apngFrame(3, 2, 2, 0))?.framesInCanvas).toBe(false);
+    expect(readImageInfo(apngFrame(4, 2, 0, 3))?.framesInCanvas).toBe(false);
+    // An fcTL decoders ignore (acTL after the first IDAT) does not count.
+    expect(readImageInfo(png(ihdr(1, 1), idat, actl(1, 0), fctl(0, 5, 5), iend))).toMatchObject({
+      animated: false,
+      framesInCanvas: true,
+    });
   });
 
   it('returns null for a JPEG whose frame header is missing', () => {
@@ -364,6 +403,7 @@ describe('stripImageMetadata', () => {
       frameCount: 2,
       loopCount: 3,
       hasMetadata: false,
+      framesInCanvas: true,
     });
     expect(out[out.length - 1]).toBe(0x3b);
   });
@@ -388,6 +428,7 @@ describe('stripImageMetadata', () => {
       frameCount: 2,
       loopCount: 2,
       hasMetadata: false,
+      framesInCanvas: true,
     });
     expect(out).toEqual(webp(vp8x(0x02, 6, 4), anim(2), anmf(6, 4), anmf(3, 2)));
   });
@@ -418,6 +459,7 @@ describe('stripImageMetadata', () => {
       frameCount: 2,
       loopCount: 0,
       hasMetadata: false,
+      framesInCanvas: true,
     });
     const exif = pngChunk('eXIf', [0x49, 0x49, 0x2a, 0x00]);
     const ztxt = pngChunk('zTXt', [...ascii('Comment'), 0, 0, 0x78, 0x9c]);
@@ -460,7 +502,11 @@ describe('hostile and truncated input', () => {
       for (let n = 0; n < full.length; n++) {
         const head = full.subarray(0, n);
         const info = readImageInfo(head);
-        if (info) expect(info.mime, `${name}[0..${n})`).toBe(mime);
+        if (info) {
+          expect(info.mime, `${name}[0..${n})`).toBe(mime);
+          // A frame cut off before its rectangle was read is never judged out of canvas.
+          expect(info.framesInCanvas, `${name}[0..${n})`).toBe(true);
+        }
         const stripped = stripImageMetadata(head);
         expect(stripped.length, `${name}[0..${n})`).toBeLessThanOrEqual(n);
       }

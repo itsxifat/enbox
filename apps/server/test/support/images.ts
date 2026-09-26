@@ -55,6 +55,12 @@ export function gifFrame(w: number, h: number, data: number[] = [0x44, 0x01]): n
     0x00,
   ];
 }
+/** `gifFrame` placed at (`left`, `top`) on the logical screen. */
+export function gifFrameAt(left: number, top: number, w: number, h: number): number[] {
+  const frame = gifFrame(w, h);
+  frame.splice(1, 4, ...u16le(left), ...u16le(top));
+  return frame;
+}
 export const gifGce = (delay: number): number[] => [
   0x21,
   0xf9,
@@ -121,10 +127,11 @@ export const vp8l = (w: number, h: number): number[] =>
 export const vp8x = (flags: number, w: number, h: number): number[] =>
   riffChunk('VP8X', [flags, 0, 0, 0, ...u24le(w - 1), ...u24le(h - 1)]);
 export const anim = (loops: number): number[] => riffChunk('ANIM', [...u32le(0), ...u16le(loops)]);
-export const anmf = (w: number, h: number): number[] =>
+/** Animation frame at (`x`, `y`) — stored halved, so pass even offsets. */
+export const anmf = (w: number, h: number, x = 0, y = 0): number[] =>
   riffChunk('ANMF', [
-    ...u24le(0),
-    ...u24le(0),
+    ...u24le(x / 2),
+    ...u24le(y / 2),
     ...u24le(w - 1),
     ...u24le(h - 1),
     ...u24le(100),
@@ -164,13 +171,13 @@ export const idat = pngChunk('IDAT', [0x78, 0x9c, 0x63, 0x00]);
 export const iend = pngChunk('IEND', []);
 export const actl = (frames: number, plays: number): number[] =>
   pngChunk('acTL', [...u32be(frames), ...u32be(plays)]);
-export const fctl = (seq: number, w: number, h: number): number[] =>
+export const fctl = (seq: number, w: number, h: number, x = 0, y = 0): number[] =>
   pngChunk('fcTL', [
     ...u32be(seq),
     ...u32be(w),
     ...u32be(h),
-    ...u32be(0),
-    ...u32be(0),
+    ...u32be(x),
+    ...u32be(y),
     ...u16be(1),
     ...u16be(10),
     0,

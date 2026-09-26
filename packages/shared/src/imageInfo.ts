@@ -29,6 +29,13 @@ export interface ImageInfo {
   loopCount: number | null;
   /** Whether `stripImageMetadata` would remove something (EXIF, XMP, ICC, comments, text). */
   hasMetadata: boolean;
+  /**
+   * Whether every frame rectangle seen (GIF image descriptor, WebP ANMF, APNG fcTL) lies
+   * inside the canvas. A frame beyond it is malformed — decoders clip, grow the canvas or
+   * refuse the file, so the decoded-pixel budget could not be trusted — and the server
+   * rejects the upload. Always true for a JPEG (its one frame is the canvas).
+   */
+  framesInCanvas: boolean;
 }
 
 /**
@@ -222,12 +229,19 @@ function gifLoopCount(b: Uint8Array, start: number): number | null {
 
 function readGif(b: Uint8Array): ImageInfo | null {
   if (!has(b, 0, GIF_HEADER_LENGTH)) return null;
+  const width = u16le(b, 6);
+  const height = u16le(b, 8);
   let frameCount = 0;
   let loopCount: number | null = null;
   let hasMetadata = false;
+  let framesInCanvas = true;
   walkGif(b, (block) => {
     if (block.kind === 'image') {
       frameCount++;
+      // Image descriptor: left (u16), top (u16), width (u16), height (u16) after the introducer.
+      const at = block.start + 1;
+      if (u16le(b, at) + u16le(b, at + 4) > width || u16le(b, at + 2) + u16le(b, at + 6) > height)
+        framesInCanvas = false;
     } else if (block.label === GIF_COMMENT || block.label === GIF_PLAIN_TEXT) {
       hasMetadata = true;
     } else if (block.label === GIF_APPLICATION) {
@@ -237,12 +251,13 @@ function readGif(b: Uint8Array): ImageInfo | null {
   });
   return {
     mime: 'image/gif',
-    width: u16le(b, 6),
-    height: u16le(b, 8),
+    width,
+    height,
     animated: frameCount >= 2,
     frameCount,
     loopCount,
     hasMetadata,
+    framesInCanvas,
   };
 }
 
@@ -307,6 +322,7 @@ function readWebp(b: Uint8Array): ImageInfo | null {
   let frames = 0;
   let loopCount: number | null = null;
   let hasMetadata = false;
+  let framesInCanvas = true;
   walkRiff(b, (id, start) => {
     const data = start + 8;
     switch (id) {
@@ -350,6 +366,14 @@ function readWebp(b: Uint8Array): ImageInfo | null {
         break;
       case 'ANMF':
         frames++;
+        // Frame X / 2 (u24), Y / 2 (u24), width - 1 (u24), height - 1 (u24) against the VP8X canvas.
+        if (
+          extended &&
+          has(b, data, 12) &&
+          (u24le(b, data) * 2 + u24le(b, data + 6) + 1 > width ||
+            u24le(b, data + 3) * 2 + u24le(b, data + 9) + 1 > height)
+        )
+          framesInCanvas = false;
         break;
       default:
         if (WEBP_METADATA_CHUNKS.includes(id)) hasMetadata = true;
@@ -365,6 +389,7 @@ function readWebp(b: Uint8Array): ImageInfo | null {
     frameCount: animated ? frames : 1,
     loopCount,
     hasMetadata: hasMetadata || (flags & VP8X_METADATA) !== 0,
+    framesInCanvas: animated ? framesInCanvas : true,
   };
 }
 
@@ -430,10 +455,13 @@ function walkPng(b: Uint8Array, visit: (type: string, start: number, end: number
 function readPng(b: Uint8Array): ImageInfo | null {
   // IHDR must be the first chunk; its width and height are the first 8 data bytes.
   if (!has(b, 16, 8) || fourcc(b, 12) !== 'IHDR') return null;
+  const width = u32be(b, 16);
+  const height = u32be(b, 20);
   let animated = false;
   let frames = 0;
   let loopCount: number | null = null;
   let hasMetadata = false;
+  let framesInCanvas = true;
   let sawImageData = false;
   walkPng(b, (type, start) => {
     const data = start + 8;
@@ -450,6 +478,13 @@ function readPng(b: Uint8Array): ImageInfo | null {
         break;
       case 'fcTL':
         frames++;
+        // Sequence number, then width, height, x_offset, y_offset (u32 each) against IHDR.
+        if (
+          has(b, data, 20) &&
+          (u32be(b, data + 12) + u32be(b, data + 4) > width ||
+            u32be(b, data + 16) + u32be(b, data + 8) > height)
+        )
+          framesInCanvas = false;
         break;
       default:
         if (PNG_METADATA_CHUNKS.includes(type)) hasMetadata = true;
@@ -457,12 +492,13 @@ function readPng(b: Uint8Array): ImageInfo | null {
   });
   return {
     mime: 'image/png',
-    width: u32be(b, 16),
-    height: u32be(b, 20),
+    width,
+    height,
     animated,
     frameCount: animated ? frames : 1,
     loopCount,
     hasMetadata,
+    framesInCanvas: animated ? framesInCanvas : true,
   };
 }
 
@@ -567,6 +603,7 @@ function readJpeg(b: Uint8Array): ImageInfo | null {
     frameCount: 1,
     loopCount: null,
     hasMetadata,
+    framesInCanvas: true,
   };
 }
 
