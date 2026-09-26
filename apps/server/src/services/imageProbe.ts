@@ -1,15 +1,17 @@
 /**
  * Image verification for `POST /api/media` (docs "Media": images are parsed, not trusted).
  * The shared `readImageInfo` parses the header and block structure of a GIF, WebP, PNG/APNG
- * or JPEG; this module feeds it a file, decides how much of the file it has to read,
- * applies the decode caps (IMAGE_HEADER_MAX_DIMENSION, ANIMATED_MAX_FRAMES,
- * ANIMATED_DECODED_PIXEL_BUDGET) and refuses a frame outside the canvas (the budget would
- * not cover what a decoder grows it to). `stripImageFileMetadata` then rewrites the temp file
- * without EXIF/XMP/ICC/comments (shared `stripImageMetadata`) before it enters the store.
+ * or JPEG; this module feeds it a file, decides how much of the file it has to read
+ * (`ImageInfo.settled`), applies the decode caps (IMAGE_HEADER_MAX_DIMENSION,
+ * ANIMATED_MAX_FRAMES, ANIMATED_DECODED_PIXEL_BUDGET) and refuses a frame outside the canvas
+ * (the budget would not cover what a decoder grows it to). `stripImageFileMetadata` then
+ * rewrites the temp file without EXIF/XMP/ICC/comments/trailers (shared `stripImageMetadata`)
+ * before it enters the store.
  *
  * Neither function throws on hostile content: the shared parsers are total and nothing is
  * allocated in proportion to a size the file claims (only to bytes actually read, bounded by
- * IMAGE_WALK_LIMIT_BYTES). Filesystem errors propagate like everywhere else (500).
+ * MAX_IMAGE_BYTES — a larger image is refused before any of it is read). Filesystem errors
+ * propagate like everywhere else (500).
  */
 import fs, { type FileHandle } from 'node:fs/promises';
 import {
@@ -17,13 +19,14 @@ import {
   ANIMATED_MAX_FRAMES,
   IMAGE_HEADER_MAX_DIMENSION,
   IMAGE_PROBE_BYTES,
+  MAX_IMAGE_BYTES,
   readImageInfo,
   stripImageMetadata,
   type ImageInfo,
   type ImageMime,
 } from '@enbox/shared';
 
-/** Sniffed types the parser understands; other images (AVIF) are stored with the client's dimensions, unprobed and unstripped. */
+/** The types the parser understands — exactly MEDIA_MIME_ALLOWLIST.image, so every image upload is probed and stripped. */
 export const PROBED_IMAGE_MIME_TYPES: readonly ImageMime[] = [
   'image/gif',
   'image/webp',
@@ -36,13 +39,14 @@ export function isProbedImageMime(mime: string): mime is ImageMime {
 }
 
 /**
- * Files that have to be walked whole — every GIF (animated iff a second image descriptor
- * exists anywhere), animated WebP/APNG (exact frame count) and a JPEG whose frame header
- * sits behind more than IMAGE_PROBE_BYTES of metadata — are read up to this size. Beyond it
- * an animated image is rejected; a static WebP/PNG/JPEG keeps what its head said and is
- * stored unstripped.
+ * Largest image accepted (MAX_IMAGE_BYTES). A file whose head does not settle it — every
+ * GIF (animated iff a second image descriptor exists anywhere before the trailer), an
+ * animated WebP/APNG (exact frame count), a PNG whose first IDAT or a JPEG whose frame header
+ * sits behind more than IMAGE_PROBE_BYTES of other chunks — is read whole, and every image
+ * is rewritten whole for stripping, so this bounds what is read into memory. Beyond it an
+ * image is refused unread (`oversize`).
  */
-export const IMAGE_WALK_LIMIT_BYTES = 32 * 1024 * 1024;
+export const IMAGE_WALK_LIMIT_BYTES = MAX_IMAGE_BYTES;
 
 export interface ImageFileOptions {
   /** Override of IMAGE_WALK_LIMIT_BYTES (tests). */
@@ -55,7 +59,7 @@ export type ImageProbeResult =
       ok: false;
       /**
        * `unreadable`: not a valid image of the sniffed type (no pixels, no frames, a frame
-       * outside the canvas); `oversize`: needs a full walk but exceeds the walk limit;
+       * outside the canvas); `oversize`: larger than the walk limit (MAX_IMAGE_BYTES);
        * `cap`: over a decode cap.
        */
       code: 'unreadable' | 'oversize' | 'cap';
@@ -93,10 +97,12 @@ export function imageCapViolation(info: ImageInfo): string | null {
 }
 
 /**
- * Parses an image file the sniffer typed `mime` (one of PROBED_IMAGE_MIME_TYPES): the first
- * IMAGE_PROBE_BYTES settle a static WebP/PNG and a JPEG whose frame header comes first; a
- * GIF, an animated WebP/APNG and a JPEG without a frame header in its head are walked whole
- * (within `walkLimit`) so frame counts are exact. Never throws on hostile content.
+ * Parses an image file the sniffer typed `mime` (one of PROBED_IMAGE_MIME_TYPES). A file
+ * above `walkLimit` is refused unread. The first IMAGE_PROBE_BYTES settle a static WebP, a
+ * PNG whose first IDAT is in them and a JPEG whose frame header is (`ImageInfo.settled`);
+ * anything else — a GIF, an animated WebP/APNG, a PNG or JPEG whose head ends in a large
+ * metadata chunk — is walked whole so `animated` and the frame count are exact. Never throws
+ * on hostile content.
  */
 export async function probeImageFile(
   filePath: string,
@@ -108,18 +114,11 @@ export async function probeImageFile(
   const fh = await fs.open(filePath, 'r');
   try {
     const { size } = await fh.stat();
+    if (size > walkLimit)
+      return fail('oversize', `Images may be at most ${Math.floor(walkLimit / (1024 * 1024))} MiB`);
     let bytes = await readAt(fh, 0, Math.min(size, IMAGE_PROBE_BYTES));
     let info = readImageInfo(bytes);
-    if (bytes.length < size && (!info || mime === 'image/gif' || info.animated)) {
-      if (size > walkLimit) {
-        const mib = Math.floor(walkLimit / (1024 * 1024));
-        return fail(
-          'oversize',
-          info
-            ? `Animated images may be at most ${mib} MiB`
-            : `Images above ${mib} MiB must start with their header`,
-        );
-      }
+    if (bytes.length < size && !info?.settled) {
       bytes = Buffer.concat([bytes, await readAt(fh, bytes.length, size - bytes.length)]);
       info = readImageInfo(bytes);
     }
@@ -137,9 +136,10 @@ export async function probeImageFile(
 
 /**
  * Rewrites a GIF/WebP/PNG/JPEG file without its metadata blocks (shared
- * `stripImageMetadata`: EXIF, XMP, ICC, comments, text; pixels, frames and timing
- * untouched) and returns its size afterwards. A file beyond `walkLimit` is left as it is
- * (`stripped: false`); an unchanged file is not rewritten.
+ * `stripImageMetadata`: EXIF, XMP, ICC, comments, text, a JPEG's trailer; pixels, frames
+ * and timing untouched) and returns its size afterwards. An unchanged file is not rewritten.
+ * A file beyond `walkLimit` is left as it is (`stripped: false`) — `probeImageFile` refuses
+ * such a file first, so nothing unstripped reaches the store through the upload route.
  */
 export async function stripImageFileMetadata(
   filePath: string,

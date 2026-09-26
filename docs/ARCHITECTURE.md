@@ -877,9 +877,11 @@ validation_error`. `call:invite`: group calls only, by joined participants with 
 ## Media
 
 - `POST /api/media` (multipart `file` + optional `thumbnail` + `uploadMediaMetaSchema`
-  fields; ≤ MAX_UPLOAD_BYTES). The MIME type is sniffed from the bytes and must be in
-  `MEDIA_MIME_ALLOWLIST[kind]` (`file`: anything; SVG is never an image). The stored
-  extension comes from the sniffed type (unknown → `.bin`), never from the client name.
+  fields; ≤ MAX_UPLOAD_BYTES, images ≤ MAX_IMAGE_BYTES). The MIME type is sniffed from the
+  bytes and must be in `MEDIA_MIME_ALLOWLIST[kind]` (`file`: anything; SVG is never an
+  image, and the image kind allows exactly the types the parser reads — JPEG, PNG/APNG, GIF,
+  WebP — so an AVIF goes as a file). The stored extension comes from the sniffed type
+  (unknown → `.bin`), never from the client name.
   `fileName` = sanitised basename (control/bidi chars removed, NFC, ≤ MAX_FILE_NAME_LENGTH),
   never used in headers. Key `UPLOAD_DIR/<yyyy>/<mm>/<uuid>.<ext>`; thumbnail (JPEG/WebP ≤
   MAX_THUMBNAIL_BYTES) → `media.thumbnail_key`, `MediaAttachment.thumbnailUrl`.
@@ -892,14 +894,22 @@ attachment` unless the extension is inline-safe.
   header and frame structure of every image upload (shared `readImageInfo` through
   `services/imageProbe.ts`) and answers `400 validation_error` — never a 500 — for a side
   above IMAGE_HEADER_MAX_DIMENSION, more than ANIMATED_MAX_FRAMES frames, width × height ×
-  frames above ANIMATED_DECODED_PIXEL_BUDGET, a frame outside the canvas or an unparsable
-  file. The parsed `width`/`height` override the client's claim; `media.animated` and
-  `frame_count` record multi-frame GIF, animated WebP and APNG (APNG keeps `image/png`) →
-  `MediaAttachment.animated`/`frameCount`. AVIF is never accepted for profile media.
+  frames above ANIMATED_DECODED_PIXEL_BUDGET, a frame outside the canvas, an unparsable
+  file or a file above MAX_IMAGE_BYTES. The first IMAGE_PROBE_BYTES settle a static WebP,
+  a PNG whose first IDAT is in them and a JPEG whose frame header is (`ImageInfo.settled`);
+  anything else — every GIF, an animated WebP/APNG, a PNG or JPEG whose head ends inside a
+  large metadata chunk (an `acTL` may still follow it) — is walked whole, which is why
+  images have their own size cap (a larger photo goes as a document). The parsed
+  `width`/`height` override the client's claim; `media.animated` and `frame_count` record
+  multi-frame GIF, animated WebP and APNG (APNG keeps `image/png`) →
+  `MediaAttachment.animated`/`frameCount`; migration 0001 marks every earlier `image/gif`
+  image row animated (they were never probed; static GIFs are rare and merely gain the GIF
+  badge). AVIF is never accepted as an image.
 - **Metadata is stripped server-side** for GIF, WebP, PNG and JPEG (EXIF, XMP, ICC,
-  comments; the file and its thumbnail) before the file enters the store
-  (`media.metadata_stripped`); the client canvas re-encode below stays as defence in depth.
-  Video metadata remains unstripped (known v1 limitation).
+  comments; for a JPEG also the APPn/COM segments between progressive scans and everything
+  after its EOI — motion-photo videos, vendor trailers; the file and its thumbnail) before
+  the file enters the store (`media.metadata_stripped`); the client canvas re-encode below
+  stays as defence in depth. Video metadata remains unstripped (known v1 limitation).
 - Ownership: every client-supplied `mediaId` (messages, statuses, avatars, banners) must be
   uploaded by the caller, else 404; `message.type`/status type must equal `media.kind`.
   Avatars (user, group, community, channel; `requireAvatarMedia`): kind `image`, static

@@ -17,4 +17,5 @@ CREATE INDEX "users_availability_until_idx" ON "users" USING btree ("availabilit
 CREATE INDEX "users_presence_note_expires_idx" ON "users" USING btree ("presence_note_expires_at") WHERE "users"."presence_note_expires_at" is not null;--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_profile_color_ck" CHECK ("users"."profile_color" is null or "users"."profile_color" ~ '^#[0-9a-f]{6}$');--> statement-breakpoint
 ALTER TABLE "users" ADD CONSTRAINT "users_accent_color_ck" CHECK ("users"."accent_color" is null or "users"."accent_color" ~ '^#[0-9a-f]{6}$');--> statement-breakpoint
-ALTER TABLE "users" ADD CONSTRAINT "users_availability_ck" CHECK ("users"."availability" in ('online', 'idle', 'dnd', 'invisible'));
+ALTER TABLE "users" ADD CONSTRAINT "users_availability_ck" CHECK ("users"."availability" in ('online', 'idle', 'dnd', 'invisible'));--> statement-breakpoint
+UPDATE "media" SET "animated" = true WHERE "kind" = 'image' AND "mime_type" = 'image/gif';

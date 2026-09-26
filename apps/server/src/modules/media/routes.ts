@@ -41,12 +41,13 @@ import {
  *
  * POST /media: multipart `file` (+ optional `thumbnail`) + `uploadMediaMetaSchema` fields.
  * The type is sniffed from the bytes and must be in MEDIA_MIME_ALLOWLIST[kind] (SVG/HTML
- * never pass as images); the stored extension comes from the sniffed type (unknown → .bin);
- * `fileName` is the sanitised client basename (display only). Images the shared parser
- * understands (GIF/WebP/PNG/JPEG) are parsed, not trusted: `probeImageFile` verifies the
- * header (400 — never 500 — for an unreadable file or one over the decode caps), the parsed
+ * never pass as images, nor does AVIF); the stored extension comes from the sniffed type
+ * (unknown → .bin); `fileName` is the sanitised client basename (display only). Images —
+ * the kind allows exactly the types the shared parser reads: GIF/WebP/PNG/JPEG — are
+ * parsed, not trusted: `probeImageFile` verifies the header (400 — never 500 — for an
+ * unreadable file, one over the decode caps or one above MAX_IMAGE_BYTES), the parsed
  * dimensions override the client's claim, `animated`/`frame_count` come from the frame walk
- * (APNG stays image/png), and the file is rewritten without EXIF/XMP/ICC/comments
+ * (APNG stays image/png), and the file is rewritten without EXIF/XMP/ICC/comments/trailers
  * (`metadata_stripped`, new `size`) before it enters the store. Thumbnail: JPEG/WebP ≤
  * MAX_THUMBNAIL_BYTES, stripped the same way and — it is the poster of animated media —
  * static and within the caps whenever it parses. 201 → MediaAttachment. Files land in
@@ -109,8 +110,8 @@ router.post('/media', uploadLimiter, receiveMultipart, async (req, res) => {
       );
     }
 
-    // Images the parser understands: verified dimensions and frames, metadata stripped.
-    // Other images (AVIF) and other kinds keep the client's dimensions and their bytes.
+    // Images (every type the kind allows is one the parser reads): verified dimensions and
+    // frames, metadata stripped. Other kinds keep the client's dimensions and their bytes.
     let image: ImageInfo | null = null;
     let size = file.size;
     let metadataStripped = false;

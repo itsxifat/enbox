@@ -196,6 +196,13 @@ export const CALL_RECONNECT_GRACE_MS = 20_000;
 
 /** Upload limits in bytes. */
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/**
+ * Kind `image` uploads. The server parses an image whole when its head does not settle it
+ * and always rewrites it whole without metadata, so this bounds what it reads into memory
+ * (400 above it; a larger photo goes as a document — kind `file` — which is neither parsed
+ * nor rendered inline).
+ */
+export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 /** Optional client-generated thumbnail/poster (multipart `thumbnail`). */
 export const MAX_THUMBNAIL_BYTES = 200 * 1024;
@@ -240,11 +247,13 @@ export const ORPHAN_MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Sniffed MIME types accepted per upload kind. `null` = anything (served as an attachment).
- * SVG is never accepted as an image. Audio-only WebM/MP4 files sniff as `video/*`, so the
- * audio and voice kinds accept those containers too.
+ * SVG is never accepted as an image, and neither is AVIF: the image kind allows exactly the
+ * types the shared parser reads (`readImageInfo`), so every image upload is verified and
+ * stripped before it is stored — an AVIF goes as a file. Audio-only WebM/MP4 files sniff as
+ * `video/*`, so the audio and voice kinds accept those containers too.
  */
 export const MEDIA_MIME_ALLOWLIST = {
-  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
+  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
   video: ['video/mp4', 'video/webm', 'video/quicktime'],
   audio: [
     'audio/mpeg',

@@ -4,25 +4,25 @@ Cross-module building blocks the feature modules (`src/modules/*`) are built on.
 the normative rules of `docs/ARCHITECTURE.md` — **use them instead of re-implementing
 visibility, watermarks, membership transitions, serialization or fan-out in a module.**
 
-| File            | What it owns                                                                   |
-| --------------- | ------------------------------------------------------------------------------ |
-| `effects.ts`    | `Effects` post-commit collector + `transact()`                                 |
-| `events.ts`     | typed in-process domain event bus (`domainEvents`)                             |
-| `chats.ts`      | chat locks, membership lookups, the visibility SQL, permissions, access guards |
-| `summaries.ts`  | `ChatSummary` batch serializer, `publishChatUpsert`                            |
-| `messages.ts`   | send transaction, `toMessages`, paging, `loadVisibleMessage`, replies, deletes |
-| `system.ts`     | system messages (`postSystemMessage`) + which kinds each chat may get          |
-| `membership.ts` | `upsertMembership` (all membership writes), succession, roles, add rules       |
-| `watermarks.ts` | read/delivered marks, unread counts, tick watermarks, delivered-on-connect     |
-| `users.ts`      | user rows (+ banner), relationships, `UserPublic`/`Presence`/`UserSelf`, scrub |
-| `media.ts`      | `MediaAttachment`, ownership checks, avatar/banner requirers (poster rule)     |
-| `uploads.ts`    | MIME sniffing, allowlists, file-name sanitising, storage keys/files            |
-| `imageProbe.ts` | image header parse (verified dims, animation, caps → 400) + metadata strip     |
-| `statuses.ts`   | status visibility + status-reply resolution                                    |
-| `invites.ts`    | invite codes unique across chats and communities                               |
-| `sessions.ts`   | session tokens (pre-existing)                                                  |
-| `hooks.ts`      | cross-module hook registries (account deletion, chat deletion)                 |
-| `sql.ts`        | raw-SQL helpers (`uuidArray`, `rawRows`, `num`, `pairKey`)                     |
+| File            | What it owns                                                                         |
+| --------------- | ------------------------------------------------------------------------------------ |
+| `effects.ts`    | `Effects` post-commit collector + `transact()`                                       |
+| `events.ts`     | typed in-process domain event bus (`domainEvents`)                                   |
+| `chats.ts`      | chat locks, membership lookups, the visibility SQL, permissions, access guards       |
+| `summaries.ts`  | `ChatSummary` batch serializer, `publishChatUpsert`                                  |
+| `messages.ts`   | send transaction, `toMessages`, paging, `loadVisibleMessage`, replies, deletes       |
+| `system.ts`     | system messages (`postSystemMessage`) + which kinds each chat may get                |
+| `membership.ts` | `upsertMembership` (all membership writes), succession, roles, add rules             |
+| `watermarks.ts` | read/delivered marks, unread counts, tick watermarks, delivered-on-connect           |
+| `users.ts`      | user rows (+ banner), relationships, `UserPublic`/`Presence`/`UserSelf`, scrub       |
+| `media.ts`      | `MediaAttachment`, ownership checks, avatar/banner requirers (poster rule)           |
+| `uploads.ts`    | MIME sniffing, allowlists, file-name sanitising, storage keys/files                  |
+| `imageProbe.ts` | image parse (verified dims, animation, caps, MAX_IMAGE_BYTES → 400) + metadata strip |
+| `statuses.ts`   | status visibility + status-reply resolution                                          |
+| `invites.ts`    | invite codes unique across chats and communities                                     |
+| `sessions.ts`   | session tokens (pre-existing)                                                        |
+| `hooks.ts`      | cross-module hook registries (account deletion, chat deletion)                       |
+| `sql.ts`        | raw-SQL helpers (`uuidArray`, `rawRows`, `num`, `pairKey`)                           |
 
 ## The post-commit pattern: `transact` + `Effects`
 

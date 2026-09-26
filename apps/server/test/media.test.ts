@@ -11,6 +11,7 @@ import {
   MAX_AVATAR_BYTES,
   MAX_BANNER_BYTES,
   MAX_FILE_NAME_LENGTH,
+  MAX_IMAGE_BYTES,
   MAX_THUMBNAIL_BYTES,
   readImageInfo,
   type MediaAttachment,
@@ -35,6 +36,7 @@ import {
   JPEG_EXIF,
   JPEG_HEADERLESS,
   PNG,
+  PNG_SIGNATURE,
   STATIC_GIF,
   WEBM,
   actl,
@@ -42,6 +44,7 @@ import {
   anmf,
   app0Jfif,
   fctl,
+  fdat,
   gif,
   gifFrame,
   gifFrameAt,
@@ -57,6 +60,7 @@ import {
   sof0,
   sos,
   text,
+  u32be,
   vp8x,
   webp,
 } from './support/images.js';
@@ -311,21 +315,71 @@ describe('POST /api/media', () => {
     expect(fs.readdirSync(path.join(t.uploadDir, '.tmp'))).toEqual([]);
   });
 
-  it('stores AVIF and non-image kinds unprobed: client dimensions kept, nothing stripped', async () => {
+  it('walks a PNG whose head ends before its first IDAT: an APNG behind a large chunk is animated', async () => {
+    const hidden = png(
+      ihdr(2, 2),
+      pngChunk('iCCP', beyondHead),
+      actl(2, 0),
+      fctl(0, 2, 2),
+      idat,
+      fctl(1, 2, 2),
+      fdat(2),
+      iend,
+    );
+    // The head alone would pass it off as a static PNG (no poster, no frame caps).
+    expect(readImageInfo(hidden.subarray(0, IMAGE_PROBE_BYTES))).toMatchObject({
+      animated: false,
+      settled: false,
+    });
+    const res = await upload(
+      { kind: 'image' },
+      { buf: hidden, name: 'hidden.png', type: 'image/png' },
+    ).expect(201);
+    expect(res.body).toMatchObject({ mimeType: 'image/png', animated: true, frameCount: 2 });
+    await expect(requireAvatarMedia(db, res.body.id, alice.id)).rejects.toMatchObject({
+      status: 400,
+      message: 'Animated images need a static poster',
+    });
+    const frames = await upload(
+      { kind: 'image' },
+      {
+        buf: png(
+          ihdr(1, 1),
+          pngChunk('iCCP', beyondHead),
+          actl(ANIMATED_MAX_FRAMES + 1, 0),
+          ...Array.from({ length: ANIMATED_MAX_FRAMES + 1 }, (_, i) => fctl(i, 1, 1)),
+          idat,
+          iend,
+        ),
+        name: 'long.png',
+      },
+    ).expect(400);
+    expect(frames.body.error.message).toMatch(/^file: Animated images may have at most/);
+  });
+
+  it('refuses an image above MAX_IMAGE_BYTES unread; larger photos go as documents', async () => {
+    const huge = Buffer.concat([
+      png(ihdr(1, 1)),
+      Buffer.from(u32be(MAX_IMAGE_BYTES)),
+      Buffer.from('IDAT'),
+      Buffer.alloc(MAX_IMAGE_BYTES + 4),
+      png(iend).subarray(PNG_SIGNATURE.length),
+    ]);
+    const res = await upload({ kind: 'image' }, { buf: huge, name: 'huge.png' }).expect(400);
+    expect(res.body.error.message).toBe('file: Images may be at most 32 MiB');
+    expect(fs.readdirSync(path.join(t.uploadDir, '.tmp'))).toEqual([]);
+  });
+
+  it('rejects AVIF as an image (neither parsed nor stripped); files of any kind stay unprobed', async () => {
     const res = await upload(
       { kind: 'image', width: '640', height: '480' },
       { buf: AVIF, name: 'a.avif', type: 'image/avif' },
-    ).expect(201);
-    expect(res.body).toMatchObject({
-      mimeType: 'image/avif',
-      width: 640,
-      height: 480,
-      animated: false,
-      frameCount: null,
-      size: AVIF.length,
-    });
-    expect(stored(res.body.url)).toEqual(AVIF);
-    expect(await rowOf(res.body.id)).toMatchObject({ metadataStripped: false });
+    ).expect(400);
+    expect(res.body.error.message).toBe('file: image/avif is not allowed for image uploads');
+    const asFile = await upload({ kind: 'file' }, { buf: AVIF, name: 'a.avif' }).expect(201);
+    expect(asFile.body).toMatchObject({ kind: 'file', mimeType: 'image/avif', animated: false });
+    expect(stored(asFile.body.url)).toEqual(AVIF);
+    expect(await rowOf(asFile.body.id)).toMatchObject({ metadataStripped: false });
     const doc = await upload(
       { kind: 'file', width: '7', height: '9' },
       { buf: ANIMATED_GIF, name: 'dance.gif' },
@@ -493,7 +547,7 @@ describe('probeImageFile / stripImageFileMetadata', () => {
   /** Just over the probe head, so a full walk is needed and a small walk limit bites. */
   const walkLimit = IMAGE_PROBE_BYTES + 1024;
 
-  it('walks animated candidates whole and refuses them beyond the walk limit', async () => {
+  it('walks unsettled heads whole and refuses any image beyond the walk limit', async () => {
     const bigGif = write(gif(1, 1, gifFrame(1, 1, beyondHead), gifFrame(1, 1)));
     expect(await probeImageFile(bigGif, 'image/gif')).toMatchObject({
       ok: true,
@@ -502,7 +556,7 @@ describe('probeImageFile / stripImageFileMetadata', () => {
     expect(await probeImageFile(bigGif, 'image/gif', { walkLimit })).toEqual({
       ok: false,
       code: 'oversize',
-      reason: 'Animated images may be at most 0 MiB',
+      reason: 'Images may be at most 0 MiB',
     });
     const bigApng = write(
       png(
@@ -516,16 +570,36 @@ describe('probeImageFile / stripImageFileMetadata', () => {
       ok: false,
       code: 'oversize',
     });
-    expect(IMAGE_WALK_LIMIT_BYTES).toBeGreaterThanOrEqual(32 * 1024 * 1024);
+    // A static PNG whose first IDAT lies beyond the head is walked whole too (an acTL could
+    // still follow the chunk the head stopped in).
+    const lateIdat = write(png(ihdr(1, 1), pngChunk('iCCP', beyondHead), idat, iend));
+    expect(await probeImageFile(lateIdat, 'image/png')).toMatchObject({
+      ok: true,
+      info: { animated: false, frameCount: 1, settled: true },
+    });
+    expect(await probeImageFile(lateIdat, 'image/png', { walkLimit })).toMatchObject({
+      ok: false,
+      code: 'oversize',
+    });
+    expect(IMAGE_WALK_LIMIT_BYTES).toBe(MAX_IMAGE_BYTES);
   });
 
-  it('settles a static WebP/PNG/JPEG from the head alone, however large the file', async () => {
+  it('settles a static WebP/PNG/JPEG from the head alone, but never accepts a file over the limit unstripped', async () => {
     const bigPng = write(png(ihdr(2, 2), text, pngChunk('IDAT', beyondHead), iend));
-    expect(await probeImageFile(bigPng, 'image/png', { walkLimit })).toMatchObject({
+    expect(readImageInfo(fs.readFileSync(bigPng).subarray(0, IMAGE_PROBE_BYTES))?.settled).toBe(
+      true,
+    );
+    expect(await probeImageFile(bigPng, 'image/png')).toMatchObject({
       ok: true,
       info: { width: 2, height: 2, animated: false, frameCount: 1 },
     });
-    // …and leaves such a file unstripped (its tEXt chunk stays).
+    // Over the limit the probe refuses it before the strip could skip it: what enters the
+    // store through the route is always stripped.
+    expect(await probeImageFile(bigPng, 'image/png', { walkLimit })).toEqual({
+      ok: false,
+      code: 'oversize',
+      reason: 'Images may be at most 0 MiB',
+    });
     const before = fs.statSync(bigPng).size;
     expect(await stripImageFileMetadata(bigPng, { walkLimit })).toEqual({
       size: before,
@@ -551,7 +625,7 @@ describe('probeImageFile / stripImageFileMetadata', () => {
     expect(await probeImageFile(lateSof, 'image/jpeg', { walkLimit })).toEqual({
       ok: false,
       code: 'oversize',
-      reason: 'Images above 0 MiB must start with their header',
+      reason: 'Images may be at most 0 MiB',
     });
     const { size } = await stripImageFileMetadata(lateSof);
     const stripped = fs.readFileSync(lateSof);
@@ -689,8 +763,6 @@ describe('avatar and banner requirers', () => {
       thumbnailKey: expect.stringMatching(/\.jpg$/),
     });
 
-    const avif = await uploadAs(alice, AVIF, 'b.avif');
-    await rejects(requireBannerMedia(db, avif, alice.id), 400, 'Unsupported media type image/avif');
     await rejects(requireBannerMedia(db, withPoster, bob.id), 404, 'Media not found');
     const doc = await uploadAs(alice, PNG, 'a.png', { kind: 'file' });
     await rejects(requireBannerMedia(db, doc, alice.id), 400, /kind image/);
