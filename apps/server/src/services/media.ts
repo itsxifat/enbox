@@ -1,11 +1,16 @@
 /**
  * Media rows → wire attachments, and ownership checks for client-supplied media ids.
- * Upload handling lives in modules/media (route) + services/uploads.ts (sniffing, storage).
+ * Upload handling lives in modules/media (route) + services/uploads.ts (sniffing, storage)
+ * + services/imageProbe.ts (image verification and metadata stripping).
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import {
+  ANIMATED_IMAGE_MIME_TYPES,
   AVATAR_MIME_TYPES,
+  BANNER_MIME_TYPES,
+  MAX_ANIMATED_AVATAR_BYTES,
   MAX_AVATAR_BYTES,
+  MAX_BANNER_BYTES,
   type MediaAttachment,
   type MediaKind,
 } from '@enbox/shared';
@@ -59,6 +64,25 @@ export interface OwnedMediaOptions {
   maxBytes?: number;
 }
 
+/** The kind/MIME/size checks of `requireOwnedMedia` on a loaded row (400 on a mismatch). */
+function assertMediaFits(row: MediaRow, opts: OwnedMediaOptions): void {
+  if (opts.kinds && !opts.kinds.includes(row.kind)) {
+    throw badRequest(`Media must be of kind ${opts.kinds.join(' or ')} (got ${row.kind})`);
+  }
+  if (opts.mimeTypes && !opts.mimeTypes.includes(row.mimeType))
+    throw badRequest(`Unsupported media type ${row.mimeType}`);
+  if (opts.maxBytes !== undefined && Number(row.size) > opts.maxBytes)
+    throw badRequest('Media is too large');
+}
+
+/**
+ * Animated profile media needs the poster uploaded as the `thumbnail` part: `avatarUrl` /
+ * `bannerUrl` are always the static image, the animation travels separately.
+ */
+function assertStaticPoster(row: MediaRow): void {
+  if (row.animated && !row.thumbnailKey) throw badRequest('Animated images need a static poster');
+}
+
 /**
  * The media row for a client-supplied id: 404 unless uploaded by `userId` (docs "Media":
  * never reveal other users' uploads); 400 when the kind/MIME/size doesn't fit. Inside a
@@ -78,25 +102,42 @@ export async function requireOwnedMedia(
     .limit(1)
     .for('key share');
   if (!row) throw notFound('Media');
-  if (opts.kinds && !opts.kinds.includes(row.kind)) {
-    throw badRequest(`Media must be of kind ${opts.kinds.join(' or ')} (got ${row.kind})`);
-  }
-  if (opts.mimeTypes && !opts.mimeTypes.includes(row.mimeType))
-    throw badRequest(`Unsupported media type ${row.mimeType}`);
-  if (opts.maxBytes !== undefined && Number(row.size) > opts.maxBytes)
-    throw badRequest('Media is too large');
+  assertMediaFits(row, opts);
   return row;
 }
 
-/** Avatars (user, group, community, channel): kind image, AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES, uploaded by the caller. */
-export function requireAvatarMedia(
+/**
+ * Avatars (user, group, community, channel), uploaded by the caller: kind image, either
+ * static (AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES) or animated (`media.animated`,
+ * ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES, poster required).
+ */
+export async function requireAvatarMedia(
   dbx: DbOrTx,
   mediaId: string,
   userId: string,
 ): Promise<MediaRow> {
-  return requireOwnedMedia(dbx, mediaId, userId, {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, { kinds: ['image'] });
+  assertMediaFits(
+    row,
+    row.animated
+      ? { mimeTypes: ANIMATED_IMAGE_MIME_TYPES, maxBytes: MAX_ANIMATED_AVATAR_BYTES }
+      : { mimeTypes: AVATAR_MIME_TYPES, maxBytes: MAX_AVATAR_BYTES },
+  );
+  assertStaticPoster(row);
+  return row;
+}
+
+/** Profile banners, uploaded by the caller: kind image, BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, poster required when animated. */
+export async function requireBannerMedia(
+  dbx: DbOrTx,
+  mediaId: string,
+  userId: string,
+): Promise<MediaRow> {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, {
     kinds: ['image'],
-    mimeTypes: AVATAR_MIME_TYPES,
-    maxBytes: MAX_AVATAR_BYTES,
+    mimeTypes: BANNER_MIME_TYPES,
+    maxBytes: MAX_BANNER_BYTES,
   });
+  assertStaticPoster(row);
+  return row;
 }

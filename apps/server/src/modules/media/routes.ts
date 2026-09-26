@@ -7,6 +7,7 @@ import {
   MAX_UPLOAD_BYTES,
   THUMBNAIL_MIME_TYPES,
   uploadMediaMetaSchema,
+  type ImageInfo,
 } from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { media } from '../../db/schema.js';
@@ -14,6 +15,11 @@ import { authUserId } from '../../http/auth.js';
 import { HttpError, badRequest } from '../../lib/errors.js';
 import { uploadLimiter } from '../../lib/rateLimit.js';
 import { parse } from '../../lib/validate.js';
+import {
+  isProbedImageMime,
+  probeImageFile,
+  stripImageFileMetadata,
+} from '../../services/imageProbe.js';
 import { toMediaAttachment } from '../../services/media.js';
 import {
   isAllowedMime,
@@ -36,8 +42,15 @@ import {
  * POST /media: multipart `file` (+ optional `thumbnail`) + `uploadMediaMetaSchema` fields.
  * The type is sniffed from the bytes and must be in MEDIA_MIME_ALLOWLIST[kind] (SVG/HTML
  * never pass as images); the stored extension comes from the sniffed type (unknown → .bin);
- * `fileName` is the sanitised client basename (display only). Thumbnail: JPEG/WebP ≤
- * MAX_THUMBNAIL_BYTES. 201 → MediaAttachment. Files land in UPLOAD_DIR/<yyyy>/<mm>/<uuid>.<ext>.
+ * `fileName` is the sanitised client basename (display only). Images the shared parser
+ * understands (GIF/WebP/PNG/JPEG) are parsed, not trusted: `probeImageFile` verifies the
+ * header (400 — never 500 — for an unreadable file or one over the decode caps), the parsed
+ * dimensions override the client's claim, `animated`/`frame_count` come from the frame walk
+ * (APNG stays image/png), and the file is rewritten without EXIF/XMP/ICC/comments
+ * (`metadata_stripped`, new `size`) before it enters the store. Thumbnail: JPEG/WebP ≤
+ * MAX_THUMBNAIL_BYTES, stripped the same way and — it is the poster of animated media —
+ * static and within the caps whenever it parses. 201 → MediaAttachment. Files land in
+ * UPLOAD_DIR/<yyyy>/<mm>/<uuid>.<ext>.
  */
 export const router = Router();
 
@@ -96,6 +109,18 @@ router.post('/media', uploadLimiter, receiveMultipart, async (req, res) => {
       );
     }
 
+    // Images the parser understands: verified dimensions and frames, metadata stripped.
+    // Other images (AVIF) and other kinds keep the client's dimensions and their bytes.
+    let image: ImageInfo | null = null;
+    let size = file.size;
+    let metadataStripped = false;
+    if (meta.kind === 'image' && sniffed && isProbedImageMime(sniffed.mime)) {
+      const probe = await probeImageFile(file.path, sniffed.mime);
+      if (!probe.ok) throw badRequest(`file: ${probe.reason}`);
+      image = probe.info;
+      ({ size, stripped: metadataStripped } = await stripImageFileMetadata(file.path));
+    }
+
     let thumbExt: string | null = null;
     if (thumb) {
       if (thumb.size > MAX_THUMBNAIL_BYTES)
@@ -103,6 +128,13 @@ router.post('/media', uploadLimiter, receiveMultipart, async (req, res) => {
       const t = await sniffFile(thumb.path);
       if (!t || !(THUMBNAIL_MIME_TYPES as readonly string[]).includes(t.mime))
         throw badRequest('thumbnail: must be a JPEG or WebP image');
+      // The poster stands in for animated media everywhere it is shown static: never
+      // animated, never over the caps. Bytes the parser cannot read are kept as they are.
+      const poster = await probeImageFile(thumb.path, t.mime);
+      if (poster.ok && poster.info.animated) throw badRequest('thumbnail: must be a static image');
+      if (!poster.ok && poster.code !== 'unreadable')
+        throw badRequest(`thumbnail: ${poster.reason}`);
+      await stripImageFileMetadata(thumb.path);
       thumbExt = t.ext;
     }
 
@@ -120,9 +152,12 @@ router.post('/media', uploadLimiter, receiveMultipart, async (req, res) => {
           kind: meta.kind,
           mimeType: sniffed?.mime ?? 'application/octet-stream',
           fileName: sanitizeFileName(file.originalname),
-          size: file.size,
-          width: meta.width ?? null,
-          height: meta.height ?? null,
+          size,
+          width: image ? image.width : (meta.width ?? null),
+          height: image ? image.height : (meta.height ?? null),
+          animated: image?.animated ?? false,
+          frameCount: image?.animated ? image.frameCount : null,
+          metadataStripped,
           durationMs: meta.durationMs ?? null,
           waveform: meta.kind === 'voice' ? (meta.waveform ?? null) : null,
           storageKey: key,
