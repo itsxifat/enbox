@@ -17,7 +17,7 @@ counterpart; where a shared helper encodes a rule (`computeChatPermissions`, `ca
 | Contracts          | `@enbox/shared`: wire models, zod request schemas, REST route catalogue, Socket.IO event maps, pure helpers                        |
 | Server             | Node 22, Express 5, Socket.IO 4, Drizzle ORM                                                                                       |
 | Database           | PostgreSQL (production, `DATABASE_URL`) or embedded **PGlite** (zero-config dev when `DATABASE_URL` is unset; in-memory for tests) |
-| Realtime scale-out | Optional Redis adapter for Socket.IO (`REDIS_URL`); presence counts, presence subscriptions and rate limits are per process in v1  |
+| Realtime scale-out | Optional Redis adapter for Socket.IO (`REDIS_URL`); presence counts, idle flags, subscriptions, rate limits are per process in v1  |
 | Media              | Local disk (`UPLOAD_DIR`), served at `/uploads/<key>` with unguessable keys                                                        |
 | Calls              | WebRTC, full-mesh (≤ 8 participants), signaling over Socket.IO, STUN/TURN from env                                                 |
 | Push               | Web Push (VAPID) when keys are configured                                                                                          |
@@ -46,7 +46,7 @@ apps/server/
     realtime/    socket server (io.ts), connect hooks (hooks.ts), emit helpers, presence registry
     services/    cross-module domain primitives (serializers, membership, message creation, locks)
     modules/<domain>/  routes.ts (+ service.ts, socket.ts) per domain
-    jobs/        periodic jobs (disappearing purge, status expiry, calls, media GC, sessions)
+    jobs/        periodic jobs (disappearing purge, status/presence expiry, calls, media GC, sessions)
   test/          vitest integration tests
 apps/web/src/
   lib/ api client, socket client, helpers     stores/ zustand stores
@@ -144,6 +144,17 @@ apps/web/src/
   `system`, `call`, `statusReply` reference). Reply quotes are computed at read time.
 - `users.settings` stores partial overrides; read through `resolveUserSettings()`.
   Groups/channels always store complete settings (defaults merged at creation).
+- Profile and presence live in `users` **columns**, not in `settings` (the disconnect
+  `last_seen_at` write needs a row predicate and the expiry job needs indexes):
+  `banner_media_id` (→ media, `ON DELETE SET NULL`, partial index), `pronouns`, `bio`
+  (NOT NULL DEFAULT '' — multi-line "About me"; `about` stays the one-line status),
+  `profile_color`/`accent_color` (CHECK: null or `^#[0-9a-f]{6}$`), `availability`
+  (NOT NULL DEFAULT 'online', CHECK in online/idle/dnd/invisible), `availability_until`,
+  `presence_note_text`/`presence_note_emoji`/`presence_note_expires_at` (partial indexes on
+  the two expiry columns for the presence-expiry job).
+- `media.width`/`height` are server-verified for images (parsed from the file, never the
+  client's claim); `animated` (multi-frame GIF/WebP/APNG), `frame_count` and
+  `metadata_stripped` are set at upload (see Media).
 
 ## Visibility, receipts and counts
 
@@ -281,8 +292,10 @@ acting device also receives the events (clients dedupe).
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /auth/logout`                                                 | `disconnectSession(me.session)` (push subscriptions cascade)                                                                                                                                                                                                                                                                                                  |
 | `DELETE /auth/sessions[/:id]`, `POST /auth/change-password`         | per revoked session s: `invalidateSessions` → `session:revoked {sessionId:s}` → S(s) → `disconnectSession(s)`                                                                                                                                                                                                                                                 |
-| `PATCH /me`                                                         | `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels; announcement groups only where I'm an admin — their member lists are admin-only) and → U(x) for users who saved me as a contact                                                                                                                                       |
+| `PATCH /me`                                                         | profile fields (name, about, avatar, banner, pronouns, bio, colours): `me:updated` → U(me); `user:changed` → R of my active direct/group chats (not channels; announcement groups only where I'm an admin — their member lists are admin-only) and → U(x) for users who saved me as a contact. Never availability or the presence note (see `/me/presence*`)  |
 | `PATCH /me/settings`                                                | `me:updated` → U(me); presence-visibility change → re-evaluate my presence subscribers (per-socket `presence:update`); `readReceipts` change → recompute read watermarks of my direct chats → `chat:watermarks` → U(me), U(peer) where changed                                                                                                                |
+| `PUT /me/presence`                                                  | `me:updated` → U(me); re-evaluate my presence subscribers (per-socket `presence:update`; an invisible user looks offline, so switching to/from `invisible` reads as going offline/online); switching to `invisible` writes `last_seen_at = now()` in the same tx. **Never** `user:changed`                                                                    |
+| `PUT/DELETE /me/presence-note`                                      | `me:updated` → U(me); re-evaluate my presence subscribers (the note travels on `presence:update` and `me:updated` only). **Never** `user:changed`                                                                                                                                                                                                             |
 | `DELETE /me`                                                        | see "Account deletion"                                                                                                                                                                                                                                                                                                                                        |
 | `POST/PATCH/DELETE /contacts…`                                      | `contacts:changed` → U(me); `user:changed {userId: me}` → U(contact) (their view of me changed); re-evaluate my presence subscribers                                                                                                                                                                                                                          |
 | `PUT/DELETE /blocks/:u`                                             | (the direct chat with u is locked first: serializes with `call:start`) `blocks:changed` → U(me); `chat:upsert` (direct chat with u, if any) → U(me); `user:changed {me}` → U(u); presence re-evaluated both ways; a live call between us → forced leave                                                                                                       |
@@ -334,6 +347,7 @@ acting device also receives the events (clients dedupe).
 | `POST /status/:s/view`, `PUT …/reaction`                            | `status:viewed { statusId, viewer, firstView, viewCount }` → U(author) (not when the viewer has read receipts off; a repeated plain view emits nothing)                                                                                                                                                                                                       |
 | `chat:typing`                                                       | `chat:typing` → R except my sockets (see Typing)                                                                                                                                                                                                                                                                                                              |
 | `presence:subscribe`                                                | ack with per-viewer presence; later `presence:update` per socket (see Presence)                                                                                                                                                                                                                                                                               |
+| `presence:activity`                                                 | per-socket idle flag (ignored until the socket counts as online, dropped with it); when my auto-idle state changes (idle iff every counted socket is idle) → re-evaluate my presence subscribers. No ack; excess dropped                                                                                                                                      |
 | call events                                                         | see "Calls"                                                                                                                                                                                                                                                                                                                                                   |
 
 ### Reconnect procedure (clients)
@@ -342,7 +356,8 @@ The socket never replays. On every `ready` (not `connect`): (1) refetch `GET /ap
 and replace the list; (2) discard all cached message pages, refetch the open chat's latest
 page (no cursor) and `GET /api/chats/:id/pins` — never catch up with `after=<seq>` (misses
 edits, deletes, reactions, votes, call-status changes); other chats reload when opened;
-(3) re-send `presence:subscribe` (subscriptions are per socket); (4) refetch
+(3) re-send `presence:subscribe` (subscriptions are per socket) and `presence:activity`
+with this device's current idle state (tracked per socket too); (4) refetch
 `GET /api/calls/active` (a call I'm still `joined` to → `call:rejoin`) and clear typing
 indicators. Delivered receipts need no client action (server-driven on connect).
 
@@ -640,10 +655,22 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   (`settings = settings || $patch`); status lists drop ids that are not my contacts.
 - "contacts" in privacy rules = people the **subject** saved as contacts. v1 applies only
   the subject's settings (no reciprocity).
-- `UserPublic` (viewer-specific, always complete): `avatarUrl` per `profilePhotoVisibility`,
-  `about` per `aboutVisibility`, `phone` only if the subject saved the viewer, presence per
-  last-seen/online visibility; all null if the subject blocked the viewer or the account is
-  deleted (`isDeleted: true`, name "Deleted account").
+- `UserPublic` (viewer-specific, always complete): `avatarUrl`, `avatarAnimatedUrl`,
+  `bannerUrl`, `bannerAnimatedUrl` per `profilePhotoVisibility`; `about`, `bio`, `pronouns`,
+  `profileColor`, `accentColor` per `aboutVisibility`; `phone` only if the subject saved the
+  viewer; `online`/`presenceState`/`presenceNote`/`lastSeenAt` per last-seen/online
+  visibility (= `Presence`, below); all null if the subject blocked the viewer or the
+  account is deleted (`isDeleted: true`, name "Deleted account", `createdAt: null` —
+  non-null for every live account). An empty `bio` is null. The raw values (and the
+  `invisible` choice) reach only the user, via `UserSelf`.
+- **Profile fields** (`PATCH /me`, rate limit `profileUpdate`): `about` (one line, chat
+  surfaces) and `bio` (multi-line "About me", ≤ BIO_MAX_LENGTH) both exist; `pronouns` ≤
+  PRONOUNS_MAX_LENGTH; colours are lowercase `#rrggbb` (`hexColorSchema`, DB CHECK); the
+  banner is the caller's own upload (`requireBannerMedia`, see Media), 404 otherwise.
+- **Naming**: the user's choice is the _availability_ (`online | idle | dnd | invisible`),
+  what viewers get is the _presence state_ (`PresenceState`: `online | idle | dnd | offline`,
+  never `invisible`), the custom text is the _presence note_. Never "status" — that word
+  means stories.
 - **Presence**: online = ≥ 1 connected socket; `last_seen_at` set on the last disconnect.
   For viewer V and subject S: `canSeeLastSeen` = no block either way and
   (`lastSeenVisibility = everyone` or (`contacts` and S saved V)); `canSeeOnline` = no block
@@ -652,8 +679,46 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   MAX_PRESENCE_SUBSCRIPTIONS per socket, `presence:subscribe` rate-limited): privacy is
   evaluated at subscribe time (ack) and at every emit, per viewer, with `emitToSocket`.
   Re-evaluate and emit to S's subscribers when S goes online/offline, changes
-  lastSeen/online visibility, blocks/unblocks, or adds/removes contacts.
+  lastSeen/online visibility, blocks/unblocks, adds/removes contacts, changes availability
+  or note (`PUT /me/presence*`, the expiry job), or goes auto-idle/active.
   `POST /users/presence` uses the same function.
+- **PresenceState rules** (`buildPresence` is the single place; `presence:subscribe` acks,
+  `presence:update`, `POST /users/presence` and `UserPublic` all use it):
+  `effectiveOnline = isOnline(S) && effectiveAvailability(S) !== 'invisible'`;
+  `online = canSeeOnline ? effectiveOnline : null`; `state` is null exactly when `online` is
+  null, else `offline` when not effectively online, else `dnd` (`isDnd`), else `idle` (chosen,
+  or auto-idle), else `online`; `lastSeenAt = canSeeLastSeen && !effectiveOnline ?
+last_seen_at : null`; `note` = the unexpired note only while `state ∈ {online, idle, dnd}`,
+  else null. `availability_until` reverts the choice to `online` when it passes
+  (`effectiveAvailability`; the expiry job catches up and re-emits).
+- **Invisible invariants**: (1) an invisible connected user serialises **byte-identical** to
+  a really offline one for every viewer (`online: false`, `state: 'offline'`, `note: null`,
+  frozen `lastSeenAt`), so their connects, disconnects and idle changes emit nothing to
+  subscribers (the per-socket last-sent dedupe sees no change); (2) `PUT /me/presence`
+  switching to `invisible` writes `last_seen_at = now()` in the same transaction — that is
+  the value viewers keep seeing; (3) the disconnect `last_seen_at` write is skipped while
+  invisible (`… and availability <> 'invisible'` inside the existing counted/last-socket
+  gate) **and** the in-memory `lastSeenAt` handed to the re-evaluation with the `offline`
+  event is ignored for invisible rows — both are required, the override is applied from
+  memory regardless of (and possibly before) the write; (4) visibility settings and blocks
+  keep precedence (invisible only hides more); (5) the user sees their own choice only via
+  `UserSelf`. Residual side channels, exactly as for hidden online today: delivered ticks (a
+  message to a connected-but-invisible user is delivered at once) and the `call:ringing`
+  transition.
+- **Idle**: a device sends `presence:activity { idle }` on transitions (no input for
+  PRESENCE_IDLE_AFTER_MS, or the app hidden) and after every `ready`; the server keeps an
+  idle flag per counted socket (ignored until the socket counts, dropped with it); the user
+  is auto-idle when **every** counted socket is idle; a change re-evaluates their
+  subscribers. Rate limit `presenceActivity` per socket, excess dropped silently.
+- **Do not disturb** (`isDnd`, shared, checked on the server and on clients): no `message`,
+  `call` or `call_cancel` push; clients play no sounds and show no in-app notifications;
+  calls ring silently — the callee joins `silentUserIds` (no ringtone, no `call:ringing`,
+  the silenced call card; the call still shows and can be answered). Badges are unaffected.
+- **Presence note** (`PUT|DELETE /me/presence-note`, rate limit `profileUpdate`): text ≤
+  PRESENCE_NOTE_MAX_LENGTH and/or one emoji, optional `expiresAt`; `PUT` replaces the whole
+  note. It travels on `presence:update` and `me:updated` **only — never `user:changed`** (a
+  note edit must not make every co-member refetch me). Clients hide it locally at
+  `expiresAt` (`activePresenceNote`); the presence-expiry job clears it server-side.
 - **User search** (`GET /users/search?q=`, leading `@` ignored, rate-limited): exact
   username; username prefix when `q.length ≥ USER_SEARCH_MIN_PREFIX`; exact canonical phone
   when q parses as a phone (never substring phone matching); display-name substring only
@@ -691,11 +756,13 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   the oldest admin or are deleted; (3) delete sessions, push subscriptions, contacts and
   blocks (both directions) and statuses; (4) scrub the row: `username =
 'deleted_' || <first 12 hex chars of the id without dashes>`, `display_name = 'Deleted account'`, `phone = null`,
-  `about = ''`, `avatar_media_id = null`, `password_hash = '!'`, `settings = '{}'`,
-  `deleted_at = now()`. Direct-chat memberships and messages stay (sender shown as Deleted
-  account). After commit: membership events as in the matrix, `user:changed` → rooms of the
-  remaining direct chats, `disconnectUser`. Deleted users can't be found, added, messaged
-  or called.
+  `about = ''`, `avatar_media_id = null`, `banner_media_id = null`, `pronouns = null`,
+  `bio = ''`, `profile_color = accent_color = null`, `availability = 'online'`,
+  `availability_until = null`, the presence note columns null, `password_hash = '!'`,
+  `settings = '{}'`, `deleted_at = now()`. Direct-chat memberships and messages stay
+  (sender shown as Deleted account). After commit: membership events as in the matrix,
+  `user:changed` → rooms of the remaining direct chats, `disconnectUser`. Deleted users
+  can't be found, added, messaged or called.
 
 ## Status updates
 
@@ -746,8 +813,9 @@ validation_error`. `call:invite`: group calls only, by joined participants with 
   `SELECT … FROM calls WHERE id = $1 FOR UPDATE`; acks and broadcasts come from that
   transaction's committed state.
 - **Ringing**: `call:incoming` → `user:<u>` of each rung invitee (not busy, not hidden;
-  `silent` when the callee silences unknown callers and the caller isn't their contact) +
-  a `call` push. A non-silent device emits `call:ringing` (participant → `ringing`,
+  `silent` when the callee silences unknown callers and the caller isn't their contact, or
+  the callee is in do-not-disturb — `isDnd`, see Presence) + a `call` push (not for DND).
+  A non-silent device emits `call:ringing` (participant → `ringing`,
   `call:updated`). **Ring stop**: whenever a user's ringing ends — answered or declined on
   another device, ring timeout (CALL_RING_TIMEOUT_MS from `invited_at`), caller cancelled,
   call ended — `call:ring-stop { callId, reason }` → `user:<u>` and a `call_cancel` push.
@@ -818,18 +886,43 @@ attachment` unless the extension is inline-safe.
 - A failure after a file was moved into the store (the thumbnail move, the row insert)
   removes what was stored; the GC job (also at boot) deletes `UPLOAD_DIR/.tmp` files older
   than an hour (uploads interrupted by a crash).
-- Ownership: every client-supplied `mediaId` (messages, statuses, avatars) must be uploaded
-  by the caller, else 404; `message.type`/status type must equal `media.kind`. Avatars
-  (user, group, community, channel): kind `image`, AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES.
+- **Images are parsed, not trusted** (kind `image`, after the sniff): the server reads the
+  header and frame structure of every image upload (shared `readImageInfo` through
+  `services/imageProbe.ts`) and answers `400 validation_error` — never a 500 — for a side
+  above IMAGE_HEADER_MAX_DIMENSION, more than ANIMATED_MAX_FRAMES frames, width × height ×
+  frames above ANIMATED_DECODED_PIXEL_BUDGET, a frame outside the canvas or an unparsable
+  file. The parsed `width`/`height` override the client's claim; `media.animated` and
+  `frame_count` record multi-frame GIF, animated WebP and APNG (APNG keeps `image/png`) →
+  `MediaAttachment.animated`/`frameCount`. AVIF is never accepted for profile media.
+- **Metadata is stripped server-side** for GIF, WebP, PNG and JPEG (EXIF, XMP, ICC,
+  comments; the file and its thumbnail) before the file enters the store
+  (`media.metadata_stripped`); the client canvas re-encode below stays as defence in depth.
+  Video metadata remains unstripped (known v1 limitation).
+- Ownership: every client-supplied `mediaId` (messages, statuses, avatars, banners) must be
+  uploaded by the caller, else 404; `message.type`/status type must equal `media.kind`.
+  Avatars (user, group, community, channel; `requireAvatarMedia`): kind `image`, static
+  (AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES) or animated (`media.animated`,
+  ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES). Banners (`requireBannerMedia`):
+  BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, cropped client-side to BANNER_ASPECT. Animated
+  avatars, banners and icons **require a static poster** (the `thumbnail` part) → `400`
+  without one. Requirers run inside the referencing transaction (`FOR KEY SHARE`).
   Forwarding reuses media ids server-side.
+- **Static by default**: `avatarUrl`/`bannerUrl` are always the static image (the poster
+  when the upload is animated); `avatarAnimatedUrl`/`bannerAnimatedUrl` carry the animation
+  (null when static or hidden). Push icons, lists and every non-hover renderer use the
+  static URL; the web client animates on hover/focus and in the profile card only, never
+  under reduced motion or while the app is hidden.
 - **Client-side processing** (web): photos are re-encoded through a canvas (strips EXIF/GPS,
   longest side ≤ IMAGE_MAX_DIMENSION, avatars ≤ AVATAR_MAX_DIMENSION) and get a thumbnail;
-  videos get a poster thumbnail; "send as document" uploads the original unchanged. The
-  server does not strip metadata (video metadata is a known v1 limitation).
+  animated images skip the re-encode, are metadata-stripped client-side (best effort) and
+  get a poster thumbnail; videos get a poster thumbnail; "send as document" uploads the
+  original unchanged.
 - Media rows are shared and immutable. Deleting a message for everyone, purging expired
-  messages, deleting/expiring statuses and replacing avatars only null references; the GC
-  job deletes media rows and files (incl. thumbnails) unreferenced by any message, status,
-  user, chat or community for more than ORPHAN_MEDIA_TTL_MS.
+  messages, deleting/expiring statuses and replacing avatars or banners only null
+  references; the GC job deletes media rows and files (incl. thumbnails) unreferenced by any
+  message, status, user (`avatar_media_id`, `banner_media_id`), chat or community for more
+  than ORPHAN_MEDIA_TTL_MS. Every new media FK column is added to that reference list
+  (`jobs/mediaGc.ts`) and to `scrubDeletedUser`.
 
 ## Push
 
@@ -843,27 +936,29 @@ attachment` unless the extension is inline-safe.
 - Payload: `PushPayload` (models.ts). Sent to every subscription of each recipient (never
   the sender) regardless of socket state; the service worker skips showing it when a
   focused window exists.
-- Messages: not for channels, system or call messages, withheld messages, or muted chats;
-  gated by `messageNotifications` (direct) / `groupNotifications` (groups incl.
-  announcement). Title: direct → sender as the recipient knows them; group → group name
+- Messages: not for channels, system or call messages, withheld messages, muted chats or
+  recipients in do-not-disturb (`isDnd`, see Presence); gated by `messageNotifications`
+  (direct) / `groupNotifications` (groups incl. announcement). Title: direct → sender as
+  the recipient knows them; group → group name
   with body `Sender: preview`. Preview = `truncate(messagePreviewText(…, { viewerId }), 120)`
   (mentions rendered) or "New message" when `notificationPreviews` is off. `tag =
 chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
 - `dismiss` (tag `chat:<chatId>`) when a read clears the chat's unread messages.
 - Calls: `call` push (urgency high, TTL = CALL_RING_TIMEOUT_MS / 1000, tag `call:<callId>`)
   unless silent or `callNotifications` is off; `call_cancel` when the ring stops (body
-  "Missed call" if the final status is missed, else empty).
+  "Missed call" if the final status is missed, else empty). Neither for a callee in
+  do-not-disturb.
 - Note: browsers require `userVisibleOnly`; `dismiss`/`call_cancel` pushes that show nothing
   may be counted against the site's silent-push budget — acceptable for v1.
 
 ## Rate limits
 
-| Scope                                   | Limit                                                                                                                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Per IP (lib/rateLimit.ts)               | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min |
-| Per user (`USER_RATE_LIMITS`)           | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact)         |
-| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                   |
-| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min; server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)               |
+| Scope                                   | Limit                                                                                                                                                                                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Per IP (lib/rateLimit.ts)               | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min                                                                                 |
+| Per user (`USER_RATE_LIMITS`)           | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact), profileUpdate 20/min (`PATCH /me`, `PUT /me/presence`, `PUT/DELETE /me/presence-note`) |
+| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                                                                                                   |
+| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min, presenceActivity 30/min (dropped silently); server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)                                                   |
 
 ## Jobs
 
@@ -873,6 +968,11 @@ Registered in `jobs/register.ts`; idempotent, safe on every instance.
 expires_at <= now() ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED) RETURNING id,
 chat_id`, looping while full; `message:removed` → room per chat.
 - **Status expiry**: delete expired statuses (clients drop them at `expiresAt`).
+- **Presence expiry** (`presence-expiry`, every minute): `availability_until <= now()` →
+  `availability = 'online'`, `availability_until = null`; `presence_note_expires_at <= now()`
+  → the three note columns null (batches, `FOR UPDATE SKIP LOCKED`); after commit, per
+  user: re-evaluate their presence subscribers and `me:updated` → U(user). Clients hide an
+  expired note locally before the job runs.
 - **Calls** (every ~5 s, `runOnStart` for crash recovery, retried until it succeeds): ring
   timeouts, reconnect-grace expiry, lost call sockets, end rules.
 - **Media GC** (hourly and at boot; also stale upload temp files) and **session cleanup**

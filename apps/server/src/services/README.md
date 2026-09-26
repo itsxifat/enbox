@@ -14,9 +14,10 @@ visibility, watermarks, membership transitions, serialization or fan-out in a mo
 | `system.ts`     | system messages (`postSystemMessage`) + which kinds each chat may get          |
 | `membership.ts` | `upsertMembership` (all membership writes), succession, roles, add rules       |
 | `watermarks.ts` | read/delivered marks, unread counts, tick watermarks, delivered-on-connect     |
-| `users.ts`      | user rows, relationships, `UserPublic`/`Presence`/`UserSelf`, account scrub    |
-| `media.ts`      | `MediaAttachment`, media ownership checks                                      |
+| `users.ts`      | user rows (+ banner), relationships, `UserPublic`/`Presence`/`UserSelf`, scrub |
+| `media.ts`      | `MediaAttachment`, ownership checks, avatar/banner requirers (poster rule)     |
 | `uploads.ts`    | MIME sniffing, allowlists, file-name sanitising, storage keys/files            |
+| `imageProbe.ts` | image header parse (verified dims, animation, caps → 400) + metadata strip     |
 | `statuses.ts`   | status visibility + status-reply resolution                                    |
 | `invites.ts`    | invite codes unique across chats and communities                               |
 | `sessions.ts`   | session tokens (pre-existing)                                                  |
@@ -233,7 +234,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
 
 ### users.ts
 
-- Rows: `getUserRows(dbx, ids)` (Map, deleted included, with `avatarKey`), `getUserRow`,
+- Rows: `getUserRows(dbx, ids)` (Map, deleted included, with the avatar and banner media:
+  storage/thumbnail keys and `animated`), `getUserRow`,
   `requireUser(dbx, id, { allowDeleted? })` (404), `settingsOf(row)` / `resolveSettings`.
 - `lockLiveUsers(tx, ids)` — `FOR SHARE` the non-deleted users (membership writes); waits for a
   concurrent account deletion, whose committed `deleted_at` then excludes the user.
@@ -244,20 +246,47 @@ Standalone post-commit publishers (use only outside transactions; they read with
   `ownersWhoSaved(dbx, userId, ownerIds)`, `usersWhoSaved(dbx, userId)`.
 - Serialization (all privacy rules): `toUserPublics(dbx, viewerId, ids)` (docs name; input
   order, unknown omitted), `toUserPublicMap`, `toUserPublic`, `toUserPublicsForPairs(dbx, pairs, rows?)`,
-  pure `buildUserPublic(viewerId, row, rel)`.
-- Presence: `canSeePresence(viewerId, subject, rel)`, `buildPresence(...)`,
-  `loadPresences(dbx, viewerId, ids)` (POST /users/presence, `presence:subscribe`).
-- Self: `toUserSelf(row)`, `loadUserSelf(dbx, userId)`.
-- Deletion: `scrubDeletedUser(tx, userId)` → `{ sessionIds }` (steps 3–4), `deletedUsername(id)`.
+  pure `buildUserPublic(viewerId, row, rel)` — the gates (docs "Users, privacy and
+  presence"): `avatarUrl`/`avatarAnimatedUrl`/`bannerUrl`/`bannerAnimatedUrl` follow
+  `profilePhotoVisibility`, `about`/`bio`/`pronouns`/`profileColor`/`accentColor` follow
+  `aboutVisibility`, everything null on a block either way or a deleted account
+  (`createdAt` null only when deleted). `avatarUrl`/`bannerUrl` are always the static
+  image (the poster of an animated upload); the `*AnimatedUrl` fields carry the animation.
+- Presence: `canSeePresence(viewerId, subject, rel)`, `buildPresence(...)` — THE place that
+  derives `Presence` (docs "PresenceState rules"): `effectiveOnline` = connected and not
+  `invisible` (`effectiveAvailability`), `state` offline/dnd/idle/online, `note` only while
+  `state ∈ {online, idle, dnd}` and unexpired; an invisible user is byte-identical to an
+  offline one, and the in-memory `lastSeenAt` override of a disconnect is ignored for
+  invisible rows. `loadPresences(dbx, viewerId, ids)` (POST /users/presence,
+  `presence:subscribe`).
+- Self: `toUserSelf(row)` (raw profile + `availability`/`availabilityUntil`/`presenceNote`),
+  `loadUserSelf(dbx, userId)`.
+- Deletion: `scrubDeletedUser(tx, userId)` → `{ sessionIds }` (steps 3–4; also nulls the
+  banner, pronouns, bio, colours and presence note and resets `availability` to `online`),
+  `deletedUsername(id)`.
 
-### media.ts / uploads.ts / statuses.ts / invites.ts / events.ts
+### media.ts / uploads.ts / imageProbe.ts / statuses.ts / invites.ts / events.ts
 
-- `mediaUrl(key)`, `toMediaAttachment(row)`, `loadMediaMap(dbx, ids)`,
+- `mediaUrl(key)`, `toMediaAttachment(row)` (`animated`, `frameCount`), `loadMediaMap(dbx, ids)`,
   `requireOwnedMedia(dbx, mediaId, userId, { kinds?, mimeTypes?, maxBytes? })` (404 not mine,
-  400 mismatch; `FOR KEY SHARE` so the GC can't race), `requireAvatarMedia(dbx, mediaId, userId)`.
+  400 mismatch; `FOR KEY SHARE` so the GC can't race).
+- `requireAvatarMedia(dbx, mediaId, userId)` (user, group, community and channel avatars):
+  kind `image`; static → AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES; animated (`row.animated`) →
+  ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES and a `thumbnail_key` (the static
+  poster) — 400 "Animated images need a static poster" without one.
+  `requireBannerMedia(dbx, mediaId, userId)`: BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, same
+  poster rule. Both run inside the referencing transaction (docs "Media").
 - `sniffFile(path)`, `isAllowedMime(kind, mime)`, `sanitizeFileName(name)`,
   `newStorageKey(ext)`, `storagePath(key)`, `moveIntoStore`, `removeFiles`, `removeStoredFiles`.
   Sniffing uses the `file-type` package; MIME names are normalised to MEDIA_MIME_ALLOWLIST's.
+- `probeImageFile(path)` (every `kind: 'image'` upload, after the sniff): parses the header
+  and frame structure with the shared `readImageInfo` (GIF, WebP, PNG/APNG, JPEG) and
+  returns the verified `width`/`height`, `animated` and `frameCount`; throws `badRequest`
+  (400, never a 500) above IMAGE_HEADER_MAX_DIMENSION / ANIMATED_MAX_FRAMES /
+  ANIMATED_DECODED_PIXEL_BUDGET, for a frame outside the canvas or an unparsable file.
+  `stripImageFileMetadata(path)` rewrites the file in place without EXIF/XMP/ICC/comments
+  (shared `stripImageMetadata`) and returns the new size — run on the file and the
+  thumbnail before `moveIntoStore`, so nothing with metadata ever enters the store.
 - `requireVisibleStatus(dbx, viewerId, statusId, { lock? })` (404; `lock` = `FOR KEY SHARE` for writes referencing it), `resolveStatusReply(dbx, { senderId, chat, statusId })`,
   `loadStatusesForReplies`, `toStatusReplyPayload`.
 - `generateUniqueInviteCode(dbx)`.
@@ -336,6 +365,11 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
   `registerChatDeletionHook` / `runChatDeletionHooks(tx, fx, chatIds)` — run before a chat row
   is deleted (community deactivation, channel deletion); the calls module ends live calls there.
 - Delivered receipts are not tracked for channels (no ticks; a post doesn't touch follower rows).
+- `PUT /me/presence` and `PUT|DELETE /me/presence-note` register only the presence
+  re-evaluation and `me:updated` — never `user:changed`: a note edited several times a day
+  must not make every co-member's client refetch me (`PATCH /me` does, for profile fields).
+  Switching to `invisible` writes `last_seen_at = now()` in the same transaction; the
+  disconnect write in `realtime/io.ts` is predicated on `availability <> 'invisible'`.
 - Clamping: marks move to the highest visible seq ≤ the requested seq (not just `min(seq, max)`),
   so a withheld message never reads as delivered/read while the block lasts.
 - Membership changes (leave/remove) also emit `chat:watermarks` to members whose ticks changed
