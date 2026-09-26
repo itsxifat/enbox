@@ -39,9 +39,10 @@ export function Sheet({
   ...aria
 }: SheetProps) {
   const desktop = useIsDesktop();
+  const rootRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  useOverlay(open, onClose);
+  useOverlay(open, onClose, rootRef);
   useScrollLock(open && !desktop);
   useFocusTrap(ref, open);
   if (!open) return null;
@@ -49,6 +50,7 @@ export function Sheet({
   return (
     <Portal>
       <div
+        ref={rootRef}
         className="fixed inset-0 z-40 flex px-safe"
         style={{ justifyContent: side === 'right' ? 'flex-end' : 'flex-start' }}
       >

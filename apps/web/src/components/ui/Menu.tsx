@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { cn } from '@/lib/cn';
 import type { IconType } from './Button';
-import { Portal, useOverlay } from './overlay';
+import { Portal, isInOverlayAbove, useOverlay } from './overlay';
 
 export interface MenuItem {
   label: ReactNode;
@@ -64,7 +64,7 @@ export function Menu({
   const [pos, setPos] = useState<{ top: number; left: number; origin: string } | null>(null);
   // Bumped to re-run positioning when the anchor moves right after opening.
   const [layoutTick, setLayoutTick] = useState(0);
-  useOverlay(open, onClose);
+  const overlayId = useOverlay(open, onClose, ref);
 
   const entries = items.filter((e): e is MenuItem | 'separator' => !!e);
 
@@ -118,6 +118,7 @@ export function Menu({
       const t = e.target as Node;
       if (ref.current?.contains(t)) return;
       if (anchor instanceof HTMLElement && anchor.contains(t)) return;
+      if (isInOverlayAbove(overlayId, t)) return;
       onClose();
     };
     // Clicking a partly visible row scrolls it into view right after the menu opens; that
@@ -142,7 +143,7 @@ export function Menu({
       if (restoreFocus && anchor instanceof HTMLElement && document.contains(anchor))
         anchor.focus({ preventScroll: true });
     };
-  }, [open, anchor, onClose, restoreFocus]);
+  }, [open, anchor, onClose, restoreFocus, overlayId]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     const buttons = Array.from(

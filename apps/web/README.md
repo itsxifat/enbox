@@ -284,8 +284,9 @@ is hovered/focused — never under `useReducedMotion()`, the pref `autoplayAnima
 `Field`, `Switch`, `Checkbox`, `RadioGroup`, `Modal` (focus trap, Esc, backdrop, bottom
 sheet on phones), `confirm()`/`choose()` + `DialogHost`, `Menu` (anchor element or point —
 context menus) and `DropdownMenu`, `Popover` (anchored, `placement: top|bottom|left|right`
-with flip + viewport clamp, `align`, Esc via the overlay stack, outside click, resize;
-`placePopover()` is the pure geometry), `Tabs` (underline/chips), `Sheet` (right panel on
+with flip + viewport clamp, `align`, Esc via the overlay stack, outside click — a menu or
+dialog opened from inside it is not outside (`isInOverlayAbove`, overlay roots registered by
+`useOverlay`), resize; `placePopover()` is the pure geometry), `Tabs` (underline/chips), `Sheet` (right panel on
 desktop, full screen on phones), `ListItem`/`ListSection`, `SearchInput`,
 `Spinner`/`PageSpinner`, `Skeleton`/`ListItemSkeleton`, `EmptyState`, `Tooltip`, `Toaster` +
 `toast`. Plus `components/common`: `ChatAvatar` (any chat, optional presence; a direct chat's

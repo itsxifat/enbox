@@ -21,7 +21,7 @@ export interface ProfilePopoverProps {
   userId: ID;
   anchor: HTMLElement | { x: number; y: number } | null;
   onClose: () => void;
-  /** The host renders these dialogs outside the popover (a click in them would close it). */
+  /** The host renders these dialogs in place of the card (they outlive it: the card closes when they open). */
   onSetStatus: () => void;
   onEditContact: (user: UserPublic) => void;
 }

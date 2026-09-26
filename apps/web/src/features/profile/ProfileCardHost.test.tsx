@@ -94,6 +94,34 @@ describe('ProfileCardHost', () => {
     trigger.remove();
   });
 
+  it('the self popover survives a pointer in its availability menu and asks for a duration', async () => {
+    matches = true;
+    vi.spyOn(api, 'put').mockResolvedValue(makeMe({ id: 'me', availability: 'dnd' }));
+    renderHost();
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    act(() => bus.emit('profile:open', { userId: 'me', anchor: trigger }));
+    fireEvent.click(screen.getByRole('button', { name: 'Availability: Online' }));
+    // Menus are portals outside the popover: a real click starts with a pointerdown there.
+    const dnd = screen.getByRole('menuitem', { name: 'Do not disturb' });
+    fireEvent.pointerDown(dnd);
+    fireEvent.click(dnd);
+    expect(screen.getByRole('dialog', { name: 'Profile' })).toBeInTheDocument();
+    const until = screen.getByRole('menuitem', { name: 'Until I change it' });
+    fireEvent.pointerDown(until);
+    fireEvent.click(until);
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith('/api/me/presence', {
+        availability: 'dnd',
+        until: null,
+      }),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Availability: Do not disturb' }),
+    ).toBeInTheDocument();
+    trigger.remove();
+  });
+
   it('my own id opens the self card; "Set a custom status" swaps it for the dialog', () => {
     renderHost();
     act(() => bus.emit('profile:open', { userId: 'me', anchor: null }));

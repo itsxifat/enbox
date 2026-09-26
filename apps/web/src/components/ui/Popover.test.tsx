@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useRef, useState } from 'react';
+import { Menu } from './Menu';
 import { Popover, placePopover } from './Popover';
 
 const viewport = { width: 1000, height: 800 };
@@ -100,6 +102,50 @@ describe('Popover', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays open for a pointer inside a menu opened from it; an outside pointer closes both', () => {
+    const onClose = vi.fn();
+    const onSelect = vi.fn();
+    function Card() {
+      const button = useRef<HTMLButtonElement>(null);
+      const [menu, setMenu] = useState(false);
+      return (
+        <>
+          <button ref={button} type="button" onClick={() => setMenu(true)}>
+            Availability
+          </button>
+          <Menu
+            open={menu}
+            onClose={() => setMenu(false)}
+            anchor={button.current}
+            items={[{ label: 'Do not disturb', onSelect }]}
+            aria-label="Availability"
+          />
+        </>
+      );
+    }
+    const anchor = anchorAt(300, 400);
+    render(
+      <Popover open anchor={anchor} onClose={onClose} placement="right" aria-label="Profile">
+        <Card />
+      </Popover>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Availability' }));
+    // The menu is a portal beside the popover, not inside its DOM.
+    const item = screen.getByRole('menuitem', { name: 'Do not disturb' });
+    expect(screen.getByRole('dialog', { name: 'Profile' })).not.toContainElement(item);
+    fireEvent.pointerDown(item);
+    fireEvent.click(item);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Availability' }));
+    expect(screen.getByRole('menu', { name: 'Availability' })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('renders nothing without an anchor', () => {

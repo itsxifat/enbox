@@ -1,9 +1,9 @@
 /**
  * Anchored popover (portal, fixed, z-[60]): `placement` top/bottom/left/right with a flip to
  * the opposite side when there is no room and a clamp to the viewport; `align` sets the
- * cross-axis alignment against an element anchor. Closes on outside pointer, Escape (top-most
- * overlay only) and resize. Used by the emoji picker, quick reactions, the attach menu and the
- * profile card.
+ * cross-axis alignment against an element anchor. Closes on outside pointer (a menu or dialog
+ * opened from inside it is not outside), Escape (top-most overlay only) and resize. Used by the
+ * emoji picker, quick reactions, the attach menu and the profile card.
  *
  *   <Popover open={!!anchor} anchor={anchor} onClose={close} placement="right" aria-label="Profile">
  *     …
@@ -15,7 +15,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
-import { Portal, focusableIn, useOverlay } from './overlay';
+import { Portal, focusableIn, isInOverlayAbove, useOverlay } from './overlay';
 
 const MARGIN = 8;
 const GAP = 6;
@@ -129,7 +129,7 @@ export function Popover({
     left: number;
     placement: PopoverPlacement;
   } | null>(null);
-  useOverlay(open, onClose);
+  const overlayId = useOverlay(open, onClose, ref);
 
   useLayoutEffect(() => {
     if (!open || !anchor || !ref.current) {
@@ -162,6 +162,7 @@ export function Popover({
       const t = e.target as Node;
       if (ref.current?.contains(t)) return;
       if (anchor instanceof HTMLElement && anchor.contains(t)) return;
+      if (isInOverlayAbove(overlayId, t)) return;
       onClose();
     };
     const onResize = () => onClose();
@@ -171,7 +172,7 @@ export function Popover({
       document.removeEventListener('pointerdown', onPointer, true);
       window.removeEventListener('resize', onResize);
     };
-  }, [open, anchor, onClose]);
+  }, [open, anchor, onClose, overlayId]);
 
   // Focus management (see the header). `previous` is captured when the popover opens.
   const shown = open && !!anchor;
