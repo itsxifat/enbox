@@ -1,16 +1,21 @@
 /**
  * Status media preparation: photos are re-encoded through a canvas (strips EXIF/GPS, longest
- * side ≤ IMAGE_MAX_DIMENSION, orientation applied); videos are checked for length.
+ * side ≤ IMAGE_MAX_DIMENSION, orientation applied); animated images (GIF, animated WebP,
+ * APNG — by their bytes, not their file type) keep their animation and get a poster; videos
+ * are checked for length.
  */
 import { IMAGE_MAX_DIMENSION, MAX_UPLOAD_BYTES, formatBytes } from '@enbox/shared';
 import type { UploadMeta } from '@/lib/api';
-import { readVideoMeta } from '@/lib/media';
+import { animatedPoster } from '@/features/conversation/lib/mediaProcessing';
+import { probeImageFile, readVideoMeta, stripImageBlob } from '@/lib/media';
 import { MAX_STATUS_VIDEO_MS } from './logic';
 
 export interface PreparedMedia {
   blob: Blob;
   meta: UploadMeta & { kind: 'image' | 'video' };
   fileName: string;
+  /** Poster of an animated image (`api.upload` thumbnail part); null/absent otherwise. */
+  thumbnail?: Blob | null;
 }
 
 export class StatusMediaError extends Error {}
@@ -49,10 +54,20 @@ async function decode(
   }
 }
 
-/** Re-encode a photo as JPEG (GIFs keep their animation and are uploaded as-is). */
+/** Re-encode a photo as JPEG (animated images keep their animation: stripped bytes + poster). */
 export async function prepareStatusImage(file: File): Promise<PreparedMedia> {
-  if (file.type === 'image/gif') {
-    return { blob: file, meta: { kind: 'image' }, fileName: file.name };
+  const info = await probeImageFile(file);
+  if (info?.animated) {
+    const [blob, thumbnail] = await Promise.all([
+      stripImageBlob(file),
+      animatedPoster(file).catch(() => null),
+    ]);
+    return {
+      blob,
+      meta: { kind: 'image', width: info.width, height: info.height },
+      fileName: file.name,
+      thumbnail,
+    };
   }
   const img = await decode(file);
   try {

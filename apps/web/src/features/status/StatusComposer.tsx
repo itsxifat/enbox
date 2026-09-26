@@ -325,6 +325,7 @@ function MediaComposer({
       file: prepared.blob,
       meta: prepared.meta,
       fileName: prepared.fileName,
+      thumbnail: prepared.thumbnail,
       caption,
     });
     onClose();
