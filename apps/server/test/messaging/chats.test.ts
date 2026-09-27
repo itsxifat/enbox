@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { MUTE_FOREVER_ISO, type ChatMember, type ChatSummary, type Message } from '@enbox/shared';
+import {
+  MUTE_FOREVER_ISO,
+  type ChatMember,
+  type ChatSummary,
+  type ChatTheme,
+  type Message,
+} from '@enbox/shared';
 import { db } from '../../src/db/index.js';
 import { chatMembers, starredMessages, users } from '../../src/db/schema.js';
 import { startTestServer, type TestServer, type TestUser } from '../helpers.js';
@@ -600,6 +606,179 @@ describe('chats module (REST)', () => {
         .send({ seconds: 86_400 })
         .expect(403);
       bobSock.disconnect();
+    });
+  });
+
+  describe('chat themes (PATCH /chats/:chatId/prefs theme + wallpaperMediaId, PUT /chats/:chatId/theme)', () => {
+    const theme: ChatTheme = {
+      preset: 'ocean',
+      bubbleStyle: 'rounded',
+      accent: '#3366ff',
+      dim: 20,
+      blur: 4,
+      messageAnimation: 'fade',
+      wallpaper: { kind: 'preset', id: 'sky' },
+    };
+    const wallpaperImage = (uploaderId: string, extra: Parameters<typeof mkMedia>[2] = {}) =>
+      mkMedia(uploaderId, 'image', {
+        mimeType: 'image/jpeg',
+        thumbnailKey: 'test/t.jpg',
+        ...extra,
+      });
+
+    it.each<[string, () => Promise<Record<string, unknown>>, number]>([
+      ['a non-hex accent', async () => ({ theme: { ...theme, accent: 'red' } }), 400],
+      ['dim above WALLPAPER_DIM_MAX', async () => ({ theme: { ...theme, dim: 81 } }), 400],
+      [
+        'a media wallpaper without an upload',
+        async () => ({ theme: { ...theme, wallpaper: { kind: 'media' } } }),
+        400,
+      ],
+      [
+        "someone else's upload",
+        async () => ({ wallpaperMediaId: (await wallpaperImage(bob.id)).id }),
+        404,
+      ],
+      [
+        'a video over MAX_WALLPAPER_VIDEO_MS',
+        async () => ({
+          wallpaperMediaId: (
+            await mkMedia(alice.id, 'video', { thumbnailKey: 'test/t.jpg', durationMs: 31_000 })
+          ).id,
+        }),
+        400,
+      ],
+      [
+        'an animated image without a poster',
+        async () => ({
+          wallpaperMediaId: (
+            await mkMedia(alice.id, 'image', { mimeType: 'image/gif', animated: true })
+          ).id,
+        }),
+        400,
+      ],
+    ])('prefs reject %s', async (_label, body, status) => {
+      const chatId = await createGroup(alice, [bob]);
+      await t
+        .api(alice)
+        .patch(`/api/chats/${chatId}/prefs`)
+        .send(await body())
+        .expect(status);
+      expect(await summaryOf(t, alice, chatId)).toMatchObject({ theme: null, wallpaper: null });
+    });
+
+    it('stores my private theme + wallpaper (chat:upsert to me only), lists them, and clearing the upload drops its reference', async () => {
+      const chatId = await createGroup(alice, [bob]);
+      const s1 = await t.connect(alice);
+      const s2 = await t.connect(bob);
+      const mine = recordEvents(s1);
+      const theirs = recordEvents(s2);
+      const upload = await wallpaperImage(alice.id, { width: 800, height: 600 });
+      const res = await t
+        .api(alice)
+        .patch(`/api/chats/${chatId}/prefs`)
+        .send({ theme: { ...theme, wallpaper: { kind: 'media' } }, wallpaperMediaId: upload.id })
+        .expect(200);
+      expect(res.body).toMatchObject({
+        theme: { ...theme, wallpaper: { kind: 'media' } },
+        wallpaper: {
+          id: upload.id,
+          kind: 'image',
+          url: `/uploads/${upload.storageKey}`,
+          thumbnailUrl: '/uploads/test/t.jpg',
+          mimeType: 'image/jpeg',
+          animated: false,
+          width: 800,
+          height: 600,
+          durationMs: null,
+        },
+        sharedTheme: null,
+      });
+      await settle();
+      expect(mine.of('chat:upsert').map((p) => p.chat.wallpaper?.id)).toEqual([upload.id]);
+      expect(theirs.log).toEqual([]);
+      const listed = (await t.api(alice).get('/api/chats').expect(200)).body as ChatSummary[];
+      expect(listed.find((c) => c.id === chatId)).toMatchObject({
+        theme: { ...theme, wallpaper: { kind: 'media' } },
+        wallpaper: { id: upload.id },
+      });
+      expect(await summaryOf(t, bob, chatId)).toMatchObject({ theme: null, wallpaper: null });
+
+      const cleared = await t
+        .api(alice)
+        .patch(`/api/chats/${chatId}/prefs`)
+        .send({ wallpaperMediaId: null })
+        .expect(200);
+      expect(cleared.body).toMatchObject({ theme: { ...theme, wallpaper: null }, wallpaper: null });
+      await t.api(alice).patch(`/api/chats/${chatId}/prefs`).send({ theme: null }).expect(200);
+      expect((await summaryOf(t, alice, chatId)).theme).toBeNull();
+      s1.disconnect();
+      s2.disconnect();
+    });
+
+    it('PUT theme: canEditInfo (403), system message then chat:updated to the room, no-op when unchanged, no upload wallpapers', async () => {
+      const g = await createGroup(alice, [bob, carol], {
+        settings: { onlyAdminsCanEditInfo: true },
+      });
+      const denied = await t.api(bob).put(`/api/chats/${g}/theme`).send({ theme }).expect(403);
+      expect(denied.body.error.code).toBe('forbidden');
+      await t
+        .api(alice)
+        .put(`/api/chats/${g}/theme`)
+        .send({ theme: { ...theme, wallpaper: { kind: 'media' } } })
+        .expect(400);
+      await t.api(dave).put(`/api/chats/${g}/theme`).send({ theme }).expect(404);
+
+      const bobSock = await t.connect(bob);
+      const log = recordEvents(bobSock);
+      const res = await t.api(alice).put(`/api/chats/${g}/theme`).send({ theme }).expect(200);
+      expect((res.body as ChatSummary).sharedTheme).toEqual(theme);
+      await settle();
+      const relevant = log.log.filter(
+        (e) => e.event === 'message:new' || e.event === 'chat:updated',
+      );
+      expect(relevant.map((e) => e.event)).toEqual(['message:new', 'chat:updated']);
+      expect(relevant[0]!.payload.message.system).toEqual({
+        kind: 'theme_changed',
+        actorId: alice.id,
+        preset: 'ocean',
+      });
+      expect(relevant[1]!.payload).toEqual({ chatId: g, changes: { sharedTheme: theme } });
+      expect((await summaryOf(t, bob, g)).sharedTheme).toEqual(theme);
+
+      log.clear();
+      await t.api(alice).put(`/api/chats/${g}/theme`).send({ theme }).expect(200);
+      await settle();
+      expect(log.log.filter((e) => e.event !== 'presence:update')).toEqual([]);
+
+      const off = await t.api(alice).put(`/api/chats/${g}/theme`).send({ theme: null }).expect(200);
+      expect(off.body.sharedTheme).toBeNull();
+      expect((await historyOf(t, alice, g)).at(-1)!.system).toEqual({
+        kind: 'theme_changed',
+        actorId: alice.id,
+        preset: null,
+      });
+      bobSock.disconnect();
+    });
+
+    it('direct chat: a peer who blocked me gets neither the system message nor chat:updated', async () => {
+      const u1 = await t.createUser();
+      const u2 = await t.createUser();
+      const chatId = await activeDirect(t, u1, u2);
+      await block(u2, u1);
+      const s2 = await t.connect(u2);
+      const log = recordEvents(s2);
+      await t.api(u1).put(`/api/chats/${chatId}/theme`).send({ theme }).expect(200);
+      await settle();
+      expect(log.log.filter((e) => e.event !== 'presence:update')).toEqual([]);
+      expect((await summaryOf(t, u2, chatId)).sharedTheme).toEqual(theme);
+      expect((await historyOf(t, u2, chatId)).some((m) => m.system?.kind === 'theme_changed')).toBe(
+        false,
+      );
+      expect((await historyOf(t, u1, chatId)).some((m) => m.system?.kind === 'theme_changed')).toBe(
+        true,
+      );
+      s2.disconnect();
     });
   });
 
