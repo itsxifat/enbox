@@ -108,7 +108,7 @@ export function StatusListPage({ list }: { list: 'exclude' | 'only' }) {
           }}
         />
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      <div className="card-inset mx-3 mt-2 mb-[max(12px,env(safe-area-inset-bottom))] flex shrink-0 items-center justify-between gap-3 px-4 py-3">
         <span className="text-[14px] text-muted">
           {current.size} {list === 'exclude' ? 'excluded' : 'selected'}
         </span>

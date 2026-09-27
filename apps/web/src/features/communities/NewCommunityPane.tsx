@@ -271,7 +271,7 @@ export function NewCommunityPane() {
           </section>
         </div>
       </div>
-      <div className="absolute inset-x-0 bottom-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      <div className="card-inset absolute inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] px-4 py-3 shadow-elevated">
         <div className="mx-auto max-w-2xl">
           <Button fullWidth size="lg" loading={busy} onClick={() => void create()}>
             Create community

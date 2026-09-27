@@ -105,7 +105,7 @@ export function ChannelDiscoverPane() {
                 return (
                   <li
                     key={c.id}
-                    className="flex items-center gap-3 border-b border-line pr-4 last:border-0 hover:bg-hover"
+                    className="mx-2 my-0.5 flex items-center gap-3 rounded-xl pr-4 hover:bg-hover"
                   >
                     <Link
                       to={`/updates/channels/${c.id}`}

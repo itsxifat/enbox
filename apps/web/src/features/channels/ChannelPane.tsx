@@ -243,7 +243,7 @@ function Feed({
   return (
     <div
       ref={wrapper}
-      className="chat-wallpaper relative flex min-h-0 flex-1 flex-col"
+      className="chat-wallpaper relative mx-2 flex min-h-0 flex-1 flex-col rounded-xl sm:mx-3"
       data-testid="channel-feed"
     >
       {appearance ? <ChatBackground appearance={appearance} /> : null}
@@ -509,12 +509,12 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
         }
       />
       {!msgs.loaded && msgs.loadingLatest ? (
-        <div className="chat-wallpaper relative flex flex-1">
+        <div className="chat-wallpaper relative mx-2 flex flex-1 rounded-xl sm:mx-3">
           <ChatBackground appearance={appearance} />
           <PageSpinner />
         </div>
       ) : msgs.error && !msgs.loaded ? (
-        <div className="chat-wallpaper relative flex flex-1 items-center justify-center">
+        <div className="chat-wallpaper relative mx-2 flex flex-1 items-center justify-center rounded-xl sm:mx-3">
           <ChatBackground appearance={appearance} />
           <EmptyState
             icon={Megaphone}
@@ -554,7 +554,7 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
       {admin ? (
         <ChannelComposer chat={chat} />
       ) : (
-        <div className="flex shrink-0 items-center justify-center gap-3 border-t border-line bg-surface px-4 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]">
+        <div className="card-inset mx-3 mt-2 mb-[max(10px,env(safe-area-inset-bottom))] flex shrink-0 items-center justify-center gap-3 px-4 py-2.5">
           <p className="text-[13px] text-muted" data-testid="channel-readonly">
             Only admins can post in this channel
           </p>
@@ -607,8 +607,8 @@ function ChannelPreviewView({ chatId }: { chatId: string }) {
 
   if (error)
     return (
-      <div className="flex min-h-0 flex-1 flex-col bg-app">
-        <PaneHeader title="Channel" back={desktop ? undefined : '/updates'} border />
+      <div className="flex min-h-0 flex-1 flex-col bg-surface">
+        <PaneHeader title="Channel" back={desktop ? undefined : '/updates'} />
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={Megaphone}
@@ -661,7 +661,7 @@ function ChannelPreviewView({ chatId }: { chatId: string }) {
       />
       <div
         className={cn(
-          'shrink-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]',
+          'card-inset mx-3 mt-2 mb-[max(12px,env(safe-area-inset-bottom))] shrink-0 px-4 py-3',
         )}
       >
         <div className="mx-auto flex max-w-3xl items-center gap-3">
