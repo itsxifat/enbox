@@ -68,9 +68,12 @@ committed.
 cd mobile
 npm ci
 npx expo prebuild --platform android --clean
-cd android && ./gradlew assembleRelease
-# → android/app/build/outputs/apk/release/app-release.apk
+cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+# → android/app/build/outputs/apk/release/app-release.apk (~70 MB)
 ```
+
+The `-PreactNativeArchitectures` flag limits the build to phone CPUs. Without it the APK also
+carries x86/x86_64 libraries for PC emulators and is about twice the size.
 
 Build requirements:
 

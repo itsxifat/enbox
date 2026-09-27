@@ -41,7 +41,8 @@ jobs:
       - run: npm ci
       # `android/` is generated from app.json (Continuous Native Generation), never committed.
       - run: npx expo prebuild --platform android --clean --no-install
-      - run: ./gradlew assembleRelease --no-daemon
+      # Phone CPUs only; add x86_64 for PC emulators.
+      - run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
         working-directory: mobile/android
         env:
           EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
