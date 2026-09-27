@@ -269,11 +269,21 @@ test.describe('settings', () => {
     const { page, context } = await openAs(browser, user, '/settings/chats');
     await page.getByRole('radio', { name: 'Dark' }).click();
     await expect(page.locator('html')).toHaveClass(/dark/);
-    await page.getByRole('radio', { name: 'Mint' }).click();
-    await expect(page.getByRole('radio', { name: 'Mint' })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('switch', { name: 'Enter is send' }).click();
+    // The wallpaper preset has its own page (Chats → Wallpaper).
+    await page.goto('/settings/chats/wallpaper');
+    const wallpapers = page.getByRole('radiogroup', { name: 'Wallpaper' });
+    await wallpapers.getByRole('radio', { name: 'Mint' }).click();
+    await expect(wallpapers.getByRole('radio', { name: 'Mint' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
+    await expect(
+      page.getByRole('radiogroup', { name: 'Wallpaper' }).getByRole('radio', { name: 'Mint' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await page.goto('/settings/chats');
     await expect(page.getByRole('switch', { name: 'Enter is send' })).toHaveAttribute(
       'aria-checked',
       'false',
