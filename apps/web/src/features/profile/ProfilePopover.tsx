@@ -102,7 +102,7 @@ export function ProfilePopover({
         placement="right"
         align="start"
         aria-label="Profile"
-        className="w-[340px] max-w-[calc(100vw-16px)] overflow-hidden"
+        className="max-h-[calc(100dvh-16px)] w-[340px] max-w-[calc(100vw-16px)] overflow-x-hidden overflow-y-auto scrollbar-thin"
       >
         {body}
       </Popover>
