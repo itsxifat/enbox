@@ -11,6 +11,12 @@ import {
   MAX_ANIMATED_AVATAR_BYTES,
   MAX_AVATAR_BYTES,
   MAX_BANNER_BYTES,
+  MAX_WALLPAPER_BYTES,
+  MAX_WALLPAPER_VIDEO_BYTES,
+  MAX_WALLPAPER_VIDEO_MS,
+  WALLPAPER_IMAGE_MIME_TYPES,
+  WALLPAPER_VIDEO_MIME_TYPES,
+  type ChatWallpaperAttachment,
   type MediaAttachment,
   type MediaKind,
 } from '@enbox/shared';
@@ -57,6 +63,21 @@ export function toMediaAttachment(row: MediaRow): MediaAttachment {
     frameCount: row.frameCount,
     durationMs: row.durationMs,
     waveform: row.waveform ?? null,
+  };
+}
+
+/** The viewer's own wallpaper upload as carried by `ChatSummary.wallpaper` (docs "Chat themes"). */
+export function toChatWallpaper(row: MediaRow): ChatWallpaperAttachment {
+  return {
+    id: row.id,
+    kind: row.kind,
+    url: mediaUrl(row.storageKey),
+    thumbnailUrl: row.thumbnailKey ? mediaUrl(row.thumbnailKey) : null,
+    mimeType: row.mimeType,
+    animated: row.animated,
+    width: row.width,
+    height: row.height,
+    durationMs: row.durationMs,
   };
 }
 
@@ -156,6 +177,34 @@ export async function requireBannerMedia(
     mimeTypes: BANNER_MIME_TYPES,
     maxBytes: MAX_BANNER_BYTES,
   });
+  assertStaticPoster(row);
+  return row;
+}
+
+/**
+ * Chat wallpapers (`PATCH /chats/:c/prefs { wallpaperMediaId }`, docs "Media"), uploaded by
+ * the caller: kind image (WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES, poster required
+ * when animated) or kind video (WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES, a
+ * `durationMs` ≤ MAX_WALLPAPER_VIDEO_MS recorded at upload, poster required); else 400.
+ */
+export async function requireWallpaperMedia(
+  dbx: DbOrTx,
+  mediaId: string,
+  userId: string,
+): Promise<MediaRow> {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, { kinds: ['image', 'video'] });
+  if (row.kind === 'video') {
+    assertMediaFits(row, {
+      mimeTypes: WALLPAPER_VIDEO_MIME_TYPES,
+      maxBytes: MAX_WALLPAPER_VIDEO_BYTES,
+    });
+    if (row.durationMs == null) throw badRequest('Video wallpapers need a duration');
+    if (row.durationMs > MAX_WALLPAPER_VIDEO_MS)
+      throw badRequest(`Video wallpapers can be at most ${MAX_WALLPAPER_VIDEO_MS / 1000} s long`);
+    if (!row.thumbnailKey) throw badRequest('Video wallpapers need a static poster');
+    return row;
+  }
+  assertMediaFits(row, { mimeTypes: WALLPAPER_IMAGE_MIME_TYPES, maxBytes: MAX_WALLPAPER_BYTES });
   assertStaticPoster(row);
   return row;
 }

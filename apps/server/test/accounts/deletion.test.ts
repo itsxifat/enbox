@@ -33,7 +33,7 @@ import {
   setPresenceNote,
   settle,
 } from '../services/fixtures.js';
-import { giveBanner, giveProfile, newDevice, waitDisconnect } from './util.js';
+import { giveBanner, giveProfile, giveWallpaper, newDevice, waitDisconnect } from './util.js';
 
 describe('DELETE /api/me (account deletion)', () => {
   let t: TestServer;
@@ -118,6 +118,7 @@ describe('DELETE /api/me (account deletion)', () => {
         accentColor: '#abcdef',
       });
       await giveBanner(alice.id, true);
+      await giveWallpaper(alice.id, g2);
       await setAvailability(alice, 'dnd', { until: new Date(Date.now() + 3_600_000) });
       await setPresenceNote(alice, { text: 'busy', emoji: '🔥' });
 
@@ -194,6 +195,8 @@ describe('DELETE /api/me (account deletion)', () => {
         settings: {},
       });
       expect(row!.deletedAt).toBeInstanceOf(Date);
+      // P2: private chat themes and wallpapers are scrubbed from every membership row.
+      expect(await memberRow(g2, alice)).toMatchObject({ theme: null, wallpaperMediaId: null });
       expect(await db.select().from(sessions).where(eq(sessions.userId, alice.id))).toEqual([]);
       expect(
         await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, alice.id)),

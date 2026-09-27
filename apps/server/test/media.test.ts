@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   ANIMATED_MAX_FRAMES,
   IMAGE_HEADER_MAX_DIMENSION,
@@ -17,7 +17,7 @@ import {
   type MediaAttachment,
 } from '@enbox/shared';
 import { db } from '../src/db/index.js';
-import { media, messages, users } from '../src/db/schema.js';
+import { chatMembers, media, messages, users } from '../src/db/schema.js';
 import { runMediaGc } from '../src/jobs/mediaGc.js';
 import {
   IMAGE_WALK_LIMIT_BYTES,
@@ -797,20 +797,27 @@ describe('media GC job', () => {
     const inMessage = await uploadPng();
     const asAvatar = await uploadPng();
     const asBanner = await uploadPng(true);
+    const asWallpaper = await uploadPng();
     const chatId = await createGroup(alice);
     await send(alice, chatId, { type: 'image', text: null, mediaId: inMessage.id });
     await db
       .update(users)
       .set({ avatarMediaId: asAvatar.id, bannerMediaId: asBanner.id })
       .where(eq(users.id, alice.id));
+    await db
+      .update(chatMembers)
+      .set({ wallpaperMediaId: asWallpaper.id })
+      .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, alice.id)));
     const day = 25 * 60 * 60 * 1000;
-    for (const m of [orphan, inMessage, asAvatar, asBanner]) await age(m.id, day);
+    for (const m of [orphan, inMessage, asAvatar, asBanner, asWallpaper]) await age(m.id, day);
 
     const deleted = await runMediaGc();
     expect(deleted).toBe(1);
     const ids = (await db.select({ id: media.id }).from(media)).map((r) => r.id);
     expect(ids).not.toContain(orphan.id);
-    expect(ids).toEqual(expect.arrayContaining([young.id, inMessage.id, asAvatar.id, asBanner.id]));
+    expect(ids).toEqual(
+      expect.arrayContaining([young.id, inMessage.id, asAvatar.id, asBanner.id, asWallpaper.id]),
+    );
     expect(fs.existsSync(fileOf(orphan.url))).toBe(false);
     expect(fs.existsSync(fileOf(orphan.thumbnailUrl))).toBe(false);
     expect(fs.existsSync(fileOf(inMessage.url))).toBe(true);
@@ -819,9 +826,9 @@ describe('media GC job', () => {
     // Deleting the referencing message for everyone nulls the reference → collectable later.
     await db.update(messages).set({ mediaId: null }).where(eq(messages.mediaId, inMessage.id));
     expect(await runMediaGc()).toBe(1);
-    expect(await runMediaGc({ ttlMs: 0 })).toBe(1); // `young` once the TTL is 0; the avatar and banner stay
+    expect(await runMediaGc({ ttlMs: 0 })).toBe(1); // `young` once the TTL is 0; avatar, banner and wallpaper stay
     expect((await db.select({ id: media.id }).from(media)).map((r) => r.id).sort()).toEqual(
-      [asAvatar.id, asBanner.id].sort(),
+      [asAvatar.id, asBanner.id, asWallpaper.id].sort(),
     );
   });
 

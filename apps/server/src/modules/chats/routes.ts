@@ -5,6 +5,7 @@ import {
   idParamSchema,
   pinMessageSchema,
   readBodySchema,
+  setChatThemeSchema,
   setDisappearingSchema,
   updateChatPrefsSchema,
 } from '@enbox/shared';
@@ -23,6 +24,7 @@ import {
   listPins,
   openDirectChat,
   pinMessage,
+  setChatTheme,
   setDisappearing,
   unpinMessage,
   updatePrefs,
@@ -30,7 +32,7 @@ import {
 
 /**
  * Chats module — owns: /chats, /chats/direct, /chats/:chatId, /chats/:chatId/{prefs,read,
- * clear,disappearing,members,media,media/counts,pins}. Paths are relative to /api (see ApiRoutes in
+ * clear,disappearing,theme,members,media,media/counts,pins}. Paths are relative to /api (see ApiRoutes in
  * @enbox/shared); mounted behind requireAuth. `/chats/:chatId/messages` lives in the
  * messages module. Business rules: ./service.ts.
  */
@@ -90,6 +92,13 @@ router.put('/chats/:chatId/disappearing', async (req, res) => {
   const { chatId } = parse(chatParams, req.params);
   const { seconds } = parse(setDisappearingSchema, req.body);
   res.json(await setDisappearing(me, chatId, seconds));
+});
+
+router.put('/chats/:chatId/theme', async (req, res) => {
+  const me = authUserId(req);
+  const { chatId } = parse(chatParams, req.params);
+  const { theme } = parse(setChatThemeSchema, req.body);
+  res.json(await setChatTheme(me, chatId, theme));
 });
 
 router.get('/chats/:chatId/members', async (req, res) => {

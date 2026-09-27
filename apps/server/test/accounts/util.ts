@@ -1,7 +1,7 @@
 /** Helpers shared by the accounts/users/push tests. */
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db } from '../../src/db/index.js';
-import { media, users, type MediaRow } from '../../src/db/schema.js';
+import { chatMembers, media, users, type MediaRow } from '../../src/db/schema.js';
 import { createSession } from '../../src/services/sessions.js';
 import type { TestSocket, TestUser } from '../helpers.js';
 
@@ -46,6 +46,27 @@ export async function insertImage(
     })
     .returning();
   return m!;
+}
+
+/** Give a member a private chat theme and a (static) wallpaper upload in `chatId`; returns the media id. */
+export async function giveWallpaper(userId: string, chatId: string): Promise<string> {
+  const m = await insertImage(userId, { mimeType: 'image/jpeg' });
+  await db
+    .update(chatMembers)
+    .set({
+      theme: {
+        preset: 'ocean',
+        bubbleStyle: null,
+        accent: null,
+        dim: 0,
+        blur: 0,
+        messageAnimation: null,
+        wallpaper: { kind: 'media' },
+      },
+      wallpaperMediaId: m.id,
+    })
+    .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.userId, userId)));
+  return m.id;
 }
 
 /**
