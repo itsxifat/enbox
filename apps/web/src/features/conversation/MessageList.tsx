@@ -14,14 +14,17 @@ import { Virtuoso, type ListRange, type VirtuosoHandle } from 'react-virtuoso';
 import { ChevronsDown, MessageCircleHeart, NotebookPen, Timer } from 'lucide-react';
 import { formatTimer, type ChatSummary, type ID } from '@enbox/shared';
 import { Badge, Button, Spinner } from '@/components/ui';
+import { clearArrivals } from '@/lib/arrivals';
 import { cn } from '@/lib/cn';
 import { formatDaySeparator } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
 import { useChatMessages, useMessages } from '@/stores/messages';
 import { nameOf } from '@/stores/users';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/ui';
+import { CozyMessageRow } from './CozyMessageRow';
 import { MessageRow } from './MessageRow';
+import { useRowAppearance } from './bubbles/appearance';
 import { Pill } from './bubbles/SystemPill';
 import {
   buildRows,
@@ -202,6 +205,8 @@ export const MessageList = memo(function MessageList({
     else {
       const bottom = forceBottom.current;
       forceBottom.current = false;
+      // A window replacement remounts every row: none of them "just arrived".
+      clearArrivals();
       setTrack({
         keys,
         first: BASE_INDEX - keys.length,
@@ -238,7 +243,7 @@ export const MessageList = memo(function MessageList({
   }, [atBottom]);
 
   // An explicit `behavior: 'smooth'` overrides the CSS reduced-motion rule: honour it here.
-  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const reduceMotion = useReducedMotion();
   const smoothScroll = reduceMotion ? 'auto' : 'smooth';
   const scrollToRow = useCallback(
     (index: number, align: Align, smooth = true) => {
@@ -411,11 +416,16 @@ export const MessageList = memo(function MessageList({
     [msgs.loadingBefore, msgs.loadingAfter, msgs.hasMoreBefore, chat.disappearingSeconds],
   );
 
+  // `cozy` (Discord-style rows) comes from the appearance context set on the conversation root.
+  const cozy = useRowAppearance().bubbleStyle === 'cozy';
   const renderRow = useCallback(
-    (_: number, row: Row) => (
-      <MessageRow row={row} chat={chat} onJump={onJump} onJumpById={onJumpById} />
-    ),
-    [chat, onJump, onJumpById],
+    (_: number, row: Row) =>
+      cozy ? (
+        <CozyMessageRow row={row} chat={chat} onJump={onJump} onJumpById={onJumpById} />
+      ) : (
+        <MessageRow row={row} chat={chat} onJump={onJump} onJumpById={onJumpById} />
+      ),
+    [chat, cozy, onJump, onJumpById],
   );
 
   if (!msgs.loaded) {

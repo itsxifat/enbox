@@ -9,6 +9,7 @@ import {
   Eraser,
   Info,
   LogOut,
+  Palette,
   Search,
   Timer,
   Trash2,
@@ -89,9 +90,12 @@ function useSubtitle(chat: ChatSummary): { text: string; live: boolean } {
 export function ConversationHeader({
   chat,
   onOpenInfo,
+  onOpenTheme,
 }: {
   chat: ChatSummary;
   onOpenInfo: () => void;
+  /** Open the ChatThemeSheet (private override / shared theme). */
+  onOpenTheme?: () => void;
 }) {
   const desktop = useIsDesktop();
   const { pathname } = useLocation();
@@ -148,6 +152,9 @@ export function ConversationHeader({
     muted
       ? { label: 'Unmute notifications', icon: Bell, onSelect: () => void unmuteChat(chat) }
       : { label: 'Mute notifications', icon: BellOff, onSelect: () => void muteChat(chat) },
+    onOpenTheme && chat.type !== 'channel'
+      ? { label: 'Chat theme', icon: Palette, onSelect: onOpenTheme }
+      : null,
     chat.type !== 'channel' && chat.permissions.canEditInfo
       ? {
           label: 'Disappearing messages',
