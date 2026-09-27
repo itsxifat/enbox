@@ -21,6 +21,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Cat,
   Clock3,
@@ -151,6 +152,9 @@ const EmojiCell = memo(function EmojiCell({ e, tone, size, onPick, onLong }) {
 
 export function EmojiPanel({ height, onPick, onBackspace, onSearchFocus, searching }) {
   const { tw, c, shadow } = useTheme();
+  // The panel stands in for the keyboard, which reaches behind the navigation bar: pad the
+  // grid's end so its last rows can scroll clear of the bar.
+  const bottomInset = useSafeAreaInsets().bottom;
   // Full-width in the composer and the reaction sheet; onLayout refines it (split screen).
   const [width, setWidth] = useState(useWindowDimensions().width);
   const [active, setActive] = useState(null);
@@ -382,7 +386,7 @@ export function EmojiPanel({ height, onPick, onBackspace, onSearchFocus, searchi
           keyboardShouldPersistTaps="always"
           onViewableItemsChanged={onViewable}
           viewabilityConfig={{ itemVisiblePercentThreshold: 10 }}
-          contentContainerStyle={tw`pb-2`}
+          contentContainerStyle={{ paddingBottom: 8 + bottomInset }}
         />
       )}
 
