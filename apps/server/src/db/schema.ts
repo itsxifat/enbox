@@ -42,11 +42,13 @@ import type {
   CallParticipantStatus,
   CallType,
   ChannelSettings,
+  ChatTheme,
   ChatType,
   GroupSettings,
   MediaKind,
   MemberRole,
   MessageType,
+  SharedChatTheme,
   StatusType,
   UserSettings,
 } from '@enbox/shared';
@@ -336,6 +338,11 @@ export const chats = pgTable(
     /** Groups and channels (not announcement groups); unique across communities.invite_code too. */
     inviteCode: text('invite_code'),
     disappearingSeconds: integer('disappearing_seconds'),
+    /**
+     * Shared theme every member sees (`PUT /chats/:id/theme`, canEditInfo); enum ids + lowercase
+     * hex only, zod-validated, preset wallpapers only. Null = none.
+     */
+    theme: jsonb('theme').$type<SharedChatTheme>(),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),
     lastMessageAt: ts('last_message_at'),
     createdAt: createdAt(),
@@ -407,10 +414,23 @@ export const chatMembers = pgTable(
     markedUnread: boolean('marked_unread').notNull().default(false),
     /** "Delete chat" for me (also sets cleared_seq): hidden from the list until a new visible message arrives. */
     hidden: boolean('hidden').notNull().default(false),
+    /**
+     * My private look of this chat (`PATCH /chats/:id/prefs`, synced to my devices only), over
+     * `chats.theme`. Kept on rejoin like the other prefs; channel rows are deleted on unfollow,
+     * so a follower's theme/wallpaper are lost with them. Enum ids + lowercase hex only.
+     */
+    theme: jsonb('theme').$type<ChatTheme>(),
+    /** My wallpaper upload (image or short video; `ChatTheme.wallpaper = { kind: 'media' }` shows it). */
+    wallpaperMediaId: uuid('wallpaper_media_id').references(() => media.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     primaryKey({ columns: [t.chatId, t.userId] }),
     index('chat_members_user_idx').on(t.userId),
+    index('chat_members_wallpaper_idx')
+      .on(t.wallpaperMediaId)
+      .where(sql`${t.wallpaperMediaId} is not null`),
     index('chat_members_user_active_idx')
       .on(t.userId)
       .where(sql`${t.leftAt} is null`),
@@ -716,6 +736,7 @@ export const chatsRelations = relations(chats, ({ one, many }) => ({
 export const chatMembersRelations = relations(chatMembers, ({ one }) => ({
   chat: one(chats, { fields: [chatMembers.chatId], references: [chats.id] }),
   user: one(users, { fields: [chatMembers.userId], references: [users.id] }),
+  wallpaper: one(media, { fields: [chatMembers.wallpaperMediaId], references: [media.id] }),
 }));
 
 export const messagesRelations = relations(messages, ({ one, many }) => ({
