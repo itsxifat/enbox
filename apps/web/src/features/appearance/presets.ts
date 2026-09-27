@@ -381,6 +381,17 @@ export function isEmptyTheme(theme: ChatTheme): boolean {
   );
 }
 
+/** Info-panel summary of a chat's theme: the preset in force ("Custom" for a preset-less override). */
+export function chatThemeLabel(chat: {
+  theme: ChatTheme | null;
+  sharedTheme: SharedChatTheme | null;
+}): string {
+  const preset = chat.theme?.preset ?? chat.sharedTheme?.preset ?? null;
+  if (preset) return CHAT_THEME_PRESET_LABELS[preset];
+  const custom = (chat.theme && !isEmptyTheme(chat.theme)) || !!chat.sharedTheme;
+  return custom ? 'Custom' : 'Default';
+}
+
 /** The device prefs as the bottom theme layer. */
 export function deviceTheme(prefs: DevicePrefs): ChatTheme {
   return {

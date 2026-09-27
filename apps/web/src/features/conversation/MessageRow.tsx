@@ -3,6 +3,10 @@
  * message bubble (sender name, forwarded label, quotes, typed content, meta, reactions).
  * Interactions: hover chevron + reaction button and right-click (desktop), long-press sheet
  * and swipe-right-to-reply (touch), click-to-toggle in select mode.
+ *
+ * The bubble chrome follows the chat's bubble style (`useRowAppearance`): `classic` (tail),
+ * `rounded`, `minimal`; `cozy` rows are rendered by the sibling `CozyMessageRow`, which
+ * reuses the pieces exported here (`useRowInteractions`, `MessageContent`, `RowToolbar`…).
  */
 import {
   memo,
@@ -12,17 +16,20 @@ import {
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
+  type RefObject,
 } from 'react';
 import { Ban, Check, ChevronDown, FastForward, Forward, RotateCw, SmilePlus } from 'lucide-react';
-import { FORWARDED_MANY_TIMES_THRESHOLD, type ChatSummary } from '@enbox/shared';
+import { FORWARDED_MANY_TIMES_THRESHOLD, type BubbleStyle, type ChatSummary } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { openProfile } from '@/features/profile/open';
 import { cn } from '@/lib/cn';
+import type { ClientMessage } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
 import { useLongPress } from '@/features/chats/useLongPress';
 import { canReact, canReply, retry, startReply } from './actions';
+import { useEnterAnimation, useRowAppearance } from './bubbles/appearance';
 import { AudioFileBody, VoiceBody } from './bubbles/AudioBody';
 import { CallBody, ContactBody, FileBody, LocationBody } from './bubbles/CardBodies';
 import { MediaBody } from './bubbles/MediaBody';
@@ -52,7 +59,10 @@ function Tail({ mine }: { mine: boolean }) {
       width="8"
       height="13"
       aria-hidden
-      className={cn('absolute top-0', mine ? '-right-2 text-bubble-out' : '-left-2 text-bubble-in')}
+      className={cn(
+        'msg-tail absolute top-0',
+        mine ? '-right-2 text-bubble-out' : '-left-2 text-bubble-in',
+      )}
     >
       {mine ? (
         <path d="M0 0h5.5C7.5 0 8 1.2 7 2.6L0 12.6V0z" fill="currentColor" />
@@ -64,8 +74,19 @@ function Tail({ mine }: { mine: boolean }) {
 }
 
 /** Group messages: the sender's name opens their profile card (a plain click in select mode). */
-function SenderName({ userId, selecting }: { userId: string; selecting: boolean }) {
-  const name = useUserName(userId);
+export function SenderName({
+  userId,
+  selecting,
+  you,
+  className,
+}: {
+  userId: string;
+  selecting: boolean;
+  /** What to call the viewer (default "You"). */
+  you?: string;
+  className?: string;
+}) {
+  const name = useUserName(userId, { you });
   const dark = useUi((s) => s.resolvedTheme === 'dark');
   return (
     <button
@@ -77,7 +98,10 @@ function SenderName({ userId, selecting }: { userId: string; selecting: boolean 
         e.stopPropagation();
         openProfile(userId, e.currentTarget);
       }}
-      className="block max-w-full truncate rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+      className={cn(
+        'block max-w-full truncate rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand',
+        className,
+      )}
       style={{ color: senderColor(userId, dark) }}
     >
       {name}
@@ -85,7 +109,15 @@ function SenderName({ userId, selecting }: { userId: string; selecting: boolean 
   );
 }
 
-function SenderAvatar({ userId, selecting }: { userId: string; selecting: boolean }) {
+export function SenderAvatar({
+  userId,
+  selecting,
+  size = 32,
+}: {
+  userId: string;
+  selecting: boolean;
+  size?: number;
+}) {
   const name = useUserName(userId);
   return (
     <button
@@ -99,12 +131,12 @@ function SenderAvatar({ userId, selecting }: { userId: string; selecting: boolea
       }}
       className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
-      <UserAvatar userId={userId} size={32} />
+      <UserAvatar userId={userId} size={size} />
     </button>
   );
 }
 
-function ForwardedLabel({ count }: { count: number }) {
+export function ForwardedLabel({ count }: { count: number }) {
   const many = count >= FORWARDED_MANY_TIMES_THRESHOLD;
   const Icon = many ? FastForward : Forward;
   return (
@@ -115,14 +147,30 @@ function ForwardedLabel({ count }: { count: number }) {
   );
 }
 
-export const MessageRow = memo(function MessageRow({
-  row,
-  chat,
-  onJump,
-  onJumpById,
-}: MessageRowProps) {
-  const m = row.message;
-  const { mine } = row;
+/** Derived facts about a message that decide the row's chrome. */
+export function rowShape(m: ClientMessage, showSender: boolean) {
+  const deleted = !!m.deletedAt;
+  const emojiCount =
+    m.type === 'text' && !deleted && !m.replyTo && !m.forwardCount && !m.statusReply
+      ? emojiOnlyCount(m.text)
+      : 0;
+  const bare = emojiCount > 0;
+  const hasHeader =
+    showSender ||
+    (m.forwardCount > 0 && !deleted) ||
+    (!!m.replyTo && !deleted) ||
+    (!!m.statusReply && !deleted);
+  const visual = !deleted && (m.type === 'image' || m.type === 'video') && !!m.media;
+  const caption = !deleted && m.text ? m.text : null;
+  return { deleted, emojiCount, bare, hasHeader, visual, caption };
+}
+
+/**
+ * Everything a row needs to react to the user: select mode, the highlight flash, the
+ * actions menu (toolbar / right-click / long-press) and swipe-to-reply. Called
+ * unconditionally (system rows included) so the hook order never changes.
+ */
+export function useRowInteractions(chat: ChatSummary, m: ClientMessage) {
   const selecting = useSelecting(chat.id);
   const selected = useIsSelected(chat.id, m.id);
   const highlightToken = useConversationUi((s) =>
@@ -163,16 +211,6 @@ export const MessageRow = memo(function MessageRow({
     { enabled: m.type !== 'system' },
   );
 
-  if (m.type === 'system') {
-    return (
-      <div data-testid="message" data-type="system" data-message-id={m.id}>
-        {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
-        {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}
-        <SystemPill m={m} chat={chat} onJump={onJumpById} />
-      </div>
-    );
-  }
-
   const toggleSelected = () => useConversationUi.getState().toggleSelect(chat.id, m.id);
 
   const onContextMenu = (e: MouseEvent) => {
@@ -205,34 +243,188 @@ export const MessageRow = memo(function MessageRow({
     setDx(0);
   };
 
-  const isGroupish = chat.type === 'group';
-  const showSender = isGroupish && !mine && row.firstInGroup && !!m.senderId;
-  const showAvatar = isGroupish && !mine;
-  const deleted = !!m.deletedAt;
-  const emojiCount =
-    m.type === 'text' && !deleted && !m.replyTo && !m.forwardCount && !m.statusReply
-      ? emojiOnlyCount(m.text)
-      : 0;
-  const bare = emojiCount > 0;
-  const hasHeader =
-    showSender ||
-    (m.forwardCount > 0 && !deleted) ||
-    (!!m.replyTo && !deleted) ||
-    (!!m.statusReply && !deleted);
-  const visual = !deleted && (m.type === 'image' || m.type === 'video') && !!m.media;
-  const caption = !deleted && m.text ? m.text : null;
+  /** Pointer handlers for the bubble element. */
+  const bubbleHandlers = {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endSwipe,
+    onPointerCancel: endSwipe,
+    onClickCapture: longPress.onClickCapture,
+  };
 
-  let content: ReactNode;
+  return {
+    selecting,
+    selected,
+    toggleSelected,
+    search,
+    flash,
+    menuOpen,
+    toolbarRef,
+    toolbarAnchored,
+    reactionsOpen,
+    setReactionsOpen,
+    dx,
+    bubbleRef,
+    open,
+    onContextMenu,
+    bubbleHandlers,
+    reactable: canReact(chat, m),
+  };
+}
+
+export function SelectCheckbox({
+  selected,
+  onToggle,
+  className,
+}: {
+  selected: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <span
+      role="checkbox"
+      aria-checked={selected}
+      aria-label="Select message"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      className={cn(
+        'mt-2 mr-2 flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors',
+        selected ? 'border-brand bg-brand text-on-brand' : 'border-line-strong bg-surface',
+        className,
+      )}
+    >
+      {selected ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden /> : null}
+    </span>
+  );
+}
+
+/** Swipe-to-reply hint (touch). */
+export function SwipeHint({ dx }: { dx: number }) {
+  if (dx <= 0) return null;
+  return (
+    <span
+      className="absolute top-1/2 left-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface text-muted shadow-bubble"
+      style={{ opacity: Math.min(1, dx / 52) }}
+      aria-hidden
+    >
+      <Forward size={16} className="-scale-x-100" />
+    </span>
+  );
+}
+
+export function RetryButton({ chat, m }: { chat: ChatSummary; m: ClientMessage }) {
+  if (!m.failed || m.type === 'image' || m.type === 'video') return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        retry(chat.id, m);
+      }}
+      className="mt-1 flex items-center gap-1 text-[12px] font-medium text-danger hover:underline"
+    >
+      <RotateCw size={12} aria-hidden /> Not sent. Tap to retry
+    </button>
+  );
+}
+
+/**
+ * Desktop hover: react + options beside the bubble (never covering its content). Below lg it
+ * stays reachable by keyboard / screen readers: visually hidden until a button in it has
+ * focus (touch opens the same menu with a long-press).
+ */
+export function RowToolbar({
+  mine,
+  reactable,
+  menuOpen,
+  anchored,
+  toolbarRef,
+  open,
+  className,
+}: {
+  mine: boolean;
+  reactable: boolean;
+  menuOpen: boolean;
+  anchored: boolean;
+  toolbarRef: RefObject<HTMLDivElement | null>;
+  open: (mode: 'menu' | 'react', anchor: HTMLElement) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'sr-only focus-within:not-sr-only lg:not-sr-only',
+        'transition-opacity lg:opacity-0 lg:group-hover/msg:opacity-100 lg:focus-within:opacity-100',
+        menuOpen && 'lg:opacity-100',
+        anchored && 'not-sr-only',
+        className,
+      )}
+      ref={toolbarRef}
+      data-testid="message-toolbar"
+    >
+      <div className={cn('mx-1 flex items-center gap-0.5', mine && 'flex-row-reverse')}>
+        {reactable ? (
+          <button
+            type="button"
+            aria-label="React to message"
+            onClick={(e) => {
+              e.stopPropagation();
+              open('react', e.currentTarget);
+            }}
+            className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
+          >
+            <SmilePlus size={18} aria-hidden />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-label="Message options"
+          aria-haspopup="menu"
+          onClick={(e) => {
+            e.stopPropagation();
+            open('menu', e.currentTarget);
+          }}
+          className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
+        >
+          <ChevronDown size={18} aria-hidden />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The typed body of a message (text, media + caption, cards, deleted placeholder). */
+export function MessageContent({
+  m,
+  mine,
+  chat,
+  search,
+  shape,
+}: {
+  m: ClientMessage;
+  mine: boolean;
+  chat: ChatSummary;
+  search: string | null;
+  shape: ReturnType<typeof rowShape>;
+}) {
+  const { deleted, bare, emojiCount, hasHeader, visual, caption } = shape;
   if (deleted) {
-    content = (
+    return (
       <div className="relative px-1.5 pt-1 pb-1.5 text-chat text-muted italic">
         <Ban size={16} className="mr-1.5 inline -translate-y-px" aria-hidden />
         {mine ? 'You deleted this message' : 'This message was deleted'}
         <InlineMeta m={m} mine={mine} chat={chat} />
       </div>
     );
-  } else if (bare) {
-    content = (
+  }
+  if (bare) {
+    return (
       <div className="flex flex-col items-end gap-1">
         <span
           className={cn(
@@ -246,16 +438,18 @@ export const MessageRow = memo(function MessageRow({
         <Meta m={m} mine={mine} chat={chat} variant="pill" />
       </div>
     );
-  } else if (m.type === 'text') {
-    content = (
+  }
+  if (m.type === 'text') {
+    return (
       <div className="relative px-1.5 pt-1 pb-1.5 text-chat leading-[1.38] break-words whitespace-pre-wrap text-fg">
         <RichText text={m.text ?? ''} highlight={search} />
         <InlineMeta m={m} mine={mine} chat={chat} />
       </div>
     );
-  } else if (visual) {
+  }
+  if (visual) {
     const r = hasHeader ? 'rounded-md' : caption ? 'rounded-md' : 'rounded-[6px]';
-    content = (
+    return (
       <>
         <MediaBody
           m={m}
@@ -275,57 +469,137 @@ export const MessageRow = memo(function MessageRow({
         ) : null}
       </>
     );
-  } else {
-    // Voice notes and calls carry the time inside their own last line (compact, WhatsApp-like).
-    const metaInBody = !caption && (m.type === 'voice' || m.type === 'call');
-    const meta = <Meta m={m} mine={mine} chat={chat} />;
-    let body: ReactNode;
-    switch (m.type) {
-      case 'voice':
-        body = m.media ? <VoiceBody m={m} mine={mine} meta={meta} /> : null;
-        break;
-      case 'audio':
-        body = m.media ? <AudioFileBody m={m} mine={mine} /> : null;
-        break;
-      case 'file':
-        body = m.media ? <FileBody m={m} mine={mine} /> : null;
-        break;
-      case 'location':
-        body = m.location ? <LocationBody m={m} rounded="rounded-md" /> : null;
-        break;
-      case 'contact':
-        body = m.contact ? <ContactBody m={m} /> : null;
-        break;
-      case 'poll':
-        body = m.poll ? <PollBody m={m} chat={chat} mine={mine} /> : null;
-        break;
-      case 'call':
-        body = m.call ? <CallBody m={m} chat={chat} meta={meta} /> : null;
-        break;
-      default:
-        body = null;
-    }
-    content = (
-      <div className="relative flex flex-col">
-        <div className="px-1 pt-1">
-          {body ?? <span className="text-muted italic">Unsupported message</span>}
+  }
+  // Voice notes and calls carry the time inside their own last line (compact, WhatsApp-like).
+  const metaInBody = !caption && (m.type === 'voice' || m.type === 'call');
+  const meta = <Meta m={m} mine={mine} chat={chat} />;
+  let body: ReactNode;
+  switch (m.type) {
+    case 'voice':
+      body = m.media ? <VoiceBody m={m} mine={mine} meta={meta} /> : null;
+      break;
+    case 'audio':
+      body = m.media ? <AudioFileBody m={m} mine={mine} /> : null;
+      break;
+    case 'file':
+      body = m.media ? <FileBody m={m} mine={mine} /> : null;
+      break;
+    case 'location':
+      body = m.location ? <LocationBody m={m} rounded="rounded-md" /> : null;
+      break;
+    case 'contact':
+      body = m.contact ? <ContactBody m={m} /> : null;
+      break;
+    case 'poll':
+      body = m.poll ? <PollBody m={m} chat={chat} mine={mine} /> : null;
+      break;
+    case 'call':
+      body = m.call ? <CallBody m={m} chat={chat} meta={meta} /> : null;
+      break;
+    default:
+      body = null;
+  }
+  return (
+    <div className="relative flex flex-col">
+      <div className="px-1 pt-1">
+        {body ?? <span className="text-muted italic">Unsupported message</span>}
+      </div>
+      {caption ? (
+        <div className="relative px-1.5 pt-1 pb-1.5 text-chat leading-[1.38] break-words whitespace-pre-wrap">
+          <RichText text={caption} highlight={search} />
+          <InlineMeta m={m} mine={mine} chat={chat} />
         </div>
-        {caption ? (
-          <div className="relative px-1.5 pt-1 pb-1.5 text-chat leading-[1.38] break-words whitespace-pre-wrap">
-            <RichText text={caption} highlight={search} />
-            <InlineMeta m={m} mine={mine} chat={chat} />
-          </div>
-        ) : metaInBody ? (
-          <div className="h-1" />
-        ) : (
-          <div className="flex justify-end px-1.5 pt-0.5 pb-1">{meta}</div>
-        )}
+      ) : metaInBody ? (
+        <div className="h-1" />
+      ) : (
+        <div className="flex justify-end px-1.5 pt-0.5 pb-1">{meta}</div>
+      )}
+    </div>
+  );
+}
+
+/** Quotes and labels above the body (forwarded, reply quote, status reply). */
+export function BubbleHeader({
+  m,
+  chat,
+  onJump,
+  deleted,
+}: {
+  m: ClientMessage;
+  chat: ChatSummary;
+  onJump: MessageRowProps['onJump'];
+  deleted: boolean;
+}) {
+  if (deleted) return null;
+  return (
+    <>
+      {m.forwardCount > 0 ? <ForwardedLabel count={m.forwardCount} /> : null}
+      {m.replyTo ? (
+        <ReplyQuote
+          preview={m.replyTo}
+          chatId={chat.id}
+          className="mt-1 mb-0.5"
+          onClick={
+            m.replyTo.chatId === chat.id && !m.replyTo.deleted
+              ? () => onJump(m.replyTo!.seq, m.replyTo!.id)
+              : undefined
+          }
+        />
+      ) : null}
+      {m.statusReply ? (
+        <div className="mt-1 mb-0.5">
+          <StatusReplyQuote status={m.statusReply} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** Bubble chrome per style (`classic` is the tokens' default markup). */
+function bubbleChrome(style: BubbleStyle, mine: boolean, firstInGroup: boolean): string {
+  switch (style) {
+    case 'rounded':
+      return 'rounded-[18px] shadow-bubble';
+    case 'minimal':
+      return 'rounded-[10px] border border-line/70';
+    default:
+      return cn(
+        'rounded-lg shadow-bubble',
+        firstInGroup && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
+      );
+  }
+}
+
+export const MessageRow = memo(function MessageRow({
+  row,
+  chat,
+  onJump,
+  onJumpById,
+}: MessageRowProps) {
+  const m = row.message;
+  const { mine } = row;
+  const x = useRowInteractions(chat, m);
+  const { selecting, selected, dx } = x;
+  const { bubbleStyle } = useRowAppearance();
+  const enter = useEnterAnimation(row.key);
+
+  if (m.type === 'system') {
+    return (
+      <div data-testid="message" data-type="system" data-message-id={m.id}>
+        {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
+        {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}
+        <SystemPill m={m} chat={chat} onJump={onJumpById} />
       </div>
     );
   }
 
-  const reactable = canReact(chat, m);
+  const isGroupish = chat.type === 'group';
+  const showSender = isGroupish && !mine && row.firstInGroup && !!m.senderId;
+  const showAvatar = isGroupish && !mine;
+  const shape = rowShape(m, showSender);
+  const { deleted, bare, hasHeader, visual } = shape;
   const hasReactions = m.reactions.length > 0 && !deleted;
+  const tail = bubbleStyle === 'classic' || bubbleStyle === 'cozy';
 
   return (
     <div
@@ -345,44 +619,21 @@ export const MessageRow = memo(function MessageRow({
           hasReactions ? 'pb-4' : 'pb-0',
           selecting && 'cursor-pointer',
           selected && 'bg-brand/12',
-          flash && 'bg-brand/20 duration-150',
+          x.flash && 'bg-brand/20 duration-150',
         )}
-        onClick={selecting ? toggleSelected : undefined}
-        onContextMenu={onContextMenu}
+        onClick={selecting ? x.toggleSelected : undefined}
+        onContextMenu={x.onContextMenu}
         data-animate-avatars
       >
         {selecting ? (
-          <span
-            role="checkbox"
-            aria-checked={selected}
-            aria-label="Select message"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === ' ' || e.key === 'Enter') {
-                e.preventDefault();
-                toggleSelected();
-              }
-            }}
-            className={cn(
-              'mt-2 mr-2 flex size-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors',
-              selected ? 'border-brand bg-brand text-on-brand' : 'border-line-strong bg-surface',
-              mine && 'absolute left-2 sm:left-3',
-            )}
-          >
-            {selected ? <Check size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden /> : null}
-          </span>
+          <SelectCheckbox
+            selected={selected}
+            onToggle={x.toggleSelected}
+            className={cn(mine && 'absolute left-2 sm:left-3')}
+          />
         ) : null}
 
-        {/* Swipe-to-reply hint (touch). */}
-        {dx > 0 ? (
-          <span
-            className="absolute top-1/2 left-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface text-muted shadow-bubble"
-            style={{ opacity: Math.min(1, dx / 52) }}
-            aria-hidden
-          >
-            <Forward size={16} className="-scale-x-100" />
-          </span>
-        ) : null}
+        <SwipeHint dx={dx} />
 
         {showAvatar ? (
           <span className="mr-1.5 w-8 shrink-0 self-start pt-0.5">
@@ -400,43 +651,22 @@ export const MessageRow = memo(function MessageRow({
           style={dx ? { transform: `translateX(${dx}px)` } : undefined}
         >
           <div
-            ref={bubbleRef}
+            ref={x.bubbleRef}
             data-testid="bubble"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endSwipe}
-            onPointerCancel={endSwipe}
-            onClickCapture={longPress.onClickCapture}
+            {...x.bubbleHandlers}
             className={cn(
-              'relative min-w-0 max-w-full [touch-action:pan-y]',
-              !bare && 'rounded-lg shadow-bubble',
+              'msg-bubble relative min-w-0 max-w-full [touch-action:pan-y]',
+              enter,
+              !bare && bubbleChrome(bubbleStyle, mine, row.firstInGroup),
               !bare && (mine ? 'bg-bubble-out' : 'bg-bubble-in'),
-              !bare && row.firstInGroup && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
               !bare && (visual && !hasHeader ? 'p-[3px]' : 'px-1 pt-0.5 pb-0'),
               m.failed && !bare && 'ring-1 ring-danger/60',
             )}
           >
-            {!bare && row.firstInGroup ? <Tail mine={mine} /> : null}
+            {!bare && tail && row.firstInGroup ? <Tail mine={mine} /> : null}
             {showSender ? <SenderName userId={m.senderId!} selecting={selecting} /> : null}
-            {m.forwardCount > 0 && !deleted ? <ForwardedLabel count={m.forwardCount} /> : null}
-            {m.replyTo && !deleted ? (
-              <ReplyQuote
-                preview={m.replyTo}
-                chatId={chat.id}
-                className="mt-1 mb-0.5"
-                onClick={
-                  m.replyTo.chatId === chat.id && !m.replyTo.deleted
-                    ? () => onJump(m.replyTo!.seq, m.replyTo!.id)
-                    : undefined
-                }
-              />
-            ) : null}
-            {m.statusReply && !deleted ? (
-              <div className="mt-1 mb-0.5">
-                <StatusReplyQuote status={m.statusReply} />
-              </div>
-            ) : null}
-            {content}
+            <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
+            <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />
           </div>
 
           {hasReactions ? (
@@ -445,73 +675,28 @@ export const MessageRow = memo(function MessageRow({
                 reactions={m.reactions}
                 mine={mine}
                 myReaction={m.myReaction}
-                onClick={() => setReactionsOpen(true)}
+                onClick={() => x.setReactionsOpen(true)}
               />
             </div>
           ) : null}
 
-          {m.failed && m.type !== 'image' && m.type !== 'video' ? (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                retry(chat.id, m);
-              }}
-              className="mt-1 flex items-center gap-1 text-[12px] font-medium text-danger hover:underline"
-            >
-              <RotateCw size={12} aria-hidden /> Not sent. Tap to retry
-            </button>
-          ) : null}
+          <RetryButton chat={chat} m={m} />
         </div>
 
-        {/* Desktop hover: react + options beside the bubble (never covering its content).
-            Below lg it stays reachable by keyboard / screen readers: visually hidden until a
-            button in it has focus (touch opens the same menu with a long-press). */}
         {!selecting ? (
-          <div
-            className={cn(
-              'shrink-0 self-center',
-              'sr-only focus-within:not-sr-only lg:not-sr-only',
-              'transition-opacity lg:opacity-0 lg:group-hover/msg:opacity-100 lg:focus-within:opacity-100',
-              menuOpen && 'lg:opacity-100',
-              toolbarAnchored && 'not-sr-only',
-              mine && 'order-first',
-            )}
-            ref={toolbarRef}
-            data-testid="message-toolbar"
-          >
-            <div className={cn('mx-1 flex items-center gap-0.5', mine && 'flex-row-reverse')}>
-              {reactable ? (
-                <button
-                  type="button"
-                  aria-label="React to message"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    open('react', e.currentTarget);
-                  }}
-                  className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
-                >
-                  <SmilePlus size={18} aria-hidden />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                aria-label="Message options"
-                aria-haspopup="menu"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  open('menu', e.currentTarget);
-                }}
-                className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
-              >
-                <ChevronDown size={18} aria-hidden />
-              </button>
-            </div>
-          </div>
+          <RowToolbar
+            mine={mine}
+            reactable={x.reactable}
+            menuOpen={x.menuOpen}
+            anchored={x.toolbarAnchored}
+            toolbarRef={x.toolbarRef}
+            open={x.open}
+            className={cn('shrink-0 self-center', mine && 'order-first')}
+          />
         ) : null}
       </div>
-      {reactionsOpen ? (
-        <ReactionsDialog m={m} chat={chat} open onClose={() => setReactionsOpen(false)} />
+      {x.reactionsOpen ? (
+        <ReactionsDialog m={m} chat={chat} open onClose={() => x.setReactionsOpen(false)} />
       ) : null}
     </div>
   );

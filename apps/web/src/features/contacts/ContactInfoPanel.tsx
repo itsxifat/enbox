@@ -18,6 +18,7 @@ import {
   Eraser,
   Image as ImageIcon,
   NotebookPen,
+  Palette,
   Pencil,
   Star,
   Timer,
@@ -53,6 +54,8 @@ import {
   toast,
   type IconType,
 } from '@/components/ui';
+import { ChatThemeSheet } from '@/features/appearance/ChatThemeSheet';
+import { chatThemeLabel } from '@/features/appearance/presets';
 import { profileGradient } from '@/features/profile/model';
 import { useProfileBannerSrc } from '@/features/profile/useProfileBanner';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -338,6 +341,7 @@ function ContactInfo({
   const [common, setCommon] = useState<ChatSummary[] | null>(null);
   const starred = useStarredCount(chat.id);
   const [deleting, setDeleting] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
   // Banner (or the profile colours) behind the avatar; hidden fields arrive as null. The
   // panel sits beside the chat all the time, so animated media plays only while the hero is
   // hovered or focused (the profile card is the surface that always plays it).
@@ -643,6 +647,14 @@ function ContactInfo({
             ) : undefined
           }
         />
+        <Row
+          icon={Palette}
+          title="Chat theme"
+          subtitle={chatThemeLabel(chat)}
+          onClick={() => setThemeOpen(true)}
+          end={<ChevronRight size={18} className="text-subtle" aria-hidden />}
+          testId="chat-theme-row"
+        />
       </Card>
 
       {/* Groups in common */}
@@ -748,6 +760,7 @@ function ContactInfo({
       />
       <MediaLightbox m={lightbox} onClose={() => setLightbox(null)} />
       <EditContactDialog user={editing} onClose={() => setEditing(null)} />
+      {themeOpen ? <ChatThemeSheet chat={chat} onClose={() => setThemeOpen(false)} /> : null}
     </div>
   );
 }

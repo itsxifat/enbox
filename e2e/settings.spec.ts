@@ -159,6 +159,19 @@ test.describe('settings', () => {
     await context.close();
   });
 
+  test('reduce motion pref marks the document and survives a reload', async ({ browser }) => {
+    const user = await registerUser({ displayName: 'Still Person' });
+    const { page, context } = await openAs(browser, user, '/settings/chats/animations');
+    await page
+      .getByRole('radiogroup', { name: 'Reduce motion' })
+      .getByRole('radio', { name: 'On' })
+      .click();
+    await expect(page.locator('html')).toHaveAttribute('data-reduce-motion', 'on');
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-reduce-motion', 'on');
+    await context.close();
+  });
+
   test('hiding last seen & online removes presence for the other user', async ({ browser }) => {
     const a = await registerUser({ displayName: 'Casey Private' });
     const b = await registerUser({ displayName: 'Dana Viewer' });

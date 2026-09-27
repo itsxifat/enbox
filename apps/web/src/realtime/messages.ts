@@ -16,6 +16,7 @@ import {
   type ID,
   type Message,
 } from '@enbox/shared';
+import { arrivalKey, markArrival } from '@/lib/arrivals';
 import { isAppFocused, playSound, showNotification } from '@/lib/notify';
 import { registerSessionReset } from '@/lib/session';
 import type { AppSocket } from '@/lib/socket';
@@ -166,6 +167,8 @@ export function handleNewMessage(message: Message): void {
   const mine = !!me && message.senderId === me;
   const chats = useChats.getState();
   const visible = chats.openChatId === message.chatId && isAppFocused();
+  // A live arrival: its row may play the chat's enter animation (never on loads/resyncs).
+  markArrival(arrivalKey(message));
 
   if (!chats.byId[message.chatId]) {
     // Unknown chat (normally preceded by `chat:upsert`): fetch it, it already includes this message.
