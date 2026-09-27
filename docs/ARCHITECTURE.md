@@ -134,6 +134,14 @@ apps/web/src/
   arithmetic.
 - `chat_members` keeps rows after a group member leaves (`left_at`, `left_seq`,
   `left_reason`, role reset to `member`); channel follower rows are deleted on unfollow.
+- Chat themes (migration 0002) are jsonb columns: `chats.theme` (`SharedChatTheme`, the
+  viewer-neutral shared theme, built-in wallpapers only) and, per member, `chat_members.theme`
+  (`ChatTheme`, the viewer's private override) + `chat_members.wallpaper_media_id` (→ media,
+  `ON DELETE SET NULL`, partial index `chat_members_wallpaper_idx`). Both shapes are enum ids,
+  bounded integers and one lowercase `#rrggbb` accent — validated by `chatThemeSchema` /
+  `sharedChatThemeSchema`, never CSS or URLs. A rejoin keeps the private theme and wallpaper
+  like the other prefs; unfollowing a channel deletes the row, so channel prefs (theme and
+  wallpaper included) are lost on unfollow.
 - DB-enforced invariants: one active owner per chat (`chat_members_owner_uq`), one owner per
   community, one announcement group per community, one live call per chat
   (`calls_chat_live_uq`), a user joined to at most one call (`call_participants_one_joined_uq`),
@@ -273,10 +281,11 @@ viewer`, `type <> 'system'` (call messages count for everyone but the initiator)
    a `message_hidden` row on a pinned message, who get their own list without it →
    `user:<id>`.
 5. Viewer-neutral chat metadata (`name`, `description`, `avatarUrl`, `groupSettings`,
-   `channelSettings`, `disappearingSeconds`, `memberCount`, `communityId`, `isAnnouncement`)
-   → `chat:updated { chatId, changes }` → `chat:c`; clients merge and recompute
-   `permissions` with `computeChatPermissions`. Changes to one user's role/membership/prefs
-   → `chat:upsert` → that user.
+   `channelSettings`, `disappearingSeconds`, `sharedTheme`, `memberCount`, `communityId`,
+   `isAnnouncement`) → `chat:updated { chatId, changes }` → `chat:c`; clients merge and
+   recompute `permissions` with `computeChatPermissions`. Changes to one user's
+   role/membership/prefs — their private `theme`/`wallpaper` included — → `chat:upsert` →
+   that user only, never the room.
 6. `chat:members-changed` → `chat:c` for direct/group chats; only to admins (`emitToUsers`)
    for channels and announcement groups.
 7. Never for channels: `chat:typing`, `chat:watermarks`, join/leave system messages.
@@ -300,12 +309,12 @@ acting device also receives the events (clients dedupe).
 | `POST/PATCH/DELETE /contacts…`                                      | `contacts:changed` → U(me); `user:changed {userId: me}` → U(contact) (their view of me changed); re-evaluate my presence subscribers                                                                                                                                                                                                                          |
 | `PUT/DELETE /blocks/:u`                                             | (the direct chat with u is locked first: serializes with `call:start`) `blocks:changed` → U(me); `chat:upsert` (direct chat with u, if any) → U(me); `user:changed {me}` → U(u); presence re-evaluated both ways; a live call between us → forced leave                                                                                                       |
 | `POST /chats/direct` (new)                                          | JOIN(me) only (peer row is hidden until the first message; nothing to the peer)                                                                                                                                                                                                                                                                               |
-| `PATCH /chats/:c/prefs`                                             | `chat:upsert` → U(me)                                                                                                                                                                                                                                                                                                                                         |
+| `PATCH /chats/:c/prefs`                                             | `chat:upsert` → U(me) — also for `theme` / `wallpaperMediaId`: my private override syncs to my devices only, never to R                                                                                                                                                                                                                                       |
 | `POST /chats/:c/read`, `chat:read`                                  | `chat:read {…}` → U(me); `chat:watermarks` → U(x) changed; `dismiss` push → me                                                                                                                                                                                                                                                                                |
 | `POST /chats/:c/clear`                                              | `chat:cleared {clearedSeq}` → U(me) (my stars in range are removed)                                                                                                                                                                                                                                                                                           |
 | `DELETE /chats/:c`                                                  | `removeUserFromChat(me, c)` → `chat:removed` → U(me)                                                                                                                                                                                                                                                                                                          |
 | `PUT /chats/:c/disappearing`                                        | sys `disappearing_changed` (not channels) → R; `chat:updated {disappearingSeconds}` → R (direct: both skip a peer who blocked me)                                                                                                                                                                                                                             |
-| `POST /chats/:c/pins`                                               | sys `message_pinned` (not channels) → R; `chat:pins` → R (direct: both skip a peer who blocked me)                                                                                                                                                                                                                                                            |
+| `PUT /chats/:c/theme`                                               | sys `theme_changed` (not channels) → R; `chat:updated {sharedTheme}` → R (direct: both skip a peer who blocked me); unchanged theme → no events; rate limit `chatTheme`                                                                                                                                                                                       |     | `POST /chats/:c/pins` | sys `message_pinned` (not channels) → R; `chat:pins` → R (direct: both skip a peer who blocked me) |
 | `DELETE /chats/:c/pins/:m`                                          | `chat:pins` → R (direct: not to a peer who blocked me)                                                                                                                                                                                                                                                                                                        |
 | `POST /chats/:c/messages`                                           | for each member u unhidden by it: JOIN(u); `message:new` → R (except withheld recipients); `chat:read` → U(sender); `chat:watermarks` → U(sender) if delivered advanced; pushes. Idempotent retry (same `clientId`): 200 with the existing message, no events                                                                                                 |
 | `POST /messages/forward`                                            | per created copy: as a send in its target chat                                                                                                                                                                                                                                                                                                                |
@@ -414,19 +423,19 @@ joined_seq`, `role = 'member'`, `added_by`, `left_at/left_seq/left_reason = null
 summary's own fields; server route guards must agree with it. Former members: all false.
 "admin" = owner or admin.
 
-| Permission                           | Direct                                       | Group                               | Announcement group       | Channel       |
-| ------------------------------------ | -------------------------------------------- | ----------------------------------- | ------------------------ | ------------- |
-| canSend                              | I haven't blocked the peer, peer not deleted | `!onlyAdminsCanSend` or admin       | admin                    | admin         |
-| canEditInfo (name/desc/avatar/timer) | = canSend (timer only)                       | `!onlyAdminsCanEditInfo` or admin   | no (edit the community)  | admin         |
-| canAddMembers                        | no                                           | `!onlyAdminsCanAddMembers` or admin | no (community add)       | no            |
-| canRemoveMembers                     | no                                           | admin (never the owner)             | no (community)           | no            |
-| canManageAdmins                      | no                                           | admin (owner can't be demoted)      | no (community roles)     | owner         |
-| canPin                               | yes                                          | = canEditInfo                       | admin                    | admin         |
-| canCall                              | = canSend, not self chat                     | = canSend                           | = canSend (admins)       | no            |
-| canInvite (see/share link)           | no                                           | = canAddMembers                     | no (community link)      | admin         |
-| canDeleteForEveryoneAsAdmin          | no                                           | admin                               | admin                    | admin         |
-| canLeave                             | no (delete chat instead)                     | yes                                 | no (leave the community) | not the owner |
-| canViewMembers                       | yes                                          | yes                                 | admin                    | admin         |
+| Permission                                 | Direct                                       | Group                               | Announcement group       | Channel       |
+| ------------------------------------------ | -------------------------------------------- | ----------------------------------- | ------------------------ | ------------- |
+| canSend                                    | I haven't blocked the peer, peer not deleted | `!onlyAdminsCanSend` or admin       | admin                    | admin         |
+| canEditInfo (name/desc/avatar/timer/theme) | = canSend (timer, theme only)                | `!onlyAdminsCanEditInfo` or admin   | no (edit the community)  | admin         |
+| canAddMembers                              | no                                           | `!onlyAdminsCanAddMembers` or admin | no (community add)       | no            |
+| canRemoveMembers                           | no                                           | admin (never the owner)             | no (community)           | no            |
+| canManageAdmins                            | no                                           | admin (owner can't be demoted)      | no (community roles)     | owner         |
+| canPin                                     | yes                                          | = canEditInfo                       | admin                    | admin         |
+| canCall                                    | = canSend, not self chat                     | = canSend                           | = canSend (admins)       | no            |
+| canInvite (see/share link)                 | no                                           | = canAddMembers                     | no (community link)      | admin         |
+| canDeleteForEveryoneAsAdmin                | no                                           | admin                               | admin                    | admin         |
+| canLeave                                   | no (delete chat instead)                     | yes                                 | no (leave the community) | not the owner |
+| canViewMembers                             | yes                                          | yes                                 | admin                    | admin         |
 
 Also: only the owner transfers ownership, deletes a channel or deactivates a community.
 Community owner/admins create/link/unlink groups, add/remove community members, manage
@@ -469,7 +478,13 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   `is_pinned = false`, `marked_unread = false`; leave the room; `chat:removed`. History does
   not come back: a new visible message unhides the chat with only newer messages.
 - Prefs: at most MAX_PINNED_CHATS pinned (`409 limit_reached`); mute until a time
-  (MUTE_FOREVER_ISO = always); archive; mark unread.
+  (MUTE_FOREVER_ISO = always); archive; mark unread; `theme` (my private `ChatTheme`
+  override, null removes it) and `wallpaperMediaId` (my wallpaper upload, checked by
+  `requireWallpaperMedia` in the same transaction, null removes it). A theme whose wallpaper
+  is `{ kind: 'media' }` needs a wallpaper row — set in the same patch or earlier — else
+  `400 validation_error`; clearing the wallpaper also clears that reference in my theme.
+  Works for former members too. All of it is mine alone: `chat:upsert` → my devices, nothing
+  to the room (see "Chat themes").
 
 ### Blocking
 
@@ -477,15 +492,17 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 - The peer blocked me: my sends **succeed** but are inserted into `message_hidden` for the
   peer, never emitted or pushed to them and never unhide their chat; clamping keeps my
   ticks single (the send emits no `chat:watermarks` to them either). The same holds for
-  every action of mine in that chat: system messages I cause (timer change, pin) are
-  withheld exactly like my sends (`actorId`), and `chat:updated`/`chat:pins` skip the peer;
+  every action of mine in that chat: system messages I cause (timer change, theme change,
+  pin) are withheld exactly like my sends (`actorId`), and `chat:updated`/`chat:pins` skip
+  the peer;
   my edits, reactions and poll votes apply but their `message:updated` skips the peer, and
   the peer's own (viewer-specific) responses — history, pins, search, reaction/vote results
   — leave out reactions and votes of users they blocked. Limitations (v1): room broadcasts
   stay viewer-neutral, so a later `message:updated` caused by the blocker's own interaction
   with that message carries my reaction/vote; an edit of mine shows up when the blocker
-  refetches; the timer I set applies to the chat (visible in the blocker's summary on their
-  next fetch). Calls: see Calls. The blocked party never learns about the block.
+  refetches; the timer or shared theme I set applies to the chat (visible in the blocker's
+  summary on their next fetch). Calls: see Calls. The blocked party never learns about the
+  block.
 - Either direction: no typing relay, presence hidden, status audience excluded; group adds
   of such users land in `needsInvite`. The blocked party sees the blocker's avatar, about,
   phone and presence as null, and can't find the blocker by username or phone (search,
@@ -499,6 +516,32 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
   and call messages never expire). Clients hide expired messages at `expiresAt`; the purge
   job deletes them (see Jobs). New direct chats and groups start with the creator's
   `defaultDisappearingSeconds`.
+
+### Chat themes
+
+- Two layers with the same `ChatTheme` shape (enum ids, bounded `dim`/`blur`, one lowercase
+  `#rrggbb` accent; a `null` field = "not set here"): the **shared theme** `chats.theme`
+  (`ChatSummary.sharedTheme`, viewer-neutral, seen by every member) and each member's
+  **private override** `chat_members.theme` + `wallpaper_media_id` (`ChatSummary.theme` /
+  `wallpaper`, viewer-specific, set through prefs). Clients resolve, field by field, private
+  override > shared theme > device prefs > design tokens; `dim`/`blur` follow the layer that
+  supplies the wallpaper. Nothing in a theme ever reaches CSS as text (the SPA's `style-src`
+  allows inline styles): `chatThemeSchema` is a strict object of enums, ints and
+  `hexColorSchema` — anything else → `400 validation_error`.
+- `PUT /chats/:c/theme { theme: SharedChatTheme | null }` is modelled on the disappearing
+  timer: active members with `canEditInfo` (direct chats: = `canSend`, so `403 blocked` when
+  I blocked the peer; channels: admins), under the chat lock; an unchanged (deep-equal)
+  theme → no write, no events; otherwise write `chats.theme`, post `theme_changed { actorId,
+preset }` where `systemMessageAllowed` (direct chats and groups incl. announcement groups;
+  never channels; `preset` = the new theme's preset — null when the theme is removed or has
+  none), then `chat:updated { sharedTheme }` → room. Direct chat whose peer blocked me: the
+  theme applies, the system message is withheld from the peer and `chat:updated` skips them
+  (see Blocking). Only built-in wallpapers can be shared (`sharedChatThemeSchema`;
+  `{ kind: 'media' }` → 400): an upload is private to its owner and never fans out. Rate
+  limit `USER_RATE_LIMITS.chatTheme`.
+- A private `wallpaper: { kind: 'media' }` shows `ChatSummary.wallpaper` — the member's own
+  upload (`requireWallpaperMedia`, see Media) — and is never served to anyone else; it needs
+  a wallpaper row (`400` otherwise) and clearing the wallpaper clears the reference.
 
 ## Messages
 
@@ -769,7 +812,8 @@ last_seen_at : null`; `note` = the unexpired note only while `state ∈ {online,
   `about = ''`, `avatar_media_id = null`, `banner_media_id = null`, `pronouns = null`,
   `bio = ''`, `profile_color = accent_color = null`, `availability = 'online'`,
   `availability_until = null`, the presence note columns null, `password_hash = '!'`,
-  `settings = '{}'`, `deleted_at = now()`. Direct-chat memberships and messages stay
+  `settings = '{}'`, `deleted_at = now()`, and `theme = null`, `wallpaper_media_id = null`
+  on every `chat_members` row of mine. Direct-chat memberships and messages stay
   (sender shown as Deleted account). After commit: membership events as in the matrix,
   `user:changed` → rooms of the remaining direct chats, `disconnectUser`. Deleted users
   can't be found, added, messaged or called.
@@ -918,15 +962,21 @@ attachment` unless the extension is inline-safe.
   after its EOI — motion-photo videos, vendor trailers; the file and its thumbnail) before
   the file enters the store (`media.metadata_stripped`); the client canvas re-encode below
   stays as defence in depth. Video metadata remains unstripped (known v1 limitation).
-- Ownership: every client-supplied `mediaId` (messages, statuses, avatars, banners) must be
-  uploaded by the caller, else 404; `message.type`/status type must equal `media.kind`.
+- Ownership: every client-supplied `mediaId` (messages, statuses, avatars, banners,
+  wallpapers) must be uploaded by the caller, else 404; `message.type`/status type must
+  equal `media.kind`.
   Avatars (user, group, community, channel; `requireAvatarMedia`): kind `image`, static
   (AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES) or animated (`media.animated`,
   ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES). Banners (`requireBannerMedia`):
   BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, cropped client-side to BANNER_ASPECT. Animated
   avatars, banners and icons **require a static poster** (the `thumbnail` part) → `400`
-  without one. Requirers run inside the referencing transaction (`FOR KEY SHARE`).
-  Forwarding reuses media ids server-side.
+  without one. Wallpapers (`requireWallpaperMedia`, `PATCH /chats/:c/prefs
+{ wallpaperMediaId }`): kind `image` (WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES; an
+  animated one needs a poster) or kind `video` (WALLPAPER_VIDEO_MIME_TYPES, ≤
+  MAX_WALLPAPER_VIDEO_BYTES, a `durationMs` recorded at upload — required and ≤
+  MAX_WALLPAPER_VIDEO_MS; video is not parsed server-side, so it is the client's claim — and a
+  poster); any other kind, MIME, size or length → `400`. Requirers run inside the
+  referencing transaction (`FOR KEY SHARE`). Forwarding reuses media ids server-side.
 - **Static by default**: `avatarUrl`/`bannerUrl` are always the static image (the poster
   when the upload is animated); `avatarAnimatedUrl`/`bannerAnimatedUrl` carry the animation
   (null when static or hidden). Group, community and channel icons (`ChatSummary`,
@@ -944,11 +994,13 @@ attachment` unless the extension is inline-safe.
   get a poster thumbnail; videos get a poster thumbnail; "send as document" uploads the
   original unchanged.
 - Media rows are shared and immutable. Deleting a message for everyone, purging expired
-  messages, deleting/expiring statuses and replacing avatars or banners only null
-  references; the GC job deletes media rows and files (incl. thumbnails) unreferenced by any
-  message, status, user (`avatar_media_id`, `banner_media_id`), chat or community for more
-  than ORPHAN_MEDIA_TTL_MS. Every new media FK column is added to that reference list
-  (`jobs/mediaGc.ts`) and to `scrubDeletedUser`.
+  messages, deleting/expiring statuses and replacing avatars, banners or wallpapers only
+  null references; the GC job deletes media rows and files (incl. thumbnails) unreferenced
+  by any message, status, user (`avatar_media_id`, `banner_media_id`), chat member
+  (`wallpaper_media_id`), chat or community for more than ORPHAN_MEDIA_TTL_MS. Every new
+  media FK column is added to that reference list (`jobs/mediaGc.ts`) and to
+  `scrubDeletedUser` (which also nulls `chat_members.theme` and `wallpaper_media_id` on the
+  deleted user's rows).
 
 ## Push
 
@@ -983,12 +1035,12 @@ chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
 
 ## Rate limits
 
-| Scope                                   | Limit                                                                                                                                                                                                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Per IP (lib/rateLimit.ts)               | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min                                                                                 |
-| Per user (`USER_RATE_LIMITS`)           | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact), profileUpdate 20/min (`PATCH /me`, `PUT /me/presence`, `PUT/DELETE /me/presence-note`) |
-| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                                                                                                   |
-| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min, presenceActivity 30/min (the flag still applies; the re-evaluation is dropped silently); server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)      |
+| Scope                                   | Limit                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per IP (lib/rateLimit.ts)               | auth 20/10 min (login, register, change password, delete account), username availability checks 120/10 min, invite lookups/joins 60/10 min, uploads 120/10 min, API 1200/min                                                                                                                            |
+| Per user (`USER_RATE_LIMITS`)           | sendMessage 60/10 s (forwards count per copy; a larger forward → 400), addMembers 200/h (per added user), callStart 10/min, userSearch 60/min (search + add contact), profileUpdate 20/min (`PATCH /me`, `PUT /me/presence`, `PUT/DELETE /me/presence-note`), chatTheme 20/min (`PUT /chats/:id/theme`) |
+| Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                                                                                                                                              |
+| Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min, presenceActivity 30/min (the flag still applies; the re-evaluation is dropped silently); server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)                                                 |
 
 ## Jobs
 
@@ -1024,3 +1076,11 @@ chat_id`, looping while full; `message:removed` → room per chat.
 - Missed-calls badge: computed client-side from the call log since the last visit of the
   Calls tab (stored locally).
 - Theme: light/dark/system via `class="dark"` on `<html>`; brand color `#6D5DFC`.
+- Chat appearance (details in `apps/web/README.md` "Chat themes & animations"): resolved
+  field by field as private override (`chat.theme` / `chat.wallpaper`) > shared theme
+  (`chat.sharedTheme`) > device prefs (`ui` store) > design tokens, into CSS variables set on
+  the conversation root; a `ChatBackground` layer behind the list; bubble styles via
+  `[data-bubble-style]`; enter animations only for messages that arrived live (never on
+  load, scroll-back, resync or a remount); reduced motion or a hidden app → posters, animated
+  presets static. Theme values are enum ids and validated hex only — no user string ever
+  reaches CSS.

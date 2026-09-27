@@ -66,7 +66,11 @@ mobile-first web app that installs like a native app (PWA).
   disturb / invisible) with an optional presence note, and a profile card wherever a user
   appears
 - Web Push notifications (with previews toggle, dismiss-on-read), light / dark / system
-  theme, wallpapers, font size
+  theme, font size
+- Chat themes: a shared per-chat theme (announced with a system message) and a private
+  override synced across your devices — presets, bubble styles, accent colour, colour or
+  animated wallpapers or your own image / GIF / short video, message animations, all
+  reduced-motion aware
 
 ## Tech stack
 

@@ -15,7 +15,7 @@ visibility, watermarks, membership transitions, serialization or fan-out in a mo
 | `membership.ts` | `upsertMembership` (all membership writes), succession, roles, add rules             |
 | `watermarks.ts` | read/delivered marks, unread counts, tick watermarks, delivered-on-connect           |
 | `users.ts`      | user rows (+ banner), relationships, `UserPublic`/`Presence`/`UserSelf`, scrub       |
-| `media.ts`      | `MediaAttachment`, ownership checks, avatar/banner requirers (poster rule)           |
+| `media.ts`      | `MediaAttachment`, ownership checks, avatar/banner/wallpaper requirers (poster rule) |
 | `uploads.ts`    | MIME sniffing, allowlists, file-name sanitising, storage keys/files                  |
 | `imageProbe.ts` | image parse (verified dims, animation, caps, MAX_IMAGE_BYTES → 400) + metadata strip |
 | `statuses.ts`   | status visibility + status-reply resolution                                          |
@@ -145,7 +145,10 @@ Standalone post-commit publishers (use only outside transactions; they read with
   counts; watermarks = min over other active members (none → lastSeq; direct + receipts off
   → read 0; channels 0/0); former members clamped to `left_seq`, `inviteCode` only with
   `canInvite`, `lastActivityAt` = last message time, else joined_at (former: left_at),
-  `createdBy` = chats.created_by (viewer-neutral; null for direct chats).
+  `createdBy` = chats.created_by (viewer-neutral; null for direct chats), `sharedTheme` =
+  chats.theme (viewer-neutral), `theme` = the viewer's chat_members.theme and `wallpaper` =
+  their `wallpaper_media_id` resolved through `loadMediaMap` in one batched query
+  (`ChatWallpaperAttachment`; null when unset or the media row is gone).
 
 ### messages.ts
 
@@ -187,7 +190,7 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `postSystemMessage(tx, fx, chat, event, { exceptUserIds? })` → MessageRow (registered fan-out;
   the event's `actorId` is passed as `CreateMessageInput.actorId`).
 - `insertSystemMessage(tx, chat, event)` → `InsertedMessage` (publish later).
-- `systemMessageAllowed(chat, kind)` — direct: timer/pin; channel: created/name/description/
+- `systemMessageAllowed(chat, kind)` — direct: timer/theme/pin; channel: created/name/description/
   avatar; announcement: no join/leave/add/remove/role messages. Posting a disallowed kind throws.
 
 ### membership.ts
@@ -262,8 +265,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - Self: `toUserSelf(row)` (raw profile + `availability`/`availabilityUntil`/`presenceNote`),
   `loadUserSelf(dbx, userId)`.
 - Deletion: `scrubDeletedUser(tx, userId)` → `{ sessionIds }` (steps 3–4; also nulls the
-  banner, pronouns, bio, colours and presence note and resets `availability` to `online`),
-  `deletedUsername(id)`.
+  banner, pronouns, bio, colours and presence note, resets `availability` to `online` and
+  nulls `theme`/`wallpaper_media_id` on the user's `chat_members` rows), `deletedUsername(id)`.
 
 ### media.ts / uploads.ts / imageProbe.ts / statuses.ts / invites.ts / events.ts
 
@@ -278,7 +281,12 @@ Standalone post-commit publishers (use only outside transactions; they read with
   ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES and a `thumbnail_key` (the static
   poster) — 400 "Animated images need a static poster" without one.
   `requireBannerMedia(dbx, mediaId, userId)`: BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, same
-  poster rule. Both run inside the referencing transaction (docs "Media").
+  poster rule. `requireWallpaperMedia(dbx, mediaId, userId)` (`PATCH /chats/:id/prefs
+{ wallpaperMediaId }`): kind `image` → WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES,
+  poster when `row.animated`; kind `video` → WALLPAPER_VIDEO_MIME_TYPES, ≤
+  MAX_WALLPAPER_VIDEO_BYTES, `duration_ms` required and ≤ MAX_WALLPAPER_VIDEO_MS, poster
+  required; anything else 400 ("Wallpapers need a static poster" without one). All three run
+  inside the referencing transaction (docs "Media").
 - `sniffFile(path)`, `isAllowedMime(kind, mime)`, `sanitizeFileName(name)`,
   `newStorageKey(ext)`, `storagePath(key)`, `moveIntoStore`, `removeFiles`, `removeStoredFiles`.
   Sniffing uses the `file-type` package; MIME names are normalised to MEDIA_MIME_ALLOWLIST's.
@@ -377,6 +385,17 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
   Switching to `invisible` while connected writes `last_seen_at = now()` in the same
   transaction (already offline: the real last seen stays); the disconnect write in
   `realtime/io.ts` is predicated on `availability <> 'invisible'`.
+- `PUT /chats/:id/theme` (`setChatTheme` in `modules/chats/service.ts`) is `setDisappearing`
+  with a jsonb column: `requireActiveMember(tx, me, chatId, { lock: true })`, direct chats
+  `assertCanSend` else `requirePermission(access, 'canEditInfo')`, deep-equal → return (no
+  write, no events), `peersWhoBlockedMe` → write `chats.theme` → `postSystemMessage`
+  `theme_changed { actorId, preset }` where `systemMessageAllowed` → `fx.chatUpdated(chatId,
+{ sharedTheme }, { exceptUserIds: blockers })`; body `setChatThemeSchema`
+  (`sharedChatThemeSchema`: built-in wallpapers only); rate limit `chatTheme`. `updatePrefs`
+  takes the private side (`theme`, `wallpaperMediaId` via `requireWallpaperMedia`; a
+  `{ kind: 'media' }` wallpaper without a wallpaper row → 400; clearing the wallpaper clears
+  that ref) and still registers only `fx.chatUpsert(me, chatId)`: private looks never leave
+  the user room.
 - Clamping: marks move to the highest visible seq ≤ the requested seq (not just `min(seq, max)`),
   so a withheld message never reads as delivered/read while the block lasts.
 - Membership changes (leave/remove) also emit `chat:watermarks` to members whose ticks changed

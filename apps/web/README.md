@@ -417,6 +417,58 @@ until)` → `PUT /api/me/presence`, `setPresenceNote` / `clearPresenceNote` →
   `settings/profile/ProfilePage.test.tsx` + `ProfileFieldPages.test.tsx`; e2e
   `e2e/profile.spec.ts` (`gifFixture()` in `e2e/helpers.ts` builds an animated GIF).
 
+## Chat themes & animations (P2)
+
+- **Precedence** (`features/appearance/useChatAppearance(chat)`), resolved field by field —
+  a `null` field falls through: the viewer's private override (`chat.theme`, plus
+  `chat.wallpaper` for `{ kind: 'media' }`) > the chat's shared theme (`chat.sharedTheme`) >
+  device prefs (`useUi().prefs`: theme preset, bubble style, message animation, wallpaper
+  preset / dim / blur, `reduceMotion`, `autoplayAnimatedMedia`) > the design tokens;
+  `dim`/`blur` come from the layer that supplies the wallpaper. Presets (`presets.ts`, a
+  light + dark pair per `CHAT_THEME_PRESETS` id, re-resolved with `resolvedTheme`) map to CSS
+  variables (`--bubble-out/-in/-out-meta/-in-meta`, `--wallpaper`, `--wallpaper-ink`,
+  `--brand-soft`, `--tick-read`); the hook returns `{ style, data }`, applied on the
+  **Conversation root** (`ConversationPane`, `ChannelPane`, the settings `ChatPreview`) so
+  every row inherits them without props or re-renders; portaled overlays (`MessageInfoSheet`)
+  get the same `style` explicitly. **No user string ever reaches CSS**: a theme is enum ids
+  plus one validated `#rrggbb` (`chatThemeSchema`); a custom accent is accent-only and
+  clamped by `contrastOk()` (meta colours via `color-mix`, `SystemPill` keeps
+  `bg-surface/95`); presets are curated pairs.
+- **`ChatBackground`** — first child of the `.chat-wallpaper` container, `absolute inset-0
+pointer-events-none`, `aria-hidden`, behind the virtualised list: flat colours and the
+  animated presets (`aurora`, `drift`, `starfield`, `waves`: transform/opacity keyframes in
+  `appearance.css`, loaded lazily) via CSS; an uploaded wallpaper as `<img>` or a muted,
+  looping, `playsInline` `<video>` (`data-testid="chat-background"`); then the dim overlay
+  (`dim` %) and the optional backdrop blur (`blur` px). Under `useReducedMotion()` or while
+  `!useAppVisible()` a GIF/video shows its poster (`thumbnailUrl`) and the animated presets
+  stand still.
+- **Bubble styles** are CSS keyed on `[data-bubble-style]` (`classic`, `rounded`, `minimal`:
+  `MessageRow` chrome and tail); `cozy` renders `CozyMessageRow` instead (40 px avatar, name
+  - time header on the first message of a run, no bubble background, hover toolbar), chosen
+    in `MessageList.renderRow` from a context set on the root — never per-row props.
+- **Enter animations** (`messageAnimation`: `fade` / `slide` / `pop`, `--animate-msg-*`) play
+  only for **live arrivals**: `lib/arrivals.ts` `markArrival(rowKey)` is called by
+  `addOptimistic` and `handleNewMessage` (`message:new`); a row reads it once in a `useState`
+  initializer and animates an **inner wrapper** (never the Virtuoso item, never the swipe
+  transform div) only when the arrival is < 1.5 s old. Initial load, `loadOlder` /
+  `loadAround`, the reconnect resync and an epoch remount (`key={epoch}`) never animate; the
+  `[data-reduce-motion]` clamp turns them off. Reaction pops are keyed by count.
+- **Editing** — `ChatThemeSheet` (Sheet on phones, Modal on desktop) from the conversation
+  header menu, `ContactInfoPanel` "Chat settings" and `GroupInfoPanel` preferences. The
+  private side saves through `patchPrefs` (`PATCH /api/chats/:id/prefs { theme,
+wallpaperMediaId }`, optimistic with rollback; the echoed `chat:upsert` syncs my other
+  devices, nothing reaches the peer); the shared side through `PUT /api/chats/:id/theme`
+  (offered only with `permissions.canEditInfo`; everyone then gets `chat:updated
+{ sharedTheme }` and the `theme_changed` system message; built-in wallpapers only). A
+  wallpaper upload goes through `probeImageFile` / `readVideoMeta` and
+  `api.upload(..., { thumbnail })` with a poster (`decodeAnimatedFrame` for GIFs, a captured
+  frame for videos) within `MAX_WALLPAPER_BYTES` / `MAX_WALLPAPER_VIDEO_BYTES` /
+  `MAX_WALLPAPER_VIDEO_MS`; the server answers 400 for the rest and 404 for media that isn't
+  mine. Settings → Chats groups Theme / Bubble style / Wallpaper / Animations (device
+  defaults) with a live `ChatPreview`. Tests: `stores/ui.test.ts`,
+  `features/appearance/*.test.ts(x)`, `lib/arrivals.test.ts`, `MessageRow.test.tsx` (no
+  animation class on remount); e2e `e2e/chat-themes.spec.ts`.
+
 ## Groups, communities, channels & invites (agent 3)
 
 Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/new`,
