@@ -2,37 +2,54 @@
  * Pure status helpers: text-status fonts, viewer navigation, durations. Unit-tested.
  */
 
+import { Platform } from 'react-native';
 import { STATUS_BACKGROUND_COLORS, STATUS_FONT_COUNT } from '@enbox/shared';
 
-/** The STATUS_FONT_COUNT text-status fonts (index = `Status.font`), system fonts only (CSP). */
+/**
+ * The STATUS_FONT_COUNT text-status fonts (index = `Status.font`): Android's built-in families
+ * (Roboto, Noto Serif, Droid Sans Mono, Dancing Script, Roboto Condensed) for the web's
+ * system-font stacks; the web preview keeps the CSS stacks.
+ */
+const web = Platform.OS === 'web';
 export const STATUS_FONTS = [
-  { name: 'Sans', style: { fontFamily: 'ui-sans-serif, system-ui, sans-serif', fontWeight: 600 } },
+  {
+    name: 'Sans',
+    style: {
+      fontFamily: web ? 'ui-sans-serif, system-ui, sans-serif' : 'sans-serif',
+      fontWeight: '600',
+    },
+  },
   {
     name: 'Serif',
     style: {
-      fontFamily: "Georgia, 'Times New Roman', ui-serif, serif",
-      fontWeight: 500,
+      fontFamily: web ? "Georgia, 'Times New Roman', ui-serif, serif" : 'serif',
+      fontWeight: '500',
       fontStyle: 'italic',
     },
   },
   {
     name: 'Mono',
-    style: { fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace", fontWeight: 500 },
+    style: {
+      fontFamily: web ? "ui-monospace, 'SF Mono', Menlo, Consolas, monospace" : 'monospace',
+      fontWeight: '500',
+    },
   },
   {
     name: 'Script',
     style: {
-      fontFamily: "'Segoe Script', 'Brush Script MT', 'Snell Roundhand', cursive",
-      fontWeight: 500,
+      fontFamily: web ? "'Segoe Script', 'Brush Script MT', 'Snell Roundhand', cursive" : 'cursive',
+      fontWeight: '500',
     },
   },
   {
     name: 'Bold',
     style: {
-      fontFamily: "Impact, 'Arial Narrow', 'Franklin Gothic Bold', ui-sans-serif, sans-serif",
-      fontWeight: 800,
+      fontFamily: web
+        ? "Impact, 'Arial Narrow', 'Franklin Gothic Bold', ui-sans-serif, sans-serif"
+        : 'sans-serif-condensed',
+      fontWeight: '800',
       textTransform: 'uppercase',
-      letterSpacing: '0.02em',
+      letterSpacing: 0.5,
     },
   },
 ];

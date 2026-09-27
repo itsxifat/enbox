@@ -33,6 +33,14 @@ export default function AppLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ contentStyle: { backgroundColor: c.app } }} />
+        <Stack.Screen
+          name="updates/status/[userId]"
+          options={{ animation: 'fade', contentStyle: { backgroundColor: '#000' } }}
+        />
+        <Stack.Screen
+          name="updates/status/new"
+          options={{ animation: 'fade_from_bottom', contentStyle: { backgroundColor: '#000' } }}
+        />
       </Stack>
     </View>
   );
