@@ -213,8 +213,16 @@ export function NewChat() {
     <>
       {!q ? (
         <View style={tw`py-1`}>
-          <ActionRow icon={UsersRound} title="New group" onPress={() => router.push('/new/group')} />
-          <ActionRow icon={UserPlus} title="New contact" onPress={() => setAdding({ open: true })} />
+          <ActionRow
+            icon={UsersRound}
+            title="New group"
+            onPress={() => router.push('/new/group')}
+          />
+          <ActionRow
+            icon={UserPlus}
+            title="New contact"
+            onPress={() => setAdding({ open: true })}
+          />
           <ActionRow
             icon={Users}
             title="New community"

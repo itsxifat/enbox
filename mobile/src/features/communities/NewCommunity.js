@@ -118,7 +118,12 @@ export function NewCommunity() {
             onUploaded={(m) => setAvatar({ id: m.id, url: m.url })}
             onRemove={() => setAvatar(null)}
           />
-          <T style={[tw`mt-4 text-center text-[14px] text-muted`, { maxWidth: 384, lineHeight: 22.75 }]}>
+          <T
+            style={[
+              tw`mt-4 text-center text-[14px] text-muted`,
+              { maxWidth: 384, lineHeight: 22.75 },
+            ]}
+          >
             Bring members together in topic-based groups, and send announcements that reach
             everyone.
           </T>

@@ -436,8 +436,8 @@ function ContactInfo({ chat, onClose, openGallery, openStarred }) {
             <View style={tw`flex-row items-start gap-5 px-5 py-3`}>
               <Icon icon={NotebookPen} size={22} color={c.muted} style={tw`mt-0.5`} />
               <T style={[tw`min-w-0 flex-1 text-[14px] text-muted`, { lineHeight: 22.75 }]}>
-                Use this chat to keep notes, links, photos and files for yourself. Only you can
-                see it, and it syncs across your devices.
+                Use this chat to keep notes, links, photos and files for yourself. Only you can see
+                it, and it syncs across your devices.
               </T>
             </View>
           </Card>

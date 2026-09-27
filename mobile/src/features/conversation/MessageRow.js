@@ -593,9 +593,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
         >
           {selecting ? <SelectCheckbox selected={selected} style={tw`mr-0`} /> : null}
           <View style={tw`w-10`}>
-            {header ? (
-              <SenderAvatar userId={m.senderId} selecting={selecting} size={40} />
-            ) : null}
+            {header ? <SenderAvatar userId={m.senderId} selecting={selecting} size={40} /> : null}
           </View>
           <Animated.View style={[tw`min-w-0 flex-1`, enter]}>
             <Press

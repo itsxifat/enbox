@@ -114,7 +114,8 @@ export function CommunityMembersView({ community: c, onClose }) {
       admin.push({
         label: 'Make community admin',
         icon: ShieldCheck,
-        onSelect: () => void run(() => store().setRole(c.id, u.id, 'admin'), `${name} is now an admin`),
+        onSelect: () =>
+          void run(() => store().setRole(c.id, u.id, 'admin'), `${name} is now an admin`),
       });
     if (role === 'admin')
       admin.push({
@@ -134,7 +135,10 @@ export function CommunityMembersView({ community: c, onClose }) {
             confirmLabel: 'Transfer',
           }).then((ok) => {
             if (ok)
-              void run(() => store().transferOwnership(c.id, u.id), `${name} now owns the community`);
+              void run(
+                () => store().transferOwnership(c.id, u.id),
+                `${name} now owns the community`,
+              );
           }),
       });
     if (role !== 'owner')
@@ -180,7 +184,12 @@ export function CommunityMembersView({ community: c, onClose }) {
       {!query ? (
         <Press onPress={() => setAdding(true)} style={tw`flex-row items-center gap-3 px-5 py-2.5`}>
           <View style={tw`size-10 items-center justify-center rounded-full bg-brand`}>
-            <Icon icon={UserPlus} size={20} strokeWidth={ICON_STROKE_ON_FILL} color={col['on-brand']} />
+            <Icon
+              icon={UserPlus}
+              size={20}
+              strokeWidth={ICON_STROKE_ON_FILL}
+              color={col['on-brand']}
+            />
           </View>
           <T style={tw`text-[15.5px] font-medium`}>Add members</T>
         </Press>
@@ -204,7 +213,12 @@ export function CommunityMembersView({ community: c, onClose }) {
           )}
         />
       ) : (
-        <EmptyState compact icon={Users} title="No matches" description={`No one matches “${query}”.`} />
+        <EmptyState
+          compact
+          icon={Users}
+          title="No matches"
+          description={`No one matches “${query}”.`}
+        />
       )}
       <Menu
         open={!!menu}
@@ -255,7 +269,9 @@ function AddCommunityMembers({ community: c, members, onBack, onDone }) {
       <UserPicker
         selected={selected}
         onToggle={(u) =>
-          setSelected((l) => (l.some((x) => x.id === u.id) ? l.filter((x) => x.id !== u.id) : [...l, u]))
+          setSelected((l) =>
+            l.some((x) => x.id === u.id) ? l.filter((x) => x.id !== u.id) : [...l, u],
+          )
         }
         query={query}
         onQueryChange={setQuery}

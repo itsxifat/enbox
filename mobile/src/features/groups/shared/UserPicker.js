@@ -52,7 +52,15 @@ function PickerRow({ user, checked, disabledReason, onToggle }) {
   );
 }
 
-export function UserPicker({ selected, onToggle, query, onQueryChange, disabled, header, autoFocus }) {
+export function UserPicker({
+  selected,
+  onToggle,
+  query,
+  onQueryChange,
+  disabled,
+  header,
+  autoFocus,
+}) {
   const { tw, c } = useTheme();
   const { sections, loading, searching } = useCandidates(query);
   const selectedIds = new Set(selected.map((u) => u.id));

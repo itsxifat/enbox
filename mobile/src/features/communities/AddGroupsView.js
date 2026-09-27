@@ -137,7 +137,9 @@ function LinkExisting({ community: c, onBack, onDone }) {
     setBusy(true);
     try {
       await useCommunities.getState().linkGroups(c.id, [...picked]);
-      toast.success(picked.size === 1 ? 'Group added to the community' : `${picked.size} groups added`);
+      toast.success(
+        picked.size === 1 ? 'Group added to the community' : `${picked.size} groups added`,
+      );
       onDone();
     } catch (e) {
       toast.error(e);
@@ -160,7 +162,12 @@ function LinkExisting({ community: c, onBack, onDone }) {
               Groups you admin that aren't in a community. Their members become community members.
             </T>
             {groups.map((g) => (
-              <GroupCheckRow key={g.id} group={g} checked={picked.has(g.id)} onToggle={() => toggle(g.id)} />
+              <GroupCheckRow
+                key={g.id}
+                group={g}
+                checked={picked.has(g.id)}
+                onToggle={() => toggle(g.id)}
+              />
             ))}
           </>
         ) : (

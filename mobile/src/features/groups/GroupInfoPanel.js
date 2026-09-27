@@ -157,7 +157,9 @@ function GroupInfoMain({ chat, onClose, go, members, membersError, reloadMembers
   const p = chat.permissions;
   const active = chat.membership === 'active';
   const announcement = chat.isAnnouncement;
-  const community = useCommunities((s) => (chat.communityId ? s.byId[chat.communityId] : undefined));
+  const community = useCommunities((s) =>
+    chat.communityId ? s.byId[chat.communityId] : undefined,
+  );
   const communitiesLoaded = useCommunities((s) => s.loaded);
   // `createdBy` is viewer-neutral (announcements: the community's creator).
   const creator = chat.createdBy;
@@ -696,7 +698,9 @@ function AddMembersView({ chat, members, onBack, onDone, onInvite }) {
         >
           <Button fullWidth size="lg" loading={busy} onPress={() => void add()} leftIcon={UserPlus}>
             {`Add ${
-              selected.length === 1 ? selected[0].displayName.split(' ')[0] : `${selected.length} people`
+              selected.length === 1
+                ? selected[0].displayName.split(' ')[0]
+                : `${selected.length} people`
             }`}
           </Button>
         </View>

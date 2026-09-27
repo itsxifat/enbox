@@ -46,7 +46,13 @@ function SettingRow({ icon, label, value, onPress }) {
   );
 }
 
-export function GroupCreateFlow({ communityId, communityName, onCancel, onCreated, backIcon = 'arrow' }) {
+export function GroupCreateFlow({
+  communityId,
+  communityName,
+  onCancel,
+  onCreated,
+  backIcon = 'arrow',
+}) {
   const { tw, shadow } = useTheme();
   const insets = useSafeAreaInsets();
   const me = useMe();
@@ -132,13 +138,17 @@ export function GroupCreateFlow({ communityId, communityName, onCancel, onCreate
         <PaneHeader
           title={communityId ? 'New group in community' : 'New group'}
           subtitle={
-            selected.length ? `${selected.length} of ${MAX_GROUP_MEMBERS - 1} selected` : 'Add members'
+            selected.length
+              ? `${selected.length} of ${MAX_GROUP_MEMBERS - 1} selected`
+              : 'Add members'
           }
           back={onCancel}
           backIcon={backIcon}
         />
         <UserPicker selected={selected} onToggle={toggle} query={query} onQueryChange={setQuery} />
-        {fab(ArrowRight, selected.length ? 'Next' : 'Skip adding members', () => setStep('details'))}
+        {fab(ArrowRight, selected.length ? 'Next' : 'Skip adding members', () =>
+          setStep('details'),
+        )}
       </View>
     );
   }
@@ -211,7 +221,11 @@ export function GroupCreateFlow({ communityId, communityName, onCancel, onCreate
           <View style={tw`mt-3 flex-row flex-wrap gap-y-3`}>
             {[
               { key: 'me', user: me ? { ...me, contactName: null } : null, label: 'You' },
-              ...selected.map((u) => ({ key: u.id, user: u, label: userDisplayName(u).split(' ')[0] })),
+              ...selected.map((u) => ({
+                key: u.id,
+                user: u,
+                label: userDisplayName(u).split(' ')[0],
+              })),
             ].map((x) => (
               <View key={x.key} style={tw`w-[68px] items-center gap-1`}>
                 <UserAvatar user={x.user} size="lg" />

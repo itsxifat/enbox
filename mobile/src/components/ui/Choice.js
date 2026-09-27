@@ -10,7 +10,15 @@ import { ICON_STROKE_BOLD, Icon } from '@/components/icons';
 import { Badge } from './Badge';
 import { Press, T } from './primitives';
 
-export function Switch({ checked, onChange, label, description, disabled, style, accessibilityLabel }) {
+export function Switch({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled,
+  style,
+  accessibilityLabel,
+}) {
   const { tw, c, shadow } = useTheme();
   const x = useRef(new Animated.Value(checked ? 18 : 2)).current;
   useEffect(() => {

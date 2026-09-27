@@ -179,7 +179,9 @@ function PreviewCard({ preview: p, joining, onJoin, onOpen }) {
           {noun} · {count}
         </T>
         {p.communityName ? (
-          <View style={tw`mt-4 w-full flex-row items-center gap-3 rounded-2xl bg-surface-2 px-4 py-3`}>
+          <View
+            style={tw`mt-4 w-full flex-row items-center gap-3 rounded-2xl bg-surface-2 px-4 py-3`}
+          >
             <View style={tw`size-10 items-center justify-center rounded-[11px] bg-brand-soft`}>
               <Icon icon={UsersRound} size={20} color={c['brand-ink']} />
             </View>
