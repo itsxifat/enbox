@@ -237,6 +237,7 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       permissions,
       inviteCode: permissions.canInvite ? chat.inviteCode : null,
       disappearingSeconds: chat.disappearingSeconds,
+      sharedTheme: chat.theme,
       lastMessage,
       lastSeq,
       lastReadSeq: Math.min(lastRead, lastSeq),
@@ -248,6 +249,9 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       isArchived: member.isArchived,
       mutedUntil: member.mutedUntil?.toISOString() ?? null,
       markedUnread: member.markedUnread,
+      theme: member.theme,
+      // member.wallpaperMediaId is not resolved to an attachment yet (P2 prefs step): always null.
+      wallpaper: null,
       createdAt: chat.createdAt.toISOString(),
       createdBy: chat.type === 'direct' ? null : chat.createdBy,
       lastActivityAt:

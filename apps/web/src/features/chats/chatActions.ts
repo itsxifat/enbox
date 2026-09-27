@@ -44,8 +44,9 @@ async function patchPrefs(chat: ChatSummary, prefs: UpdateChatPrefsRequest): Pro
     const cur = useChats.getState().byId[chat.id];
     if (cur) {
       const revert: Partial<ChatSummary> = {};
+      // Only the prefs the summary mirrors 1:1 (`wallpaperMediaId` is served as `wallpaper`).
       for (const k of Object.keys(prefs) as (keyof UpdateChatPrefsRequest)[])
-        (revert as Record<string, unknown>)[k] = before[k];
+        if (k in before) (revert as Record<string, unknown>)[k] = before[k as keyof ChatSummary];
       useChats.getState().patchChat(chat.id, revert);
     }
     if (e instanceof ApiError && e.code === 'limit_reached')
