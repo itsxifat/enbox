@@ -21,7 +21,7 @@ import {
 } from '../db/schema.js';
 import { emitToChat, emitToUser } from '../realtime/emit.js';
 import { computePermissions, memberVisibleSql, membershipOf, type PeerInfo } from './chats.js';
-import { mediaUrl, staticMediaKey } from './media.js';
+import { loadMediaMap, mediaUrl, staticMediaKey, toChatWallpaper } from './media.js';
 import { toMessages } from './messages.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
 import { getUserRows, settingsOf, toUserPublicsForPairs, type UserWithAvatar } from './users.js';
@@ -175,6 +175,16 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
     dbx,
     entries.map((e) => ({ chatId: e.chat.id, userId: e.member.userId })),
   );
+  // Each viewer's own wallpaper upload (viewer-private: only ever serialized to its owner).
+  const wallpapers = await loadMediaMap(
+    dbx,
+    entries.map((e) => e.member.wallpaperMediaId),
+  );
+
+  const wallpaperOf = (id: string | null) => {
+    const row = id ? wallpapers.get(id) : undefined;
+    return row ? toChatWallpaper(row) : null;
+  };
 
   return entries.map((e) => {
     const { chat, member } = e;
@@ -250,8 +260,7 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       mutedUntil: member.mutedUntil?.toISOString() ?? null,
       markedUnread: member.markedUnread,
       theme: member.theme,
-      // member.wallpaperMediaId is not resolved to an attachment yet (P2 prefs step): always null.
-      wallpaper: null,
+      wallpaper: wallpaperOf(member.wallpaperMediaId),
       createdAt: chat.createdAt.toISOString(),
       createdBy: chat.type === 'direct' ? null : chat.createdBy,
       lastActivityAt:

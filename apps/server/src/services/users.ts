@@ -33,6 +33,7 @@ import {
 import type { DbOrTx, Tx } from '../db/index.js';
 import {
   blocks,
+  chatMembers,
   contacts,
   media,
   pushSubscriptions,
@@ -700,5 +701,10 @@ export async function scrubDeletedUser(
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
+  // Their private chat themes and wallpaper uploads go too (the media rows are collected once unreferenced).
+  await tx
+    .update(chatMembers)
+    .set({ theme: null, wallpaperMediaId: null })
+    .where(eq(chatMembers.userId, userId));
   return { sessionIds: revoked.map((r) => r.id) };
 }

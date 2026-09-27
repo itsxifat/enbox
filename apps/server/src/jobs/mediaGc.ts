@@ -1,10 +1,11 @@
 /**
  * Media GC (hourly and at boot, docs "Media" / "Jobs"): stale multipart temp files are
  * removed (`sweepUploadTmp`); then delete media rows — and their files, thumbnails
- * included — that no message, status, user (avatar, banner), chat or community references
- * and that are older than ORPHAN_MEDIA_TTL_MS. Batches of 500 via `FOR UPDATE SKIP LOCKED`:
- * a row being referenced by an uncommitted transaction is KEY SHARE-locked (FK check /
- * `requireOwnedMedia`) and therefore skipped. Files are removed after the DELETE committed.
+ * included — that no message, status, user (avatar, banner), chat member (wallpaper), chat
+ * or community references and that are older than ORPHAN_MEDIA_TTL_MS. Batches of 500 via
+ * `FOR UPDATE SKIP LOCKED`: a row being referenced by an uncommitted transaction is KEY
+ * SHARE-locked (FK check / `requireOwnedMedia`) and therefore skipped. Files are removed
+ * after the DELETE committed.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -33,6 +34,7 @@ export async function runMediaGc(
               and not exists (select 1 from statuses x where x.media_id = m.id)
               and not exists (select 1 from users x where x.avatar_media_id = m.id)
               and not exists (select 1 from users x where x.banner_media_id = m.id)
+              and not exists (select 1 from chat_members x where x.wallpaper_media_id = m.id)
               and not exists (select 1 from chats x where x.avatar_media_id = m.id)
               and not exists (select 1 from communities x where x.avatar_media_id = m.id)
             order by m.created_at
