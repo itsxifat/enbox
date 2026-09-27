@@ -66,6 +66,18 @@ export function notificationPermission() {
   return native ? permission : 'unsupported';
 }
 
+/** Refresh the cached permission without prompting. */
+export async function checkNotificationPermission() {
+  if (!native) return 'unsupported';
+  try {
+    const p = await Notifications.getPermissionsAsync();
+    permission = p.granted ? 'granted' : p.canAskAgain ? 'default' : 'denied';
+  } catch {
+    /* keep the last known value */
+  }
+  return permission;
+}
+
 /** Ask for permission (Android 13+ shows the system prompt once). */
 export async function requestNotificationPermission() {
   if (!native) return 'unsupported';

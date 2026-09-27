@@ -15,29 +15,50 @@ import { useUi } from '@/stores/ui';
 import { mix, useTheme } from '@/theme';
 import { WALLPAPER_PRESET_DEFS, resolveAppearance } from './presets';
 
+/** Token overrides (for `ColorScope`) from a resolved appearance: preset vars + the accent mixes. */
+export function appearanceColors(a, c) {
+  const colors = {};
+  for (const [k, v] of Object.entries(a.style)) {
+    if (typeof v !== 'string' || v.startsWith('color-mix')) continue;
+    colors[k.replace(/^--/, '')] = v;
+  }
+  if (a.accent) {
+    colors['bubble-out'] = a.accent;
+    colors['bubble-out-meta'] = mix(c.fg, 62, a.accent);
+    colors['tick-read'] = mix(c.fg, 55, a.accent);
+    colors['brand-soft'] = mix(a.accent, 24, c.surface);
+  }
+  return colors;
+}
+
+/** Resolve an appearance (`resolveAppearance` input) with its colour overrides. */
+export function useResolvedAppearance(input) {
+  const { c } = useTheme();
+  const { override, shared, media } = input;
+  const device = input.device;
+  const resolvedTheme = input.resolvedTheme;
+  return useMemo(() => {
+    const a = resolveAppearance({ override, shared, device, resolvedTheme, media });
+    return { ...a, colors: appearanceColors(a, c) };
+  }, [override, shared, media, device, resolvedTheme, c]);
+}
+
 /** The resolved appearance of a chat + the colour overrides for its subtree. */
 export function useChatAppearance(chat) {
-  const { c } = useTheme();
   const prefs = useUi((s) => s.prefs);
   const resolvedTheme = useUi((s) => s.resolvedTheme);
-  const override = chat?.theme ?? null;
-  const shared = chat?.sharedTheme ?? null;
-  const media = chat?.wallpaper ?? null;
-  return useMemo(() => {
-    const a = resolveAppearance({ override, shared, device: prefs, resolvedTheme, media });
-    const colors = {};
-    for (const [k, v] of Object.entries(a.style)) {
-      if (typeof v !== 'string' || v.startsWith('color-mix')) continue;
-      colors[k.replace(/^--/, '')] = v;
-    }
-    if (a.accent) {
-      colors['bubble-out'] = a.accent;
-      colors['bubble-out-meta'] = mix(c.fg, 62, a.accent);
-      colors['tick-read'] = mix(c.fg, 55, a.accent);
-      colors['brand-soft'] = mix(a.accent, 24, c.surface);
-    }
-    return { ...a, colors };
-  }, [override, shared, media, prefs, resolvedTheme, c.fg, c.surface]);
+  return useResolvedAppearance({
+    override: chat?.theme ?? null,
+    shared: chat?.sharedTheme ?? null,
+    media: chat?.wallpaper ?? null,
+    device: prefs,
+    resolvedTheme,
+  });
+}
+
+/** The device layer alone (Settings → Chats previews). */
+export function useDeviceAppearance() {
+  return useChatAppearance(null);
 }
 
 function useLoop(duration, enabled) {

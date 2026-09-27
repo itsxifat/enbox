@@ -109,12 +109,16 @@ export function Menu({ open, onClose, anchor, items, align = 'start' }) {
               {entry.icon ? (
                 <Icon icon={entry.icon} size={20} color={entry.danger ? c.danger : c.muted} />
               ) : null}
-              <T
-                numberOfLines={1}
-                style={[tw`min-w-0 flex-1 text-[15px]`, entry.danger ? tw`text-danger` : null]}
-              >
-                {entry.label}
-              </T>
+              {typeof entry.label === 'string' ? (
+                <T
+                  numberOfLines={1}
+                  style={[tw`min-w-0 flex-1 text-[15px]`, entry.danger ? tw`text-danger` : null]}
+                >
+                  {entry.label}
+                </T>
+              ) : (
+                <View style={tw`min-w-0 flex-1`}>{entry.label}</View>
+              )}
               {entry.hint ? <T style={tw`text-xs text-subtle`}>{entry.hint}</T> : null}
             </Press>
           ),

@@ -22,6 +22,7 @@ import { bootApp } from '@/lib/boot';
 import { Splash } from '@/components/layout/Splash';
 import { DialogHost, PortalHost, Toaster } from '@/components/ui';
 import { CallHost } from '@/features/calls/CallHost';
+import { ProfileHost } from '@/features/profile/ProfileHost';
 import { useBus } from '@/hooks/useBus';
 import { reportUserInput } from '@/lib/activity';
 import { useAuth } from '@/stores/auth';
@@ -87,6 +88,7 @@ function Root() {
             <Stack.Screen name="(auth)" />
           </Stack.Protected>
         </Stack>
+        {authed ? <ProfileHost /> : null}
         {authed ? <CallHost /> : null}
         <PortalHost />
         <Toaster />

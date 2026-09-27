@@ -10,3 +10,4 @@ export { Modal, ActionSheet, Sheet, usePresence } from './Modal';
 export { Menu, DropdownMenu, measureAnchor } from './Menu';
 export { Toaster, DialogHost, EmptyState } from './Feedback';
 export { confirm, choose, toast } from '@/stores/ui';
+export { Gradient, RadialLayer, Segmented, Slider } from './Extras';

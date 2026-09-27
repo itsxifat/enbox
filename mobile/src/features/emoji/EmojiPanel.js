@@ -345,6 +345,7 @@ export function EmojiPanel({ height, onPick, onBackspace, onSearchFocus, searchi
 
       {query ? (
         <ScrollView
+          nestedScrollEnabled
           keyboardShouldPersistTaps="always"
           contentContainerStyle={tw`flex-row flex-wrap`}
         >
@@ -366,6 +367,7 @@ export function EmojiPanel({ height, onPick, onBackspace, onSearchFocus, searchi
       ) : (
         <FlatList
           ref={list}
+          nestedScrollEnabled
           data={grid.items}
           keyExtractor={(i) => i.key}
           renderItem={renderItem}
