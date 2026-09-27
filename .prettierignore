@@ -6,3 +6,7 @@ apps/server/drizzle
 apps/server/data
 playwright-report
 test-results
+mobile/android
+mobile/ios
+mobile/.expo
+mobile/src/features/emoji/data.js

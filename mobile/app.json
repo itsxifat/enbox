@@ -1,0 +1,104 @@
+{
+  "expo": {
+    "name": "Enbox",
+    "slug": "enbox",
+    "scheme": "enbox",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#f4f3f8",
+    "newArchEnabled": true,
+    "description": "Chats, groups, communities, channels, status and calls.",
+    "android": {
+      "package": "app.enbox.mobile",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundImage": "./assets/adaptive-background.png",
+        "monochromeImage": "./assets/monochrome-icon.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.WAKE_LOCK"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 96,
+          "backgroundColor": "#f4f3f8",
+          "dark": { "image": "./assets/splash-icon.png", "backgroundColor": "#0b0b10" }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "minSdkVersion": 26
+          }
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Enbox uses the camera for video calls, photos and status updates.",
+          "microphonePermission": "Enbox uses the microphone for calls and voice messages."
+        }
+      ],
+      [
+        "expo-audio",
+        { "microphonePermission": "Enbox uses the microphone for calls and voice messages." }
+      ],
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Enbox lets you send photos and videos from your library.",
+          "cameraPermission": "Enbox uses the camera for photos, videos and status updates."
+        }
+      ],
+      [
+        "expo-location",
+        { "locationWhenInUsePermission": "Enbox shares your location only when you send it." }
+      ],
+      ["expo-notifications", { "icon": "./assets/notification-icon.png", "color": "#6d5dfc" }],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Enbox saves photos and videos you choose to your gallery.",
+          "savePhotosPermission": "Enbox saves photos and videos you choose to your gallery.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "router": {}
+    }
+  }
+}

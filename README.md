@@ -144,6 +144,10 @@ Put it behind HTTPS (required for camera/microphone access, service workers and 
 
 ## Mobile apps
 
+A native Android app (React Native + Expo) lives in [`mobile/`](mobile/README.md). It
+mirrors the mobile web UI and features, and adds a keyboard-replacing emoji panel. CI builds
+its APK on every change ([Android APK workflow](.github/workflows/android.yml)).
+
 The web client is mobile-first and installable as a PWA ("Add to Home Screen"), with push
 notifications and an offline app shell. For app-store builds it can be wrapped with
 [Capacitor](https://capacitorjs.com/): build with `VITE_API_URL=https://your-server` so the
