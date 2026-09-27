@@ -18,7 +18,7 @@ import { useAuth } from '@/stores/auth';
 import { useChatMessages, useMessages } from '@/stores/messages';
 import { toast } from '@/stores/ui';
 import { alpha, useTheme } from '@/theme';
-import { MessageRow } from './MessageRow';
+import { CozyMessageRow, MessageRow } from './MessageRow';
 import { Pill } from './bubbles/Pills';
 import { buildRows, nextExpiry, reuseRows, visibleMessages } from './lib/rows';
 import { useConversationUi } from './state';
@@ -170,16 +170,25 @@ export const MessageList = memo(function MessageList({ chat, unread, initialTarg
   );
 
   const renderItem = useCallback(
-    ({ item }) => (
-      <MessageRow
-        row={item}
-        chat={chat}
-        onJump={onJump}
-        onJumpById={onJumpById}
-        rowWidth={width}
-        bubbleStyle={bubbleStyle}
-      />
-    ),
+    ({ item }) =>
+      bubbleStyle === 'cozy' ? (
+        <CozyMessageRow
+          row={item}
+          chat={chat}
+          onJump={onJump}
+          onJumpById={onJumpById}
+          rowWidth={width}
+        />
+      ) : (
+        <MessageRow
+          row={item}
+          chat={chat}
+          onJump={onJump}
+          onJumpById={onJumpById}
+          rowWidth={width}
+          bubbleStyle={bubbleStyle}
+        />
+      ),
     [chat, onJump, onJumpById, width, bubbleStyle],
   );
 

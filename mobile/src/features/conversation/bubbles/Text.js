@@ -10,7 +10,6 @@ import { memo, useMemo } from 'react';
 import { View } from 'react-native';
 import { Star } from 'lucide-react-native';
 import { tickStatus } from '@enbox/shared';
-import { Icon } from '@/components/icons';
 import { T } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { formatTime } from '@/lib/format';
@@ -147,7 +146,7 @@ export function Meta({ m, mine, chat, variant = 'inline', style }) {
         style,
       ]}
     >
-      {m.starred ? <Icon icon={Star} size={12} color={color} strokeWidth={2} /> : null}
+      {m.starred ? <Star size={12} color={color} fill={color} strokeWidth={2} /> : null}
       {m.editedAt && !m.deletedAt ? (
         <T style={[tw`text-[11px]`, { color, lineHeight: 13 }]}>Edited</T>
       ) : null}

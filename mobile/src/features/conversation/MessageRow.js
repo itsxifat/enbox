@@ -21,6 +21,8 @@ import { ICON_STROKE_BOLD, Icon } from '@/components/icons';
 import { Press, T } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { isFreshArrival } from '@/lib/arrivals';
+import { formatTime } from '@/lib/format';
+import { useAuth } from '@/stores/auth';
 import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
 import { alpha, useTheme } from '@/theme';
@@ -54,7 +56,7 @@ function Tail({ mine, color }) {
   );
 }
 
-export function SenderName({ userId, selecting, you }) {
+export function SenderName({ userId, selecting, you, style }) {
   const { tw, dark } = useTheme();
   const name = useUserName(userId, { you });
   return (
@@ -62,22 +64,26 @@ export function SenderName({ userId, selecting, you }) {
       numberOfLines={1}
       onPress={selecting ? undefined : () => openProfile(userId)}
       suppressHighlighting
-      style={[tw`px-1 pt-0.5 text-[13px] font-semibold`, { color: senderColor(userId, dark) }]}
+      style={[
+        tw`px-1 pt-0.5 text-[13px] font-semibold`,
+        { color: senderColor(userId, dark) },
+        style,
+      ]}
     >
       {name}
     </T>
   );
 }
 
-function SenderAvatar({ userId, selecting }) {
+function SenderAvatar({ userId, selecting, size = 32 }) {
   return (
     <Press
       feedback={false}
       disabled={selecting}
       onPress={() => openProfile(userId)}
-      style={{ borderRadius: 16 }}
+      style={{ borderRadius: size / 2 }}
     >
-      <UserAvatar userId={userId} size={32} />
+      <UserAvatar userId={userId} size={size} />
     </Press>
   );
 }
@@ -501,6 +507,132 @@ export const MessageRow = memo(function MessageRow({
                   mine ? { right: 8 } : { left: 8 },
                 ]}
               >
+                <ReactionPill
+                  reactions={m.reactions}
+                  myReaction={m.myReaction}
+                  onPress={() => setReactionsOpen(true)}
+                />
+              </View>
+            ) : null}
+            <RetryButton chat={chat} m={m} />
+          </Animated.View>
+        </Press>
+      </SwipeToReply>
+      {reactionsOpen ? (
+        <ReactionsDialog m={m} chat={chat} open onClose={() => setReactionsOpen(false)} />
+      ) : null}
+    </View>
+  );
+});
+
+/**
+ * The `cozy` bubble style (web CozyMessageRow.tsx): Discord-style rows — a 40 px avatar, name
+ * and time header on the first message of a sender group, no bubble background and
+ * full-width content. Same gestures as `MessageRow`; `MessageList` picks it.
+ */
+export const CozyMessageRow = memo(function CozyMessageRow({
+  row,
+  chat,
+  onJump,
+  onJumpById,
+  rowWidth,
+}) {
+  const { tw, c } = useTheme();
+  const m = row.message;
+  const { mine } = row;
+  const selecting = useSelecting(chat.id);
+  const selected = useIsSelected(chat.id, m.id);
+  const search = useConversationUi((s) => s.search[chat.id] ?? null);
+  const flash = useFlash(m.id);
+  const enter = useEnter(row.key);
+  const [reactionsOpen, setReactionsOpen] = useState(false);
+  // Discord shows your own name, not "You".
+  const myName = useAuth((s) => s.user?.displayName ?? 'You');
+
+  if (m.type === 'system') {
+    return (
+      <View>
+        {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
+        {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}
+        <SystemPill m={m} chat={chat} onJump={onJumpById} />
+      </View>
+    );
+  }
+
+  const shape = rowShape(m, false);
+  const { deleted, bare, visual } = shape;
+  const hasReactions = m.reactions.length > 0 && !deleted;
+  const header = row.firstInGroup && !!m.senderId;
+  const inner = (rowWidth ?? 390) - 16 - 24 - 40 - 12 - (selecting ? 28 : 0);
+  const contentMax = bare ? inner : visual ? Math.min(inner, 480) : Math.min(inner, 720);
+
+  const openSheet = () => {
+    if (selecting) return;
+    useConversationUi
+      .getState()
+      .openActions({ chatId: chat.id, messageId: m.id, anchor: null, mode: 'sheet' });
+  };
+  const toggle = () => useConversationUi.getState().toggleSelect(chat.id, m.id);
+
+  return (
+    <View>
+      {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
+      {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}
+      <SwipeToReply enabled={!selecting && canReply(chat, m)} onReply={() => startReply(chat, m)}>
+        <Press
+          feedback={false}
+          disabled={!selecting}
+          onPress={toggle}
+          style={[
+            tw`flex-row items-start gap-3 px-3`,
+            row.firstInGroup ? tw`mt-2.5 pt-0.5` : { paddingTop: 1 },
+            hasReactions ? tw`pb-1` : { paddingBottom: 1 },
+            selected ? { backgroundColor: alpha(c.brand, 0.12) } : null,
+            flash ? { backgroundColor: alpha(c.brand, 0.2) } : null,
+          ]}
+        >
+          {selecting ? <SelectCheckbox selected={selected} style={tw`mr-0`} /> : null}
+          <View style={tw`w-10`}>
+            {header ? (
+              <SenderAvatar userId={m.senderId} selecting={selecting} size={40} />
+            ) : null}
+          </View>
+          <Animated.View style={[tw`min-w-0 flex-1`, enter]}>
+            <Press
+              feedback={false}
+              onLongPress={openSheet}
+              delayLongPress={380}
+              onPress={selecting ? toggle : undefined}
+              style={[
+                tw`min-w-0 rounded-md`,
+                m.failed ? { borderWidth: 1, borderColor: alpha(c.danger, 0.6) } : null,
+              ]}
+            >
+              {header ? (
+                <View style={tw`flex-row items-baseline gap-2`}>
+                  <SenderName
+                    userId={m.senderId}
+                    selecting={selecting}
+                    you={myName}
+                    style={tw`shrink px-0 pt-0 text-[14.5px]`}
+                  />
+                  <T style={tw`text-[11.5px] text-muted`}>{formatTime(m.createdAt)}</T>
+                </View>
+              ) : null}
+              <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
+              <View style={bare ? tw`self-start` : { maxWidth: contentMax }}>
+                <MessageContent
+                  m={m}
+                  mine={mine}
+                  chat={chat}
+                  search={search}
+                  shape={shape}
+                  maxWidth={contentMax}
+                />
+              </View>
+            </Press>
+            {hasReactions ? (
+              <View style={tw`mt-1 flex-row px-1`}>
                 <ReactionPill
                   reactions={m.reactions}
                   myReaction={m.myReaction}
