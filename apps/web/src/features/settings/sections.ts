@@ -45,7 +45,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'chats',
     title: 'Chats',
-    description: 'Theme, wallpaper, text size',
+    description: 'Theme, wallpaper, animations, text size',
     icon: MessageSquareText,
     tint: '#6d5dfc',
   },
