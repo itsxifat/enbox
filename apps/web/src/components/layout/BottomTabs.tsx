@@ -4,14 +4,20 @@ import { Badge } from '@/components/ui';
 import { TABS, activeTab } from './tabs';
 import { tabBadgeText, useTabBadges } from './useTabBadges';
 
-/** Phone bottom tab bar (hidden on detail routes and on desktop). */
+/**
+ * Phone bottom tab bar (hidden on detail routes and on desktop): a floating rounded card
+ * with a margin above the safe area, not a full-width strip with a top border.
+ */
 export function BottomTabs() {
   const { pathname } = useLocation();
   const current = activeTab(pathname);
   const badges = useTabBadges();
   return (
-    <nav aria-label="Main" className="shrink-0 border-t border-line bg-surface pb-safe">
-      <ul className="mx-auto flex max-w-xl items-stretch justify-around px-1">
+    <nav
+      aria-label="Main"
+      className="shrink-0 bg-app px-3 pt-2 pb-[max(12px,env(safe-area-inset-bottom))]"
+    >
+      <ul className="mx-auto flex max-w-xl items-stretch justify-around rounded-2xl bg-surface px-1 shadow-elevated">
         {TABS.map((t) => {
           const active = current === t.id;
           const badge = badges[t.id];
@@ -39,12 +45,14 @@ export function BottomTabs() {
                     <Badge
                       count={badge.count}
                       size="sm"
+                      tone="danger"
                       className="absolute -top-1 left-[34px] ring-2 ring-surface"
                       label={badgeText ?? undefined}
                     />
                   ) : badge?.dot ? (
                     <Badge
                       dot
+                      tone="danger"
                       className="absolute top-0.5 right-[18px] ring-2 ring-surface"
                       label={badgeText ?? undefined}
                     />

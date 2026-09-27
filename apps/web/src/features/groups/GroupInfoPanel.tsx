@@ -747,7 +747,7 @@ function AddMembersView({
         }
       />
       {selected.length ? (
-        <div className="absolute inset-x-0 bottom-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div className="absolute inset-x-0 bottom-0 bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] shadow-[0_-8px_16px_-8px_hsl(var(--shadow-color)/0.15)]">
           <Button fullWidth size="lg" loading={busy} onClick={() => void add()} leftIcon={UserPlus}>
             Add{' '}
             {selected.length === 1

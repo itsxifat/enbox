@@ -207,7 +207,6 @@ export function ConversationHeader({
         ) : undefined
       }
       onTitleClick={onOpenInfo}
-      border
       actions={
         <>
           {canCall ? (

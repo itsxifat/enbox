@@ -196,7 +196,7 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
         aria-label={`Chat options for ${title}`}
         onClick={(e) => setMenu(e.currentTarget)}
         className={cn(
-          'absolute top-[34px] right-3.5 flex size-6 items-center justify-center rounded-full text-muted opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-fg',
+          'absolute top-[30px] right-5 flex size-6 items-center justify-center rounded-full text-muted opacity-0 transition-opacity duration-150 hover:bg-hover hover:text-fg',
           'max-lg:pointer-events-none max-lg:bg-elevated max-lg:focus-visible:pointer-events-auto',
           'lg:group-hover/row:opacity-100 focus-visible:opacity-100',
           menu && 'opacity-100',

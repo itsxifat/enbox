@@ -70,13 +70,13 @@ export function Sheet({
           tabIndex={-1}
           className={cn(
             'relative flex h-full w-full flex-col bg-surface text-fg shadow-elevated outline-none',
-            'animate-slide-in-right lg:border-l lg:border-line',
+            'animate-slide-in-right lg:my-[var(--pane-gap)] lg:mr-[var(--pane-gap)] lg:h-[calc(100%-var(--pane-gap)*2)] lg:overflow-hidden lg:rounded-[var(--radius-card)]',
             className,
           )}
           style={desktop ? { width, maxWidth: '100vw' } : undefined}
         >
           {title ? (
-            <header className="flex h-16 shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pt-safe lg:px-3">
+            <header className="flex h-16 shrink-0 items-center gap-2 bg-surface px-2 pt-safe lg:px-3">
               <IconButton icon={desktop ? X : ArrowLeft} label="Close" onClick={onClose} />
               <h2 id={titleId} className="min-w-0 flex-1 truncate text-[17px] font-semibold">
                 {title}

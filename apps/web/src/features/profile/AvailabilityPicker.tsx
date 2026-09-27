@@ -83,9 +83,15 @@ export function AvailabilityPicker({ className }: { className?: string }) {
 
   const stateItems: MenuEntry[] = CHOICES.map((a) => ({
     label: (
-      <span className="flex items-center gap-2.5">
-        <AvailabilityDot availability={a} />
-        {AVAILABILITY_LABELS[a]}
+      <span className="flex items-center gap-3 py-0.5">
+        <AvailabilityDot availability={a} className="size-3" />
+        <span className="flex min-w-0 flex-col">
+          <span className="text-[14.5px] leading-tight font-medium">{AVAILABILITY_LABELS[a]}</span>
+          {/* Decorative: keeps the item's accessible name to the state label. */}
+          <span className="text-[12px] leading-tight text-muted" aria-hidden>
+            {DESCRIPTIONS[a]}
+          </span>
+        </span>
       </span>
     ),
     onSelect: () => (a === 'online' ? void apply('online', null) : setPending(a)),
@@ -109,7 +115,7 @@ export function AvailabilityPicker({ className }: { className?: string }) {
         aria-label={`Availability: ${AVAILABILITY_LABELS[current]}`}
         onClick={() => setMenuOpen(true)}
         disabled={busy}
-        className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-line bg-surface px-3 py-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-60"
+        className="card-inset flex min-h-11 w-full items-center gap-3 px-3 py-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-60"
         data-testid="availability-picker"
       >
         <AvailabilityDot availability={current} />
@@ -134,6 +140,7 @@ export function AvailabilityPicker({ className }: { className?: string }) {
         items={stateItems}
         align="start"
         aria-label="Availability"
+        className="min-w-[260px] rounded-xl"
       />
       <Menu
         open={!!pending}

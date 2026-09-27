@@ -37,7 +37,7 @@ export function OngoingCallBanner({ chatId, className }: { chatId: ID; className
       aria-label="Ongoing call"
       data-testid="ongoing-call-banner"
       className={cn(
-        'flex shrink-0 items-center gap-3 border-b border-line bg-success-soft px-4 py-2 text-fg',
+        'mx-3 mb-2 flex shrink-0 items-center gap-3 rounded-xl bg-success-soft px-4 py-2 text-fg',
         className,
       )}
     >

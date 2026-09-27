@@ -17,7 +17,7 @@ export function MainEmpty({
   icon: Icon,
 }: MainEmptyProps) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center border-b-[6px] border-brand bg-app px-10 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center bg-surface px-10 text-center">
       <div className="relative mb-8">
         <div
           className="absolute inset-0 -z-0 scale-150 rounded-full bg-brand/10 blur-2xl"
