@@ -12,7 +12,12 @@ import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { AccountPage } from './account/AccountPage';
 import { ChangePasswordPage } from './account/ChangePasswordPage';
 import { DeleteAccountPage } from './account/DeleteAccountPage';
-import { ChatsSettingsPage } from './ChatsSettingsPage';
+import {
+  ChatAnimationsPage,
+  ChatThemePage,
+  ChatWallpaperPage,
+  ChatsSettingsPage,
+} from './ChatsSettingsPage';
 import { DevicesPage } from './DevicesPage';
 import { HelpPage, StoragePage } from './HelpPages';
 import { NotificationsPage } from './NotificationsPage';
@@ -67,6 +72,9 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   'privacy/blocked': { title: 'Blocked contacts', render: () => <BlockedPage /> },
   'privacy/timer': { title: 'Default message timer', render: () => <DefaultTimerPage /> },
   chats: { title: 'Chats', render: () => <ChatsSettingsPage /> },
+  'chats/theme': { title: 'Chat theme', render: () => <ChatThemePage /> },
+  'chats/wallpaper': { title: 'Wallpaper', render: () => <ChatWallpaperPage /> },
+  'chats/animations': { title: 'Animations', render: () => <ChatAnimationsPage /> },
   notifications: { title: 'Notifications', render: () => <NotificationsPage /> },
   devices: { title: 'Linked devices', render: () => <DevicesPage /> },
   storage: { title: 'Storage and data', render: () => <StoragePage /> },

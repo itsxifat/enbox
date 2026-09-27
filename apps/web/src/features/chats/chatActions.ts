@@ -21,6 +21,7 @@ import {
   MUTE_FOREVER_ISO,
   isMuted,
   type ChatSummary,
+  type SharedChatTheme,
   type UpdateChatPrefsRequest,
 } from '@enbox/shared';
 import type { MenuEntry } from '@/components/ui';
@@ -31,11 +32,22 @@ import { useMessages } from '@/stores/messages';
 import { choose, confirm, toast } from '@/stores/ui';
 import { useDrafts } from './drafts';
 
-async function patchPrefs(chat: ChatSummary, prefs: UpdateChatPrefsRequest): Promise<boolean> {
+/**
+ * `PATCH /api/chats/:id/prefs` (pin/archive/mute/unread and my private `theme` /
+ * `wallpaperMediaId`), optimistic with rollback. The summary mirrors every pref 1:1 except
+ * `wallpaperMediaId`, which the server answers as `wallpaper` (only a removal is optimistic).
+ */
+export async function patchPrefs(
+  chat: ChatSummary,
+  prefs: UpdateChatPrefsRequest,
+): Promise<boolean> {
   const store = useChats.getState();
   const before = store.byId[chat.id];
   if (!before) return false;
-  store.patchChat(chat.id, prefs as Partial<ChatSummary>);
+  const { wallpaperMediaId, ...mirrored } = prefs;
+  const optimistic = mirrored as Partial<ChatSummary>;
+  if (wallpaperMediaId === null) optimistic.wallpaper = null;
+  store.patchChat(chat.id, optimistic);
   try {
     const updated = await api.patch<ChatSummary>(`/api/chats/${chat.id}/prefs`, prefs);
     if (updated) useChats.getState().upsertChat(updated);
@@ -44,14 +56,37 @@ async function patchPrefs(chat: ChatSummary, prefs: UpdateChatPrefsRequest): Pro
     const cur = useChats.getState().byId[chat.id];
     if (cur) {
       const revert: Partial<ChatSummary> = {};
-      // Only the prefs the summary mirrors 1:1 (`wallpaperMediaId` is served as `wallpaper`).
-      for (const k of Object.keys(prefs) as (keyof UpdateChatPrefsRequest)[])
-        if (k in before) (revert as Record<string, unknown>)[k] = before[k as keyof ChatSummary];
+      for (const k of Object.keys(optimistic) as (keyof ChatSummary)[])
+        if (k in before) (revert as Record<string, unknown>)[k] = before[k];
       useChats.getState().patchChat(chat.id, revert);
     }
     if (e instanceof ApiError && e.code === 'limit_reached')
       toast.error(`You can only pin up to ${MAX_PINNED_CHATS} chats`);
     else toast.error(e);
+    return false;
+  }
+}
+
+/**
+ * `PUT /api/chats/:id/theme`: the theme everyone in the chat sees (`permissions.canEditInfo`;
+ * null removes it). Optimistic on `sharedTheme` with rollback; the server's `chat:updated`
+ * and the `theme_changed` system message confirm it for every member.
+ */
+export async function setChatTheme(
+  chatId: string,
+  theme: SharedChatTheme | null,
+): Promise<boolean> {
+  const before = useChats.getState().byId[chatId];
+  if (!before) return false;
+  useChats.getState().patchChat(chatId, { sharedTheme: theme });
+  try {
+    const updated = await api.put<ChatSummary>(`/api/chats/${chatId}/theme`, { theme });
+    if (updated) useChats.getState().upsertChat(updated);
+    return true;
+  } catch (e) {
+    if (useChats.getState().byId[chatId])
+      useChats.getState().patchChat(chatId, { sharedTheme: before.sharedTheme });
+    toast.error(e);
     return false;
   }
 }
