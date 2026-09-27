@@ -1,0 +1,187 @@
+/**
+ * Date/time & size formatting for chat UI. All functions accept an optional `now` (for
+ * tests and consistent renders) and `locale` (default: the browser's locale).
+ */
+import { differenceInCalendarDays, isSameDay, isValid, parseISO } from 'date-fns';
+import { activePresenceNote, formatBytes, formatDuration } from '@enbox/shared';
+
+export { formatBytes, formatDuration };
+
+function toDate(input) {
+  if (input instanceof Date) return input;
+  if (typeof input === 'number') return new Date(input);
+  const d = parseISO(input);
+  return isValid(d) ? d : new Date(input);
+}
+
+const cache = new Map();
+function dtf(locale, options) {
+  const key = `${locale ?? ''}|${JSON.stringify(options)}`;
+  let f = cache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, options);
+    cache.set(key, f);
+  }
+  return f;
+}
+
+const twelveHour = new Map();
+function uses12h(locale) {
+  const key = locale ?? '';
+  let v = twelveHour.get(key);
+  if (v === undefined) {
+    const hc = new Intl.DateTimeFormat(locale, { hour: 'numeric' }).resolvedOptions().hourCycle;
+    v = hc === 'h11' || hc === 'h12';
+    twelveHour.set(key, v);
+  }
+  return v;
+}
+
+/** "09:42" in 24-hour locales, "9:42 AM" in 12-hour locales. Message bubbles, call log. */
+export function formatTime(input, opts = {}) {
+  return dtf(opts.locale, {
+    hour: uses12h(opts.locale) ? 'numeric' : '2-digit',
+    minute: '2-digit',
+  }).format(toDate(input));
+}
+
+/** Full weekday name, e.g. "Monday". */
+export function formatWeekday(input, opts = {}) {
+  return dtf(opts.locale, { weekday: 'long' }).format(toDate(input));
+}
+
+/** Short numeric date, e.g. "12/03/2025" (locale order). */
+export function formatShortDate(input, opts = {}) {
+  return dtf(opts.locale, { day: '2-digit', month: '2-digit', year: 'numeric' }).format(
+    toDate(input),
+  );
+}
+
+/** Days between `input` and `now` by calendar day (0 = today, 1 = yesterday). */
+function daysAgo(input, now) {
+  return differenceInCalendarDays(now, toDate(input));
+}
+
+/**
+ * Chat-list timestamp: "10:42" today, "Yesterday", weekday within the last week,
+ * otherwise a short date.
+ */
+export function formatChatListTime(input, opts = {}) {
+  const now = opts.now ?? new Date();
+  const d = toDate(input);
+  const days = daysAgo(d, now);
+  if (days <= 0) return formatTime(d, opts);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return formatWeekday(d, opts);
+  return formatShortDate(d, opts);
+}
+
+/**
+ * Day separator inside a conversation: "Today", "Yesterday", weekday within the last
+ * week, "12 March" this year, "12 March 2024" otherwise.
+ */
+export function formatDaySeparator(input, opts = {}) {
+  const now = opts.now ?? new Date();
+  const d = toDate(input);
+  const days = daysAgo(d, now);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return formatWeekday(d, opts);
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return dtf(
+    opts.locale,
+    sameYear
+      ? { day: 'numeric', month: 'long' }
+      : { day: 'numeric', month: 'long', year: 'numeric' },
+  ).format(d);
+}
+
+/** True when two timestamps fall on the same local calendar day (day separators). */
+export function isSameLocalDay(a, b) {
+  return isSameDay(toDate(a), toDate(b));
+}
+
+/** Subtitle word for a presence state: "online", "idle", "do not disturb"; '' for offline/hidden. */
+export function presenceLabel(state) {
+  switch (state) {
+    case 'online':
+      return 'online';
+    case 'idle':
+      return 'idle';
+    case 'dnd':
+      return 'do not disturb';
+    default:
+      return '';
+  }
+}
+
+/** A presence note as one line: "🎧 Focus time" (emoji and/or text); '' when unset. */
+export function formatPresenceNote(note) {
+  if (!note) return '';
+  return [note.emoji, note.text].filter(Boolean).join(' ');
+}
+
+/**
+ * Presence line under a chat title: "online" / "idle" / "do not disturb" (+ " · 🎧 Focus
+ * time" while a presence note is active), "last seen today at 10:42", "last seen yesterday
+ * at 21:03", "last seen Monday at 09:15", "last seen 12/03/2025", or '' when unknown/hidden.
+ * Callers without the P1 fields (`state`, `note`) get the plain "online".
+ */
+export function formatLastSeen(
+  presence,
+
+  opts = {},
+) {
+  if (!presence) return '';
+  if (presence.online) {
+    const label = presenceLabel(presence.state) || 'online';
+    const note = formatPresenceNote(
+      activePresenceNote(presence.note, (opts.now ?? new Date()).getTime()),
+    );
+    return note ? `${label} · ${note}` : label;
+  }
+  if (!presence.lastSeenAt) return '';
+  const now = opts.now ?? new Date();
+  const d = toDate(presence.lastSeenAt);
+  const days = daysAgo(d, now);
+  const time = formatTime(d, opts);
+  if (days <= 0) return `last seen today at ${time}`;
+  if (days === 1) return `last seen yesterday at ${time}`;
+  if (days < 7) return `last seen ${formatWeekday(d, opts)} at ${time}`;
+  return `last seen ${formatShortDate(d, opts)}`;
+}
+
+/** Relative "x minutes ago" style for status updates: "Just now", "12 minutes ago", "Today, 10:42", "Yesterday, 21:03". */
+export function formatRelativeShort(input, opts = {}) {
+  const now = opts.now ?? new Date();
+  const d = toDate(input);
+  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60_000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+  const days = daysAgo(d, now);
+  if (days <= 0) return `Today, ${formatTime(d, opts)}`;
+  if (days === 1) return `Yesterday, ${formatTime(d, opts)}`;
+  return `${formatShortDate(d, opts)}, ${formatTime(d, opts)}`;
+}
+
+/** "March 2025" — profile "member since". */
+export function formatMonthYear(input, opts = {}) {
+  return dtf(opts.locale, { month: 'long', year: 'numeric' }).format(toDate(input));
+}
+
+/** Compact counts: 999, 1.2K, 12K, 1.3M (follower counts, views). */
+export function formatCount(n) {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}K`;
+  if (n < 1_000_000) return `${Math.floor(n / 1000)}K`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
+/** Initials for avatars: "Ada Lovelace" → "AL", "ada" → "A", emoji-safe. */
+export function initials(name) {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  const first = Array.from(words[0])[0] ?? '';
+  const last = words.length > 1 ? (Array.from(words[words.length - 1])[0] ?? '') : '';
+  return (first + last).toUpperCase();
+}

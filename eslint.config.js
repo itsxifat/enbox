@@ -14,6 +14,10 @@ export default tseslint.config(
       'apps/web/public/**',
       'playwright-report/**',
       'test-results/**',
+      'mobile/android/**',
+      'mobile/ios/**',
+      'mobile/.expo/**',
+      'mobile/src/features/emoji/data.js',
     ],
   },
   js.configs.recommended,
@@ -70,6 +74,20 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+  {
+    // Android app (React Native / Expo), plain JavaScript + JSX.
+    files: ['mobile/**/*.{js,jsx,mjs}'],
+    languageOptions: {
+      parserOptions: { ecmaFeatures: { jsx: true } },
+      globals: { ...globals.browser, ...globals.node, __DEV__: 'readonly' },
+    },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
   {
