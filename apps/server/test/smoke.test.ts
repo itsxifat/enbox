@@ -1,4 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  MAX_ANIMATED_AVATAR_BYTES,
+  MAX_AVATAR_BYTES,
+  MAX_BANNER_BYTES,
+  MAX_UPLOAD_BYTES,
+  MAX_WALLPAPER_BYTES,
+  type ServerConfig,
+} from '@enbox/shared';
+import { config, loadConfig } from '../src/config.js';
 import { startTestServer, type TestServer } from './helpers.js';
 
 describe('server smoke', () => {
@@ -8,11 +17,40 @@ describe('server smoke', () => {
   });
   afterAll(() => t.close());
 
-  it('serves health and config', async () => {
+  it('serves health and config (ServerConfig: publicUrl, voice, limits)', async () => {
     const health = await t.api().get('/api/health').expect(200);
     expect(health.body.ok).toBe(true);
-    const cfg = await t.api().get('/api/config').expect(200);
-    expect(cfg.body.maxUploadBytes).toBeGreaterThan(0);
+    const cfg = (await t.api().get('/api/config').expect(200)).body as ServerConfig;
+    expect(cfg).toEqual({
+      vapidPublicKey: null,
+      maxUploadBytes: MAX_UPLOAD_BYTES,
+      version: config.version,
+      publicUrl: 'http://localhost:5173',
+      voice: null,
+      limits: {
+        maxUploadBytes: MAX_UPLOAD_BYTES,
+        maxAvatarBytes: MAX_AVATAR_BYTES,
+        maxAnimatedAvatarBytes: MAX_ANIMATED_AVATAR_BYTES,
+        maxBannerBytes: MAX_BANNER_BYTES,
+        maxWallpaperBytes: MAX_WALLPAPER_BYTES,
+      },
+    });
+    expect(cfg.publicUrl).not.toMatch(/\/$/);
+  });
+
+  it('PUBLIC_URL: trailing slashes dropped, null when unset (never a localhost default)', () => {
+    const saved = process.env.PUBLIC_URL;
+    try {
+      process.env.PUBLIC_URL = 'https://enbox.dev//';
+      expect(loadConfig().publicUrl).toBe('https://enbox.dev');
+      delete process.env.PUBLIC_URL;
+      expect(loadConfig().publicUrl).toBeNull();
+      process.env.PUBLIC_URL = '';
+      expect(loadConfig().publicUrl).toBeNull();
+    } finally {
+      if (saved === undefined) delete process.env.PUBLIC_URL;
+      else process.env.PUBLIC_URL = saved;
+    }
   });
 
   it('rejects unauthenticated API calls and unknown endpoints', async () => {

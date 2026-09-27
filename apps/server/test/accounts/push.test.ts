@@ -29,8 +29,10 @@ import {
   createGroup,
   saveContact,
   send,
+  setAvailability,
   setSettings,
 } from '../services/fixtures.js';
+import { uploadImage } from '../groups/util.js';
 import { giveProfile, newDevice } from './util.js';
 
 interface Sent {
@@ -243,6 +245,11 @@ describe('push: subscriptions and notifications', () => {
       const carolEp = await subscribe(carol);
       await saveContact(carol, bob, 'Bobby');
       const group = await createGroup(alice, [bob, carol], { name: 'Friends' });
+      await t
+        .api(alice)
+        .patch(`/api/groups/${group}`)
+        .send({ avatarMediaId: await uploadImage(t, alice, { animated: true }) })
+        .expect(200);
       await pushIdle(); // system messages never push
       expect(sent).toEqual([]);
       await send(alice, group, `hey ${mentionToken(bob.id)} and ${mentionToken(carol.id)}`);
@@ -254,6 +261,8 @@ describe('push: subscriptions and notifications', () => {
         tag: `chat:${group}`,
         url: `/chats/${group}`,
         chatId: group,
+        // An animated group icon reaches the notification as its static poster.
+        icon: expect.stringMatching(/^\/uploads\/.+\.jpg$/),
       });
       expect(to(carolEp)[0]!.payload.body).toBe('Alice: hey @Bobby and @Carol');
       expect(to(aliceEp)).toEqual([]);
@@ -306,6 +315,18 @@ describe('push: subscriptions and notifications', () => {
       await send(alice, direct, 'unmuted');
       await pushIdle();
       expect(to(bobEp).map((s) => s.payload.body)).toEqual(['unmuted']);
+    });
+
+    it('do not disturb: no message push while the recipient is in DND (until it expires)', async () => {
+      await setAvailability(bob, 'dnd');
+      await send(alice, direct, 'shh');
+      await pushIdle();
+      expect(sent).toEqual([]);
+      await setAvailability(bob, 'dnd', { until: new Date(Date.now() - 1000) }); // expired: online again
+      await send(alice, direct, 'heard');
+      await pushIdle();
+      expect(to(bobEp).map((s) => s.payload.body)).toEqual(['heard']);
+      await setAvailability(bob, 'online');
     });
 
     it('never for channels, call messages or messages withheld by a block', async () => {
@@ -503,8 +524,13 @@ describe('push: subscriptions and notifications', () => {
       expect(to(mutedEp)).toEqual([]);
     });
 
-    it('group calls are titled with the group name', async () => {
+    it('group calls are titled with the group name and carry its static icon', async () => {
       const group = await createGroup(caller, [callee], { name: 'Team' });
+      await t
+        .api(caller)
+        .patch(`/api/groups/${group}`)
+        .send({ avatarMediaId: await uploadImage(t, caller, { animated: true }) })
+        .expect(200);
       const callId = crypto.randomUUID();
       domainEvents.emit('call.ringing', {
         callId,
@@ -525,6 +551,7 @@ describe('push: subscriptions and notifications', () => {
           url: `/chats/${group}`,
           chatId: group,
           callId,
+          icon: expect.stringMatching(/^\/uploads\/.+\.jpg$/),
         },
       ]);
     });
@@ -611,6 +638,92 @@ describe('push: subscriptions and notifications', () => {
       });
       await pushIdle();
       expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call_cancel']);
+    });
+
+    it('do not disturb: neither call nor call_cancel pushes reach a callee in DND', async () => {
+      const ring = (callId: string) =>
+        domainEvents.emit('call.ringing', {
+          callId,
+          chatId,
+          callerId: caller.id,
+          callType: 'audio',
+          isGroup: false,
+          userIds: [callee.id],
+          silentUserIds: [],
+        });
+      await setAvailability(callee, 'dnd');
+      try {
+        ring(crypto.randomUUID());
+        const stopped = await insertCall();
+        domainEvents.emit('call.ring-stopped', {
+          callId: stopped,
+          chatId,
+          userId: callee.id,
+          reason: 'timeout',
+          finalStatus: 'missed',
+        });
+        await pushIdle();
+        expect(sent).toEqual([]);
+      } finally {
+        await setAvailability(callee, 'online');
+      }
+      ring(crypto.randomUUID());
+      await pushIdle();
+      expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call']);
+    });
+
+    it('call_cancel follows the call push, whatever DND says when the ring stops', async () => {
+      const ring = (callId: string) =>
+        domainEvents.emit('call.ringing', {
+          callId,
+          chatId,
+          callerId: caller.id,
+          callType: 'audio',
+          isGroup: false,
+          userIds: [callee.id],
+          silentUserIds: [],
+        });
+      const stop = (callId: string) =>
+        domainEvents.emit('call.ring-stopped', {
+          callId,
+          chatId,
+          userId: callee.id,
+          reason: 'timeout',
+          finalStatus: 'missed',
+        });
+      // Pushed, then DND switched on from another device: the cancel still clears it.
+      const pushed = await insertCall();
+      ring(pushed);
+      await pushIdle();
+      expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call']);
+      await setAvailability(callee, 'dnd');
+      try {
+        stop(pushed);
+        await pushIdle();
+        expect(to(calleeEp).map((s) => s.payload.type)).toEqual(['call', 'call_cancel']);
+        // Rung in DND (never pushed), DND expired mid-ring: no "Missed call" either.
+        sent = [];
+        const quiet = await insertCall();
+        ring(quiet);
+        await pushIdle();
+        await setAvailability(callee, 'dnd', { until: new Date(Date.now() - 1000) });
+        stop(quiet);
+        await pushIdle();
+        expect(sent).toEqual([]);
+      } finally {
+        await setAvailability(callee, 'online');
+      }
+      // The call's end forgets the record; a stop without one falls back to the ring-time
+      // rules (the call rang before a restart).
+      domainEvents.emit('call.ended', {
+        callId: pushed,
+        chatId,
+        status: 'missed',
+        participantIds: [caller.id, callee.id],
+      });
+      stop(pushed);
+      await pushIdle();
+      expect(sent.map((s) => s.payload.type)).toEqual(['call_cancel']);
     });
   });
 });

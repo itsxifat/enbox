@@ -61,8 +61,16 @@ mobile-first web app that installs like a native app (PWA).
 - Privacy controls for last seen & online, profile photo, about, who can add me to groups,
   read receipts, silence unknown callers; blocking; account deletion
 - Contacts, user search, profile photo cropping
+- Discord-style profiles: banner and animated avatar (GIF / animated WebP / APNG with a
+  static poster), bio, pronouns, profile colours, availability (online / idle / do not
+  disturb / invisible) with an optional presence note, and a profile card wherever a user
+  appears
 - Web Push notifications (with previews toggle, dismiss-on-read), light / dark / system
-  theme, wallpapers, font size
+  theme, font size
+- Chat themes: a shared per-chat theme (announced with a system message) and a private
+  override synced across your devices — presets, bubble styles, accent colour, colour or
+  animated wallpapers or your own image / GIF / short video, message animations, all
+  reduced-motion aware
 
 ## Tech stack
 
@@ -113,14 +121,14 @@ Migrations run automatically on startup.
 All server settings are environment variables, documented in [.env.example](.env.example).
 The most important ones:
 
-| Variable                                | Purpose                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------ |
-| `DATABASE_URL`                          | PostgreSQL connection string (unset = embedded PGlite)                   |
-| `PUBLIC_URL`                            | Public origin of the web app (used in invite links)                      |
-| `CORS_ORIGINS`                          | Allowed browser origins                                                  |
-| `STUN_URLS`, `TURN_URLS`, `TURN_SECRET` | WebRTC ICE servers; configure TURN for reliable calls behind strict NATs |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`)              |
-| `REDIS_URL`                             | Optional Socket.IO Redis adapter                                         |
+| Variable                                | Purpose                                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                          | PostgreSQL connection string (unset = embedded PGlite)                                                        |
+| `PUBLIC_URL`                            | Canonical origin of the web app (`/api/config.publicUrl`, invite links); unset → clients use their own origin |
+| `CORS_ORIGINS`                          | Allowed browser origins                                                                                       |
+| `STUN_URLS`, `TURN_URLS`, `TURN_SECRET` | WebRTC ICE servers; configure TURN for reliable calls behind strict NATs                                      |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`)                                                   |
+| `REDIS_URL`                             | Optional Socket.IO Redis adapter                                                                              |
 
 ## Deployment
 

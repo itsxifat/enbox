@@ -15,6 +15,12 @@
  *   Everything else from the incoming payload replaces the cached value.
  * - Full objects in `chat:upsert`, `community:upsert` and `me:updated` replace the cached copy.
  */
+import type {
+  BUBBLE_STYLES,
+  CHAT_THEME_PRESETS,
+  MESSAGE_ANIMATIONS,
+  WALLPAPER_PRESETS,
+} from './constants.js';
 
 export type ID = string;
 export type ISODate = string;
@@ -66,23 +72,69 @@ export interface UserSettings {
 }
 
 /**
+ * The user's own availability choice (`PUT /api/me/presence`). Persisted; `invisible` is never
+ * put on the wire for other viewers (they see `offline`). Never called "status" — that word
+ * means stories.
+ */
+export type Availability = 'online' | 'idle' | 'dnd' | 'invisible';
+
+/**
+ * Presence as other viewers see it: `online`/`idle` (every device idle, or chosen)/`dnd`, or
+ * `offline` — which is also what an invisible user looks like (byte-identical to really
+ * offline). `null` where used = hidden from the viewer.
+ */
+export type PresenceState = 'online' | 'idle' | 'dnd' | 'offline';
+
+/** Custom presence note ("custom status" in Discord terms): text and/or emoji, optionally expiring. */
+export interface PresenceNote {
+  /** At least one of `text`/`emoji` is set. */
+  text: string | null;
+  emoji: string | null;
+  /** Clients hide the note locally once this passes; the server clears it (presence-expiry job). */
+  expiresAt: ISODate | null;
+}
+
+/**
  * Another user's profile as seen by the viewer. Viewer-specific: fields hidden by the
  * subject's privacy settings (or because a block exists in either direction) are `null`.
  * A deleted account has `isDeleted: true`, displayName `DELETED_ACCOUNT_NAME` and all
  * optional profile data null.
+ *
+ * Profile media: `avatarUrl` and `bannerUrl` are ALWAYS static images (the poster when the
+ * upload is animated), so every renderer and push icon can use them as-is. The
+ * `*AnimatedUrl` fields are additive: the GIF/animated WebP/APNG itself, null when the media
+ * is static. Banner and animated avatar follow `profilePhotoVisibility`; `pronouns`, `bio`
+ * and the colours follow `aboutVisibility`.
  */
 export interface UserPublic {
   id: ID;
   username: string;
   displayName: string;
   avatarUrl: string | null;
+  /** Animated avatar (poster in `avatarUrl`); null when static or hidden. */
+  avatarAnimatedUrl: string | null;
+  /** Profile banner, static (BANNER_ASPECT). */
+  bannerUrl: string | null;
+  bannerAnimatedUrl: string | null;
   about: string | null;
+  pronouns: string | null;
+  /** Profile card "About me" (≤ BIO_MAX_LENGTH); null = hidden or empty. */
+  bio: string | null;
+  /** Lowercase `#rrggbb`, or null = default/hidden. */
+  profileColor: string | null;
+  accentColor: string | null;
   /** Visible only if the subject saved the viewer as a contact (and no block exists). */
   phone: string | null;
   /** `null` = the viewer may not see online status (or the account is deleted). */
   online: boolean | null;
+  /** Mirrors `Presence.state`; null exactly when `online` is null. */
+  presenceState: PresenceState | null;
+  /** Mirrors `Presence.note`; null when hidden, unset, expired, or the user appears offline. */
+  presenceNote: PresenceNote | null;
   /** `null` = hidden, never seen, or currently online. */
   lastSeenAt: ISODate | null;
+  /** Member since; null for a deleted account. */
+  createdAt: ISODate | null;
   /** Viewer has saved this user in their contacts. */
   isContact: boolean;
   /** The name the viewer saved this contact under (overrides displayName in UI). */
@@ -93,15 +145,30 @@ export interface UserPublic {
   isDeleted: boolean;
 }
 
-/** The signed-in user's own profile. */
+/** The signed-in user's own profile (raw values, no privacy gating). */
 export interface UserSelf {
   id: ID;
   username: string;
   displayName: string;
+  /** Always static (the poster when animated), like `UserPublic.avatarUrl`. */
   avatarUrl: string | null;
+  avatarAnimatedUrl: string | null;
+  bannerUrl: string | null;
+  bannerAnimatedUrl: string | null;
   about: string;
+  pronouns: string | null;
+  /** '' when unset. */
+  bio: string;
+  profileColor: string | null;
+  accentColor: string | null;
   phone: string | null;
   createdAt: ISODate;
+  /** My availability choice (raw: `invisible` included). */
+  availability: Availability;
+  /** When set, `availability` reverts to `online` at this time (see `effectiveAvailability()`). */
+  availabilityUntil: ISODate | null;
+  /** My presence note, unexpired; null when unset. */
+  presenceNote: PresenceNote | null;
   /** Always complete (defaults merged). */
   settings: UserSettings;
 }
@@ -126,12 +193,17 @@ export interface SessionInfo {
 
 /**
  * Presence of a user as seen by the viewer (per-viewer privacy). Hidden presence is sent as
- * `{ online: null, lastSeenAt: null }` — never omitted.
+ * `{ online: null, state: null, note: null, lastSeenAt: null }` — never omitted. An invisible
+ * user serialises exactly like an offline one.
  */
 export interface Presence {
   userId: ID;
   /** `null` = hidden from the viewer. */
   online: boolean | null;
+  /** `online`/`idle`/`dnd` while `online`, `offline` otherwise; null exactly when `online` is null. */
+  state: PresenceState | null;
+  /** Unexpired custom note, only while `state` ∈ {online, idle, dnd}; null otherwise or when hidden. */
+  note: PresenceNote | null;
   /** `null` = hidden, unknown, or currently online. */
   lastSeenAt: ISODate | null;
 }
@@ -154,8 +226,13 @@ export interface MediaAttachment {
   /** Sanitised original file name (basename, no control/bidi chars, ≤ MAX_FILE_NAME_LENGTH). */
   fileName: string | null;
   size: number;
+  /** Server-verified for images (parsed from the file, not the client's claim). */
   width: number | null;
   height: number | null;
+  /** Animated image (GIF, animated WebP, APNG). Animated profile media must carry a static poster. */
+  animated: boolean;
+  /** Frames of an animated image (≤ ANIMATED_MAX_FRAMES); null for static images and non-images. */
+  frameCount: number | null;
   durationMs: number | null;
   /** Voice-note waveform: 0..1 amplitudes (≤ WAVEFORM_MAX_SAMPLES samples). */
   waveform: number[] | null;
@@ -212,7 +289,10 @@ export interface ChannelSettings {
 export interface ChatPermissions {
   /** Post messages (also gates forwarding into this chat). */
   canSend: boolean;
-  /** Change name/description/avatar and the disappearing timer (direct chats: timer only). */
+  /**
+   * Change name/description/avatar, the disappearing timer and the shared theme (direct
+   * chats: timer and theme only).
+   */
   canEditInfo: boolean;
   canAddMembers: boolean;
   canRemoveMembers: boolean;
@@ -231,6 +311,66 @@ export interface ChatPermissions {
   canViewMembers: boolean;
 }
 
+// Chat themes (constants.ts "Chat themes"; rendering rules in apps/web/README.md)
+
+export type ChatThemePreset = (typeof CHAT_THEME_PRESETS)[number];
+export type BubbleStyle = (typeof BUBBLE_STYLES)[number];
+export type MessageAnimation = (typeof MESSAGE_ANIMATIONS)[number];
+export type WallpaperPresetId = (typeof WALLPAPER_PRESETS)[number];
+
+/** A built-in wallpaper (flat colour or animated, see WALLPAPER_PRESETS). */
+export interface ChatWallpaperPreset {
+  kind: 'preset';
+  id: WallpaperPresetId;
+}
+/**
+ * Which wallpaper a theme shows: a preset, or `media` = the viewer's own upload
+ * (`ChatSummary.wallpaper`, set through `wallpaperMediaId` in `PATCH /chats/:id/prefs`;
+ * nothing is shown while that is unset).
+ */
+export type ChatWallpaperRef = ChatWallpaperPreset | { kind: 'media' };
+
+/**
+ * A chat's look. Every field is a validated enum id or a lowercase `#rrggbb` (never CSS or
+ * URLs); `null` = "not set here", so the next layer decides (a viewer's private override
+ * over the chat's shared theme over the device prefs over the design tokens).
+ */
+export interface ChatTheme {
+  preset: ChatThemePreset | null;
+  bubbleStyle: BubbleStyle | null;
+  /** Lowercase `#rrggbb` accent (own bubbles, ticks, links); null = the preset's own. */
+  accent: string | null;
+  wallpaper: ChatWallpaperRef | null;
+  /** Wallpaper darkening, 0..WALLPAPER_DIM_MAX percent. */
+  dim: number;
+  /** Wallpaper backdrop blur, 0..WALLPAPER_BLUR_MAX px. */
+  blur: number;
+  messageAnimation: MessageAnimation | null;
+}
+
+/**
+ * The theme every member of a chat sees (`chats.theme`, `PUT /api/chats/:chatId/theme`,
+ * viewer-neutral). It can only reference built-in wallpapers: a member's own upload is
+ * private to them and never fans out to the room.
+ */
+export interface SharedChatTheme extends Omit<ChatTheme, 'wallpaper'> {
+  wallpaper: ChatWallpaperPreset | null;
+}
+
+/** The viewer's private wallpaper upload as carried by `ChatSummary.wallpaper`. */
+export type ChatWallpaperAttachment = Pick<
+  MediaAttachment,
+  | 'id'
+  | 'kind'
+  | 'url'
+  | 'thumbnailUrl'
+  | 'mimeType'
+  | 'animated'
+  | 'width'
+  | 'height'
+  | 'durationMs'
+>;
+
 /**
  * A chat as it appears in the viewer's chat list. Viewer-specific (send per user, never to
  * a chat room). For former members (`membership !== 'active'`) every seq/message field is
@@ -242,6 +382,10 @@ export interface ChatSummary {
   /** Group/channel name. For direct chats this is null — render `peer`. */
   name: string | null;
   description: string | null;
+  /**
+   * Group/channel icon, always static: the poster of an animated upload (there is no
+   * animated variant of a chat icon on the wire). Direct chats: null — render `peer`.
+   */
   avatarUrl: string | null;
   /** Direct chats only: the other participant (the viewer themself in a "Message yourself" chat). */
   peer: UserPublic | null;
@@ -262,6 +406,11 @@ export interface ChatSummary {
   /** Invite code when `permissions.canInvite`, else null. */
   inviteCode: string | null;
   disappearingSeconds: number | null;
+  /**
+   * The chat's shared theme (viewer-neutral, `chat:updated { sharedTheme }`); null = none.
+   * Rendered under the viewer's own `theme`.
+   */
+  sharedTheme: SharedChatTheme | null;
 
   /** The last message VISIBLE to the viewer (null if none). */
   lastMessage: Message | null;
@@ -289,6 +438,13 @@ export interface ChatSummary {
   /** Muted until this time (MUTE_FOREVER_ISO for "always"), null = not muted. */
   mutedUntil: ISODate | null;
   markedUnread: boolean;
+  /**
+   * My private theme override for this chat (`chat_members.theme`); null = none. Synced to
+   * my own devices only (`chat:upsert` → user room), never to the room.
+   */
+  theme: ChatTheme | null;
+  /** My private wallpaper upload (`chat_members.wallpaper_media_id`); null = none. */
+  wallpaper: ChatWallpaperAttachment | null;
 
   createdAt: ISODate;
   /**
@@ -389,6 +545,8 @@ export type SystemEvent =
   /** Exactly one changed group setting per message (one message per changed key). */
   | { kind: 'settings_changed'; actorId: ID; setting: keyof GroupSettings; value: boolean }
   | { kind: 'disappearing_changed'; actorId: ID; seconds: number | null }
+  /** Shared theme set (`preset` = its preset, or null when set without one) or removed (`preset` null). */
+  | { kind: 'theme_changed'; actorId: ID; preset: ChatThemePreset | null }
   | { kind: 'invite_link_reset'; actorId: ID }
   | { kind: 'added_to_community'; actorId: ID; communityId: ID; communityName: string }
   /** Unlinked by an admin, or the community was deactivated. */

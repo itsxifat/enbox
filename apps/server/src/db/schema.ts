@@ -37,15 +37,18 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type {
+  Availability,
   CallStatus,
   CallParticipantStatus,
   CallType,
   ChannelSettings,
+  ChatTheme,
   ChatType,
   GroupSettings,
   MediaKind,
   MemberRole,
   MessageType,
+  SharedChatTheme,
   StatusType,
   UserSettings,
 } from '@enbox/shared';
@@ -72,6 +75,23 @@ export const users = pgTable(
     avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
       onDelete: 'set null',
     }),
+    /** Profile banner (static or animated image, 5:2). */
+    bannerMediaId: uuid('banner_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
+    pronouns: text('pronouns'),
+    /** Multi-line profile bio; `about` stays the one-line status. */
+    bio: text('bio').notNull().default(''),
+    /** Lowercase `#rrggbb` or null (checked). */
+    profileColor: text('profile_color'),
+    accentColor: text('accent_color'),
+    /** Chosen availability; `effectiveAvailability()` reverts it to 'online' once `availability_until` passes. */
+    availability: text('availability').$type<Availability>().notNull().default('online'),
+    availabilityUntil: ts('availability_until'),
+    /** Presence note ("status message"); all three null when unset, cleared by the presence-expiry job. */
+    presenceNoteText: text('presence_note_text'),
+    presenceNoteEmoji: text('presence_note_emoji'),
+    presenceNoteExpiresAt: ts('presence_note_expires_at'),
     /** Partial overrides; read through `resolveUserSettings()` (merges DEFAULT_USER_SETTINGS). */
     settings: jsonb('settings').$type<Partial<UserSettings>>().notNull().default({}),
     lastSeenAt: ts('last_seen_at'),
@@ -89,6 +109,28 @@ export const users = pgTable(
     index('users_avatar_idx')
       .on(t.avatarMediaId)
       .where(sql`${t.avatarMediaId} is not null`),
+    index('users_banner_idx')
+      .on(t.bannerMediaId)
+      .where(sql`${t.bannerMediaId} is not null`),
+    /** Presence-expiry job scans. */
+    index('users_availability_until_idx')
+      .on(t.availabilityUntil)
+      .where(sql`${t.availabilityUntil} is not null`),
+    index('users_presence_note_expires_idx')
+      .on(t.presenceNoteExpiresAt)
+      .where(sql`${t.presenceNoteExpiresAt} is not null`),
+    check(
+      'users_profile_color_ck',
+      sql`${t.profileColor} is null or ${t.profileColor} ~ '^#[0-9a-f]{6}$'`,
+    ),
+    check(
+      'users_accent_color_ck',
+      sql`${t.accentColor} is null or ${t.accentColor} ~ '^#[0-9a-f]{6}$'`,
+    ),
+    check(
+      'users_availability_ck',
+      sql`${t.availability} in ('online', 'idle', 'dnd', 'invisible')`,
+    ),
   ],
 );
 
@@ -190,8 +232,14 @@ export const media = pgTable(
     /** Sanitised basename. */
     fileName: text('file_name'),
     size: bigint('size', { mode: 'number' }).notNull(),
+    /** Server-verified for images (parsed from the file header); client-reported otherwise. */
     width: integer('width'),
     height: integer('height'),
+    /** Multi-frame GIF/APNG/WebP (server-sniffed). `thumbnail_key` is then the required static poster. */
+    animated: boolean('animated').notNull().default(false),
+    frameCount: integer('frame_count'),
+    /** Image metadata (EXIF/XMP/ICC/comments) was stripped server-side at upload. */
+    metadataStripped: boolean('metadata_stripped').notNull().default(false),
     durationMs: integer('duration_ms'),
     waveform: jsonb('waveform').$type<number[]>(),
     /** Storage key relative to the uploads directory (also the public URL path). Extension from the sniffed type. */
@@ -290,6 +338,11 @@ export const chats = pgTable(
     /** Groups and channels (not announcement groups); unique across communities.invite_code too. */
     inviteCode: text('invite_code'),
     disappearingSeconds: integer('disappearing_seconds'),
+    /**
+     * Shared theme every member sees (`PUT /chats/:id/theme`, canEditInfo); enum ids + lowercase
+     * hex only, zod-validated, preset wallpapers only. Null = none.
+     */
+    theme: jsonb('theme').$type<SharedChatTheme>(),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),
     lastMessageAt: ts('last_message_at'),
     createdAt: createdAt(),
@@ -361,10 +414,23 @@ export const chatMembers = pgTable(
     markedUnread: boolean('marked_unread').notNull().default(false),
     /** "Delete chat" for me (also sets cleared_seq): hidden from the list until a new visible message arrives. */
     hidden: boolean('hidden').notNull().default(false),
+    /**
+     * My private look of this chat (`PATCH /chats/:id/prefs`, synced to my devices only), over
+     * `chats.theme`. Kept on rejoin like the other prefs; channel rows are deleted on unfollow,
+     * so a follower's theme/wallpaper are lost with them. Enum ids + lowercase hex only.
+     */
+    theme: jsonb('theme').$type<ChatTheme>(),
+    /** My wallpaper upload (image or short video; `ChatTheme.wallpaper = { kind: 'media' }` shows it). */
+    wallpaperMediaId: uuid('wallpaper_media_id').references(() => media.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     primaryKey({ columns: [t.chatId, t.userId] }),
     index('chat_members_user_idx').on(t.userId),
+    index('chat_members_wallpaper_idx')
+      .on(t.wallpaperMediaId)
+      .where(sql`${t.wallpaperMediaId} is not null`),
     index('chat_members_user_active_idx')
       .on(t.userId)
       .where(sql`${t.leftAt} is null`),
@@ -651,6 +717,7 @@ export const callParticipants = pgTable(
 
 export const usersRelations = relations(users, ({ one, many }) => ({
   avatar: one(media, { fields: [users.avatarMediaId], references: [media.id] }),
+  banner: one(media, { fields: [users.bannerMediaId], references: [media.id] }),
   sessions: many(sessions),
   memberships: many(chatMembers),
 }));
@@ -669,6 +736,7 @@ export const chatsRelations = relations(chats, ({ one, many }) => ({
 export const chatMembersRelations = relations(chatMembers, ({ one }) => ({
   chat: one(chats, { fields: [chatMembers.chatId], references: [chats.id] }),
   user: one(users, { fields: [chatMembers.userId], references: [users.id] }),
+  wallpaper: one(media, { fields: [chatMembers.wallpaperMediaId], references: [media.id] }),
 }));
 
 export const messagesRelations = relations(messages, ({ one, many }) => ({

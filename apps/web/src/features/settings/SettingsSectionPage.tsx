@@ -12,7 +12,12 @@ import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { AccountPage } from './account/AccountPage';
 import { ChangePasswordPage } from './account/ChangePasswordPage';
 import { DeleteAccountPage } from './account/DeleteAccountPage';
-import { ChatsSettingsPage } from './ChatsSettingsPage';
+import {
+  ChatAnimationsPage,
+  ChatThemePage,
+  ChatWallpaperPage,
+  ChatsSettingsPage,
+} from './ChatsSettingsPage';
 import { DevicesPage } from './DevicesPage';
 import { HelpPage, StoragePage } from './HelpPages';
 import { NotificationsPage } from './NotificationsPage';
@@ -21,7 +26,10 @@ import { DefaultTimerPage, LastSeenPage, PrivacyLevelPage } from './privacy/Priv
 import { PrivacyPage } from './privacy/PrivacyPage';
 import { StatusListPage, StatusPrivacyPage } from './privacy/StatusPrivacyPages';
 import { AboutPage } from './profile/AboutPage';
+import { BioPage } from './profile/BioPage';
+import { ColoursPage } from './profile/ColoursPage';
 import { ProfilePage } from './profile/ProfilePage';
+import { PronounsPage } from './profile/PronounsPage';
 
 interface PageDef {
   title: string;
@@ -33,6 +41,9 @@ interface PageDef {
 export const SETTINGS_PAGES: Record<string, PageDef> = {
   profile: { title: 'Profile', render: () => <ProfilePage /> },
   'profile/about': { title: 'About', render: () => <AboutPage /> },
+  'profile/bio': { title: 'Bio', render: () => <BioPage /> },
+  'profile/pronouns': { title: 'Pronouns', render: () => <PronounsPage /> },
+  'profile/colours': { title: 'Profile colours', render: () => <ColoursPage /> },
   account: { title: 'Account', render: () => <AccountPage /> },
   'account/password': { title: 'Change password', render: () => <ChangePasswordPage /> },
   'account/delete': { title: 'Delete account', render: () => <DeleteAccountPage /> },
@@ -61,6 +72,9 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   'privacy/blocked': { title: 'Blocked contacts', render: () => <BlockedPage /> },
   'privacy/timer': { title: 'Default message timer', render: () => <DefaultTimerPage /> },
   chats: { title: 'Chats', render: () => <ChatsSettingsPage /> },
+  'chats/theme': { title: 'Chat theme', render: () => <ChatThemePage /> },
+  'chats/wallpaper': { title: 'Wallpaper', render: () => <ChatWallpaperPage /> },
+  'chats/animations': { title: 'Animations', render: () => <ChatAnimationsPage /> },
   notifications: { title: 'Notifications', render: () => <NotificationsPage /> },
   devices: { title: 'Linked devices', render: () => <DevicesPage /> },
   storage: { title: 'Storage and data', render: () => <StoragePage /> },
@@ -74,7 +88,7 @@ export function SettingsSectionPage() {
   const page = SETTINGS_PAGES[key];
   const back = sub ? `/settings/${page?.parent ?? section}` : desktop ? undefined : '/settings';
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-surface lg:bg-app">
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <PaneHeader title={page?.title ?? 'Settings'} back={back} border />
       {page ? (
         page.render()

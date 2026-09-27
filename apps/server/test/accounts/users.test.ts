@@ -6,6 +6,7 @@ import {
   type ChatSummary,
   type Presence,
   type UserPublic,
+  type UserSelf,
 } from '@enbox/shared';
 import { config } from '../../src/config.js';
 import { resetUserLimits } from '../../src/lib/userLimit.js';
@@ -51,16 +52,27 @@ describe('users: profiles, lookups, search, common groups', () => {
 
     it('everyone (defaults): profile and presence visible, phone hidden unless the subject saved me', async () => {
       const { u, avatarUrl } = await subject();
+      const me = (await t.api(u).get('/api/me').expect(200)).body as UserSelf;
       const p = await getUser(viewer, u.id);
       expect(p).toEqual({
         id: u.id,
         username: u.username,
         displayName: 'Subject',
         avatarUrl,
+        avatarAnimatedUrl: null,
+        bannerUrl: null,
+        bannerAnimatedUrl: null,
         about: 'hello there',
+        pronouns: null,
+        bio: null,
+        profileColor: null,
+        accentColor: null,
         phone: null,
         online: false,
+        presenceState: 'offline',
+        presenceNote: null,
         lastSeenAt: '2026-01-01T00:00:00.000Z',
+        createdAt: me.createdAt,
         isContact: false,
         contactName: null,
         isBlocked: false,
@@ -228,8 +240,8 @@ describe('users: profiles, lookups, search, common groups', () => {
         .send({ userIds: [online.id, hidden.id, crypto.randomUUID()] })
         .expect(200);
       expect(res.body as Presence[]).toEqual([
-        { userId: online.id, online: true, lastSeenAt: null },
-        { userId: hidden.id, online: null, lastSeenAt: null },
+        { userId: online.id, online: true, state: 'online', note: null, lastSeenAt: null },
+        { userId: hidden.id, online: null, state: null, note: null, lastSeenAt: null },
       ]);
       await goOffline(online, s);
       const after = (

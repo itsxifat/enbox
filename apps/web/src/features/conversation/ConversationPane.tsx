@@ -11,12 +11,23 @@
  *   ChannelInfoPanel (channel), all `{ chatId, onClose }`, inside a <Sheet>
  * - calls start with `useCalls().startCall(chatId, 'audio' | 'video')`
  */
-import { Suspense, useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { MessageCircleOff } from 'lucide-react';
 import type { ChatSummary } from '@enbox/shared';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Button, EmptyState, PageSpinner, Sheet } from '@/components/ui';
+import { ChatBackground } from '@/features/appearance/ChatBackground';
+import { ChatThemeSheet } from '@/features/appearance/ChatThemeSheet';
+import { useChatAppearance } from '@/features/appearance/useChatAppearance';
 import { ChannelInfoPanel } from '@/features/channels/ChannelInfoPanel';
 import { ContactInfoPanel } from '@/features/contacts/ContactInfoPanel';
 import { GroupInfoPanel } from '@/features/groups/GroupInfoPanel';
@@ -25,6 +36,7 @@ import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { ChatSearchBar, ReadOnlyFooter, SelectionBar } from './Bars';
+import { RowAppearanceContext } from './bubbles/appearance';
 import { Composer } from './composer/Composer';
 import { ConversationHeader, backPath } from './ConversationHeader';
 import { ForwardDialog } from './ForwardDialog';
@@ -150,8 +162,8 @@ function MissingChat({ loaded }: { loaded: boolean }) {
     body = <PageSpinner />;
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-app">
-      <PaneHeader title="Chat" back={desktop ? undefined : backPath(pathname)} border />
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <PaneHeader title="Chat" back={desktop ? undefined : backPath(pathname)} />
       <div className="flex min-h-0 flex-1 items-center justify-center">{body}</div>
     </div>
   );
@@ -177,6 +189,14 @@ function Conversation({
   // Captured before the chat is marked read (the effect in ConversationPane runs after this render).
   const [unread, setUnread] = useState<UnreadSnapshot | null>(() =>
     chat.unreadCount > 0 ? { afterSeq: chat.lastReadSeq, count: chat.unreadCount } : null,
+  );
+  const [themeOpen, setThemeOpen] = useState(false);
+  const openTheme = useCallback(() => setThemeOpen(true), []);
+  // Private override > shared theme > device prefs > tokens, as CSS variables on the root.
+  const appearance = useChatAppearance(chat);
+  const rowAppearance = useMemo(
+    () => ({ bubbleStyle: appearance.bubbleStyle, messageAnimation: appearance.messageAnimation }),
+    [appearance.bubbleStyle, appearance.messageAnimation],
   );
   // Sending a message dismisses the "N unread messages" divider (WhatsApp behaviour).
   const bottomToken = useConversationUi((s) => s.bottomToken);
@@ -240,43 +260,49 @@ function Conversation({
       onKeyDown={onKeyDown}
       data-testid="conversation"
       data-chat-id={chat.id}
+      style={appearance.style}
+      {...appearance.data}
     >
-      {selecting ? (
-        <SelectionBar chat={chat} />
-      ) : searching ? (
-        <ChatSearchBar chat={chat} />
-      ) : (
-        <ConversationHeader chat={chat} onOpenInfo={openInfo} />
-      )}
-      <PinnedBar chat={chat} />
-      <OngoingCallBanner chatId={chat.id} />
-      <div className="chat-wallpaper relative min-h-0 flex-1">
-        {!hasWindow ? (
-          <PageSpinner />
+      <RowAppearanceContext.Provider value={rowAppearance}>
+        {selecting ? (
+          <SelectionBar chat={chat} />
+        ) : searching ? (
+          <ChatSearchBar chat={chat} />
         ) : (
-          <MessageList chat={chat} unread={unread} initialTarget={initialTarget} />
+          <ConversationHeader chat={chat} onOpenInfo={openInfo} onOpenTheme={openTheme} />
         )}
-      </div>
-      {canCompose ? (
-        <Composer chat={chat} />
-      ) : (
-        <ReadOnlyFooter
-          chat={chat}
-          onDeleted={() => navigate(backPath(pathname), { replace: true })}
-        />
-      )}
+        <PinnedBar chat={chat} />
+        <OngoingCallBanner chatId={chat.id} />
+        <div className="chat-wallpaper relative mx-2 min-h-0 flex-1 rounded-xl sm:mx-3">
+          <ChatBackground appearance={appearance} />
+          {!hasWindow ? (
+            <PageSpinner />
+          ) : (
+            <MessageList chat={chat} unread={unread} initialTarget={initialTarget} />
+          )}
+        </div>
+        {canCompose ? (
+          <Composer chat={chat} />
+        ) : (
+          <ReadOnlyFooter
+            chat={chat}
+            onDeleted={() => navigate(backPath(pathname), { replace: true })}
+          />
+        )}
 
-      <MessageActionsHost chat={chat} />
-      <ForwardDialog />
-      <MessageInfoSheet />
-      {viewer ? (
-        <Suspense fallback={null}>
-          <LazyLightbox />
-        </Suspense>
-      ) : null}
-      <Sheet open={infoOpen} onClose={() => setInfoOpen(false)} aria-label="Chat info">
-        <InfoPanel chat={chat} onClose={() => setInfoOpen(false)} />
-      </Sheet>
+        <MessageActionsHost chat={chat} />
+        <ForwardDialog />
+        <MessageInfoSheet />
+        {viewer ? (
+          <Suspense fallback={null}>
+            <LazyLightbox />
+          </Suspense>
+        ) : null}
+        <Sheet open={infoOpen} onClose={() => setInfoOpen(false)} aria-label="Chat info">
+          <InfoPanel chat={chat} onClose={() => setInfoOpen(false)} />
+        </Sheet>
+        {themeOpen ? <ChatThemeSheet chat={chat} onClose={() => setThemeOpen(false)} /> : null}
+      </RowAppearanceContext.Provider>
     </div>
   );
 }

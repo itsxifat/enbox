@@ -15,7 +15,8 @@ export interface SplitViewProps {
 /**
  * Two-pane section layout used as a route element; child routes render in the main pane.
  *
- * - Desktop: list pane (fixed width) | main pane (child route or `empty`)
+ * - Desktop: list pane (fixed width) | main pane (child route or `empty`), each its own
+ *            rounded `.card-pane` on the app background (no 1px separators).
  * - Phone:   the list pane, or — when the matched child route has `handle.detail` — the
  *            child full screen. The list stays mounted (hidden) to keep its scroll position.
  */
@@ -26,11 +27,11 @@ export function SplitView({ list, empty }: SplitViewProps) {
 
   if (desktop) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1">
-        <section className="relative flex w-[clamp(320px,30vw,440px)] shrink-0 flex-col border-r border-line bg-surface">
+      <div className="flex min-h-0 min-w-0 flex-1 gap-[var(--pane-gap)]">
+        <section className="card-pane relative flex w-[clamp(320px,30vw,440px)] shrink-0 flex-col">
           <Suspense fallback={<PageSpinner />}>{list}</Suspense>
         </section>
-        <main className="relative flex min-w-0 flex-1 flex-col bg-app">
+        <main className="card-pane relative flex min-w-0 flex-1 flex-col">
           <Suspense fallback={<PageSpinner />}>{outlet ?? empty ?? <MainEmpty />}</Suspense>
         </main>
       </div>
@@ -60,7 +61,7 @@ export function SplitView({ list, empty }: SplitViewProps) {
  */
 export function FullView({ children }: { children: ReactNode }) {
   return (
-    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-app">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-surface lg:card-pane">
       <Suspense fallback={<PageSpinner />}>{children}</Suspense>
     </main>
   );

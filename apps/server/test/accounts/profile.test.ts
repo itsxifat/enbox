@@ -1,17 +1,27 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import {
+  BIO_MAX_LENGTH,
   DEFAULT_ABOUT,
   DEFAULT_USER_SETTINGS,
+  MAX_BANNER_BYTES,
+  PRESENCE_NOTE_MAX_LENGTH,
+  PRONOUNS_MAX_LENGTH,
+  USER_RATE_LIMITS,
+  type Presence,
+  type UserPublic,
   type UserSelf,
   type UserSettings,
 } from '@enbox/shared';
+import { config } from '../../src/config.js';
 import { db } from '../../src/db/index.js';
 import { users } from '../../src/db/schema.js';
+import { resetUserLimits } from '../../src/lib/userLimit.js';
 import { transact } from '../../src/services/effects.js';
 import { toChatSummary } from '../../src/services/summaries.js';
 import { advanceRead } from '../../src/services/watermarks.js';
 import {
+  emitAck,
   expectNoEvent,
   startTestServer,
   waitForEvent,
@@ -28,7 +38,7 @@ import {
   send,
   settle,
 } from '../services/fixtures.js';
-import { newDevice, uniquePhone } from './util.js';
+import { insertImage, newDevice, uniquePhone } from './util.js';
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -342,6 +352,326 @@ describe('profile: GET/PATCH /me, PATCH /me/settings', () => {
         .send({ messageNotifications: false })
         .expect(200);
       await expectNoEvent(sB, 'user:changed');
+    });
+  });
+
+  describe('PATCH /me profile fields: banner, pronouns, bio, colours', () => {
+    it('sets and clears them; colours are lowercased; omitted fields are unchanged; an empty bio is null for others', async () => {
+      const u = await t.createUser();
+      const viewer = await t.createUser();
+      const bannerId = await uploadImage(u);
+      const me = (
+        await t
+          .api(u)
+          .patch('/api/me')
+          .send({
+            bannerMediaId: bannerId,
+            pronouns: ' she/her ',
+            bio: 'Hello\nworld',
+            profileColor: '#FF8800',
+            accentColor: '#00AAFF',
+          })
+          .expect(200)
+      ).body as UserSelf;
+      expect(me).toMatchObject({
+        pronouns: 'she/her',
+        bio: 'Hello\nworld',
+        profileColor: '#ff8800',
+        accentColor: '#00aaff',
+        bannerAnimatedUrl: null,
+      });
+      expect(me.bannerUrl).toMatch(/^\/uploads\/.+\.png$/);
+      const seen = (await t.api(viewer).get(`/api/users/${u.id}`).expect(200)).body as UserPublic;
+      expect(seen).toMatchObject({
+        bannerUrl: me.bannerUrl,
+        bannerAnimatedUrl: null,
+        pronouns: 'she/her',
+        bio: 'Hello\nworld',
+        profileColor: '#ff8800',
+        accentColor: '#00aaff',
+      });
+      const again = (await t.api(u).patch('/api/me').send({ about: 'x' }).expect(200))
+        .body as UserSelf;
+      expect(again).toMatchObject({
+        bannerUrl: me.bannerUrl,
+        pronouns: 'she/her',
+        bio: 'Hello\nworld',
+        profileColor: '#ff8800',
+        accentColor: '#00aaff',
+      });
+      const cleared = (
+        await t
+          .api(u)
+          .patch('/api/me')
+          .send({
+            bannerMediaId: null,
+            pronouns: '',
+            bio: '',
+            profileColor: null,
+            accentColor: null,
+          })
+          .expect(200)
+      ).body as UserSelf;
+      expect(cleared).toMatchObject({
+        bannerUrl: null,
+        bannerAnimatedUrl: null,
+        pronouns: null,
+        bio: '',
+        profileColor: null,
+        accentColor: null,
+      });
+      const [row] = await db.select().from(users).where(eq(users.id, u.id));
+      expect(row).toMatchObject({
+        bannerMediaId: null,
+        pronouns: null,
+        bio: '',
+        profileColor: null,
+        accentColor: null,
+      });
+      expect(
+        ((await t.api(viewer).get(`/api/users/${u.id}`).expect(200)).body as UserPublic).bio,
+      ).toBeNull();
+    });
+
+    it('serves an animated avatar or banner as its static poster plus the animation', async () => {
+      const u = await t.createUser();
+      const viewer = await t.createUser();
+      const avatar = await insertImage(u.id, { mimeType: 'image/gif', animated: true });
+      const banner = await insertImage(u.id, { mimeType: 'image/webp', animated: true });
+      const me = (
+        await t
+          .api(u)
+          .patch('/api/me')
+          .send({ avatarMediaId: avatar.id, bannerMediaId: banner.id })
+          .expect(200)
+      ).body as UserSelf;
+      const urls = {
+        avatarUrl: `/uploads/${avatar.thumbnailKey}`,
+        avatarAnimatedUrl: `/uploads/${avatar.storageKey}`,
+        bannerUrl: `/uploads/${banner.thumbnailKey}`,
+        bannerAnimatedUrl: `/uploads/${banner.storageKey}`,
+      };
+      expect(me).toMatchObject(urls);
+      expect((await t.api(viewer).get(`/api/users/${u.id}`).expect(200)).body).toMatchObject(urls);
+    });
+
+    it.each([
+      [{ pronouns: 'x'.repeat(PRONOUNS_MAX_LENGTH + 1) }],
+      [{ bio: 'x'.repeat(BIO_MAX_LENGTH + 1) }],
+      [{ bio: 'bad\u0000char' }],
+      [{ profileColor: 'red' }],
+      [{ profileColor: '#12345' }],
+      [{ profileColor: '#gggggg' }],
+      [{ accentColor: 'ff8800' }],
+      [{ accentColor: 'rgb(1, 2, 3)' }],
+      [{ bannerMediaId: 'nope' }],
+    ])('rejects %j with 400', async (body) => {
+      const u = await t.createUser();
+      expect((await t.api(u).patch('/api/me').send(body).expect(400)).body.error.code).toBe(
+        'validation_error',
+      );
+    });
+
+    it('banner: foreign → 404; a document, a too-large image or an animated upload without a poster → 400 (avatars too)', async () => {
+      const u = await t.createUser();
+      const other = await t.createUser();
+      await t
+        .api(u)
+        .patch('/api/me')
+        .send({ bannerMediaId: await uploadImage(other) })
+        .expect(404);
+      await t
+        .api(u)
+        .patch('/api/me')
+        .send({ bannerMediaId: await uploadImage(u, 'file') })
+        .expect(400);
+      const huge = await insertImage(u.id, { size: MAX_BANNER_BYTES + 1 });
+      await t.api(u).patch('/api/me').send({ bannerMediaId: huge.id }).expect(400);
+      const noPoster = await insertImage(u.id, {
+        mimeType: 'image/gif',
+        animated: true,
+        poster: false,
+      });
+      expect(
+        (await t.api(u).patch('/api/me').send({ bannerMediaId: noPoster.id }).expect(400)).body
+          .error.message,
+      ).toMatch(/poster/);
+      expect(
+        (await t.api(u).patch('/api/me').send({ avatarMediaId: noPoster.id }).expect(400)).body
+          .error.message,
+      ).toMatch(/poster/);
+      // A static GIF is a banner type but not an avatar type.
+      const staticGif = await insertImage(u.id, { mimeType: 'image/gif' });
+      await t.api(u).patch('/api/me').send({ avatarMediaId: staticGif.id }).expect(400);
+      await t.api(u).patch('/api/me').send({ bannerMediaId: staticGif.id }).expect(200);
+      const [row] = await db.select().from(users).where(eq(users.id, u.id));
+      expect(row!.bannerMediaId).toBe(staticGif.id);
+    });
+
+    it('profile fields fan out me:updated and user:changed; profileUpdate is rate-limited (shared with the presence routes)', async () => {
+      const alice = await t.createUser();
+      const bob = await t.createUser();
+      await send(alice, await createDirect(alice, bob));
+      const sA = await t.connect(alice);
+      const sB = await t.connect(bob);
+      const updated = waitForEvent(sA, 'me:updated');
+      const changed = waitForEvent(sB, 'user:changed');
+      await t
+        .api(alice)
+        .patch('/api/me')
+        .send({ bio: 'new bio', profileColor: '#000000' })
+        .expect(200);
+      expect((await updated).user).toMatchObject({ bio: 'new bio', profileColor: '#000000' });
+      expect(await changed).toEqual({ userId: alice.id });
+      config.rateLimit = true;
+      try {
+        resetUserLimits();
+        for (let i = 0; i < USER_RATE_LIMITS.profileUpdate.limit; i++)
+          await t.api(alice).patch('/api/me').send({}).expect(200);
+        expect((await t.api(alice).patch('/api/me').send({}).expect(429)).body.error.code).toBe(
+          'rate_limited',
+        );
+        await t.api(alice).put('/api/me/presence').send({ availability: 'dnd' }).expect(429);
+        await t.api(alice).put('/api/me/presence-note').send({ text: 'x' }).expect(429);
+        await t.api(alice).delete('/api/me/presence-note').expect(429);
+      } finally {
+        config.rateLimit = false;
+        resetUserLimits();
+      }
+    });
+  });
+
+  describe('PUT /me/presence, PUT|DELETE /me/presence-note', () => {
+    /** Alice with a direct-chat peer (bob) who subscribed to her presence — and must never get `user:changed`. */
+    async function withPeer() {
+      const alice = await t.createUser();
+      const bob = await t.createUser();
+      await send(alice, await createDirect(alice, bob));
+      const sA = await t.connect(alice);
+      const sB = await t.connect(bob);
+      const bobLog = recordEvents(sB);
+      await emitAck<Presence[]>(sB, 'presence:subscribe', { userIds: [alice.id] });
+      return { alice, bob, sA, sB, bobLog };
+    }
+
+    it('stores the availability choice (optional until) and emits me:updated + presence:update — never user:changed', async () => {
+      const { alice, sA, sB, bobLog } = await withPeer();
+      const until = new Date(Date.now() + 3_600_000).toISOString();
+      const updated = waitForEvent(sA, 'me:updated');
+      const presence = waitForEvent(sB, 'presence:update');
+      const me = (
+        await t.api(alice).put('/api/me/presence').send({ availability: 'dnd', until }).expect(200)
+      ).body as UserSelf;
+      expect(me).toMatchObject({ availability: 'dnd', availabilityUntil: until });
+      expect((await updated).user).toEqual(me);
+      expect(await presence).toEqual({
+        userId: alice.id,
+        online: true,
+        state: 'dnd',
+        note: null,
+        lastSeenAt: null,
+      });
+      // The same choice again: nothing to say.
+      await t.api(alice).put('/api/me/presence').send({ availability: 'dnd', until }).expect(200);
+      await expectNoEvent(sA, 'me:updated');
+      // `online` drops `until`.
+      const updated2 = waitForEvent(sA, 'me:updated');
+      const back = (
+        await t
+          .api(alice)
+          .put('/api/me/presence')
+          .send({ availability: 'online', until })
+          .expect(200)
+      ).body as UserSelf;
+      expect(back).toMatchObject({ availability: 'online', availabilityUntil: null });
+      await updated2;
+      await settle(200);
+      expect(bobLog.names()).not.toContain('user:changed');
+      expect(bobLog.of('presence:update').map((p) => p.state)).toEqual(['dnd', 'online']);
+    });
+
+    it.each([
+      [{}],
+      [{ availability: 'busy' }],
+      [{ availability: 'dnd', until: 'tomorrow' }],
+      [{ availability: 'dnd', until: '0000-01-01T00:00:00Z' }],
+    ])('PUT /me/presence rejects %j with 400', async (body) => {
+      const u = await t.createUser();
+      expect((await t.api(u).put('/api/me/presence').send(body).expect(400)).body.error.code).toBe(
+        'validation_error',
+      );
+    });
+
+    it('replaces, validates and clears the presence note; me:updated + presence:update only — never user:changed', async () => {
+      const { alice, sA, sB, bobLog } = await withPeer();
+      const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+      let updated = waitForEvent(sA, 'me:updated');
+      const presence = waitForEvent(sB, 'presence:update');
+      const me = (
+        await t
+          .api(alice)
+          .put('/api/me/presence-note')
+          .send({ text: '  Out for lunch ', emoji: '🍜', expiresAt })
+          .expect(200)
+      ).body as UserSelf;
+      expect(me.presenceNote).toEqual({ text: 'Out for lunch', emoji: '🍜', expiresAt });
+      expect((await updated).user).toEqual(me);
+      expect((await presence).note).toEqual(me.presenceNote);
+      // PUT replaces the whole note (omitted fields become null).
+      updated = waitForEvent(sA, 'me:updated');
+      const emojiOnly = (
+        await t.api(alice).put('/api/me/presence-note').send({ emoji: '🎧' }).expect(200)
+      ).body as UserSelf;
+      expect(emojiOnly.presenceNote).toEqual({ text: null, emoji: '🎧', expiresAt: null });
+      await updated;
+      // The same note again: silent.
+      await t.api(alice).put('/api/me/presence-note').send({ emoji: '🎧' }).expect(200);
+      await expectNoEvent(sA, 'me:updated');
+      for (const body of [
+        {},
+        { text: '  ' },
+        { text: 'x'.repeat(PRESENCE_NOTE_MAX_LENGTH + 1) },
+        { emoji: 'ab' },
+        { text: 'x', expiresAt: 'soon' },
+      ])
+        expect(
+          (await t.api(alice).put('/api/me/presence-note').send(body).expect(400)).body.error.code,
+        ).toBe('validation_error');
+      // An already-expired note is stored but never shown.
+      updated = waitForEvent(sA, 'me:updated');
+      expect(
+        (
+          (
+            await t
+              .api(alice)
+              .put('/api/me/presence-note')
+              .send({ text: 'stale', expiresAt: new Date(Date.now() - 1000).toISOString() })
+              .expect(200)
+          ).body as UserSelf
+        ).presenceNote,
+      ).toBeNull();
+      await updated;
+      // DELETE clears it; a second DELETE emits nothing.
+      updated = waitForEvent(sA, 'me:updated');
+      expect(
+        ((await t.api(alice).delete('/api/me/presence-note').expect(200)).body as UserSelf)
+          .presenceNote,
+      ).toBeNull();
+      await updated;
+      const [row] = await db.select().from(users).where(eq(users.id, alice.id));
+      expect(row).toMatchObject({
+        presenceNoteText: null,
+        presenceNoteEmoji: null,
+        presenceNoteExpiresAt: null,
+      });
+      await t.api(alice).delete('/api/me/presence-note').expect(200);
+      await expectNoEvent(sA, 'me:updated');
+      expect(bobLog.names()).not.toContain('user:changed');
+      expect(bobLog.of('presence:update').map((p) => p.note)).toEqual([
+        { text: 'Out for lunch', emoji: '🍜', expiresAt },
+        { text: null, emoji: '🎧', expiresAt: null },
+        null,
+      ]);
     });
   });
 });

@@ -5,6 +5,8 @@ import { renderMentions, type MessageInfo, type UserPublic } from '@enbox/shared
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { DoubleTickIcon } from '@/components/icons';
 import { ListSection, PageSpinner, Sheet } from '@/components/ui';
+import { ChatBackground } from '@/features/appearance/ChatBackground';
+import { useChatAppearance } from '@/features/appearance/useChatAppearance';
 import { api, errorMessage } from '@/lib/api';
 import { formatChatListTime, formatTime } from '@/lib/format';
 import { useChat } from '@/stores/chats';
@@ -36,6 +38,8 @@ export function MessageInfoSheet() {
   const [error, setError] = useState<string | null>(null);
   const read = chat?.readWatermark;
   const delivered = chat?.deliveredWatermark;
+  // Portaled: the conversation root's variables don't cascade here, so set them again.
+  const appearance = useChatAppearance(chat);
 
   useEffect(() => {
     if (!m) {
@@ -59,8 +63,13 @@ export function MessageInfoSheet() {
     <Sheet open={!!m} onClose={close} title="Message info">
       {m ? (
         <div className="flex flex-col">
-          <div className="chat-wallpaper px-4 py-6">
-            <div className="ml-auto max-w-[85%] rounded-lg bg-bubble-out px-3 py-2 text-[15px] text-fg shadow-bubble">
+          <div
+            className="chat-wallpaper relative px-4 py-6"
+            style={appearance.style}
+            {...appearance.data}
+          >
+            <ChatBackground appearance={appearance} />
+            <div className="msg-bubble relative ml-auto max-w-[85%] rounded-lg bg-bubble-out px-3 py-2 text-[15px] text-fg shadow-bubble">
               {m.text ? (
                 <p className="line-clamp-6 break-words whitespace-pre-wrap">
                   {renderMentions(m.text, mentionName)}

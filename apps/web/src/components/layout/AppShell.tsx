@@ -9,11 +9,17 @@ import { ConnectionBanner } from './ConnectionBanner';
 import { NavRail } from './NavRail';
 
 const CallOverlay = lazyNamed(() => import('@/features/calls/CallOverlay'), 'CallOverlay');
+const ProfileCardHost = lazyNamed(
+  () => import('@/features/profile/ProfileCardHost'),
+  'ProfileCardHost',
+);
 
 /**
  * Authenticated app frame.
- * Desktop: [nav rail | section (SplitView)]; phone: [section] + bottom tabs.
- * The call overlay (agent 4) floats above everything.
+ * Desktop: [nav rail | section (SplitView)] as separate rounded cards on the app background
+ * (`.card-pane`, gap `--pane-gap`); phone: [section] + the floating bottom tabs.
+ * The call overlay (agent 4) floats above everything; the profile card host renders the
+ * card opened through the bus (`profile:open`) from anywhere in the app.
  */
 export function AppShell() {
   const desktop = useIsDesktop();
@@ -21,7 +27,7 @@ export function AppShell() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-app px-safe text-fg">
       <ConnectionBanner />
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 gap-[var(--pane-gap)] lg:p-[var(--pane-gap)]">
         {desktop ? <NavRail /> : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Suspense fallback={<PageSpinner />}>
@@ -32,6 +38,7 @@ export function AppShell() {
       </div>
       <Suspense fallback={null}>
         <CallOverlay />
+        <ProfileCardHost />
       </Suspense>
     </div>
   );

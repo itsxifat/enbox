@@ -5,8 +5,18 @@
  *   const { durationMs, width, height } = await readVideoMeta(file);
  *   const url = createObjectUrl(file); ... revokeObjectUrl(url);
  *   const meta = await probeMedia(file); // { kind, width?, height?, durationMs? } for api.upload
+ *   const info = await probeImageFile(file); // header facts: { mime, width, height, animated… } | null
+ *   const clean = await stripImageBlob(file); // EXIF/XMP/ICC/comments removed (best effort)
+ *   const frame = await decodeAnimatedFrame(file); // ImageBitmap poster frame (ImageDecoder) | null
  */
-import type { MediaKind } from '@enbox/shared';
+import {
+  IMAGE_PROBE_BYTES,
+  MAX_BANNER_BYTES,
+  readImageInfo,
+  stripImageMetadata,
+  type ImageInfo,
+  type MediaKind,
+} from '@enbox/shared';
 import type { UploadMeta } from './api';
 import { registerSessionReset } from './session';
 
@@ -148,4 +158,104 @@ export function fitWithin(width: number, height: number, maxW: number, maxH: num
   if (!width || !height) return { width: maxW, height: Math.round(maxW * 0.75) };
   const scale = Math.min(maxW / width, maxH / height, 1);
   return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
+// ---------------------------------------------------------------------------
+// Image headers (shared parser): animation detection and metadata stripping
+// ---------------------------------------------------------------------------
+
+/**
+ * Largest file `probeImageFile` reads in full to settle a frame count the head left open
+ * (the biggest animated profile media). A longer file whose head is inconclusive counts as
+ * animated: it is then uploaded as-is, which is what every GIF got before the header parse
+ * existed — the server verifies it anyway.
+ */
+export const FULL_PROBE_MAX_BYTES = MAX_BANNER_BYTES;
+
+/** Blob → bytes; `FileReader` for runtimes without `Blob.arrayBuffer` (old Safari, jsdom). */
+async function bytesOf(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
+  if (typeof blob.arrayBuffer === 'function') return new Uint8Array(await blob.arrayBuffer());
+  const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read file'));
+    reader.readAsArrayBuffer(blob);
+  });
+  return new Uint8Array(buffer);
+}
+
+/**
+ * Header facts about an image file from the shared `readImageInfo` (type by magic bytes, not
+ * `file.type`; declared size; animation). The first IMAGE_PROBE_BYTES settle most files
+ * (`info.settled`: a WebP's VP8X flag, a PNG's first IDAT, a JPEG's frame header, a GIF
+ * whose trailer is in the head); one they leave open — a GIF's second frame or an APNG's
+ * `acTL` behind a chunk larger than the head — is read in full up to FULL_PROBE_MAX_BYTES.
+ * `null` for anything the parser does not know (AVIF, HEIC, SVG, not an image): callers fall
+ * back to the browser decoder. Never throws.
+ */
+export async function probeImageFile(file: Blob): Promise<ImageInfo | null> {
+  try {
+    const head = await bytesOf(file.slice(0, IMAGE_PROBE_BYTES));
+    const info = readImageInfo(head);
+    if (!info) return null;
+    if (info.settled || file.size <= head.length) return info;
+    if (file.size <= FULL_PROBE_MAX_BYTES) return readImageInfo(await bytesOf(file)) ?? info;
+    return { ...info, animated: true };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Copy of an image without its metadata blocks (EXIF, XMP, ICC, comments, text) — pixels,
+ * frames and timing untouched (shared `stripImageMetadata`). Best effort: the same blob when
+ * there is nothing to strip, the format is unknown or the bytes cannot be read. The server
+ * strips again on upload; this keeps the location data off the wire in the first place.
+ */
+export async function stripImageBlob(file: Blob): Promise<Blob> {
+  try {
+    const bytes = await bytesOf(file);
+    const out = stripImageMetadata(bytes);
+    return out === bytes ? file : new Blob([new Uint8Array(out)], { type: file.type });
+  } catch {
+    return file;
+  }
+}
+
+/** The WebCodecs `ImageDecoder` (Chromium); absent in Safari and Firefox. */
+interface ImageDecoderLike {
+  tracks: { ready: Promise<void>; selectedTrack: { frameCount: number } | null };
+  decode(opts: { frameIndex: number }): Promise<{ image: ImageBitmapSource & { close(): void } }>;
+  close(): void;
+}
+
+/**
+ * A still frame of an animated image for its poster, or `null` when `ImageDecoder` is
+ * unavailable or fails (callers then use `createImageBitmap`, i.e. the first frame). Picks the
+ * frame a third of the way in, like `videoPoster`: first frames are often blank or a fade-in.
+ * The caller closes the bitmap.
+ */
+export async function decodeAnimatedFrame(file: Blob): Promise<ImageBitmap | null> {
+  const Decoder = (
+    globalThis as {
+      ImageDecoder?: new (init: { data: ArrayBuffer; type: string }) => ImageDecoderLike;
+    }
+  ).ImageDecoder;
+  if (!Decoder) return null;
+  let decoder: ImageDecoderLike | null = null;
+  try {
+    decoder = new Decoder({ data: await file.arrayBuffer(), type: file.type });
+    await decoder.tracks.ready;
+    const frames = decoder.tracks.selectedTrack?.frameCount ?? 1;
+    const { image } = await decoder.decode({ frameIndex: Math.floor(Math.max(0, frames - 1) / 3) });
+    try {
+      return await createImageBitmap(image);
+    } finally {
+      image.close();
+    }
+  } catch {
+    return null;
+  } finally {
+    decoder?.close();
+  }
 }

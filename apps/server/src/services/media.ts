@@ -1,11 +1,22 @@
 /**
  * Media rows → wire attachments, and ownership checks for client-supplied media ids.
- * Upload handling lives in modules/media (route) + services/uploads.ts (sniffing, storage).
+ * Upload handling lives in modules/media (route) + services/uploads.ts (sniffing, storage)
+ * + services/imageProbe.ts (image verification and metadata stripping).
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
+  ANIMATED_IMAGE_MIME_TYPES,
   AVATAR_MIME_TYPES,
+  BANNER_MIME_TYPES,
+  MAX_ANIMATED_AVATAR_BYTES,
   MAX_AVATAR_BYTES,
+  MAX_BANNER_BYTES,
+  MAX_WALLPAPER_BYTES,
+  MAX_WALLPAPER_VIDEO_BYTES,
+  MAX_WALLPAPER_VIDEO_MS,
+  WALLPAPER_IMAGE_MIME_TYPES,
+  WALLPAPER_VIDEO_MIME_TYPES,
+  type ChatWallpaperAttachment,
   type MediaAttachment,
   type MediaKind,
 } from '@enbox/shared';
@@ -19,6 +30,24 @@ export function mediaUrl(key: string): string {
   return `/uploads/${key}`;
 }
 
+/**
+ * The key of the image every renderer shows for a `media` row that may be animated: the
+ * poster of an animated upload (the requirers guarantee one), else the file itself. Select
+ * it as `avatarKey` wherever a group, community or channel icon is serialised — docs
+ * "Media": `avatarUrl` is always static, and chat icons have no animated variant on the wire
+ * in P1, so the animation of an animated icon is never served anywhere.
+ */
+export const staticMediaKey = sql<
+  string | null
+>`case when ${media.animated} and ${media.thumbnailKey} is not null then ${media.thumbnailKey} else ${media.storageKey} end`;
+
+/** `mediaUrl` of the static image of a loaded row (the rule of `staticMediaKey`). */
+export function staticMediaUrl(
+  row: Pick<MediaRow, 'storageKey' | 'thumbnailKey' | 'animated'>,
+): string {
+  return mediaUrl(row.animated && row.thumbnailKey ? row.thumbnailKey : row.storageKey);
+}
+
 export function toMediaAttachment(row: MediaRow): MediaAttachment {
   return {
     id: row.id,
@@ -30,8 +59,25 @@ export function toMediaAttachment(row: MediaRow): MediaAttachment {
     size: Number(row.size),
     width: row.width,
     height: row.height,
+    animated: row.animated,
+    frameCount: row.frameCount,
     durationMs: row.durationMs,
     waveform: row.waveform ?? null,
+  };
+}
+
+/** The viewer's own wallpaper upload as carried by `ChatSummary.wallpaper` (docs "Chat themes"). */
+export function toChatWallpaper(row: MediaRow): ChatWallpaperAttachment {
+  return {
+    id: row.id,
+    kind: row.kind,
+    url: mediaUrl(row.storageKey),
+    thumbnailUrl: row.thumbnailKey ? mediaUrl(row.thumbnailKey) : null,
+    mimeType: row.mimeType,
+    animated: row.animated,
+    width: row.width,
+    height: row.height,
+    durationMs: row.durationMs,
   };
 }
 
@@ -57,6 +103,25 @@ export interface OwnedMediaOptions {
   maxBytes?: number;
 }
 
+/** The kind/MIME/size checks of `requireOwnedMedia` on a loaded row (400 on a mismatch). */
+function assertMediaFits(row: MediaRow, opts: OwnedMediaOptions): void {
+  if (opts.kinds && !opts.kinds.includes(row.kind)) {
+    throw badRequest(`Media must be of kind ${opts.kinds.join(' or ')} (got ${row.kind})`);
+  }
+  if (opts.mimeTypes && !opts.mimeTypes.includes(row.mimeType))
+    throw badRequest(`Unsupported media type ${row.mimeType}`);
+  if (opts.maxBytes !== undefined && Number(row.size) > opts.maxBytes)
+    throw badRequest('Media is too large');
+}
+
+/**
+ * Animated profile media needs the poster uploaded as the `thumbnail` part: `avatarUrl` /
+ * `bannerUrl` are always the static image, the animation travels separately.
+ */
+function assertStaticPoster(row: MediaRow): void {
+  if (row.animated && !row.thumbnailKey) throw badRequest('Animated images need a static poster');
+}
+
 /**
  * The media row for a client-supplied id: 404 unless uploaded by `userId` (docs "Media":
  * never reveal other users' uploads); 400 when the kind/MIME/size doesn't fit. Inside a
@@ -76,25 +141,70 @@ export async function requireOwnedMedia(
     .limit(1)
     .for('key share');
   if (!row) throw notFound('Media');
-  if (opts.kinds && !opts.kinds.includes(row.kind)) {
-    throw badRequest(`Media must be of kind ${opts.kinds.join(' or ')} (got ${row.kind})`);
-  }
-  if (opts.mimeTypes && !opts.mimeTypes.includes(row.mimeType))
-    throw badRequest(`Unsupported media type ${row.mimeType}`);
-  if (opts.maxBytes !== undefined && Number(row.size) > opts.maxBytes)
-    throw badRequest('Media is too large');
+  assertMediaFits(row, opts);
   return row;
 }
 
-/** Avatars (user, group, community, channel): kind image, AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES, uploaded by the caller. */
-export function requireAvatarMedia(
+/**
+ * Avatars (user, group, community, channel), uploaded by the caller: kind image, either
+ * static (AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES) or animated (`media.animated`,
+ * ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES, poster required).
+ */
+export async function requireAvatarMedia(
   dbx: DbOrTx,
   mediaId: string,
   userId: string,
 ): Promise<MediaRow> {
-  return requireOwnedMedia(dbx, mediaId, userId, {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, { kinds: ['image'] });
+  assertMediaFits(
+    row,
+    row.animated
+      ? { mimeTypes: ANIMATED_IMAGE_MIME_TYPES, maxBytes: MAX_ANIMATED_AVATAR_BYTES }
+      : { mimeTypes: AVATAR_MIME_TYPES, maxBytes: MAX_AVATAR_BYTES },
+  );
+  assertStaticPoster(row);
+  return row;
+}
+
+/** Profile banners, uploaded by the caller: kind image, BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, poster required when animated. */
+export async function requireBannerMedia(
+  dbx: DbOrTx,
+  mediaId: string,
+  userId: string,
+): Promise<MediaRow> {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, {
     kinds: ['image'],
-    mimeTypes: AVATAR_MIME_TYPES,
-    maxBytes: MAX_AVATAR_BYTES,
+    mimeTypes: BANNER_MIME_TYPES,
+    maxBytes: MAX_BANNER_BYTES,
   });
+  assertStaticPoster(row);
+  return row;
+}
+
+/**
+ * Chat wallpapers (`PATCH /chats/:c/prefs { wallpaperMediaId }`, docs "Media"), uploaded by
+ * the caller: kind image (WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES, poster required
+ * when animated) or kind video (WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES, a
+ * `durationMs` ≤ MAX_WALLPAPER_VIDEO_MS recorded at upload, poster required); else 400.
+ */
+export async function requireWallpaperMedia(
+  dbx: DbOrTx,
+  mediaId: string,
+  userId: string,
+): Promise<MediaRow> {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, { kinds: ['image', 'video'] });
+  if (row.kind === 'video') {
+    assertMediaFits(row, {
+      mimeTypes: WALLPAPER_VIDEO_MIME_TYPES,
+      maxBytes: MAX_WALLPAPER_VIDEO_BYTES,
+    });
+    if (row.durationMs == null) throw badRequest('Video wallpapers need a duration');
+    if (row.durationMs > MAX_WALLPAPER_VIDEO_MS)
+      throw badRequest(`Video wallpapers can be at most ${MAX_WALLPAPER_VIDEO_MS / 1000} s long`);
+    if (!row.thumbnailKey) throw badRequest('Video wallpapers need a static poster');
+    return row;
+  }
+  assertMediaFits(row, { mimeTypes: WALLPAPER_IMAGE_MIME_TYPES, maxBytes: MAX_WALLPAPER_BYTES });
+  assertStaticPoster(row);
+  return row;
 }

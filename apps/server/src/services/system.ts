@@ -1,10 +1,10 @@
 /**
  * System messages (`type: 'system'`, `sender_id` null, `metadata.system` = SystemEvent).
  * Which kinds a chat may get (docs "Channels", "Communities", matrix):
- * - direct: disappearing_changed, message_pinned
+ * - direct: disappearing_changed, theme_changed, message_pinned
  * - channel: channel_created, name_changed, description_changed, avatar_changed
  * - announcement group: community_created, name/description/avatar_changed,
- *   disappearing_changed, message_pinned (no join/leave/add/remove/role messages)
+ *   disappearing_changed, theme_changed, message_pinned (no join/leave/add/remove/role messages)
  * - group: everything except channel_created / community_created
  */
 import type { SystemEvent, SystemEventKind } from '@enbox/shared';
@@ -14,7 +14,11 @@ import { chatKindOfRow } from './chats.js';
 import type { Effects } from './effects.js';
 import { createMessage, insertMessage, type InsertedMessage } from './messages.js';
 
-const DIRECT = new Set<SystemEventKind>(['disappearing_changed', 'message_pinned']);
+const DIRECT = new Set<SystemEventKind>([
+  'disappearing_changed',
+  'theme_changed',
+  'message_pinned',
+]);
 const CHANNEL = new Set<SystemEventKind>([
   'channel_created',
   'name_changed',
@@ -27,6 +31,7 @@ const ANNOUNCEMENT = new Set<SystemEventKind>([
   'description_changed',
   'avatar_changed',
   'disappearing_changed',
+  'theme_changed',
   'message_pinned',
 ]);
 const GROUP_EXCLUDED = new Set<SystemEventKind>(['channel_created', 'community_created']);

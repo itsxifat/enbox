@@ -26,6 +26,8 @@ export interface MediaSendInput {
   durationMs?: number;
   waveform?: number[];
   thumbnail?: Blob | null;
+  /** Animated image (GIF / WebP / APNG): the bubble shows `thumbnail` as its poster. */
+  animated?: boolean;
   caption?: string;
   replyToId?: ID;
   replyTo?: MessagePreview | null;
@@ -104,6 +106,8 @@ export function enqueueMedia(chatId: ID, input: MediaSendInput): () => Promise<v
     size: input.blob.size,
     width: input.width ?? null,
     height: input.height ?? null,
+    animated: input.animated ?? false,
+    frameCount: null,
     durationMs: input.durationMs ?? null,
     waveform: input.waveform ?? null,
   };

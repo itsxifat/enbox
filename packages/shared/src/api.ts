@@ -72,16 +72,19 @@ import type {
   SearchMessagesQuery,
   SendMessageRequest,
   StarredMessagesQuery,
+  SetChatThemeRequest,
   SetDisappearingRequest,
   SetRoleRequest,
   StatusReactRequest,
   TransferOwnershipRequest,
+  UpdateAvailabilityRequest,
   UpdateChannelRequest,
   UpdateChatPrefsRequest,
   UpdateCommunityRequest,
   UpdateContactRequest,
   UpdateGroupRequest,
   UpdateGroupSettingsRequest,
+  UpdatePresenceNoteRequest,
   UpdateProfileRequest,
   UpdateSettingsRequest,
   UploadMediaMeta,
@@ -116,6 +119,32 @@ export interface ApiErrorBody {
 export interface AuthResponse {
   token: string;
   user: UserSelf;
+}
+
+/**
+ * `GET /api/config`: server facts the SPA needs (push key, canonical origin, voice, limits).
+ * `limits` are the shared MAX_* constants the server enforces, so a client explains the
+ * server's limits, not its own build's.
+ */
+export interface ServerConfig {
+  vapidPublicKey: string | null;
+  /** Same as `limits.maxUploadBytes` (kept for older clients). */
+  maxUploadBytes: number;
+  version: string;
+  /**
+   * Canonical origin for invite/profile links (server PUBLIC_URL), no trailing slash; null
+   * when the server has none configured — build links on the page's own origin then.
+   */
+  publicUrl: string | null;
+  /** Voice channels (LiveKit) when configured: the signalling URL clients connect to. */
+  voice: { url: string } | null;
+  limits: {
+    maxUploadBytes: number;
+    maxAvatarBytes: number;
+    maxAnimatedAvatarBytes: number;
+    maxBannerBytes: number;
+    maxWallpaperBytes: number;
+  };
 }
 
 /**
@@ -216,9 +245,7 @@ export interface ChannelPreview {
 export interface ApiRoutes {
   // Health
   'GET /api/health': { R: { ok: true; version: string } };
-  'GET /api/config': {
-    R: { vapidPublicKey: string | null; maxUploadBytes: number; version: string };
-  };
+  'GET /api/config': { R: ServerConfig };
 
   // Auth & sessions
   'GET /api/auth/username-available': {
@@ -244,6 +271,15 @@ export interface ApiRoutes {
   'GET /api/me': { R: UserSelf };
   'PATCH /api/me': { B: UpdateProfileRequest; R: UserSelf };
   'PATCH /api/me/settings': { B: UpdateSettingsRequest; R: UserSettings };
+  'PUT /api/me/presence': {
+    B: UpdateAvailabilityRequest;
+    R: UserSelf;
+  } /* availability choice; emits presence:update + me:updated only, never user:changed */;
+  'PUT /api/me/presence-note': {
+    B: UpdatePresenceNoteRequest;
+    R: UserSelf;
+  } /* replaces the note; same fan-out as /presence */;
+  'DELETE /api/me/presence-note': { R: UserSelf } /* clears it (idempotent) */;
   'DELETE /api/me': {
     B: DeleteAccountRequest;
     R: void;
@@ -302,6 +338,10 @@ export interface ApiRoutes {
     R: void;
   } /* delete chat for me (clears + hides); groups only after leaving */;
   'PUT /api/chats/:chatId/disappearing': { B: SetDisappearingRequest; R: ChatSummary };
+  'PUT /api/chats/:chatId/theme': {
+    B: SetChatThemeRequest;
+    R: ChatSummary;
+  } /* canEditInfo; shared theme (built-in wallpapers only); sys theme_changed + chat:updated */;
   'GET /api/chats/:chatId/members': {
     R: ChatMember[];
   } /* active members; requires permissions.canViewMembers */;

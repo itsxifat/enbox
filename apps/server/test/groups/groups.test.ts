@@ -262,6 +262,26 @@ describe('groups module', () => {
   });
 
   describe('PATCH /groups/:chatId', () => {
+    it('serves an animated icon as its static poster: summary, chat:updated changes, invite preview', async () => {
+      const chatId = await createGroup(owner, [], { name: 'Gifs' });
+      const icon = await uploadImage(t, owner, { animated: true });
+      const conns = await connectAll(t, owner);
+      const rec = recordEvents(conns.sockets[0]!);
+      const res = await api(owner)
+        .patch(`/api/groups/${chatId}`)
+        .send({ avatarMediaId: icon })
+        .expect(200);
+      // The poster (a JPEG), never the GIF: chat icons have no animated variant on the wire.
+      expect(res.body.avatarUrl).toMatch(/^\/uploads\/.+\.jpg$/);
+      await settle();
+      expect(rec.of('chat:updated').at(-1)!.changes).toEqual({ avatarUrl: res.body.avatarUrl });
+      const summary = (await api(owner).get(`/api/chats/${chatId}`).expect(200)).body;
+      expect(summary.avatarUrl).toBe(res.body.avatarUrl);
+      const preview = (await api(owner).get(`/api/invites/${summary.inviteCode}`).expect(200)).body;
+      expect(preview.avatarUrl).toBe(res.body.avatarUrl);
+      await conns.close();
+    });
+
     it('one system message per changed field, then chat:updated with the changed fields', async () => {
       const member = await t.createUser();
       const chatId = await createGroup(owner, [member], { name: 'Old' });

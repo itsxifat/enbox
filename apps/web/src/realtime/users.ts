@@ -2,7 +2,12 @@
  * Realtime: presence, profile changes, my own account, contacts/blocks, session revocation.
  * Owned by the foundation (agent 1 may extend for contacts/blocks/profile screens — prefer
  * listening to the bus events `contacts:changed`, `blocks:changed`, `user:changed`).
+ *
+ * Presence: `presence:update` carries `online/state/note/lastSeenAt` (per viewer) and goes to
+ * the users store as-is. This device's idle state (lib/activity.ts) starts with the handlers
+ * and is re-sent as `presence:activity` on every `ready` (the server keeps it per socket).
  */
+import { reportActivity, startActivityTracking } from '@/lib/activity';
 import { bus } from '@/lib/bus';
 import { useConnection, type AppSocket, type ReadyInfo } from '@/lib/socket';
 import { api } from '@/lib/api';
@@ -13,6 +18,8 @@ import { useContacts } from '@/stores/contacts';
 import { useUsers } from '@/stores/users';
 
 export function registerUserHandlers(socket: AppSocket): void {
+  startActivityTracking();
+
   socket.on('presence:update', (p) => {
     useUsers.getState().setPresence(p);
   });
@@ -51,6 +58,8 @@ export function registerUserHandlers(socket: AppSocket): void {
 }
 
 export async function resyncUsers(info: ReadyInfo): Promise<void> {
+  // A new socket: the server knows neither my subscriptions nor this device's idle state.
+  reportActivity();
   await useUsers.getState().resubscribePresence();
   if (info.reconnect) {
     // Profile/settings may have changed while we were offline.

@@ -39,11 +39,43 @@ export async function updateSettings(patch: Partial<UserSettings>): Promise<bool
   }
 }
 
-/** PATCH /api/me; the returned profile replaces the cached one. Throws on failure. */
+/** Fields of `UpdateProfileRequest` that map 1:1 onto `UserSelf` (applied optimistically). */
+const PROFILE_FIELDS = [
+  'displayName',
+  'about',
+  'username',
+  'phone',
+  'pronouns',
+  'bio',
+  'profileColor',
+  'accentColor',
+] as const;
+
+/**
+ * PATCH /api/me with an optimistic update of the text / colour fields (reverted on failure;
+ * media ids only take effect through the response). The returned profile replaces the
+ * cached one. Throws on failure.
+ */
 export async function updateProfile(patch: UpdateProfileRequest): Promise<UserSelf> {
-  const user = await api.patch<UserSelf>('/api/me', patch);
-  useAuth.getState().setUser(user);
-  return user;
+  const me = getMe();
+  const before: Record<string, unknown> = {};
+  const optimistic: Record<string, unknown> = {};
+  if (me)
+    for (const k of PROFILE_FIELDS) {
+      if (patch[k] === undefined) continue;
+      before[k] = me[k];
+      optimistic[k] = patch[k];
+    }
+  if (Object.keys(optimistic).length) useAuth.getState().patchUser(optimistic as Partial<UserSelf>);
+  try {
+    const user = await api.patch<UserSelf>('/api/me', patch);
+    useAuth.getState().setUser(user);
+    return user;
+  } catch (e) {
+    if (Object.keys(before).length && getMe())
+      useAuth.getState().patchUser(before as Partial<UserSelf>);
+    throw e;
+  }
 }
 
 export const PRIVACY_LABELS: Record<PrivacyLevel, string> = {

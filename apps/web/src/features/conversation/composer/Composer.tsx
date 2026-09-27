@@ -547,7 +547,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
 
   return (
     <div
-      className="relative shrink-0 border-t border-line bg-surface px-2 pt-2 pb-[max(8px,env(safe-area-inset-bottom))] sm:px-3"
+      className="card-inset relative mx-2 mt-2 mb-[max(8px,env(safe-area-inset-bottom))] shrink-0 px-2 py-2 shadow-bubble sm:mx-3 sm:mb-[max(12px,env(safe-area-inset-bottom))] sm:px-3"
       data-testid="composer"
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) {
@@ -709,7 +709,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       </div>
 
       {emojiOpen && !voice ? (
-        <div className="-mx-2 mt-2 h-[min(300px,40dvh)] overflow-hidden border-t border-line sm:-mx-3 sm:h-[min(340px,42dvh)]">
+        <div className="mt-2 h-[min(300px,40dvh)] overflow-hidden rounded-xl bg-surface sm:h-[min(340px,42dvh)]">
           <Suspense
             fallback={
               <div className="flex h-full items-center justify-center text-brand-ink">

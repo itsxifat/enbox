@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, lte, ne, or } from 'drizzle-orm';
 import { rooms } from '@enbox/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
@@ -11,7 +11,13 @@ import { resolveToken } from '../services/sessions.js';
 import { socketRegistrars } from '../modules/index.js';
 import { setIo } from './emit.js';
 import { afterReadyHooks, beforeReadyHooks, type ConnectHook } from './hooks.js';
-import { dropPresenceSocket, markConnected, markDisconnected, presenceEvents } from './presence.js';
+import {
+  autoIdle,
+  dropPresenceSocket,
+  markConnected,
+  markDisconnected,
+  presenceEvents,
+} from './presence.js';
 import type { AppSocket, IO } from './types.js';
 
 /** Chats whose room the user's sockets belong in: active, non-hidden memberships. */
@@ -101,13 +107,27 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
       dropPresenceSocket(socket.id);
       if (!counted) return; // dropped during setup: it never counted towards "online"
       counted = false;
-      if (markDisconnected(userId)) {
+      const wasIdle = autoIdle(userId);
+      if (markDisconnected(userId, socket.id)) {
+        // Last socket gone: last seen = now — unless the user is invisible, whose
+        // `last_seen_at` stays the value written when they went invisible (docs "Invisible
+        // invariants"; the re-evaluation ignores the in-memory value for them too). An
+        // invisible choice whose `until` has passed no longer hides them (`effectiveAvailability`
+        // shows them online until the expiry job reverts the row), so it is written then.
         const lastSeenAt = new Date();
         db.update(users)
           .set({ lastSeenAt })
-          .where(eq(users.id, userId))
+          .where(
+            and(
+              eq(users.id, userId),
+              or(ne(users.availability, 'invisible'), lte(users.availabilityUntil, lastSeenAt)),
+            ),
+          )
           .catch((err) => logger.error({ err }, 'failed to update last seen'));
         presenceEvents.emit('offline', userId, lastSeenAt);
+      } else if (autoIdle(userId) !== wasIdle) {
+        // The only active device left: the remaining ones are all idle.
+        presenceEvents.emit('activity', userId);
       }
     });
 
@@ -134,7 +154,10 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
 
     if (socket.disconnected) return;
     counted = true;
-    if (markConnected(userId)) presenceEvents.emit('online', userId);
+    const wasIdle = autoIdle(userId);
+    if (markConnected(userId, socket.id)) presenceEvents.emit('online', userId);
+    // A fresh socket is active: a user whose other devices were all idle is active again.
+    else if (autoIdle(userId) !== wasIdle) presenceEvents.emit('activity', userId);
     // e.g. advance delivered watermarks (server-driven delivered receipts).
     await runHooks('beforeReady', beforeReadyHooks(), socket);
     if (socket.disconnected) return;

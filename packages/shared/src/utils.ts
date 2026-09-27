@@ -4,6 +4,7 @@
  * both sides agree.
  */
 import {
+  CHAT_THEME_PRESET_LABELS,
   DEFAULT_GROUP_SETTINGS,
   DEFAULT_USER_SETTINGS,
   DELETE_FOR_EVERYONE_WINDOW_MS,
@@ -11,6 +12,7 @@ import {
   MAX_MENTIONS,
 } from './constants.js';
 import type {
+  Availability,
   CallDirection,
   CallMessagePayload,
   CallOutcome,
@@ -18,8 +20,12 @@ import type {
   ChatKind,
   ChatPermissions,
   ChatSummary,
+  ChatTheme,
   ID,
+  ISODate,
   Message,
+  PresenceNote,
+  SharedChatTheme,
   SystemEvent,
   UserPublic,
   UserSettings,
@@ -50,6 +56,33 @@ export function isMuted(mutedUntil: string | null | undefined, now: Date = new D
   return !!mutedUntil && new Date(mutedUntil).getTime() > now.getTime();
 }
 
+/** The persisted availability choice and its expiry: `UserSelf`, or a `users` row (Date). */
+export interface AvailabilityInput {
+  availability: Availability;
+  availabilityUntil: ISODate | Date | null;
+}
+
+/** `availability`, or `online` once `availabilityUntil` has passed (the expiry job catches up later). */
+export function effectiveAvailability(x: AvailabilityInput, now = Date.now()): Availability {
+  if (x.availability === 'online' || !x.availabilityUntil) return x.availability;
+  return new Date(x.availabilityUntil).getTime() > now ? x.availability : 'online';
+}
+
+/** Do-not-disturb: no push, no ringtone/notification sounds, calls ring silently (server AND clients). */
+export function isDnd(x: AvailabilityInput, now = Date.now()): boolean {
+  return effectiveAvailability(x, now) === 'dnd';
+}
+
+/** The presence note unless it has expired (clients hide it locally at `expiresAt`, before the server clears it). */
+export function activePresenceNote(
+  note: PresenceNote | null | undefined,
+  now = Date.now(),
+): PresenceNote | null {
+  if (!note) return null;
+  if (note.expiresAt && new Date(note.expiresAt).getTime() <= now) return null;
+  return note;
+}
+
 /** Name to show for a user: "Deleted account", saved contact name, then display name. */
 export function userDisplayName(
   user:
@@ -73,6 +106,14 @@ export function chatTitle(chat: Pick<ChatSummary, 'type' | 'name' | 'peer'>, meI
 export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): ChatKind {
   if (chat.type === 'group' && chat.isAnnouncement) return 'announcement';
   return chat.type;
+}
+
+/**
+ * Whether a theme can be shared with the whole chat (`PUT /api/chats/:chatId/theme`): one
+ * that shows a member's own wallpaper upload (`{ kind: 'media' }`) cannot.
+ */
+export function isSharedChatTheme(theme: ChatTheme): theme is SharedChatTheme {
+  return theme.wallpaper?.kind !== 'media';
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +500,10 @@ export function systemEventText(
       return event.seconds
         ? `${actor} turned on disappearing messages (${formatTimer(event.seconds)})`
         : `${actor} turned off disappearing messages`;
+    case 'theme_changed':
+      return event.preset
+        ? `${actor} changed the chat theme to ${CHAT_THEME_PRESET_LABELS[event.preset]}`
+        : `${actor} removed the chat theme`;
     case 'invite_link_reset':
       return `${actor} reset this ${noun}'s invite link`;
     case 'added_to_community':

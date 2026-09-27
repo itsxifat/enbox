@@ -138,7 +138,7 @@ export function NewChannelPane() {
           </div>
         </div>
       </form>
-      <div className="shrink-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      <div className="card-inset mx-3 mt-2 mb-[max(12px,env(safe-area-inset-bottom))] shrink-0 px-4 py-3">
         <div className="mx-auto max-w-lg">
           <Button fullWidth size="lg" loading={busy} onClick={() => void submit()}>
             Create channel

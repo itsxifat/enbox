@@ -222,7 +222,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
     <>
       <div
         className={cn(
-          'group/li relative flex items-center gap-3 px-3 transition-colors duration-100 lg:px-3.5',
+          'group/li relative mx-2 my-0.5 flex items-center gap-3 rounded-xl px-2.5 transition-colors duration-100',
           active ? 'bg-selected' : 'hover:bg-hover has-[a:focus-visible]:bg-hover',
         )}
         data-testid="call-log-row"
@@ -242,8 +242,7 @@ function CallLogRow({ group, active }: { group: CallLogGroup; active: boolean })
         </div>
         <div
           className={cn(
-            'pointer-events-none relative flex min-w-0 flex-1 items-center gap-2 self-stretch py-3',
-            !active && 'border-b border-line group-last/li:border-transparent',
+            'pointer-events-none relative flex min-w-0 flex-1 items-center gap-2 self-stretch py-2.5',
           )}
         >
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">

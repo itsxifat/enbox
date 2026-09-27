@@ -13,10 +13,12 @@ import {
   AtSign,
   Ban,
   BellOff,
+  CalendarDays,
   ChevronRight,
   Eraser,
   Image as ImageIcon,
   NotebookPen,
+  Palette,
   Pencil,
   Star,
   Timer,
@@ -38,6 +40,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { UserAvatar } from '@/components/common/UserAvatar';
 import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import {
@@ -51,10 +54,14 @@ import {
   toast,
   type IconType,
 } from '@/components/ui';
+import { ChatThemeSheet } from '@/features/appearance/ChatThemeSheet';
+import { chatThemeLabel } from '@/features/appearance/presets';
+import { profileGradient } from '@/features/profile/model';
+import { useProfileBannerSrc } from '@/features/profile/useProfileBanner';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { formatLastSeen, formatShortDate, formatTime } from '@/lib/format';
+import { formatLastSeen, formatMonthYear, formatShortDate, formatTime } from '@/lib/format';
 import { useMe } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
 import { useChat, useChats } from '@/stores/chats';
@@ -87,9 +94,7 @@ export interface InfoPanelProps {
 // ---------------------------------------------------------------------------
 
 function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <section className={cn('border-t-8 border-app bg-surface py-1', className)}>{children}</section>
-  );
+  return <section className={cn('card-inset mx-3 mt-3 py-1', className)}>{children}</section>;
 }
 
 function Row({
@@ -157,7 +162,7 @@ function QuickAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-24 flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
+      className="flex w-24 flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <Icon size={22} aria-hidden />
       <span className="text-[13px] font-medium text-fg">{label}</span>
@@ -334,6 +339,14 @@ function ContactInfo({
   const [common, setCommon] = useState<ChatSummary[] | null>(null);
   const starred = useStarredCount(chat.id);
   const [deleting, setDeleting] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  // Banner (or the profile colours) behind the avatar; hidden fields arrive as null. The
+  // panel sits beside the chat all the time, so animated media plays only while the hero is
+  // hovered or focused (the profile card is the surface that always plays it).
+  const [heroHot, setHeroHot] = useState(false);
+  const banner = useProfileBannerSrc(!self && !deleted ? user : null, heroHot);
+  const showBanner =
+    !self && !deleted && !!user && !!(user.bannerUrl || user.profileColor || user.accentColor);
 
   // Fresh profile (about/phone/presence may have changed since the chat list loaded).
   useEffect(() => {
@@ -397,7 +410,7 @@ function ContactInfo({
   };
 
   return (
-    <div className="flex min-h-full flex-col bg-app" data-testid="contact-info">
+    <div className="flex min-h-full flex-col bg-surface pb-4" data-testid="contact-info">
       <PaneHeader
         title={self ? 'Message yourself' : 'Contact info'}
         back={onClose}
@@ -414,23 +427,56 @@ function ContactInfo({
         }
       />
 
-      {/* Hero */}
-      <section className="flex flex-col items-center bg-surface px-6 pt-7 pb-5 text-center">
+      {/* Hero: the banner (or profile colours) with the avatar overlapping it. */}
+      <section
+        className="flex flex-col items-center bg-surface pb-5 text-center"
+        data-animate-avatars
+        onPointerEnter={() => setHeroHot(true)}
+        onPointerLeave={() => setHeroHot(false)}
+        onFocus={() => setHeroHot(true)}
+        onBlur={() => setHeroHot(false)}
+      >
+        {showBanner && user ? (
+          <div
+            className="relative w-full"
+            style={{
+              aspectRatio: '5 / 2',
+              background: profileGradient(user.profileColor, user.accentColor),
+              borderBottom: user.accentColor ? `3px solid ${user.accentColor}` : undefined,
+            }}
+            data-testid="contact-banner"
+          >
+            {banner ? (
+              <img src={banner} alt="" className="size-full object-cover" draggable={false} />
+            ) : null}
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={() => avatarSrc && setPhotoOpen(true)}
           disabled={!avatarSrc}
-          className="rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand disabled:cursor-default"
+          className={cn(
+            'rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand disabled:cursor-default',
+            showBanner ? '-mt-[72px] bg-surface ring-4 ring-surface' : 'mt-7',
+          )}
           aria-label={avatarSrc ? `View ${name}'s photo` : undefined}
         >
           {self && me ? (
-            <Avatar src={me.avatarUrl} name={me.displayName} colorSeed={me.id} size="3xl" />
+            <Avatar
+              src={me.avatarUrl}
+              animatedSrc={me.avatarAnimatedUrl}
+              name={me.displayName}
+              colorSeed={me.id}
+              size="3xl"
+            />
+          ) : user && !deleted ? (
+            <UserAvatar user={user} size="3xl" showPresence />
           ) : (
             <ChatAvatar chat={chat} size="3xl" />
           )}
         </button>
         <h2
-          className="mt-4 text-[24px] leading-tight font-semibold break-words text-fg"
+          className="mt-4 px-6 text-[24px] leading-tight font-semibold break-words text-fg"
           data-testid="contact-name"
         >
           {name}
@@ -438,9 +484,17 @@ function ContactInfo({
         {!self && user && !deleted ? (
           <>
             {user.contactName && user.contactName !== user.displayName ? (
-              <p className="mt-0.5 text-[14px] text-muted">~{user.displayName}</p>
+              <p className="mt-0.5 px-6 text-[14px] text-muted">~{user.displayName}</p>
             ) : null}
-            <p className="mt-1 text-[15px] text-muted">{user.phone ?? `@${user.username}`}</p>
+            <p className="mt-1 px-6 text-[15px] text-muted">
+              {user.phone ?? `@${user.username}`}
+              {user.pronouns ? (
+                <>
+                  {' · '}
+                  <span data-testid="contact-pronouns">{user.pronouns}</span>
+                </>
+              ) : null}
+            </p>
           </>
         ) : null}
         {self ? <p className="mt-1 text-[15px] text-muted">Message yourself</p> : null}
@@ -451,7 +505,7 @@ function ContactInfo({
         ) : null}
 
         {!self && !deleted && user ? (
-          <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <div className="mt-5 flex flex-wrap justify-center gap-3 px-6">
             {chat.permissions.canCall ? (
               <>
                 <QuickAction
@@ -496,15 +550,33 @@ function ContactInfo({
         </Card>
       ) : user ? (
         <Card>
+          {user.bio ? (
+            <div className="px-5 py-3">
+              <p className="section-label mb-1">About me</p>
+              <p
+                className="mt-0.5 text-[15.5px] leading-relaxed break-words whitespace-pre-wrap text-fg"
+                data-testid="contact-bio"
+              >
+                {user.bio}
+              </p>
+            </div>
+          ) : null}
           {user.about ? (
             <div className="px-5 py-3">
-              <p className="text-[13px] text-muted">About</p>
+              <p className="section-label mb-1">About</p>
               <p className="mt-0.5 text-[15.5px] break-words text-fg" data-testid="contact-about">
                 {user.about}
               </p>
             </div>
           ) : null}
           <Row icon={AtSign} title={`@${user.username}`} subtitle="Username" />
+          {user.createdAt ? (
+            <Row
+              icon={CalendarDays}
+              title={formatMonthYear(user.createdAt)}
+              subtitle="Member since"
+            />
+          ) : null}
         </Card>
       ) : null}
 
@@ -572,6 +644,14 @@ function ContactInfo({
               <ChevronRight size={18} className="text-subtle" aria-hidden />
             ) : undefined
           }
+        />
+        <Row
+          icon={Palette}
+          title="Chat theme"
+          subtitle={chatThemeLabel(chat)}
+          onClick={() => setThemeOpen(true)}
+          end={<ChevronRight size={18} className="text-subtle" aria-hidden />}
+          testId="chat-theme-row"
         />
       </Card>
 
@@ -678,6 +758,7 @@ function ContactInfo({
       />
       <MediaLightbox m={lightbox} onClose={() => setLightbox(null)} />
       <EditContactDialog user={editing} onClose={() => setEditing(null)} />
+      {themeOpen ? <ChatThemeSheet chat={chat} onClose={() => setThemeOpen(false)} /> : null}
     </div>
   );
 }

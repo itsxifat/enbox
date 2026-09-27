@@ -66,7 +66,7 @@ export function ChannelComposer({ chat }: { chat: ChatSummary }) {
   return (
     <form
       onSubmit={send}
-      className="flex shrink-0 items-end gap-2 border-t border-line bg-surface px-3 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]"
+      className="card-inset mx-2 mt-2 mb-[max(8px,env(safe-area-inset-bottom))] flex shrink-0 items-end gap-2 px-3 py-2 shadow-bubble sm:mx-3 sm:mb-[max(12px,env(safe-area-inset-bottom))]"
       aria-label="New post"
     >
       <DropdownMenu

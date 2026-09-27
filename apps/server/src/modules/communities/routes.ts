@@ -56,7 +56,7 @@ import {
 } from '../../services/communities.js';
 import { transact } from '../../services/effects.js';
 import { generateUniqueInviteCode } from '../../services/invites.js';
-import { mediaUrl, requireAvatarMedia } from '../../services/media.js';
+import { requireAvatarMedia, staticMediaUrl } from '../../services/media.js';
 import { changeRole, transferOwnership, upsertMembership } from '../../services/membership.js';
 import { toChatSummary } from '../../services/summaries.js';
 import { postSystemMessage } from '../../services/system.js';
@@ -241,7 +241,7 @@ router.patch('/communities/:communityId', async (req, res) => {
         ? await requireAvatarMedia(tx, body.avatarMediaId, me)
         : null;
       set.avatarMediaId = avatar?.id ?? null;
-      changes.avatarUrl = avatar ? mediaUrl(avatar.storageKey) : null;
+      changes.avatarUrl = avatar ? staticMediaUrl(avatar) : null;
       events.push({ kind: 'avatar_changed', actorId: me });
     }
     if (events.length === 0) return;

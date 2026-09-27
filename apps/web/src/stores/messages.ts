@@ -58,6 +58,7 @@ import {
   type SendMessageRequest,
 } from '@enbox/shared';
 import { api } from '@/lib/api';
+import { arrivalKey, markArrival } from '@/lib/arrivals';
 import { isLocalId, localMessageId, newClientId } from '@/lib/ids';
 import { revokeObjectUrl } from '@/lib/media';
 import { registerSessionReset, sessionEpoch } from '@/lib/session';
@@ -819,6 +820,7 @@ export const useMessages = create<MessagesState>((set, get) => {
         failed: false,
       };
       touch(chatId);
+      markArrival(arrivalKey(message));
       update(chatId, (s) => ({ items: upsertInto(s.items, message) }));
       // Chat list shows the outgoing message immediately (with a clock icon) — unless the
       // server already confirmed this send.

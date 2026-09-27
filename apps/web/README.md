@@ -117,6 +117,18 @@ export const callsRoutes: RouteObject[] = [
 - Tabs: `components/layout/tabs.ts` (`TABS`, `activeTab(pathname)`); badges from
   `useTabBadges()` (unread chats count; Updates dot for unseen status/unread channels).
 - Use `useIsDesktop()` (≥ 1024px, same as Tailwind `lg`) for layout decisions in JS.
+- **Layout cards** (`index.css`, "Layout cards"): on desktop the nav rail, the list pane, the
+  main pane and the info `Sheet` are separate rounded cards (`.card-pane`: `--radius-card`,
+  `--card-shadow`) on the `bg-app` background with a `--pane-gap` between them — no 1px
+  `border-r` / `border-b` pane separators anywhere. Grouped blocks inside a card (settings
+  groups, info panel sections, the profile card's identity block, the composer, pinned /
+  connection chips) are `.card-inset`; section titles use `.section-label` (Discord-style
+  uppercase). List rows (`ListItem`, chat / call / settings rows) are rounded `mx-2 my-0.5`
+  rows with `hover:bg-hover` / `bg-selected` instead of full-width dividers. Phones keep
+  full-bleed panes with the same rounded headers and rows; `BottomTabs` floats as a rounded
+  card above the safe area. `PaneHeader`'s `border` prop is kept for callers but draws
+  nothing. The nav rail is Discord-style: 44px tiles, a pill indicator on the left edge,
+  red badges, the self avatar at the bottom.
 
 ## Calling the API (`lib/api.ts`)
 
@@ -145,16 +157,16 @@ Zustand stores are the contract between features. Use selectors (`useChats((s) =
 and the provided hooks; call actions via `useX.getState().action()` outside React. Every
 per-account store registers a reset in `lib/session.ts`, run on logout.
 
-| Store                       | State                                                                                                                                        | Actions / hooks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auth`                      | `token`, `user: UserSelf \| null`, `status: 'booting'\|'authenticated'\|'anonymous'`, `bootError`                                            | `bootstrap()`, `login(req)`, `register(req)`, `logout({ remote? })`, `setUser(u)`, `patchUser(p)`; `useMe()`, `getMe()`, `getMyId()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `chats`                     | `byId`, `loaded`, `loading`, `error`, `typing[chatId][userId]`, `pins[chatId]`, `openChatId`                                                 | `loadChats({ fresh? })` (changes applied while it is in flight are replayed onto the snapshot; `fresh` never reuses an in-flight request), `refreshChat(id)`, `upsertChat(s)` (an older summary keeps the newer preview/unread), `patchChat(id, p)` (a direct chat's `permissions` follow its `peer`), `mutateChat(id, chat => partial)` (relative changes: counters, watermarks), `applyChatUpdate(id, changes)` (`chat:updated`; recomputes `permissions`), `removeChat(id)`, `setTyping(chatId, userId, state)` (auto-expires), `clearTyping()`, `setPins`, `forgetPins`, `resetPins`, `setOpenChat`; `useSortedChats({ archived?, filter?: 'all'\|'unread'\|'groups', kind?: 'chats'\|'channels'\|'all', query? })` (pinned first, then `lastActivityAt` desc), `useChat(id)`, `getChat(id)`, `useTypingUsers(chatId)`, `useUnreadChatsCount()`, `isChatUnread(c)` |
-| `messages`                  | `byChat[chatId]: { items, hasMoreBefore, hasMoreAfter, loaded, loadingLatest, loadingBefore, loadingAfter, error }`                          | `loadLatest(chatId, { fresh? })`, `loadOlder`, `loadNewer`, `loadAround(chatId, seq)` (pages' side-loaded `users` go to the users store; messages received while a page is in flight are kept), `upsertMessage(m, { onlyIfPresent })` (keeps `starred`/`myReaction`/`poll.myOptionIds`, see `mergeMessage`), `upsertMessages`, `patchMessage`, `removeMessages`, `markQuotesDeleted(messageId)`, `clearChat(chatId, clearedSeq)`, `dropChat`, `discardConfirmed` (keeps unsent messages); windows of closed chats are trimmed/evicted (`MAX_CACHED_WINDOWS`) and `blob:` URLs of removed messages revoked, `addOptimistic`, `patchOptimistic`, `markFailed`, `removeOptimistic`, `sendMessage(chatId, req, { optimistic })`, `retryMessage`; `useChatMessages(chatId)`. Type `ClientMessage = Message & { pending?, failed?, localUrl?, uploadProgress? }`             |
-| `users`                     | `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>` (`online: null` = hidden)                                                   | `upsertUsers`, `fetchUser(id, { force })` (deduped), `fetchUsers(ids, { force })` (batched `POST /api/users/batch`, one request per tick), `invalidateUser`, `setPresence`, `subscribePresence(ids)` / `unsubscribePresence(ids)` (ref-counted, coalesced into batched emits under the per-socket rate limit, retried on rejection, unsubscribed after a linger; re-sent on reconnect); `useUser(id)` (auto-fetch), `usePresence(id)` (auto-subscribe), `useUserName(id)`, `nameOf(id)`                                                                                                                                                                                                                                                                                                                                                                                |
-| `ui` (persisted `enbox.ui`) | `theme`, `resolvedTheme`, `prefs: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications }`, `toasts`, `dialogs` | `setTheme`, `setPref(key, value)`; imperative `toast.success/error/info`, `confirm({...}) → Promise<boolean>`, `choose({ options }) → Promise<value \| null>`; `WALLPAPERS`, `FONT_SIZES`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `calls` _(agent 4)_         | `incoming: IncomingCallPayload \| null`, `active: ActiveCall \| null`                                                                        | `setIncoming`, `setActive`, `patchActive`, `startCall(chatId, type, userIds?)`, `acceptIncoming()`, `declineIncoming()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `status` _(agent 4)_        | `feed: StatusFeed \| null`, `loaded`                                                                                                         | `loadFeed()`, `applyNew`, `applyDeleted`, `applyViewed`; `useHasUnseenStatus()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `communities` _(agent 3)_   | `byId`, `loaded`                                                                                                                             | `loadCommunities()`, `refreshCommunity(id)`, `upsertCommunity`, `removeCommunity`; `useSortedCommunities()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Store                       | State                                                                                                                                                                                                                                | Actions / hooks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth`                      | `token`, `user: UserSelf \| null`, `status: 'booting'\|'authenticated'\|'anonymous'`, `bootError`                                                                                                                                    | `bootstrap()`, `login(req)`, `register(req)`, `logout({ remote? })`, `setUser(u)`, `patchUser(p)`; `useMe()`, `getMe()`, `getMyId()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `chats`                     | `byId`, `loaded`, `loading`, `error`, `typing[chatId][userId]`, `pins[chatId]`, `openChatId`                                                                                                                                         | `loadChats({ fresh? })` (changes applied while it is in flight are replayed onto the snapshot; `fresh` never reuses an in-flight request), `refreshChat(id)`, `upsertChat(s)` (an older summary keeps the newer preview/unread), `patchChat(id, p)` (a direct chat's `permissions` follow its `peer`), `mutateChat(id, chat => partial)` (relative changes: counters, watermarks), `applyChatUpdate(id, changes)` (`chat:updated`; recomputes `permissions`), `removeChat(id)`, `setTyping(chatId, userId, state)` (auto-expires), `clearTyping()`, `setPins`, `forgetPins`, `resetPins`, `setOpenChat`; `useSortedChats({ archived?, filter?: 'all'\|'unread'\|'groups', kind?: 'chats'\|'channels'\|'all', query? })` (pinned first, then `lastActivityAt` desc), `useChat(id)`, `getChat(id)`, `useTypingUsers(chatId)`, `useUnreadChatsCount()`, `isChatUnread(c)` |
+| `messages`                  | `byChat[chatId]: { items, hasMoreBefore, hasMoreAfter, loaded, loadingLatest, loadingBefore, loadingAfter, error }`                                                                                                                  | `loadLatest(chatId, { fresh? })`, `loadOlder`, `loadNewer`, `loadAround(chatId, seq)` (pages' side-loaded `users` go to the users store; messages received while a page is in flight are kept), `upsertMessage(m, { onlyIfPresent })` (keeps `starred`/`myReaction`/`poll.myOptionIds`, see `mergeMessage`), `upsertMessages`, `patchMessage`, `removeMessages`, `markQuotesDeleted(messageId)`, `clearChat(chatId, clearedSeq)`, `dropChat`, `discardConfirmed` (keeps unsent messages); windows of closed chats are trimmed/evicted (`MAX_CACHED_WINDOWS`) and `blob:` URLs of removed messages revoked, `addOptimistic`, `patchOptimistic`, `markFailed`, `removeOptimistic`, `sendMessage(chatId, req, { optimistic })`, `retryMessage`; `useChatMessages(chatId)`. Type `ClientMessage = Message & { pending?, failed?, localUrl?, uploadProgress? }`             |
+| `users`                     | `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>` (`online/state/note/lastSeenAt`; `online: null` = hidden; seeded from `UserPublic.presenceState/presenceNote`)                                                      | `upsertUsers`, `fetchUser(id, { force })` (deduped), `fetchUsers(ids, { force })` (batched `POST /api/users/batch`, one request per tick), `invalidateUser`, `setPresence` (field-wise compare incl. state/note), `subscribePresence(ids)` / `unsubscribePresence(ids)` (ref-counted, coalesced into batched emits under the per-socket rate limit, retried on rejection, unsubscribed after a linger; re-sent on reconnect); `useUser(id)` (auto-fetch), `usePresence(id)` (auto-subscribe), `useUserName(id)`, `nameOf(id)`                                                                                                                                                                                                                                                                                                                                          |
+| `ui` (persisted `enbox.ui`) | `theme`, `resolvedTheme`, `prefs: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications, reduceMotion: 'system'\|'on'\|'off', autoplayAnimatedMedia: 'always'\|'hover'\|'never' }`, `toasts`, `dialogs` | `setTheme`, `setPref(key, value)`; imperative `toast.success/error/info`, `confirm({...}) → Promise<boolean>`, `choose({ options }) → Promise<value \| null>`; `WALLPAPERS`, `FONT_SIZES`. `applyAppearance` mirrors `reduceMotion` on `<html data-reduce-motion>` (index.css clamps animations for `'on'` like `prefers-reduced-motion`); read it through `useReducedMotion()` (hooks/useMediaQuery.ts: media query OR pref `'on'`, pref `'off'` overrides the OS)                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `calls` _(agent 4)_         | `incoming: IncomingCallPayload \| null`, `active: ActiveCall \| null`                                                                                                                                                                | `setIncoming`, `setActive`, `patchActive`, `startCall(chatId, type, userIds?)`, `acceptIncoming()`, `declineIncoming()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `status` _(agent 4)_        | `feed: StatusFeed \| null`, `loaded`                                                                                                                                                                                                 | `loadFeed()`, `applyNew`, `applyDeleted`, `applyViewed`; `useHasUnseenStatus()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `communities` _(agent 3)_   | `byId`, `loaded`                                                                                                                                                                                                                     | `loadCommunities()`, `refreshCommunity(id)`, `upsertCommunity`, `removeCommunity`; `useSortedCommunities()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Components never talk to the socket directly; use `lib/socket.ts` helpers:
 `emitWithAck('call:start', payload)` (typed ack → `Promise<data>`, rejects with `ApiError`),
@@ -177,8 +189,9 @@ from `myRole`/`groupSettings`.
    **discard every cached message page** except the open chat (unsent messages stay) and the
    other chats' pin ids, reload the open chat's latest page and pins
    (never `after=` catch-up: it would miss edits/deletes/reactions/votes), mark the open chat
-   read, re-subscribe presence (subscriptions are per socket), refresh `/api/me` after a
-   reconnect, reload status/communities (calls: agent 4 refetches `/api/calls/active`). Then
+   read, re-send this device's idle state (`presence:activity`, `lib/activity.ts`) and
+   re-subscribe presence (both are per socket), refresh `/api/me` after a reconnect, reload
+   status/communities (calls: agent 4 refetches `/api/calls/active`). Then
    the bus emits `realtime:ready` — use it for your own resync.
 3. `message:new` (`{ message }` only; the server sends `chat:upsert` first when a chat becomes
    visible) → upsert the message (replacing the optimistic entry by `clientId`), update the
@@ -207,8 +220,9 @@ from `myRole`/`groupSettings`.
    `features/calls`. `call:ring-stop` (any reason) clears the incoming-call UI.
 
 Bus (`lib/bus.ts`, typed): `realtime:ready`, `chat:members-changed`, `user:changed`,
-`contacts:changed`, `blocks:changed`, `status:*`, `call:*`, `navigate`. In components:
-`useBus('contacts:changed', refetch)`.
+`contacts:changed`, `blocks:changed`, `status:*`, `call:*`, `navigate`,
+`profile:open { userId, anchor }` (the profile card, see "Profiles & presence"). In
+components: `useBus('contacts:changed', refetch)`.
 
 ## Optimistic sends
 
@@ -273,14 +287,36 @@ derives `mentions`. Bodies are discriminated by `type` and strict (no foreign fi
 variant="filled"`, `Tabs variant="chips"`), or wrap in an element that you style.
 
 UI kit (`@/components/ui`): `Avatar` (image → initials/icon fallback, deterministic color,
-`online` dot, status `ring`, `kind: user|group|channel|community`), `Badge` (99+, dot),
+`presence` badge — online dot / idle moon / dnd minus — or the legacy `online` dot, status
+`ring`, `kind: user|group|channel|community`; `animatedSrc` + `animate: 'hover'|'always'|'never'`
+plays a GIF/WebP/APNG avatar while the avatar or its closest `[data-animate-avatars]` ancestor
+is hovered/focused — never under `useReducedMotion()`, the pref `autoplayAnimatedMedia:
+'never'` or a hidden app; `src` is always the static poster; only an avatar with an
+`animatedSrc` subscribes to the prefs and the app focus, static ones render subscription-free),
+`Badge` (99+, dot),
 `Button`, `IconButton` (aria-label + native tooltip), `Input`, `Textarea` (auto-resize),
 `Field`, `Switch`, `Checkbox`, `RadioGroup`, `Modal` (focus trap, Esc, backdrop, bottom
 sheet on phones), `confirm()`/`choose()` + `DialogHost`, `Menu` (anchor element or point —
-context menus) and `DropdownMenu`, `Tabs` (underline/chips), `Sheet` (right panel on desktop,
-full screen on phones), `ListItem`/`ListSection`, `SearchInput`, `Spinner`/`PageSpinner`,
-`Skeleton`/`ListItemSkeleton`, `EmptyState`, `Tooltip`, `Toaster` + `toast`. Plus
-`components/common`: `ChatAvatar` (any chat, optional presence), `UserAvatar`, `Logo`.
+context menus) and `DropdownMenu`, `Popover` (anchored, `placement: top|bottom|left|right`
+with flip + viewport clamp, `align`, Esc via the overlay stack, outside click — a menu or
+dialog opened from inside it is not outside (`isInOverlayAbove`, overlay roots registered by
+`useOverlay`), resize; `placePopover()` is the pure geometry), `Tabs` (underline/chips), `Sheet` (right panel on
+desktop, full screen on phones), `ListItem`/`ListSection`, `SearchInput`,
+`Spinner`/`PageSpinner`, `Skeleton`/`ListItemSkeleton`, `EmptyState`, `Tooltip`, `Toaster` +
+`toast`. Plus `components/common`: `ChatAvatar` (any chat, optional presence; a direct chat's
+peer animated avatar), `UserAvatar` (`avatarAnimatedUrl` + presence state via
+`presenceBadge()`), `Logo`.
+
+Media helpers (`@/lib/media`): `probeImageFile(file)` (shared `readImageInfo` on the first
+`IMAGE_PROBE_BYTES`; a head that does not settle the frame count — a GIF, an APNG whose `acTL`
+sits behind a large chunk — is read in full up to `FULL_PROBE_MAX_BYTES` — type by bytes, not by
+name; `animated` decides the upload path), `stripImageBlob(file)` (shared
+`stripImageMetadata`, best effort), `decodeAnimatedFrame(file)` (`ImageDecoder` poster
+frame). `api.upload(..., { thumbnail })` sends the poster part; `@/lib/serverConfig`
+caches `GET /api/config` (`getServerConfig()`, warmed in `main.tsx`; sync `serverConfig()`,
+`publicOrigin()` / `publicUrl(path)` for share links — `inviteUrl()` builds on it, so invite
+links carry the server's PUBLIC_URL, not an alias domain; `@/lib/push` re-exports
+`getServerConfig`).
 
 ### Icons (`@/components/icons`)
 
@@ -342,6 +378,109 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node apps/web/scripts/screenshots.mjs 
 
 ---
 
+## Profiles & presence (P1)
+
+- **Profile card** (`features/profile/`): `openProfile(userId, anchor)` (or
+  `bus.emit('profile:open', …)`) from anywhere; the one `ProfileCardHost` mounted in
+  `AppShell` renders `ProfilePopover` — a `Popover` beside the trigger on desktop with a fine
+  pointer, a titled `Modal` sheet with a close button otherwise or for `anchor: null` — closing
+  on Escape, outside click, a navigation from inside the card or any route change.
+  `ProfileCard` shows the banner (or the `profileColor → accentColor` gradient,
+  `profileGradient()`), the avatar with the presence badge (`animate="always"`: the card is
+  the one surface where animated media always plays; `ContactInfoPanel` and `/u/:username`
+  mark their hero `data-animate-avatars` and pass its hover/focus to `useProfileBannerSrc`, so
+  avatar and banner animate there only while it is hovered or focused), name / saved name,
+  `@username · pronouns`, the custom status, "About me" (bio), about, member since
+  (`UserPublic.createdAt`), groups in common (`GET /api/users/:id/common-groups`) and the
+  actions: Message (`POST /api/chats/direct` → navigate), Voice / Video (when the cached
+  direct chat's `permissions.canCall` allows), Add / Edit contact, Block / Unblock, "View full
+  profile" (`/u/:username`). Fields hidden by privacy arrive as `null` and are not rendered.
+  Opened from: message sender names and avatars (`MessageRow`, buttons "Profile of X"),
+  `@mentions` (`RichText`), group / community member "View", the nav-rail avatar and the
+  Settings profile-card avatar (the **self card**: `AvailabilityPicker`, "Set a custom status",
+  Edit profile). The status and contact dialogs are rendered by the host, outside the popover
+  (a click inside them would otherwise close it). `preview` mode (no actions) is the live
+  preview at the top of Settings → Profile; `selfCardUser(me)` maps `UserSelf` onto the card.
+- **Availability & custom status** (`features/profile/presenceApi.ts`): `setAvailability(a,
+until)` → `PUT /api/me/presence`, `setPresenceNote` / `clearPresenceNote` →
+  `PUT|DELETE /api/me/presence-note`; the echoed `UserSelf` replaces the cached one. The
+  picker offers Online / Idle / Do not disturb / Invisible, the last three for 30 min / 1 h /
+  8 h / until changed; the note dialog takes an emoji (lazy emoji picker), text ≤
+  `PRESENCE_NOTE_MAX_LENGTH` and clears after 30 min / 1 h / 4 h / today / never.
+- **Presence** (`stores/users.ts`): entries carry `state` and `note` (seeded from
+  `UserPublic.presenceState/presenceNote`, kept live by `presence:update`; `samePresence`
+  compares them). `formatLastSeen` labels `idle` / `do not disturb` and appends an active note
+  (`activePresenceNote`), so chat headers, contact info and `/u/:username` show them; avatars
+  with `showPresence` show the glyphs. **Idle**: `lib/activity.ts` watches pointer / keyboard /
+  wheel / touch input and page visibility, sends `presence:activity { idle }` on transitions
+  (after `PRESENCE_IDLE_AFTER_MS` without input, or `PRESENCE_HIDDEN_IDLE_MS` hidden — a quick
+  tab switch sends nothing; transitions closer together than `SEND_MIN_INTERVAL_MS` become one
+  trailing send of the latest state, so the server's per-socket limit is never reached) and
+  re-sends the state on every `ready` (`resyncUsers`); started by `registerUserHandlers`,
+  stopped with the session.
+  **Do not disturb** (`isDnd(me)`): `notifyIncoming` plays no sound and shows no notification
+  (badges unaffected) and an incoming call is forced `silent` (silenced card, no ringtone, no
+  `call:ringing`).
+- **Settings → Profile**: preview card, `BannerEditor`, `AvatarEditor`, rows for name, pronouns
+  (`profile/pronouns`), about, bio (`profile/bio`, textarea + preview), profile colours
+  (`profile/colours`, hex fields validated with `hexColorSchema`, native pickers, presets,
+  preview), username, phone. `updateProfile` applies the text / colour fields optimistically
+  and reverts them on failure. Tests: `features/profile/*.test.tsx`, `lib/activity.test.ts`,
+  `settings/profile/ProfilePage.test.tsx` + `ProfileFieldPages.test.tsx`; e2e
+  `e2e/profile.spec.ts` (`gifFixture()` in `e2e/helpers.ts` builds an animated GIF).
+
+## Chat themes & animations (P2)
+
+- **Precedence** (`features/appearance/useChatAppearance(chat)`), resolved field by field —
+  a `null` field falls through: the viewer's private override (`chat.theme`, plus
+  `chat.wallpaper` for `{ kind: 'media' }`) > the chat's shared theme (`chat.sharedTheme`) >
+  device prefs (`useUi().prefs`: theme preset, bubble style, message animation, wallpaper
+  preset / dim / blur, `reduceMotion`, `autoplayAnimatedMedia`) > the design tokens;
+  `dim`/`blur` come from the layer that supplies the wallpaper. Presets (`presets.ts`, a
+  light + dark pair per `CHAT_THEME_PRESETS` id, re-resolved with `resolvedTheme`) map to CSS
+  variables (`--bubble-out/-in/-out-meta/-in-meta`, `--wallpaper`, `--wallpaper-ink`,
+  `--brand-soft`, `--tick-read`); the hook returns `{ style, data }`, applied on the
+  **Conversation root** (`ConversationPane`, `ChannelPane`, the settings `ChatPreview`) so
+  every row inherits them without props or re-renders; portaled overlays (`MessageInfoSheet`)
+  get the same `style` explicitly. **No user string ever reaches CSS**: a theme is enum ids
+  plus one validated `#rrggbb` (`chatThemeSchema`); a custom accent is accent-only and
+  clamped by `contrastOk()` (meta colours via `color-mix`, `SystemPill` keeps
+  `bg-surface/95`); presets are curated pairs.
+- **`ChatBackground`** — first child of the `.chat-wallpaper` container,
+  `absolute inset-0 pointer-events-none`, `aria-hidden`, behind the virtualised list: flat
+  colours and the animated presets (`aurora`, `drift`, `starfield`, `waves`: transform/opacity
+  keyframes in `appearance.css`, loaded lazily) via CSS; an uploaded wallpaper as `<img>` or a
+  muted, looping, `playsInline` `<video>` (`data-testid="chat-background"`); then the dim
+  overlay (`dim` %) and the optional backdrop blur (`blur` px). Under `useReducedMotion()` or
+  while `!useAppVisible()` a GIF/video shows its poster (`thumbnailUrl`) and the animated
+  presets stand still.
+- **Bubble styles** are CSS keyed on `[data-bubble-style]` (`classic`, `rounded`, `minimal`:
+  `MessageRow` chrome and tail); `cozy` renders `CozyMessageRow` instead (40 px avatar, name
+  - time header on the first message of a run, no bubble background, hover toolbar), chosen
+    in `MessageList.renderRow` from a context set on the root — never per-row props.
+- **Enter animations** (`messageAnimation`: `fade` / `slide` / `pop`, `--animate-msg-*`) play
+  only for **live arrivals**: `lib/arrivals.ts` `markArrival(rowKey)` is called by
+  `addOptimistic` and `handleNewMessage` (`message:new`); a row reads it once in a `useState`
+  initializer and animates an **inner wrapper** (never the Virtuoso item, never the swipe
+  transform div) only when the arrival is < 1.5 s old. Initial load, `loadOlder` /
+  `loadAround`, the reconnect resync and an epoch remount (`key={epoch}`) never animate; the
+  `[data-reduce-motion]` clamp turns them off. Reaction pops are keyed by count.
+- **Editing** — `ChatThemeSheet` (Sheet on phones, Modal on desktop) from the conversation
+  header menu, `ContactInfoPanel` "Chat settings" and `GroupInfoPanel` preferences. The
+  private side saves through `patchPrefs`
+  (`PATCH /api/chats/:id/prefs { theme, wallpaperMediaId }`, optimistic with rollback; the
+  echoed `chat:upsert` syncs my other devices, nothing reaches the peer); the shared side
+  through `PUT /api/chats/:id/theme` (offered only with `permissions.canEditInfo`; everyone
+  then gets `chat:updated { sharedTheme }` and the `theme_changed` system message; built-in
+  wallpapers only). A wallpaper upload goes through `probeImageFile` / `readVideoMeta` and
+  `api.upload(..., { thumbnail })` with a poster (`decodeAnimatedFrame` for GIFs, a captured
+  frame for videos) within `MAX_WALLPAPER_BYTES` / `MAX_WALLPAPER_VIDEO_BYTES` /
+  `MAX_WALLPAPER_VIDEO_MS`; the server answers 400 for the rest and 404 for media that isn't
+  mine. Settings → Chats groups Theme / Bubble style / Wallpaper / Animations (device
+  defaults) with a live `ChatPreview`. Tests: `stores/ui.test.ts`,
+  `features/appearance/*.test.ts(x)`, `lib/arrivals.test.ts`, `MessageRow.test.tsx` (no
+  animation class on remount); e2e `e2e/chat-themes.spec.ts`.
+
 ## Groups, communities, channels & invites (agent 3)
 
 Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/new`,
@@ -355,7 +494,8 @@ Routes: `/new/group` (two-step create), `/communities` (list) → `/communities/
 - **Reusable pieces** (`features/groups/shared/`): `UserPicker` (contacts + recent chats +
   user search, chips), `EditableAvatar` + `AvatarCropModal` (crop → canvas JPEG ≤
   AVATAR_MAX_DIMENSION → upload), `InviteLinkView`, `AddResultModal` (needsInvite / failed),
-  `MediaGalleryView`, `StarredView`, `UserProfileModal`, `InfoLayout` rows, mute /
+  `MediaGalleryView`, `StarredView`, `UserProfileModal` (now a thin forwarder to the
+  app-wide profile card — prefer `openProfile()`), `InfoLayout` rows, mute /
   disappearing / edit dialogs, and `chatActions.ts` (REST calls that update the stores).
 - **Communities store** (appended actions): `createCommunity`, `updateCommunity`,
   `deactivateCommunity`, `leaveCommunity`, `createCommunityGroup`, `linkGroups`, `unlinkGroup`,

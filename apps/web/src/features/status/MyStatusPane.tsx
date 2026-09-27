@@ -71,7 +71,7 @@ export function MyStatusPane() {
               {newest.map((s) => (
                 <div
                   key={s.id}
-                  className="group/li flex items-center gap-3 px-3 hover:bg-hover lg:px-3.5"
+                  className="group/li mx-2 my-0.5 flex items-center gap-3 rounded-xl px-2.5 hover:bg-hover"
                 >
                   <button
                     type="button"
@@ -84,7 +84,7 @@ export function MyStatusPane() {
                     <span className="size-12 shrink-0 overflow-hidden rounded-full ring-2 ring-line-strong ring-offset-2 ring-offset-surface">
                       <StatusThumb status={s} size={48} />
                     </span>
-                    <span className="min-w-0 flex-1 border-b border-line py-2 group-last/li:border-transparent">
+                    <span className="min-w-0 flex-1 py-2">
                       <span className="block truncate text-[15.5px] font-medium text-fg">
                         {s.type === 'text'
                           ? s.text

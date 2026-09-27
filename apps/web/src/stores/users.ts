@@ -5,8 +5,8 @@
  * State: `byId: Record<ID, UserPublic>`, `presence: Record<ID, Presence>`
  *
  * Actions
- * - `upsertUsers(users)`         merge profiles (also seeds presence from `online/lastSeenAt`;
- *                                `online: null` = hidden by the user's privacy settings)
+ * - `upsertUsers(users)`         merge profiles (also seeds presence from `online/presenceState/
+ *                                presenceNote/lastSeenAt`; `online: null` = hidden by privacy)
  * - `fetchUser(id, { force })`   GET /api/users/:id (deduped in flight; cached unless force)
  * - `fetchUsers(ids, { force })` batched POST /api/users/batch: ids requested in the same tick
  *                                are coalesced into one request (≤ MAX_USERS_BATCH per call);
@@ -39,6 +39,7 @@ import {
   userDisplayName,
   type ID,
   type Presence,
+  type PresenceNote,
   type UserPublic,
 } from '@enbox/shared';
 import { api } from '@/lib/api';
@@ -102,8 +103,20 @@ function enqueueBatch(ids: ID[]): Promise<void> {
   return batch.promise;
 }
 
+function sameNote(a: PresenceNote | null, b: PresenceNote | null): boolean {
+  if (!a || !b) return a === b;
+  return a.text === b.text && a.emoji === b.emoji && a.expiresAt === b.expiresAt;
+}
+
+/** Field-wise equality (state and note included): unchanged presence never re-renders rows. */
 function samePresence(a: Presence | undefined, b: Presence): boolean {
-  return !!a && a.online === b.online && a.lastSeenAt === b.lastSeenAt;
+  return (
+    !!a &&
+    a.online === b.online &&
+    a.state === b.state &&
+    a.lastSeenAt === b.lastSeenAt &&
+    sameNote(a.note, b.note)
+  );
 }
 
 export const useUsers = create<UsersState>((set, get) => ({
@@ -117,7 +130,13 @@ export const useUsers = create<UsersState>((set, get) => ({
       let presence = s.presence;
       for (const u of users) {
         byId[u.id] = { ...byId[u.id], ...u };
-        const p: Presence = { userId: u.id, online: u.online, lastSeenAt: u.lastSeenAt };
+        const p: Presence = {
+          userId: u.id,
+          online: u.online,
+          state: u.presenceState,
+          note: u.presenceNote,
+          lastSeenAt: u.lastSeenAt,
+        };
         if (!samePresence(presence[u.id], p)) {
           if (presence === s.presence) presence = { ...presence };
           presence[u.id] = p;

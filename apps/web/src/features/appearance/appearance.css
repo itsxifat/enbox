@@ -1,0 +1,182 @@
+/*
+ * Animated wallpaper presets (features/appearance/ChatBackground.tsx), loaded lazily the
+ * first time a ChatBackground mounts. Each preset is layers of gradients on ::before/::after
+ * moved with transform/opacity keyframes only (compositor-friendly). The layers stand still
+ * unless the element carries `data-motion="on"` (app visible and motion allowed), and the
+ * global reduced-motion clamp (index.css) covers the rest.
+ */
+
+.wp-anim {
+  overflow: hidden;
+  background-color: var(--wallpaper);
+}
+.wp-anim::before,
+.wp-anim::after {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* Aurora: two soft colour bands drifting across each other. */
+.wp-aurora::before {
+  background:
+    radial-gradient(45% 40% at 20% 30%, rgb(124 92 255 / 0.35), transparent 70%),
+    radial-gradient(40% 45% at 75% 65%, rgb(56 189 248 / 0.3), transparent 70%);
+  filter: blur(40px);
+}
+.wp-aurora::after {
+  background:
+    radial-gradient(35% 45% at 70% 25%, rgb(52 211 153 / 0.28), transparent 70%),
+    radial-gradient(40% 35% at 25% 75%, rgb(244 114 182 / 0.22), transparent 70%);
+  filter: blur(40px);
+}
+.wp-aurora[data-motion='on']::before {
+  animation: wp-aurora-a 22s ease-in-out infinite alternate;
+}
+.wp-aurora[data-motion='on']::after {
+  animation: wp-aurora-b 28s ease-in-out infinite alternate;
+}
+@keyframes wp-aurora-a {
+  from {
+    transform: translate3d(-6%, -4%, 0) rotate(-4deg);
+  }
+  to {
+    transform: translate3d(8%, 6%, 0) rotate(5deg);
+  }
+}
+@keyframes wp-aurora-b {
+  from {
+    transform: translate3d(6%, 5%, 0) scale(1.05);
+  }
+  to {
+    transform: translate3d(-7%, -6%, 0) scale(0.95);
+  }
+}
+
+/* Drift: large translucent circles floating slowly. */
+.wp-drift::before {
+  background:
+    radial-gradient(circle at 15% 20%, rgb(109 93 252 / 0.16) 0 120px, transparent 121px),
+    radial-gradient(circle at 80% 30%, rgb(109 93 252 / 0.1) 0 90px, transparent 91px),
+    radial-gradient(circle at 40% 80%, rgb(109 93 252 / 0.12) 0 140px, transparent 141px);
+}
+.wp-drift::after {
+  background:
+    radial-gradient(circle at 70% 75%, rgb(56 189 248 / 0.12) 0 110px, transparent 111px),
+    radial-gradient(circle at 30% 50%, rgb(244 114 182 / 0.1) 0 70px, transparent 71px);
+}
+.wp-drift[data-motion='on']::before {
+  animation: wp-drift-a 36s ease-in-out infinite alternate;
+}
+.wp-drift[data-motion='on']::after {
+  animation: wp-drift-b 30s ease-in-out infinite alternate;
+}
+@keyframes wp-drift-a {
+  to {
+    transform: translate3d(5%, -6%, 0);
+  }
+}
+@keyframes wp-drift-b {
+  to {
+    transform: translate3d(-6%, 5%, 0);
+  }
+}
+
+/* Starfield: two dot layers twinkling and sliding at different speeds. */
+.wp-starfield::before,
+.wp-starfield::after {
+  background-image:
+    radial-gradient(rgb(255 255 255 / 0.55) 1px, transparent 1.5px),
+    radial-gradient(rgb(255 255 255 / 0.35) 1px, transparent 1.5px);
+  background-size:
+    140px 140px,
+    90px 90px;
+  background-position:
+    0 0,
+    45px 60px;
+}
+.dark .wp-starfield::before,
+.dark .wp-starfield::after {
+  background-image:
+    radial-gradient(rgb(255 255 255 / 0.7) 1px, transparent 1.5px),
+    radial-gradient(rgb(200 210 255 / 0.45) 1px, transparent 1.5px);
+}
+:not(.dark) .wp-starfield::before,
+:not(.dark) .wp-starfield::after {
+  background-image:
+    radial-gradient(rgb(60 70 120 / 0.35) 1px, transparent 1.5px),
+    radial-gradient(rgb(60 70 120 / 0.2) 1px, transparent 1.5px);
+}
+.wp-starfield::after {
+  opacity: 0.6;
+  background-position:
+    70px 20px,
+    10px 30px;
+}
+.wp-starfield[data-motion='on']::before {
+  animation: wp-stars-a 60s linear infinite;
+}
+.wp-starfield[data-motion='on']::after {
+  animation: wp-stars-b 90s linear infinite;
+}
+@keyframes wp-stars-a {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.7;
+  }
+  to {
+    transform: translate3d(-140px, -140px, 0);
+  }
+}
+@keyframes wp-stars-b {
+  from {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  to {
+    transform: translate3d(90px, -90px, 0);
+    opacity: 0.6;
+  }
+}
+
+/* Waves: two soft bands swaying at the bottom. */
+.wp-waves::before,
+.wp-waves::after {
+  inset: auto -30% -40% -30%;
+  height: 80%;
+  border-radius: 45% 45% 0 0;
+  background: rgb(56 189 248 / 0.16);
+}
+.wp-waves::after {
+  background: rgb(109 93 252 / 0.14);
+  height: 65%;
+}
+.wp-waves[data-motion='on']::before {
+  animation: wp-waves-a 14s ease-in-out infinite alternate;
+}
+.wp-waves[data-motion='on']::after {
+  animation: wp-waves-b 18s ease-in-out infinite alternate;
+}
+@keyframes wp-waves-a {
+  from {
+    transform: translate3d(-4%, 3%, 0) rotate(-2deg);
+  }
+  to {
+    transform: translate3d(4%, -2%, 0) rotate(2deg);
+  }
+}
+@keyframes wp-waves-b {
+  from {
+    transform: translate3d(4%, 2%, 0) rotate(1.5deg);
+  }
+  to {
+    transform: translate3d(-5%, -3%, 0) rotate(-2deg);
+  }
+}

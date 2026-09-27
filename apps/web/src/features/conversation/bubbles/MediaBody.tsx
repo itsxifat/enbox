@@ -1,10 +1,19 @@
-/** Photo / video bubble content: sized preview, upload progress (cancel), play badge → viewer. */
+/**
+ * Photo / video bubble content: sized preview, upload progress (cancel), play badge → viewer.
+ * Animated images (GIF / WebP / APNG) show their poster and a GIF badge until hovered or
+ * tapped (device pref `autoplayAnimatedMedia` 'hover'), play right away ('always') or stay
+ * still ('never', reduced motion, hidden app — the viewer plays them). One without a poster
+ * (an upload that came without one) shows a still tile instead: the gates hold either way.
+ */
 import { useState, type ReactNode } from 'react';
 import { ImageOff, Play, RotateCw, X } from 'lucide-react';
 import { formatDuration } from '@enbox/shared';
+import { useAppVisible } from '@/hooks/useAppVisible';
+import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import type { ClientMessage } from '@/stores/messages';
+import { useUi } from '@/stores/ui';
 import { cancelUpload } from '../lib/sendMedia';
 
 const MAX_W = 330;
@@ -107,11 +116,21 @@ export function MediaBody({
   const media = m.media!;
   const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [hot, setHot] = useState(false);
   const box = mediaBox(media.width, media.height);
   const video = m.type === 'video';
   const uploading = !!m.pending && m.uploadProgress !== undefined && m.uploadProgress < 1;
-  const src = video ? mediaUrl(media.thumbnailUrl ?? undefined) : mediaUrl(m.localUrl ?? media.url);
-  const placeholder = !video && media.thumbnailUrl ? mediaUrl(media.thumbnailUrl) : undefined;
+  // Animated images (see the header): `media.animated`, or a GIF stored before uploads were
+  // probed (migration 0001 marks those animated too; this covers a row it did not reach).
+  const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
+  const reduceMotion = useReducedMotion();
+  const appVisible = useAppVisible();
+  const poster = media.thumbnailUrl ? mediaUrl(media.thumbnailUrl) : undefined;
+  const animated = !video && (media.animated || media.mimeType === 'image/gif');
+  const canPlay = animated && autoplay !== 'never' && !reduceMotion && appVisible;
+  const playing = canPlay && (autoplay === 'always' || hot);
+  const src = video || (animated && !playing) ? poster : mediaUrl(m.localUrl ?? media.url);
+  const placeholder = !video && !animated ? poster : undefined;
 
   return (
     <div
@@ -123,9 +142,16 @@ export function MediaBody({
         className="absolute inset-0 block size-full outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
         onClick={(e) => {
           e.stopPropagation();
-          if (!uploading && !m.failed) onOpen();
+          if (uploading || m.failed) return;
+          // The first tap on a still GIF plays it in place (touch has no hover); the next opens it.
+          if (canPlay && autoplay === 'hover' && !hot) setHot(true);
+          else onOpen();
         }}
-        aria-label={video ? 'Play video' : 'Open photo'}
+        onPointerEnter={(e) => e.pointerType !== 'touch' && canPlay && setHot(true)}
+        onPointerLeave={(e) => e.pointerType !== 'touch' && setHot(false)}
+        aria-label={
+          video ? 'Play video' : animated ? (playing ? 'Open GIF' : 'Play GIF') : 'Open photo'
+        }
       >
         {placeholder && !loaded ? (
           <img
@@ -138,7 +164,7 @@ export function MediaBody({
         {src && !broken ? (
           <img
             src={src}
-            alt={m.text ?? (video ? 'Video' : 'Photo')}
+            alt={m.text ?? (video ? 'Video' : animated ? 'GIF' : 'Photo')}
             className={cn(
               'absolute inset-0 size-full object-cover transition-opacity duration-300',
               loaded ? 'opacity-100' : 'opacity-0',
@@ -157,6 +183,15 @@ export function MediaBody({
             playsInline
             className="absolute inset-0 size-full object-cover"
           />
+        ) : animated && !broken ? (
+          // No poster to stand in: a still tile until the animation may play.
+          <span
+            className="absolute inset-0 flex items-center justify-center text-muted"
+            aria-hidden
+            data-testid="animated-still"
+          >
+            <Play size={28} className="fill-current opacity-70" />
+          </span>
         ) : (
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted">
             <ImageOff size={28} aria-hidden />
@@ -164,6 +199,15 @@ export function MediaBody({
           </span>
         )}
       </button>
+
+      {animated && !playing && !uploading && !m.failed ? (
+        <span
+          className="pointer-events-none absolute top-1.5 left-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm"
+          aria-hidden
+        >
+          GIF
+        </span>
+      ) : null}
 
       {video && !uploading && !m.failed ? (
         <>

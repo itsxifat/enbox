@@ -42,7 +42,7 @@ function StarredRow({
   return (
     <div
       className={cn(
-        'group/star relative border-b border-line px-4 py-3 transition-colors hover:bg-hover',
+        'group/star relative mx-2 my-0.5 rounded-xl px-3 py-3 transition-colors hover:bg-hover',
         active && 'bg-selected hover:bg-selected',
       )}
     >

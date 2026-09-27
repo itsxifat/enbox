@@ -42,9 +42,12 @@ import {
   toast,
   type MenuEntry,
 } from '@/components/ui';
+import { ChatBackground } from '@/features/appearance/ChatBackground';
+import { type ResolvedAppearance } from '@/features/appearance/presets';
+import { useChatAppearance } from '@/features/appearance/useChatAppearance';
 import { setMuted } from '@/features/groups/shared/chatActions';
 import { copyLink, shareLink } from '@/features/groups/shared/share';
-import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { useIsDesktop, useReducedMotion } from '@/hooks/useMediaQuery';
 import { ApiError, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatCount, formatDaySeparator, isSameLocalDay } from '@/lib/format';
@@ -99,6 +102,7 @@ function FeedFooter({ context }: { context?: FeedContext }) {
 const FEED_COMPONENTS = { Header: FeedHeader, Footer: FeedFooter };
 
 const followAtBottom = (bottom: boolean) => (bottom ? ('smooth' as const) : false);
+const followAtBottomInstant = (bottom: boolean) => (bottom ? ('auto' as const) : false);
 
 type FeedPosition = { index: number; align: 'center' | 'end' };
 
@@ -130,6 +134,7 @@ function Feed({
   jump,
   onJumped,
   empty,
+  appearance,
 }: {
   items: ClientMessage[];
   ctx: PostContext;
@@ -145,6 +150,8 @@ function Feed({
   jump?: FeedJump | null;
   onJumped?: () => void;
   empty?: ReactNode;
+  /** The channel's resolved look (wallpaper layer behind the posts). */
+  appearance?: ResolvedAppearance;
 }) {
   const virtuoso = useRef<VirtuosoHandle>(null);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -230,12 +237,16 @@ function Feed({
     }
   }, [hasMoreAfter, items]);
 
+  // An explicit `behavior: 'smooth'` overrides the CSS reduced-motion rule: honour it here.
+  const reduceMotion = useReducedMotion();
+
   return (
     <div
       ref={wrapper}
-      className="chat-wallpaper relative flex min-h-0 flex-1 flex-col"
+      className="chat-wallpaper relative mx-2 flex min-h-0 flex-1 flex-col rounded-xl sm:mx-3"
       data-testid="channel-feed"
     >
+      {appearance ? <ChatBackground appearance={appearance} /> : null}
       {items.length === 0 ? (
         <div className="flex flex-1 flex-col justify-end px-3 py-4">{empty}</div>
       ) : (
@@ -248,7 +259,13 @@ function Feed({
           initialTopMostItemIndex={track.initial}
           computeItemKey={(_, m) => rowKey(m)}
           itemContent={renderItem}
-          followOutput={showedLatest.current && !jump ? followAtBottom : false}
+          followOutput={
+            showedLatest.current && !jump
+              ? reduceMotion
+                ? followAtBottomInstant
+                : followAtBottom
+              : false
+          }
           alignToBottom
           startReached={hasMore && !loadingMore ? onLoadMore : undefined}
           endReached={hasMoreAfter && !loadingNewer ? onLoadNewer : undefined}
@@ -273,7 +290,11 @@ function Feed({
               onLatest();
               return;
             }
-            virtuoso.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+            virtuoso.current?.scrollToIndex({
+              index: 'LAST',
+              align: 'end',
+              behavior: reduceMotion ? 'auto' : 'smooth',
+            });
           }}
         />
       ) : null}
@@ -321,6 +342,8 @@ const PREVIEW_CTX: PostContext = { chat: null, reactions: 'none', canVote: false
 
 function ChannelView({ chat }: { chat: ChatSummary }) {
   const desktop = useIsDesktop();
+  // Shared theme > device prefs > tokens (channels have no private override UI yet).
+  const appearance = useChatAppearance(chat);
   const navigate = useNavigate();
   const msgs = useChatMessages(chat.id);
   const items = useVisibleItems(msgs.items);
@@ -461,7 +484,7 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col" style={appearance.style} {...appearance.data}>
       <PaneHeader
         back={desktop ? undefined : '/updates'}
         leading={<ChatAvatar chat={chat} size="md" className="mx-1" />}
@@ -486,11 +509,13 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
         }
       />
       {!msgs.loaded && msgs.loadingLatest ? (
-        <div className="chat-wallpaper flex flex-1">
+        <div className="chat-wallpaper relative mx-2 flex flex-1 rounded-xl sm:mx-3">
+          <ChatBackground appearance={appearance} />
           <PageSpinner />
         </div>
       ) : msgs.error && !msgs.loaded ? (
-        <div className="chat-wallpaper flex flex-1 items-center justify-center">
+        <div className="chat-wallpaper relative mx-2 flex flex-1 items-center justify-center rounded-xl sm:mx-3">
+          <ChatBackground appearance={appearance} />
           <EmptyState
             icon={Megaphone}
             title="Couldn't load posts"
@@ -523,12 +548,13 @@ function ChannelView({ chat }: { chat: ChatSummary }) {
           onLatest={loadLatest}
           jump={jump}
           onJumped={onJumped}
+          appearance={appearance}
         />
       )}
       {admin ? (
         <ChannelComposer chat={chat} />
       ) : (
-        <div className="flex shrink-0 items-center justify-center gap-3 border-t border-line bg-surface px-4 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))]">
+        <div className="card-inset mx-3 mt-2 mb-[max(10px,env(safe-area-inset-bottom))] flex shrink-0 items-center justify-center gap-3 px-4 py-2.5">
           <p className="text-[13px] text-muted" data-testid="channel-readonly">
             Only admins can post in this channel
           </p>
@@ -581,8 +607,8 @@ function ChannelPreviewView({ chatId }: { chatId: string }) {
 
   if (error)
     return (
-      <div className="flex min-h-0 flex-1 flex-col bg-app">
-        <PaneHeader title="Channel" back={desktop ? undefined : '/updates'} border />
+      <div className="flex min-h-0 flex-1 flex-col bg-surface">
+        <PaneHeader title="Channel" back={desktop ? undefined : '/updates'} />
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={Megaphone}
@@ -635,7 +661,7 @@ function ChannelPreviewView({ chatId }: { chatId: string }) {
       />
       <div
         className={cn(
-          'shrink-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]',
+          'card-inset mx-3 mt-2 mb-[max(12px,env(safe-area-inset-bottom))] shrink-0 px-4 py-3',
         )}
       >
         <div className="mx-auto flex max-w-3xl items-center gap-3">

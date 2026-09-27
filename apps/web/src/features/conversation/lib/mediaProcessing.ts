@@ -2,12 +2,19 @@
  * Client-side media processing before upload (docs/ARCHITECTURE.md "Media"):
  * - photos are re-encoded through a canvas (strips EXIF/GPS, applies orientation, longest
  *   side ≤ IMAGE_MAX_DIMENSION, JPEG q≈0.85) and get a JPEG thumbnail ≤ MAX_THUMBNAIL_BYTES;
- *   animated GIFs are sent as-is (re-encoding would drop the animation);
+ *   a renamed JPEG is still a photo — the file's bytes decide (`probeImageFile`), not its type;
+ * - animated images (GIF, animated WebP, APNG) keep their bytes (re-encoding would drop the
+ *   animation), metadata-stripped best effort, with a WebP poster frame as the thumbnail;
  * - videos get a poster thumbnail, duration and dimensions;
  * - documents are uploaded unchanged.
  */
-import { IMAGE_MAX_DIMENSION, MAX_THUMBNAIL_BYTES, type MediaKind } from '@enbox/shared';
-import { readVideoMeta } from '@/lib/media';
+import {
+  IMAGE_MAX_DIMENSION,
+  MAX_THUMBNAIL_BYTES,
+  type ImageInfo,
+  type MediaKind,
+} from '@enbox/shared';
+import { decodeAnimatedFrame, probeImageFile, readVideoMeta, stripImageBlob } from '@/lib/media';
 
 export interface PreparedMedia {
   kind: Exclude<MediaKind, 'voice'>;
@@ -19,6 +26,8 @@ export interface PreparedMedia {
   height?: number;
   durationMs?: number;
   thumbnail: Blob | null;
+  /** Animated image kept as-is; `thumbnail` is its poster. */
+  animated?: boolean;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
@@ -43,20 +52,27 @@ function draw(
   source: CanvasImageSource,
   width: number,
   height: number,
-  background = '#ffffff',
+  background: string | null = '#ffffff',
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas unsupported');
-  // JPEG has no alpha: flatten transparent PNGs on white instead of black.
-  ctx.fillStyle = background;
-  ctx.fillRect(0, 0, width, height);
+  // JPEG has no alpha: flatten transparent PNGs on white instead of black (WebP keeps alpha).
+  if (background) {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
+  }
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(source, 0, 0, width, height);
   return canvas;
 }
+
+export type ThumbnailFormat = 'jpeg' | 'webp';
+
+/** Whether `canvas.toBlob('image/webp')` really produces WebP here (Safari answers with a PNG). */
+let webpEncodable: boolean | null = null;
 
 /**
  * Draw and encode, then release the canvas' backing store right away (browsers cap the total
@@ -67,36 +83,54 @@ async function encode(
   width: number,
   height: number,
   quality: number,
+  format: ThumbnailFormat = 'jpeg',
 ): Promise<Blob> {
-  const canvas = draw(source, width, height);
+  const webp = format === 'webp' && webpEncodable !== false;
+  const canvas = draw(source, width, height, webp ? null : '#ffffff');
   try {
-    return await canvasToBlob(canvas, 'image/jpeg', quality);
+    if (!webp) return await canvasToBlob(canvas, 'image/jpeg', quality);
+    const blob = await canvasToBlob(canvas, 'image/webp', quality);
+    webpEncodable = blob.type === 'image/webp';
+    if (webpEncodable) return blob;
   } finally {
     canvas.width = 0;
     canvas.height = 0;
   }
+  // No WebP encoder: a flattened JPEG (the server accepts both thumbnail types).
+  return encode(source, width, height, quality, 'jpeg');
 }
 
-/** JPEG thumbnail ≤ MAX_THUMBNAIL_BYTES (shrinks quality/size until it fits). */
+export interface ThumbnailOptions {
+  /** JPEG (default, flattened on white) or WebP (keeps alpha; JPEG where WebP can't be encoded). */
+  format?: ThumbnailFormat;
+  /** Longest side of the first attempt: 480 for chat thumbnails, 960 for banner posters. */
+  max?: number;
+}
+
+/** Thumbnail ≤ MAX_THUMBNAIL_BYTES (shrinks quality/size until it fits). */
 export async function makeThumbnail(
   source: CanvasImageSource,
   width: number,
   height: number,
+  opts: ThumbnailOptions = {},
 ): Promise<Blob | null> {
-  for (const [max, q] of [
-    [480, 0.72],
-    [360, 0.62],
-    [240, 0.55],
-    [160, 0.5],
+  const max = opts.max ?? 480;
+  // 480 → 480, 360, 240, 160.
+  for (const [side, q] of [
+    [max, 0.72],
+    [max * 0.75, 0.62],
+    [max * 0.5, 0.55],
+    [max / 3, 0.5],
   ] as const) {
-    const size = scaled(width, height, max);
-    const blob = await encode(source, size.width, size.height, q);
+    const size = scaled(width, height, Math.round(side));
+    const blob = await encode(source, size.width, size.height, q, opts.format);
     if (blob.size <= MAX_THUMBNAIL_BYTES) return blob;
   }
   return null;
 }
 
-async function decodeImage(
+/** Decode with the browser (EXIF orientation applied; the first frame of an animation). */
+export async function decodeImage(
   file: Blob,
 ): Promise<{ source: CanvasImageSource; width: number; height: number; close(): void }> {
   if (typeof createImageBitmap === 'function') {
@@ -129,21 +163,64 @@ function jpegName(name: string): string {
   return `${base}.jpg`;
 }
 
+/**
+ * Poster of an animated image (its `thumbnail` part): a representative frame from
+ * `ImageDecoder` where available, else the first frame the browser decodes; WebP so
+ * transparent stickers keep their alpha. `max` 960 for banners (the poster is what most
+ * viewers see). Rejects when the image cannot be decoded; null when no size fits.
+ */
+export async function animatedPoster(
+  file: Blob,
+  opts: Pick<ThumbnailOptions, 'max'> = {},
+): Promise<Blob | null> {
+  const frame = await decodeAnimatedFrame(file);
+  const img = frame
+    ? { source: frame, width: frame.width, height: frame.height, close: () => frame.close() }
+    : await decodeImage(file);
+  try {
+    return await makeThumbnail(img.source, img.width, img.height, {
+      format: 'webp',
+      max: opts.max,
+    });
+  } finally {
+    img.close();
+  }
+}
+
+/**
+ * Animated GIF / WebP / APNG: re-encoding would drop the animation, so the bytes are kept
+ * (metadata stripped, best effort) with a poster frame as the thumbnail; the dimensions come
+ * from the header (the server verifies them again). Null when no poster could be made: an
+ * animation nothing can stand in for is not sent as one.
+ */
+async function prepareAnimatedImage(file: File, info: ImageInfo): Promise<PreparedMedia | null> {
+  const [blob, thumbnail] = await Promise.all([
+    stripImageBlob(file),
+    animatedPoster(file).catch(() => null),
+  ]);
+  if (!thumbnail) return null;
+  return {
+    kind: 'image',
+    blob,
+    fileName: file.name,
+    mimeType: info.mime,
+    width: info.width,
+    height: info.height,
+    thumbnail,
+    animated: true,
+  };
+}
+
 export async function prepareImage(file: File): Promise<PreparedMedia> {
+  const info = await probeImageFile(file);
+  if (info?.animated) {
+    const animated = await prepareAnimatedImage(file, info);
+    if (animated) return animated;
+    // No poster: sent as a still photo below (or the decode fails there like it did here).
+  }
   const img = await decodeImage(file);
   try {
     const thumbnail = await makeThumbnail(img.source, img.width, img.height).catch(() => null);
-    if (file.type === 'image/gif') {
-      return {
-        kind: 'image',
-        blob: file,
-        fileName: file.name,
-        mimeType: file.type,
-        width: img.width,
-        height: img.height,
-        thumbnail,
-      };
-    }
     const size = scaled(img.width, img.height, IMAGE_MAX_DIMENSION);
     const blob = await encode(img.source, size.width, size.height, 0.85);
     return {

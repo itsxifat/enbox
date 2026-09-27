@@ -1,6 +1,8 @@
 /**
- * Overlay plumbing shared by Modal, Sheet and Menu: a portal, an overlay stack so Escape
- * closes only the top-most layer, body scroll locking and a lightweight focus trap.
+ * Overlay plumbing shared by Modal, Sheet, Menu and Popover: a portal, an overlay stack so
+ * Escape closes only the top-most layer and an outside pointer never counts a layer opened
+ * above (every layer is a portal, so DOM containment cannot tell a nested menu from the
+ * page), body scroll locking and a lightweight focus trap.
  */
 import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,18 +12,40 @@ export function Portal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
 }
 
-const stack: string[] = [];
+interface Layer {
+  id: string;
+  /** The layer's root element (backdrop included), when the overlay registered one. */
+  root: RefObject<HTMLElement | null> | undefined;
+}
+
+const stack: Layer[] = [];
 
 /** True when the overlay with this id is the top-most open overlay. */
 export function isTopOverlay(id: string): boolean {
-  return stack[stack.length - 1] === id;
+  return stack[stack.length - 1]?.id === id;
 }
 
 /**
- * Register an open overlay; Escape calls `onEscape` only for the top-most one.
- * Returns the overlay id.
+ * Whether `target` lies inside an overlay opened above the one with this id — a menu or
+ * dialog opened from a popover, a menu inside a modal. A pointer there is not "outside"
+ * for the lower layer, which must stay open while the upper one handles the click.
  */
-export function useOverlay(open: boolean, onEscape?: () => void): string {
+export function isInOverlayAbove(id: string, target: Node): boolean {
+  const at = stack.findIndex((l) => l.id === id);
+  if (at < 0) return false;
+  return stack.slice(at + 1).some((l) => !!l.root?.current?.contains(target));
+}
+
+/**
+ * Register an open overlay; Escape calls `onEscape` only for the top-most one. `root` lets
+ * lower overlays recognise pointers inside this one (`isInOverlayAbove`). Returns the
+ * overlay id.
+ */
+export function useOverlay(
+  open: boolean,
+  onEscape?: () => void,
+  root?: RefObject<HTMLElement | null>,
+): string {
   const id = useId();
   const cb = useRef(onEscape);
   useEffect(() => {
@@ -29,7 +53,7 @@ export function useOverlay(open: boolean, onEscape?: () => void): string {
   });
   useEffect(() => {
     if (!open) return;
-    stack.push(id);
+    stack.push({ id, root });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isTopOverlay(id) && cb.current) {
         e.stopPropagation();
@@ -40,10 +64,10 @@ export function useOverlay(open: boolean, onEscape?: () => void): string {
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
-      const i = stack.lastIndexOf(id);
+      const i = stack.findIndex((l) => l.id === id);
       if (i >= 0) stack.splice(i, 1);
     };
-  }, [open, id]);
+  }, [open, id, root]);
   return id;
 }
 

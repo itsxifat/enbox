@@ -2,7 +2,7 @@
  * Product limits and tunables shared by server and clients.
  * Keep these in one place so the UI can explain limits the server enforces.
  */
-import type { ChannelSettings, GroupSettings, UserSettings } from './models.js';
+import type { ChannelSettings, ChatThemePreset, GroupSettings, UserSettings } from './models.js';
 
 export const APP_NAME = 'Enbox';
 
@@ -23,6 +23,18 @@ export const PASSWORD_MIN_LENGTH = 8;
 export const DISPLAY_NAME_MAX_LENGTH = 64;
 export const ABOUT_MAX_LENGTH = 140;
 export const DEFAULT_ABOUT = 'Hey there! I am using Enbox.';
+/** Profile card "About me" (`bio`, multi-line). `about` stays the one-line status shown in chats. */
+export const BIO_MAX_LENGTH = 190;
+export const PRONOUNS_MAX_LENGTH = 40;
+/** Custom presence note text (`PresenceNote.text`). */
+export const PRESENCE_NOTE_MAX_LENGTH = 128;
+/** A device reports `presence:activity { idle: true }` after this long without user input. */
+export const PRESENCE_IDLE_AFTER_MS = 600_000;
+/**
+ * …or after this long with the page hidden: a quick tab switch or an occluded window
+ * (Chrome reports it hidden) is not absence, and every transition costs a rate-limited event.
+ */
+export const PRESENCE_HIDDEN_IDLE_MS = 30_000;
 
 /** User search (`GET /api/users/search`): username prefix matching needs this many chars. */
 export const USER_SEARCH_MIN_PREFIX = 3;
@@ -137,6 +149,62 @@ export const TYPING_TIMEOUT_MS = 6_000;
 export const TYPING_REFRESH_MS = 3_000;
 
 // ---------------------------------------------------------------------------
+// Chat themes (`ChatTheme`, models.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * A theme is enum ids plus one validated `#rrggbb` accent — never CSS or URLs — so a stored
+ * theme can be applied as CSS variables without escaping (`chatThemeSchema`).
+ */
+export const CHAT_THEME_PRESETS = [
+  'default',
+  'midnight',
+  'ocean',
+  'forest',
+  'sunset',
+  'rose',
+  'mono',
+  'lavender',
+] as const;
+/** Display names of the presets (system messages, pickers). */
+export const CHAT_THEME_PRESET_LABELS: Readonly<Record<ChatThemePreset, string>> = Object.freeze({
+  default: 'Default',
+  midnight: 'Midnight',
+  ocean: 'Ocean',
+  forest: 'Forest',
+  sunset: 'Sunset',
+  rose: 'Rose',
+  mono: 'Mono',
+  lavender: 'Lavender',
+});
+/** `cozy` = Discord-style rows (avatar + name header, no bubble). */
+export const BUBBLE_STYLES = ['classic', 'rounded', 'minimal', 'cozy'] as const;
+/** Enter animation of newly arriving messages (clamped off under reduced motion). */
+export const MESSAGE_ANIMATIONS = ['none', 'fade', 'slide', 'pop'] as const;
+/**
+ * Built-in wallpapers: the flat colours (light/dark pair per id, `default` = the theme's
+ * own token) and the animated ones (`aurora`, `drift`, `starfield`, `waves`: transform/
+ * opacity keyframes, shown static under reduced motion).
+ */
+export const WALLPAPER_PRESETS = [
+  'default',
+  'lavender',
+  'sky',
+  'mint',
+  'sand',
+  'rose',
+  'slate',
+  'aurora',
+  'drift',
+  'starfield',
+  'waves',
+] as const;
+/** `ChatTheme.dim`: darkening overlay over the wallpaper, percent. */
+export const WALLPAPER_DIM_MAX = 80;
+/** `ChatTheme.blur`: backdrop blur of the wallpaper, px. */
+export const WALLPAPER_BLUR_MAX = 20;
+
+// ---------------------------------------------------------------------------
 // Invites
 // ---------------------------------------------------------------------------
 
@@ -189,6 +257,13 @@ export const CALL_RECONNECT_GRACE_MS = 20_000;
 
 /** Upload limits in bytes. */
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/**
+ * Kind `image` uploads. The server parses an image whole when its head does not settle it
+ * and always rewrites it whole without metadata, so this bounds what it reads into memory
+ * (400 above it; a larger photo goes as a document — kind `file` — which is neither parsed
+ * nor rendered inline).
+ */
+export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 /** Optional client-generated thumbnail/poster (multipart `thumbnail`). */
 export const MAX_THUMBNAIL_BYTES = 200 * 1024;
@@ -201,18 +276,60 @@ export const MAX_FILE_NAME_LENGTH = 200;
 export const IMAGE_MAX_DIMENSION = 2_560;
 /** Clients re-encode avatars so the longest side is at most this. */
 export const AVATAR_MAX_DIMENSION = 640;
-/** Raster types accepted as avatars (user, group, community, channel). */
+/** Raster types accepted as static avatars (user, group, community, channel). */
 export const AVATAR_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/**
+ * Animated avatars (GIF, animated WebP, APNG — `MediaAttachment.animated`) may be larger
+ * than static ones and MUST carry a static poster (multipart `thumbnail`): `avatarUrl` is
+ * always the static image, `avatarAnimatedUrl` the animation.
+ */
+export const MAX_ANIMATED_AVATAR_BYTES = 8 * 1024 * 1024;
+/** Raster types that can be animated (APNG sniffs as `image/png`). Never AVIF for profile media. */
+export const ANIMATED_IMAGE_MIME_TYPES = ['image/gif', 'image/webp', 'image/png'] as const;
+/** Profile banners: static or animated (same poster rule as avatars), cropped to BANNER_ASPECT. */
+export const MAX_BANNER_BYTES = 10 * 1024 * 1024;
+export const BANNER_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
+/** Banner aspect ratio, width : height. */
+export const BANNER_ASPECT = [5, 2] as const;
+/**
+ * Custom chat wallpapers (`chat_members.wallpaper_media_id`, viewer-private): an image
+ * (WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES) or a short muted video
+ * (WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES and MAX_WALLPAPER_VIDEO_MS).
+ * Animated images and videos MUST carry a static poster (multipart `thumbnail`), shown under
+ * reduced motion and while the app is hidden. `maxWallpaperBytes` is in `GET /api/config.limits`.
+ */
+export const MAX_WALLPAPER_BYTES = 15 * 1024 * 1024;
+export const MAX_WALLPAPER_VIDEO_BYTES = 25 * 1024 * 1024;
+export const MAX_WALLPAPER_VIDEO_MS = 30_000;
+export const WALLPAPER_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+] as const;
+export const WALLPAPER_VIDEO_MIME_TYPES = ['video/mp4', 'video/webm'] as const;
+/**
+ * Server-side image checks (`POST /api/media`, kind image; shared `readImageInfo`): a side
+ * above IMAGE_HEADER_MAX_DIMENSION, more than ANIMATED_MAX_FRAMES frames, or
+ * width × height × frames above ANIMATED_DECODED_PIXEL_BUDGET → 400.
+ */
+export const IMAGE_HEADER_MAX_DIMENSION = 8192;
+export const ANIMATED_MAX_FRAMES = 400;
+export const ANIMATED_DECODED_PIXEL_BUDGET = 200_000_000;
+/** Bytes a client sniffs (`readImageInfo`) to detect type, dimensions and animation. */
+export const IMAGE_PROBE_BYTES = 65_536;
 /** Unreferenced media rows/files older than this are garbage-collected. */
 export const ORPHAN_MEDIA_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Sniffed MIME types accepted per upload kind. `null` = anything (served as an attachment).
- * SVG is never accepted as an image. Audio-only WebM/MP4 files sniff as `video/*`, so the
- * audio and voice kinds accept those containers too.
+ * SVG is never accepted as an image, and neither is AVIF: the image kind allows exactly the
+ * types the shared parser reads (`readImageInfo`), so every image upload is verified and
+ * stripped before it is stored — an AVIF goes as a file. Audio-only WebM/MP4 files sniff as
+ * `video/*`, so the audio and voice kinds accept those containers too.
  */
 export const MEDIA_MIME_ALLOWLIST = {
-  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'],
+  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
   video: ['video/mp4', 'video/webm', 'video/quicktime'],
   audio: [
     'audio/mpeg',
@@ -267,12 +384,14 @@ export const PUSH_MESSAGE_TTL_SEC = 24 * 60 * 60;
 
 /**
  * `limit` actions per `windowMs`. Exceeding one returns 429 `rate_limited` (acks: `{ ok:false }`),
- * except `typing`, which is dropped silently. Per-IP limits (auth, invites, uploads, general
- * API) are separate (server lib/rateLimit.ts).
+ * except `typing` and `presenceActivity` (no ack), which are dropped silently. Per-IP limits
+ * (auth, invites, uploads, general API) are separate (server lib/rateLimit.ts).
  */
 export const USER_RATE_LIMITS = {
   /** Message sends and forwards, per user. */
   sendMessage: { limit: 60, windowMs: 10_000 },
+  /** `PATCH /me`, `PUT /me/presence`, `PUT|DELETE /me/presence-note`, per user. */
+  profileUpdate: { limit: 20, windowMs: 60_000 },
   /** Users added to groups/communities (counted per added user), per user. */
   addMembers: { limit: 200, windowMs: 60 * 60_000 },
   /** `call:start`, per user. */
@@ -281,6 +400,10 @@ export const USER_RATE_LIMITS = {
   typing: { limit: 1, windowMs: 1_000 },
   /** `presence:subscribe` events, per socket. */
   presenceSubscribe: { limit: 30, windowMs: 60_000 },
+  /** `presence:activity` events, per socket. */
+  presenceActivity: { limit: 30, windowMs: 60_000 },
   /** `GET /api/users/search` and `POST /api/contacts`, per user. */
   userSearch: { limit: 60, windowMs: 60_000 },
+  /** `PUT /api/chats/:chatId/theme` (shared theme changes, each a system message), per user. */
+  chatTheme: { limit: 20, windowMs: 60_000 },
 } as const;

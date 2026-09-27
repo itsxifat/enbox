@@ -24,7 +24,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'profile',
     title: 'Profile',
-    description: 'Name, photo, about, username',
+    description: 'Name, photo, banner, bio, colours',
     icon: CircleUserRound,
     tint: '#7c6cf8',
   },
@@ -45,7 +45,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'chats',
     title: 'Chats',
-    description: 'Theme, wallpaper, text size',
+    description: 'Theme, wallpaper, animations, text size',
     icon: MessageSquareText,
     tint: '#6d5dfc',
   },

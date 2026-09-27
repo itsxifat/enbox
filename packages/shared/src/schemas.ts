@@ -13,6 +13,9 @@
 import { z } from 'zod';
 import {
   ABOUT_MAX_LENGTH,
+  BIO_MAX_LENGTH,
+  BUBBLE_STYLES,
+  CHAT_THEME_PRESETS,
   DELETED_USERNAME_PREFIX,
   DISAPPEARING_OPTIONS,
   DISPLAY_NAME_MAX_LENGTH,
@@ -31,17 +34,23 @@ import {
   MAX_MESSAGES_PAGE_SIZE,
   MAX_PRIVACY_LIST_SIZE,
   MAX_USERS_BATCH,
+  MESSAGE_ANIMATIONS,
   MESSAGES_PAGE_SIZE,
   PASSWORD_MIN_LENGTH,
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
+  PRESENCE_NOTE_MAX_LENGTH,
+  PRONOUNS_MAX_LENGTH,
   PUSH_SERVICE_HOST_SUFFIXES,
   PUSH_SERVICE_HOSTS,
   SEARCH_RESULTS_LIMIT,
   STATUS_FONT_COUNT,
   STATUS_TEXT_MAX_LENGTH,
   USERNAME_REGEX,
+  WALLPAPER_BLUR_MAX,
+  WALLPAPER_DIM_MAX,
+  WALLPAPER_PRESETS,
   WAVEFORM_MAX_SAMPLES,
 } from './constants.js';
 
@@ -91,6 +100,13 @@ function optionalQueryString(max: number) {
   return z.preprocess(
     (v: string | null | undefined) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
     z.string().trim().max(max).optional(),
+  );
+}
+/** Nullable trimmed text body field; blank ('' or whitespace) = null. */
+function nullableText(max: number) {
+  return z.preprocess(
+    (v: string | null | undefined) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().trim().max(max).nullable(),
   );
 }
 
@@ -145,6 +161,13 @@ export const emojiSchema = z
       if (++n > 1) return false;
     return true;
   }, 'Must be a single emoji');
+
+/** A CSS `#rrggbb` colour, normalised to lowercase (uppercase input is accepted). */
+export const hexColorSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^#[0-9a-f]{6}$/, 'Use a #rrggbb colour');
 
 const privacyLevel = z.enum(['everyone', 'contacts', 'nobody']);
 const disappearingSeconds = z
@@ -209,10 +232,43 @@ export const updateProfileSchema = z.object({
   about: z.string().trim().max(ABOUT_MAX_LENGTH).optional(),
   /** Media id of an image uploaded by the caller, or null to remove the photo. */
   avatarMediaId: idSchema.nullable().optional(),
+  /** Media id of a banner image uploaded by the caller (BANNER_MIME_TYPES), or null to remove it. */
+  bannerMediaId: idSchema.nullable().optional(),
   username: usernameSchema.optional(),
   /** null (or '') removes the phone number. */
   phone: z.preprocess((v) => (v === '' ? null : v), phoneSchema.nullable().optional()),
+  /** null (or blank) clears them. */
+  pronouns: nullableText(PRONOUNS_MAX_LENGTH).optional(),
+  /** Profile card "About me" (multi-line); '' clears it. `about` stays the one-line status. */
+  bio: z.string().trim().max(BIO_MAX_LENGTH).optional(),
+  /** Lowercase `#rrggbb` (uppercase accepted); null = default. */
+  profileColor: hexColorSchema.nullable().optional(),
+  accentColor: hexColorSchema.nullable().optional(),
 });
+
+/** `PUT /api/me/presence`: my availability choice, optionally until a time (then back to `online`). */
+export const updateAvailabilitySchema = z.object({
+  availability: z.enum(['online', 'idle', 'dnd', 'invisible']),
+  /** ISO time the choice expires; null/absent = until changed. */
+  until: z.iso.datetime({ offset: true }).nullable().optional(),
+});
+
+/**
+ * `PUT /api/me/presence-note`: replaces the whole note (omitted fields = null). Needs text
+ * and/or an emoji; `DELETE /api/me/presence-note` clears it.
+ */
+export const updatePresenceNoteSchema = z
+  .object({
+    /** Trimmed; blank = null. */
+    text: nullableText(PRESENCE_NOTE_MAX_LENGTH).default(null),
+    emoji: emojiSchema.nullable().default(null),
+    /** ISO time the note clears itself; null = until changed. */
+    expiresAt: z.iso.datetime({ offset: true }).nullable().default(null),
+  })
+  .refine((v) => v.text !== null || v.emoji !== null, {
+    message: 'Add some text or an emoji',
+    path: ['text'],
+  });
 
 export const updateSettingsSchema = z
   .object({
@@ -280,6 +336,38 @@ export const createDirectChatSchema = z.object({
   userId: idSchema,
 });
 
+const wallpaperPresetRef = z.strictObject({
+  kind: z.literal('preset'),
+  id: z.enum(WALLPAPER_PRESETS),
+});
+/**
+ * `ChatTheme` fields shared by the private and the shared theme: enum ids, one `#rrggbb`
+ * accent (normalised to lowercase) and bounded integers — nothing that could reach CSS as
+ * text. Strict: an unknown key is rejected, every field is required.
+ */
+const chatThemeFields = {
+  preset: z.enum(CHAT_THEME_PRESETS).nullable(),
+  bubbleStyle: z.enum(BUBBLE_STYLES).nullable(),
+  accent: hexColorSchema.nullable(),
+  dim: z.int().min(0).max(WALLPAPER_DIM_MAX),
+  blur: z.int().min(0).max(WALLPAPER_BLUR_MAX),
+  messageAnimation: z.enum(MESSAGE_ANIMATIONS).nullable(),
+};
+
+/** A viewer's private theme (`chat_members.theme`): `{ kind: 'media' }` = my own wallpaper upload. */
+export const chatThemeSchema = z.strictObject({
+  ...chatThemeFields,
+  wallpaper: z
+    .discriminatedUnion('kind', [wallpaperPresetRef, z.strictObject({ kind: z.literal('media') })])
+    .nullable(),
+});
+
+/** The chat's shared theme (`chats.theme`): built-in wallpapers only (an upload is private). */
+export const sharedChatThemeSchema = z.strictObject({
+  ...chatThemeFields,
+  wallpaper: wallpaperPresetRef.nullable(),
+});
+
 export const updateChatPrefsSchema = z
   .object({
     /** At most MAX_PINNED_CHATS pinned chats (409 limit_reached). */
@@ -289,6 +377,13 @@ export const updateChatPrefsSchema = z
     mutedUntil: z.iso.datetime({ offset: true }).nullable(),
     /** Marking unread never moves the read position; reading clears it. */
     markedUnread: z.boolean(),
+    /** My private theme override for this chat, null to remove it (the shared theme shows again). */
+    theme: chatThemeSchema.nullable(),
+    /**
+     * Media id of my wallpaper upload (WALLPAPER_IMAGE_MIME_TYPES / WALLPAPER_VIDEO_MIME_TYPES,
+     * poster required for animated/video), or null to remove it.
+     */
+    wallpaperMediaId: idSchema.nullable(),
   })
   .partial();
 
@@ -300,6 +395,11 @@ export const readBodySchema = z.object({
 
 export const setDisappearingSchema = z.object({
   seconds: disappearingSeconds,
+});
+
+/** `PUT /api/chats/:chatId/theme` (permissions.canEditInfo): the shared theme, null to remove it. */
+export const setChatThemeSchema = z.object({
+  theme: sharedChatThemeSchema.nullable(),
 });
 
 export const locationSchema = z.object({
@@ -670,6 +770,11 @@ export const presenceSubscribeSchema = z.object({
   userIds: ids(MAX_USERS_BATCH),
 });
 
+/** `presence:activity`: this device went idle (no input for PRESENCE_IDLE_AFTER_MS) or active again. */
+export const presenceActivitySchema = z.object({
+  idle: z.boolean(),
+});
+
 /** Optional initial media state (default: unmuted; video off for audio calls). */
 const callMediaInit = {
   audioMuted: z.boolean().optional(),
@@ -739,6 +844,8 @@ export type UsernameAvailabilityQuery = z.input<typeof usernameAvailabilityQuery
 export type ChangePasswordRequest = z.input<typeof changePasswordSchema>;
 export type DeleteAccountRequest = z.input<typeof deleteAccountSchema>;
 export type UpdateProfileRequest = z.input<typeof updateProfileSchema>;
+export type UpdateAvailabilityRequest = z.input<typeof updateAvailabilitySchema>;
+export type UpdatePresenceNoteRequest = z.input<typeof updatePresenceNoteSchema>;
 export type UpdateSettingsRequest = z.input<typeof updateSettingsSchema>;
 export type UserSearchQuery = z.input<typeof userSearchQuerySchema>;
 export type UsersBatchRequest = z.input<typeof usersBatchSchema>;
@@ -748,6 +855,7 @@ export type CreateDirectChatRequest = z.input<typeof createDirectChatSchema>;
 export type UpdateChatPrefsRequest = z.input<typeof updateChatPrefsSchema>;
 export type ReadRequest = z.input<typeof readBodySchema>;
 export type SetDisappearingRequest = z.input<typeof setDisappearingSchema>;
+export type SetChatThemeRequest = z.input<typeof setChatThemeSchema>;
 export type SendMessageRequest = z.input<typeof sendMessageSchema>;
 export type EditMessageRequest = z.input<typeof editMessageSchema>;
 export type DeleteMessageQuery = z.input<typeof deleteMessageQuerySchema>;
@@ -782,6 +890,7 @@ export type PushUnsubscribeRequest = z.input<typeof pushUnsubscribeSchema>;
 export type TypingPayload = z.infer<typeof typingPayloadSchema>;
 export type ReceiptPayload = z.infer<typeof receiptPayloadSchema>;
 export type PresenceSubscribePayload = z.infer<typeof presenceSubscribeSchema>;
+export type PresenceActivityPayload = z.infer<typeof presenceActivitySchema>;
 export type CallStartPayload = z.input<typeof callStartSchema>;
 export type CallIdPayload = z.infer<typeof callIdSchema>;
 export type CallJoinPayload = z.input<typeof callJoinSchema>;

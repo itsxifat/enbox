@@ -4,7 +4,9 @@
  *
  * State
  * - `theme`: 'light' | 'dark' | 'system'; `resolvedTheme`: 'light' | 'dark'
- * - `prefs`: { enterToSend, fontSize, wallpaper, wallpaperPattern, sounds, desktopNotifications }
+ * - `prefs`: { enterToSend, fontSize, wallpaperPattern, sounds, desktopNotifications,
+ *   reduceMotion, autoplayAnimatedMedia, chatTheme, bubbleStyle, messageAnimation,
+ *   wallpaperPreset, wallpaperDim, wallpaperBlur }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
  * Actions: `setTheme(t)`, `setPref(key, value)`, `pushToast`, `dismissToast`
@@ -16,11 +18,20 @@
  *     { value: 'everyone', label: 'Delete for everyone', danger: true },
  *     { value: 'me', label: 'Delete for me', danger: true } ] });  // → 'everyone' | 'me' | null
  *
- * Call `initTheme()` once at startup (main.tsx) to apply the theme, font size and wallpaper.
+ * Call `initTheme()` once at startup (main.tsx) to apply the theme, font size, the device
+ * chat appearance (`data-bubble-style` / `data-msg-anim` / `data-wallpaper-preset` + the preset
+ * variables, see features/appearance/presets.ts) and the `data-reduce-motion` attribute.
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ReactNode } from 'react';
+import type {
+  BubbleStyle,
+  ChatThemePreset,
+  MessageAnimation,
+  WallpaperPresetId,
+} from '@enbox/shared';
+import { devicePresetVars } from '@/features/appearance/presets';
 import { errorMessage, isSessionChangedError } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
 import { StorageKeys } from '@/lib/storage';
@@ -28,46 +39,60 @@ import { StorageKeys } from '@/lib/storage';
 export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export type FontSize = 'small' | 'medium' | 'large';
-export type WallpaperId = 'default' | 'lavender' | 'sky' | 'mint' | 'sand' | 'rose' | 'slate';
+/** 'system' follows `prefers-reduced-motion`; 'on' forces it; 'off' ignores the OS setting. */
+export type ReduceMotionPref = 'system' | 'on' | 'off';
+/** Animated images (GIF / WebP / APNG avatars, chat GIFs): play always, on hover/tap, or never. */
+export type AutoplayAnimatedMedia = 'always' | 'hover' | 'never';
 
 export interface DevicePrefs {
   /** Enter sends (Shift+Enter = newline). Mobile keyboards always insert newlines. */
   enterToSend: boolean;
   /** Chat text size (sets `--chat-font-size`; use the `text-chat` utility). */
   fontSize: FontSize;
-  wallpaper: WallpaperId;
   /** Faint dot pattern over the wallpaper. */
   wallpaperPattern: boolean;
   /** In-app sounds (incoming message, sent). */
   sounds: boolean;
   /** System notifications on this device while Enbox is in the background. */
   desktopNotifications: boolean;
+  /** Reduced motion: read through `useReducedMotion()`, mirrored on `html[data-reduce-motion]`. */
+  reduceMotion: ReduceMotionPref;
+  /** Animated avatars and GIF bubbles: 'hover' shows the poster until hovered or tapped. */
+  autoplayAnimatedMedia: AutoplayAnimatedMedia;
+  /**
+   * Device defaults of the chat appearance (features/appearance): the layer under a chat's
+   * shared theme and my private override. 'default' / 'classic' / 'fade' = the design tokens.
+   */
+  chatTheme: ChatThemePreset;
+  bubbleStyle: BubbleStyle;
+  messageAnimation: MessageAnimation;
+  wallpaperPreset: WallpaperPresetId;
+  /** Darkening overlay over the wallpaper, 0..WALLPAPER_DIM_MAX percent. */
+  wallpaperDim: number;
+  /** Backdrop blur of an uploaded wallpaper, 0..WALLPAPER_BLUR_MAX px. */
+  wallpaperBlur: number;
 }
 
 export const DEFAULT_PREFS: DevicePrefs = {
   enterToSend: true,
   fontSize: 'medium',
-  wallpaper: 'default',
   wallpaperPattern: true,
   sounds: true,
   desktopNotifications: true,
+  reduceMotion: 'system',
+  autoplayAnimatedMedia: 'hover',
+  chatTheme: 'default',
+  bubbleStyle: 'classic',
+  messageAnimation: 'fade',
+  wallpaperPreset: 'default',
+  wallpaperDim: 0,
+  wallpaperBlur: 0,
 };
 
 export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {
   small: { label: 'Small', px: 14 },
   medium: { label: 'Medium', px: 15 },
   large: { label: 'Large', px: 17 },
-};
-
-/** Conversation wallpapers. `default` uses the theme token from index.css. */
-export const WALLPAPERS: Record<WallpaperId, { label: string; light: string; dark: string }> = {
-  default: { label: 'Enbox', light: '#efedf5', dark: '#0d0d13' },
-  lavender: { label: 'Lavender', light: '#e4ddff', dark: '#1a1631' },
-  sky: { label: 'Sky', light: '#d9eaf7', dark: '#0e1b27' },
-  mint: { label: 'Mint', light: '#dcf2e5', dark: '#0e1f17' },
-  sand: { label: 'Sand', light: '#f2e8d6', dark: '#211b11' },
-  rose: { label: 'Rose', light: '#f7dfe6', dark: '#281118' },
-  slate: { label: 'Slate', light: '#dfe3ea', dark: '#15191f' },
 };
 
 /** Browser chrome color per theme (keep in sync with --surface and index.html). */
@@ -192,8 +217,19 @@ export const useUi = create<UiState>()(
     }),
     {
       name: StorageKeys.ui,
-      version: 1,
+      version: 2,
       partialize: (s) => ({ theme: s.theme, prefs: s.prefs }),
+      // Partial states are fine here: `merge` below fills the defaults in.
+      migrate: (persisted, version) => {
+        type Persisted = Pick<UiState, 'theme' | 'prefs'>;
+        const p = (persisted ?? {}) as { prefs?: Record<string, unknown> };
+        // v1 kept the flat wallpaper colour as `prefs.wallpaper`; v2 calls it `wallpaperPreset`.
+        if (version < 2 && p.prefs && typeof p.prefs.wallpaper === 'string') {
+          const { wallpaper, ...rest } = p.prefs;
+          return { ...p, prefs: { ...rest, wallpaperPreset: wallpaper } } as unknown as Persisted;
+        }
+        return p as unknown as Persisted;
+      },
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<Pick<UiState, 'theme' | 'prefs'>>;
         const theme = p.theme ?? current.theme;
@@ -277,6 +313,18 @@ export function choose<T extends string>(opts: ChooseOptions<T>): Promise<T | nu
 // Theme application
 // ---------------------------------------------------------------------------
 
+/** Every variable a preset may set (cleared when the device goes back to the tokens). */
+const DEVICE_PRESET_VAR_NAMES = [
+  '--bubble-out',
+  '--bubble-out-meta',
+  '--bubble-in',
+  '--bubble-in-meta',
+  '--wallpaper',
+  '--wallpaper-ink',
+  '--brand-soft',
+  '--tick-read',
+] as const;
+
 function applyAppearance(s: Pick<UiState, 'resolvedTheme' | 'prefs'>): void {
   const root = document.documentElement;
   const dark = s.resolvedTheme === 'dark';
@@ -284,10 +332,20 @@ function applyAppearance(s: Pick<UiState, 'resolvedTheme' | 'prefs'>): void {
   root.style.colorScheme = dark ? 'dark' : 'light';
   document.getElementById('theme-color')?.setAttribute('content', THEME_COLORS[s.resolvedTheme]);
   root.style.setProperty('--chat-font-size', `${FONT_SIZES[s.prefs.fontSize]?.px ?? 15}px`);
-  const wp = WALLPAPERS[s.prefs.wallpaper];
-  if (!wp || s.prefs.wallpaper === 'default') root.style.removeProperty('--wallpaper');
-  else root.style.setProperty('--wallpaper', dark ? wp.dark : wp.light);
+  // Device-level chat appearance: the preset variables on <html> (a conversation root
+  // overrides them with its own resolved theme) and the data attributes the CSS keys on.
+  const vars = devicePresetVars(s.prefs, s.resolvedTheme);
+  for (const name of DEVICE_PRESET_VAR_NAMES) {
+    const value = vars[name];
+    if (value) root.style.setProperty(name, value);
+    else root.style.removeProperty(name);
+  }
+  root.dataset.bubbleStyle = s.prefs.bubbleStyle;
+  root.dataset.msgAnim = s.prefs.messageAnimation;
+  root.dataset.wallpaperPreset = s.prefs.wallpaperPreset;
   root.dataset.wallpaperPattern = s.prefs.wallpaperPattern ? 'on' : 'off';
+  // `html[data-reduce-motion='on'] *` (index.css) clamps animations like the OS media query.
+  root.dataset.reduceMotion = s.prefs.reduceMotion;
 }
 
 let themeInitialized = false;

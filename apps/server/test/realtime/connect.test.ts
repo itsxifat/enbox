@@ -1,18 +1,26 @@
 /**
  * Socket connect sequence (docs "Rooms and connection"): room membership mirrors active
  * visibility even when a leave races the connect, presence counts only sockets that finished
- * their setup, handshake tokens of any type are handled, and per-socket event limits.
+ * their setup, an invisible user's (re)connects are silent, handshake tokens of any type are
+ * handled, and per-socket event limits.
  * Regression tests for P6 / F2 / C3, C2 / R2, R13 and R6.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { io as ioClient } from 'socket.io-client';
-import { rooms, type Message } from '@enbox/shared';
+import { rooms, type Message, type Presence } from '@enbox/shared';
 import { config } from '../../src/config.js';
+import { db } from '../../src/db/index.js';
+import { users } from '../../src/db/schema.js';
 import { resetUserLimits } from '../../src/lib/userLimit.js';
+import { presenceIdle } from '../../src/modules/users/presence.js';
 import { isOnline } from '../../src/realtime/presence.js';
 import { createSession } from '../../src/services/sessions.js';
+import { giveProfile } from '../accounts/util.js';
 import { rawAck, until } from '../calls/helpers.js';
 import {
+  emitAck,
+  expectNoEvent,
   sleep,
   startTestServer,
   type TestServer,
@@ -20,7 +28,14 @@ import {
   type TestUser,
 } from '../helpers.js';
 import { leaveGroup, memberOf, sendOk } from '../messaging/support.js';
-import { createGroup, memberRow, recordEvents, settle } from '../services/fixtures.js';
+import {
+  createGroup,
+  goOffline,
+  memberRow,
+  recordEvents,
+  setAvailability,
+  settle,
+} from '../services/fixtures.js';
 import { afterNextResult, delayNextResult } from '../support/db-hooks.js';
 
 /** The connect handler's "load my active non-hidden memberships" query for `userId`. */
@@ -152,6 +167,40 @@ describe('socket connect', () => {
       expect(isOnline(u.id)).toBe(true);
       s1.disconnect();
     });
+  });
+
+  it('an invisible user reconnecting never emits online (nor a new last seen) to subscribers', async () => {
+    const [viewer, subject] = [await t.createUser(), await t.createUser()];
+    const lastSeen = new Date('2026-01-01T00:00:00Z');
+    await giveProfile(subject.id, { lastSeenAt: lastSeen });
+    await setAvailability(subject, 'invisible');
+    const sv = await t.connect(viewer);
+    const hidden: Presence = {
+      userId: subject.id,
+      online: false,
+      state: 'offline',
+      note: null,
+      lastSeenAt: lastSeen.toISOString(),
+    };
+    expect(await emitAck<Presence[]>(sv, 'presence:subscribe', { userIds: [subject.id] })).toEqual([
+      hidden,
+    ]);
+    const log = recordEvents(sv);
+    for (let i = 0; i < 2; i++) {
+      const s = await t.connect(subject);
+      expect(isOnline(subject.id)).toBe(true); // counted server-side, offline on the wire
+      await presenceIdle();
+      await goOffline(subject, s);
+      await presenceIdle();
+    }
+    await expectNoEvent(sv, 'presence:update');
+    expect(log.of('presence:update')).toEqual([]);
+    const [row] = await db.select().from(users).where(eq(users.id, subject.id));
+    expect(row!.lastSeenAt).toEqual(lastSeen);
+    expect(await emitAck<Presence[]>(sv, 'presence:subscribe', { userIds: [subject.id] })).toEqual([
+      hidden,
+    ]);
+    sv.disconnect();
   });
 
   it('a non-string handshake token is rejected as unauthorized (not internal_error)', async () => {

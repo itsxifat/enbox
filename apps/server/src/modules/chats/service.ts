@@ -4,17 +4,21 @@
  * Normative: docs/ARCHITECTURE.md "Chats", "Permissions matrix", mutation → event matrix.
  * Built on the domain primitives in src/services (see services/README.md).
  */
+import { isDeepStrictEqual } from 'node:util';
 import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
   MAX_PINNED_CHATS,
   MAX_PINNED_MESSAGES,
+  USER_RATE_LIMITS,
   directChatKey,
   type ChatMediaCounts,
   type ChatMember,
   type ChatSummary,
+  type ChatTheme,
   type Message,
   type MessageSearchResult,
+  type SharedChatTheme,
   type chatMediaQuerySchema,
   type updateChatPrefsSchema,
 } from '@enbox/shared';
@@ -29,6 +33,7 @@ import {
   type MessageRow,
 } from '../../db/schema.js';
 import { badRequest, conflict, limitReached, notFound } from '../../lib/errors.js';
+import { assertUserLimit } from '../../lib/userLimit.js';
 import { storableDate } from '../../lib/validate.js';
 import {
   activeMemberRows,
@@ -43,7 +48,7 @@ import {
   type ChatAccess,
 } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
-import { mediaUrl } from '../../services/media.js';
+import { mediaUrl, requireWallpaperMedia, staticMediaKey } from '../../services/media.js';
 import { loadVisibleMessage, toMessages } from '../../services/messages.js';
 import { uniq } from '../../services/sql.js';
 import { toChatSummaries, toChatSummary } from '../../services/summaries.js';
@@ -164,10 +169,19 @@ async function lockPinnedChats(tx: Tx, userId: string): Promise<void> {
   );
 }
 
+/** A theme without its `{ kind: 'media' }` wallpaper reference (the upload was cleared). */
+function withoutMediaWallpaper(theme: ChatTheme | null): ChatTheme | null {
+  return theme?.wallpaper?.kind === 'media' ? { ...theme, wallpaper: null } : theme;
+}
+
 /**
  * `PATCH /chats/:chatId/prefs`: pin (≤ MAX_PINNED_CHATS → 409 limit_reached), archive, mute
  * until (MUTE_FOREVER_ISO = always, null = unmute), mark unread (never moves the read
- * position). Works for former members too. Events: `chat:upsert` → me.
+ * position), my private `theme` (null removes it) and `wallpaperMediaId` (my upload, checked
+ * by `requireWallpaperMedia` in this transaction; null removes it and drops the `media`
+ * wallpaper reference from my theme). A theme showing `{ kind: 'media' }` needs a wallpaper
+ * row — from this patch or earlier — else 400. Works for former members too. Events:
+ * `chat:upsert` → me (docs "Chat themes": a private override never reaches the room).
  */
 export async function updatePrefs(
   me: string,
@@ -204,6 +218,18 @@ export async function updatePrefs(
       set.mutedUntil =
         patch.mutedUntil === null ? null : storableDate(patch.mutedUntil, 'mutedUntil');
     if (patch.markedUnread !== undefined) set.markedUnread = patch.markedUnread;
+    if (patch.wallpaperMediaId !== undefined) {
+      if (patch.wallpaperMediaId !== null)
+        await requireWallpaperMedia(tx, patch.wallpaperMediaId, me);
+      set.wallpaperMediaId = patch.wallpaperMediaId;
+    }
+    if (patch.theme !== undefined) set.theme = patch.theme;
+    const wallpaperMediaId =
+      set.wallpaperMediaId !== undefined ? set.wallpaperMediaId : access.member.wallpaperMediaId;
+    if (patch.theme?.wallpaper?.kind === 'media' && !wallpaperMediaId)
+      throw badRequest('Upload a wallpaper before selecting it');
+    if (set.wallpaperMediaId === null && patch.theme === undefined)
+      set.theme = withoutMediaWallpaper(access.member.theme);
     if (Object.keys(set).length) {
       await tx
         .update(chatMembers)
@@ -328,6 +354,43 @@ export async function setDisappearing(
       });
     }
     fx.chatUpdated(chatId, { disappearingSeconds: seconds }, { exceptUserIds: blockers });
+  });
+  return summaryOrNotFound(me, chatId);
+}
+
+// ---------------------------------------------------------------------------
+// Shared theme (docs "Chat themes")
+// ---------------------------------------------------------------------------
+
+/**
+ * `PUT /chats/:chatId/theme`: modelled on the disappearing timer — active members with
+ * `canEditInfo` (direct chats: = canSend → `403 blocked` when I blocked the peer), rate
+ * limit `chatTheme`. Deep-equal theme → no-op. Events: sys `theme_changed { actorId,
+ * preset }` (not channels) → room, then `chat:updated { sharedTheme }` → room. Direct chat
+ * whose peer blocked me: the theme applies, the system message is withheld from the peer and
+ * `chat:updated` skips them (docs "Blocking").
+ */
+export async function setChatTheme(
+  me: string,
+  chatId: string,
+  theme: SharedChatTheme | null,
+): Promise<ChatSummary> {
+  await transact(async (tx, fx) => {
+    const access = await requireActiveMember(tx, me, chatId, { lock: true });
+    if (access.chat.type === 'direct') assertCanSend(access);
+    else requirePermission(access, 'canEditInfo', 'Only admins can change the chat theme');
+    if (isDeepStrictEqual(access.chat.theme ?? null, theme)) return;
+    assertUserLimit(me, 'chatTheme', USER_RATE_LIMITS.chatTheme);
+    const blockers = await peersWhoBlockedMe(tx, access);
+    await tx.update(chats).set({ theme, updatedAt: new Date() }).where(eq(chats.id, chatId));
+    if (systemMessageAllowed(access.chat, 'theme_changed')) {
+      await postSystemMessage(tx, fx, access.chat, {
+        kind: 'theme_changed',
+        actorId: me,
+        preset: theme?.preset ?? null,
+      });
+    }
+    fx.chatUpdated(chatId, { sharedTheme: theme }, { exceptUserIds: blockers });
   });
   return summaryOrNotFound(me, chatId);
 }
@@ -574,7 +637,7 @@ export async function chatPreviews(
   const out = new Map<string, ChatPreview>();
   if (ids.length === 0) return out;
   const rows = await dbx
-    .select({ id: chats.id, type: chats.type, name: chats.name, avatarKey: media.storageKey })
+    .select({ id: chats.id, type: chats.type, name: chats.name, avatarKey: staticMediaKey })
     .from(chats)
     .leftJoin(media, eq(media.id, chats.avatarMediaId))
     .where(inArray(chats.id, ids));

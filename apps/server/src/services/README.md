@@ -4,24 +4,25 @@ Cross-module building blocks the feature modules (`src/modules/*`) are built on.
 the normative rules of `docs/ARCHITECTURE.md` — **use them instead of re-implementing
 visibility, watermarks, membership transitions, serialization or fan-out in a module.**
 
-| File            | What it owns                                                                   |
-| --------------- | ------------------------------------------------------------------------------ |
-| `effects.ts`    | `Effects` post-commit collector + `transact()`                                 |
-| `events.ts`     | typed in-process domain event bus (`domainEvents`)                             |
-| `chats.ts`      | chat locks, membership lookups, the visibility SQL, permissions, access guards |
-| `summaries.ts`  | `ChatSummary` batch serializer, `publishChatUpsert`                            |
-| `messages.ts`   | send transaction, `toMessages`, paging, `loadVisibleMessage`, replies, deletes |
-| `system.ts`     | system messages (`postSystemMessage`) + which kinds each chat may get          |
-| `membership.ts` | `upsertMembership` (all membership writes), succession, roles, add rules       |
-| `watermarks.ts` | read/delivered marks, unread counts, tick watermarks, delivered-on-connect     |
-| `users.ts`      | user rows, relationships, `UserPublic`/`Presence`/`UserSelf`, account scrub    |
-| `media.ts`      | `MediaAttachment`, media ownership checks                                      |
-| `uploads.ts`    | MIME sniffing, allowlists, file-name sanitising, storage keys/files            |
-| `statuses.ts`   | status visibility + status-reply resolution                                    |
-| `invites.ts`    | invite codes unique across chats and communities                               |
-| `sessions.ts`   | session tokens (pre-existing)                                                  |
-| `hooks.ts`      | cross-module hook registries (account deletion, chat deletion)                 |
-| `sql.ts`        | raw-SQL helpers (`uuidArray`, `rawRows`, `num`, `pairKey`)                     |
+| File            | What it owns                                                                         |
+| --------------- | ------------------------------------------------------------------------------------ |
+| `effects.ts`    | `Effects` post-commit collector + `transact()`                                       |
+| `events.ts`     | typed in-process domain event bus (`domainEvents`)                                   |
+| `chats.ts`      | chat locks, membership lookups, the visibility SQL, permissions, access guards       |
+| `summaries.ts`  | `ChatSummary` batch serializer, `publishChatUpsert`                                  |
+| `messages.ts`   | send transaction, `toMessages`, paging, `loadVisibleMessage`, replies, deletes       |
+| `system.ts`     | system messages (`postSystemMessage`) + which kinds each chat may get                |
+| `membership.ts` | `upsertMembership` (all membership writes), succession, roles, add rules             |
+| `watermarks.ts` | read/delivered marks, unread counts, tick watermarks, delivered-on-connect           |
+| `users.ts`      | user rows (+ banner), relationships, `UserPublic`/`Presence`/`UserSelf`, scrub       |
+| `media.ts`      | `MediaAttachment`, ownership checks, avatar/banner/wallpaper requirers (poster rule) |
+| `uploads.ts`    | MIME sniffing, allowlists, file-name sanitising, storage keys/files                  |
+| `imageProbe.ts` | image parse (verified dims, animation, caps, MAX_IMAGE_BYTES → 400) + metadata strip |
+| `statuses.ts`   | status visibility + status-reply resolution                                          |
+| `invites.ts`    | invite codes unique across chats and communities                                     |
+| `sessions.ts`   | session tokens (pre-existing)                                                        |
+| `hooks.ts`      | cross-module hook registries (account deletion, chat deletion)                       |
+| `sql.ts`        | raw-SQL helpers (`uuidArray`, `rawRows`, `num`, `pairKey`)                           |
 
 ## The post-commit pattern: `transact` + `Effects`
 
@@ -144,7 +145,10 @@ Standalone post-commit publishers (use only outside transactions; they read with
   counts; watermarks = min over other active members (none → lastSeq; direct + receipts off
   → read 0; channels 0/0); former members clamped to `left_seq`, `inviteCode` only with
   `canInvite`, `lastActivityAt` = last message time, else joined_at (former: left_at),
-  `createdBy` = chats.created_by (viewer-neutral; null for direct chats).
+  `createdBy` = chats.created_by (viewer-neutral; null for direct chats), `sharedTheme` =
+  chats.theme (viewer-neutral), `theme` = the viewer's chat_members.theme and `wallpaper` =
+  their `wallpaper_media_id` resolved through `loadMediaMap` in one batched query
+  (`ChatWallpaperAttachment`; null when unset or the media row is gone).
 
 ### messages.ts
 
@@ -186,7 +190,7 @@ Standalone post-commit publishers (use only outside transactions; they read with
 - `postSystemMessage(tx, fx, chat, event, { exceptUserIds? })` → MessageRow (registered fan-out;
   the event's `actorId` is passed as `CreateMessageInput.actorId`).
 - `insertSystemMessage(tx, chat, event)` → `InsertedMessage` (publish later).
-- `systemMessageAllowed(chat, kind)` — direct: timer/pin; channel: created/name/description/
+- `systemMessageAllowed(chat, kind)` — direct: timer/theme/pin; channel: created/name/description/
   avatar; announcement: no join/leave/add/remove/role messages. Posting a disallowed kind throws.
 
 ### membership.ts
@@ -233,7 +237,8 @@ Standalone post-commit publishers (use only outside transactions; they read with
 
 ### users.ts
 
-- Rows: `getUserRows(dbx, ids)` (Map, deleted included, with `avatarKey`), `getUserRow`,
+- Rows: `getUserRows(dbx, ids)` (Map, deleted included, with the avatar and banner media:
+  storage/thumbnail keys and `animated`), `getUserRow`,
   `requireUser(dbx, id, { allowDeleted? })` (404), `settingsOf(row)` / `resolveSettings`.
 - `lockLiveUsers(tx, ids)` — `FOR SHARE` the non-deleted users (membership writes); waits for a
   concurrent account deletion, whose committed `deleted_at` then excludes the user.
@@ -244,20 +249,58 @@ Standalone post-commit publishers (use only outside transactions; they read with
   `ownersWhoSaved(dbx, userId, ownerIds)`, `usersWhoSaved(dbx, userId)`.
 - Serialization (all privacy rules): `toUserPublics(dbx, viewerId, ids)` (docs name; input
   order, unknown omitted), `toUserPublicMap`, `toUserPublic`, `toUserPublicsForPairs(dbx, pairs, rows?)`,
-  pure `buildUserPublic(viewerId, row, rel)`.
-- Presence: `canSeePresence(viewerId, subject, rel)`, `buildPresence(...)`,
-  `loadPresences(dbx, viewerId, ids)` (POST /users/presence, `presence:subscribe`).
-- Self: `toUserSelf(row)`, `loadUserSelf(dbx, userId)`.
-- Deletion: `scrubDeletedUser(tx, userId)` → `{ sessionIds }` (steps 3–4), `deletedUsername(id)`.
+  pure `buildUserPublic(viewerId, row, rel)` — the gates (docs "Users, privacy and
+  presence"): `avatarUrl`/`avatarAnimatedUrl`/`bannerUrl`/`bannerAnimatedUrl` follow
+  `profilePhotoVisibility`, `about`/`bio`/`pronouns`/`profileColor`/`accentColor` follow
+  `aboutVisibility`, everything null on a block either way or a deleted account
+  (`createdAt` null only when deleted). `avatarUrl`/`bannerUrl` are always the static
+  image (the poster of an animated upload); the `*AnimatedUrl` fields carry the animation.
+- Presence: `canSeePresence(viewerId, subject, rel)`, `buildPresence(...)` — THE place that
+  derives `Presence` (docs "PresenceState rules"): `effectiveOnline` = connected and not
+  `invisible` (`effectiveAvailability`), `state` offline/dnd/idle/online, `note` only while
+  `state ∈ {online, idle, dnd}` and unexpired; an invisible user is byte-identical to an
+  offline one, and the in-memory `lastSeenAt` override of a disconnect is ignored for
+  invisible rows. `loadPresences(dbx, viewerId, ids)` (POST /users/presence,
+  `presence:subscribe`).
+- Self: `toUserSelf(row)` (raw profile + `availability`/`availabilityUntil`/`presenceNote`),
+  `loadUserSelf(dbx, userId)`.
+- Deletion: `scrubDeletedUser(tx, userId)` → `{ sessionIds }` (steps 3–4; also nulls the
+  banner, pronouns, bio, colours and presence note, resets `availability` to `online` and
+  nulls `theme`/`wallpaper_media_id` on the user's `chat_members` rows), `deletedUsername(id)`.
 
-### media.ts / uploads.ts / statuses.ts / invites.ts / events.ts
+### media.ts / uploads.ts / imageProbe.ts / statuses.ts / invites.ts / events.ts
 
-- `mediaUrl(key)`, `toMediaAttachment(row)`, `loadMediaMap(dbx, ids)`,
+- `mediaUrl(key)`, `staticMediaKey` (SQL: the poster's key when the joined `media` row is
+  animated, else the file's — selected as `avatarKey` by every group/community/channel icon
+  serializer) and `staticMediaUrl(row)` (the same on a loaded row: push icons, call
+  payloads), `toMediaAttachment(row)` (`animated`, `frameCount`), `loadMediaMap(dbx, ids)`,
   `requireOwnedMedia(dbx, mediaId, userId, { kinds?, mimeTypes?, maxBytes? })` (404 not mine,
-  400 mismatch; `FOR KEY SHARE` so the GC can't race), `requireAvatarMedia(dbx, mediaId, userId)`.
+  400 mismatch; `FOR KEY SHARE` so the GC can't race).
+- `requireAvatarMedia(dbx, mediaId, userId)` (user, group, community and channel avatars):
+  kind `image`; static → AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES; animated (`row.animated`) →
+  ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES and a `thumbnail_key` (the static
+  poster) — 400 "Animated images need a static poster" without one.
+  `requireBannerMedia(dbx, mediaId, userId)`: BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, same
+  poster rule. `requireWallpaperMedia(dbx, mediaId, userId)`
+  (`PATCH /chats/:id/prefs { wallpaperMediaId }`): kind `image` → WALLPAPER_IMAGE_MIME_TYPES,
+  ≤ MAX_WALLPAPER_BYTES, poster when `row.animated`; kind `video` →
+  WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES, `duration_ms` required and ≤
+  MAX_WALLPAPER_VIDEO_MS, poster required; anything else 400 ("Wallpapers need a static
+  poster" without one). All three run inside the referencing transaction (docs "Media").
 - `sniffFile(path)`, `isAllowedMime(kind, mime)`, `sanitizeFileName(name)`,
   `newStorageKey(ext)`, `storagePath(key)`, `moveIntoStore`, `removeFiles`, `removeStoredFiles`.
   Sniffing uses the `file-type` package; MIME names are normalised to MEDIA_MIME_ALLOWLIST's.
+- `probeImageFile(path, mime)` (every `kind: 'image'` upload, after the sniff): parses the
+  header and frame structure with the shared `readImageInfo` (GIF, WebP, PNG/APNG, JPEG)
+  and returns `{ ok: true, info }` with the verified `width`/`height`, `animated` and
+  `frameCount`, or `{ ok: false, code, reason }` — never throws on content — above
+  IMAGE_HEADER_MAX_DIMENSION / ANIMATED_MAX_FRAMES / ANIMATED_DECODED_PIXEL_BUDGET (`cap`),
+  for a frame outside the canvas or an unparsable file (`unreadable`), or an animated file
+  beyond IMAGE_WALK_LIMIT_BYTES (`oversize`); the route answers `400` with the reason (never
+  a 500). `stripImageFileMetadata(path)` rewrites the file in place without
+  EXIF/XMP/ICC/comments (shared `stripImageMetadata`) and returns the new size — run on the
+  file and the thumbnail before `moveIntoStore`, so nothing with metadata ever enters the
+  store.
 - `requireVisibleStatus(dbx, viewerId, statusId, { lock? })` (404; `lock` = `FOR KEY SHARE` for writes referencing it), `resolveStatusReply(dbx, { senderId, chat, statusId })`,
   `loadStatusesForReplies`, `toStatusReplyPayload`.
 - `generateUniqueInviteCode(dbx)`.
@@ -336,6 +379,23 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
   `registerChatDeletionHook` / `runChatDeletionHooks(tx, fx, chatIds)` — run before a chat row
   is deleted (community deactivation, channel deletion); the calls module ends live calls there.
 - Delivered receipts are not tracked for channels (no ticks; a post doesn't touch follower rows).
+- `PUT /me/presence` and `PUT|DELETE /me/presence-note` register only the presence
+  re-evaluation and `me:updated` — never `user:changed`: a note edited several times a day
+  must not make every co-member's client refetch me (`PATCH /me` does, for profile fields).
+  Switching to `invisible` while connected writes `last_seen_at = now()` in the same
+  transaction (already offline: the real last seen stays); the disconnect write in
+  `realtime/io.ts` is predicated on `availability <> 'invisible'`.
+- `PUT /chats/:id/theme` (`setChatTheme` in `modules/chats/service.ts`) is `setDisappearing`
+  with a jsonb column: `requireActiveMember(tx, me, chatId, { lock: true })`, direct chats
+  `assertCanSend` else `requirePermission(access, 'canEditInfo')`, deep-equal → return (no
+  write, no events), `peersWhoBlockedMe` → write `chats.theme` → `postSystemMessage`
+  `theme_changed { actorId, preset }` where `systemMessageAllowed` →
+  `fx.chatUpdated(chatId, { sharedTheme }, { exceptUserIds: blockers })`; body
+  `setChatThemeSchema` (`sharedChatThemeSchema`: built-in wallpapers only); rate limit
+  `chatTheme`. `updatePrefs` takes the private side (`theme`, `wallpaperMediaId` via
+  `requireWallpaperMedia`; a `{ kind: 'media' }` wallpaper without a wallpaper row → 400;
+  clearing the wallpaper clears that ref) and still registers only
+  `fx.chatUpsert(me, chatId)`: private looks never leave the user room.
 - Clamping: marks move to the highest visible seq ≤ the requested seq (not just `min(seq, max)`),
   so a withheld message never reads as delivered/read while the block lasts.
 - Membership changes (leave/remove) also emit `chat:watermarks` to members whose ticks changed

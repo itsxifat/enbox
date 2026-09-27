@@ -33,7 +33,7 @@ export function AvatarEditor({ size = 160, className }: { size?: number; classNa
     e.target.value = '';
     if (!f) return;
     if (!isAcceptedImage(f)) {
-      toast.error('Choose a photo (JPEG, PNG or WebP).');
+      toast.error('Choose a photo (JPEG, PNG, WebP or GIF).');
       return;
     }
     setFile(f);
@@ -82,7 +82,13 @@ export function AvatarEditor({ size = 160, className }: { size?: number; classNa
         onClick={() => (hasPhoto ? setMenuOpen(true) : pick())}
         className="group relative rounded-full focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
       >
-        <Avatar src={me.avatarUrl} name={me.displayName} colorSeed={me.id} size={size} />
+        <Avatar
+          src={me.avatarUrl}
+          animatedSrc={me.avatarAnimatedUrl}
+          name={me.displayName}
+          colorSeed={me.id}
+          size={size}
+        />
         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-black/50 text-[12px] font-semibold tracking-wide text-white uppercase opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
           <Camera size={Math.round(size * 0.16)} aria-hidden />
           {hasPhoto ? 'Change photo' : 'Add photo'}
@@ -121,6 +127,7 @@ export function AvatarEditor({ size = 160, className }: { size?: number; classNa
         open={viewing}
         onClose={() => setViewing(false)}
         src={me.avatarUrl}
+        animatedSrc={me.avatarAnimatedUrl}
         title={me.displayName}
         subtitle="Profile photo"
       />

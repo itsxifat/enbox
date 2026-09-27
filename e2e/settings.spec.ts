@@ -159,6 +159,19 @@ test.describe('settings', () => {
     await context.close();
   });
 
+  test('reduce motion pref marks the document and survives a reload', async ({ browser }) => {
+    const user = await registerUser({ displayName: 'Still Person' });
+    const { page, context } = await openAs(browser, user, '/settings/chats/animations');
+    await page
+      .getByRole('radiogroup', { name: 'Reduce motion' })
+      .getByRole('radio', { name: 'On' })
+      .click();
+    await expect(page.locator('html')).toHaveAttribute('data-reduce-motion', 'on');
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-reduce-motion', 'on');
+    await context.close();
+  });
+
   test('hiding last seen & online removes presence for the other user', async ({ browser }) => {
     const a = await registerUser({ displayName: 'Casey Private' });
     const b = await registerUser({ displayName: 'Dana Viewer' });
@@ -256,11 +269,21 @@ test.describe('settings', () => {
     const { page, context } = await openAs(browser, user, '/settings/chats');
     await page.getByRole('radio', { name: 'Dark' }).click();
     await expect(page.locator('html')).toHaveClass(/dark/);
-    await page.getByRole('radio', { name: 'Mint' }).click();
-    await expect(page.getByRole('radio', { name: 'Mint' })).toHaveAttribute('aria-checked', 'true');
     await page.getByRole('switch', { name: 'Enter is send' }).click();
+    // The wallpaper preset has its own page (Chats → Wallpaper).
+    await page.goto('/settings/chats/wallpaper');
+    const wallpapers = page.getByRole('radiogroup', { name: 'Wallpaper' });
+    await wallpapers.getByRole('radio', { name: 'Mint' }).click();
+    await expect(wallpapers.getByRole('radio', { name: 'Mint' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
+    await expect(
+      page.getByRole('radiogroup', { name: 'Wallpaper' }).getByRole('radio', { name: 'Mint' }),
+    ).toHaveAttribute('aria-checked', 'true');
+    await page.goto('/settings/chats');
     await expect(page.getByRole('switch', { name: 'Enter is send' })).toHaveAttribute(
       'aria-checked',
       'false',

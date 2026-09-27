@@ -3,7 +3,14 @@
  * tests and consistent renders) and `locale` (default: the browser's locale).
  */
 import { differenceInCalendarDays, isSameDay, isValid, parseISO } from 'date-fns';
-import { formatBytes, formatDuration, type Presence } from '@enbox/shared';
+import {
+  activePresenceNote,
+  formatBytes,
+  formatDuration,
+  type Presence,
+  type PresenceNote,
+  type PresenceState,
+} from '@enbox/shared';
 
 export { formatBytes, formatDuration };
 
@@ -108,17 +115,47 @@ export function isSameLocalDay(a: DateInput, b: DateInput): boolean {
   return isSameDay(toDate(a), toDate(b));
 }
 
+/** Subtitle word for a presence state: "online", "idle", "do not disturb"; '' for offline/hidden. */
+export function presenceLabel(state: PresenceState | null | undefined): string {
+  switch (state) {
+    case 'online':
+      return 'online';
+    case 'idle':
+      return 'idle';
+    case 'dnd':
+      return 'do not disturb';
+    default:
+      return '';
+  }
+}
+
+/** A presence note as one line: "🎧 Focus time" (emoji and/or text); '' when unset. */
+export function formatPresenceNote(note: PresenceNote | null | undefined): string {
+  if (!note) return '';
+  return [note.emoji, note.text].filter(Boolean).join(' ');
+}
+
 /**
- * Presence line under a chat title: "online", "last seen today at 10:42",
- * "last seen yesterday at 21:03", "last seen Monday at 09:15", "last seen 12/03/2025",
- * or '' when unknown/hidden.
+ * Presence line under a chat title: "online" / "idle" / "do not disturb" (+ " · 🎧 Focus
+ * time" while a presence note is active), "last seen today at 10:42", "last seen yesterday
+ * at 21:03", "last seen Monday at 09:15", "last seen 12/03/2025", or '' when unknown/hidden.
+ * Callers without the P1 fields (`state`, `note`) get the plain "online".
  */
 export function formatLastSeen(
-  presence: Pick<Presence, 'online' | 'lastSeenAt'> | null | undefined,
+  presence:
+    | (Pick<Presence, 'online' | 'lastSeenAt'> & Partial<Pick<Presence, 'state' | 'note'>>)
+    | null
+    | undefined,
   opts: FormatOptions = {},
 ): string {
   if (!presence) return '';
-  if (presence.online) return 'online';
+  if (presence.online) {
+    const label = presenceLabel(presence.state) || 'online';
+    const note = formatPresenceNote(
+      activePresenceNote(presence.note, (opts.now ?? new Date()).getTime()),
+    );
+    return note ? `${label} · ${note}` : label;
+  }
   if (!presence.lastSeenAt) return '';
   const now = opts.now ?? new Date();
   const d = toDate(presence.lastSeenAt);
@@ -141,6 +178,11 @@ export function formatRelativeShort(input: DateInput, opts: FormatOptions = {}):
   if (days <= 0) return `Today, ${formatTime(d, opts)}`;
   if (days === 1) return `Yesterday, ${formatTime(d, opts)}`;
   return `${formatShortDate(d, opts)}, ${formatTime(d, opts)}`;
+}
+
+/** "March 2025" — profile "member since". */
+export function formatMonthYear(input: DateInput, opts: FormatOptions = {}): string {
+  return dtf(opts.locale, { month: 'long', year: 'numeric' }).format(toDate(input));
 }
 
 /** Compact counts: 999, 1.2K, 12K, 1.3M (follower counts, views). */

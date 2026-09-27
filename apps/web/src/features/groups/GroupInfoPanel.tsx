@@ -15,6 +15,7 @@ import {
   Link2,
   LogOut,
   Megaphone,
+  Palette,
   Pencil,
   Search,
   Settings2,
@@ -37,6 +38,8 @@ import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { ICON_STROKE_ON_FILL, PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Button, IconButton, Switch, confirm, toast } from '@/components/ui';
+import { ChatThemeSheet } from '@/features/appearance/ChatThemeSheet';
+import { chatThemeLabel } from '@/features/appearance/presets';
 import type { InfoPanelProps } from '@/features/contacts/ContactInfoPanel';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { formatShortDate } from '@/lib/format';
@@ -220,6 +223,7 @@ function GroupInfoMain({
   const [edit, setEdit] = useState<'name' | 'description' | null>(null);
   const [muteOpen, setMuteOpen] = useState(false);
   const [timerOpen, setTimerOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
   const menu = useGroupMemberMenu(chat, reloadMembers);
 
   useEffect(() => {
@@ -487,6 +491,12 @@ function GroupInfoMain({
               value={disappearingLabel(chat.disappearingSeconds)}
               onClick={p.canEditInfo ? () => setTimerOpen(true) : undefined}
             />
+            <InfoRow
+              icon={Palette}
+              label="Chat theme"
+              value={chatThemeLabel(chat)}
+              onClick={() => setThemeOpen(true)}
+            />
             {isAdmin(chat) && !announcement ? (
               <InfoRow icon={Settings2} label="Group settings" onClick={() => go('settings')} />
             ) : null}
@@ -619,6 +629,7 @@ function GroupInfoMain({
         }}
       />
       {menu.element}
+      {themeOpen ? <ChatThemeSheet chat={chat} onClose={() => setThemeOpen(false)} /> : null}
     </div>
   );
 }
@@ -747,7 +758,7 @@ function AddMembersView({
         }
       />
       {selected.length ? (
-        <div className="absolute inset-x-0 bottom-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div className="absolute inset-x-0 bottom-0 bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] shadow-[0_-8px_16px_-8px_hsl(var(--shadow-color)/0.15)]">
           <Button fullWidth size="lg" loading={busy} onClick={() => void add()} leftIcon={UserPlus}>
             Add{' '}
             {selected.length === 1

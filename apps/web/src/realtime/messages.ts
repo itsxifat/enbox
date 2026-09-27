@@ -6,6 +6,7 @@
 import {
   chatKindOf,
   chatTitle,
+  isDnd,
   isMuted,
   messagePreviewText,
   referencedUserIds,
@@ -15,6 +16,7 @@ import {
   type ID,
   type Message,
 } from '@enbox/shared';
+import { arrivalKey, markArrival } from '@/lib/arrivals';
 import { isAppFocused, playSound, showNotification } from '@/lib/notify';
 import { registerSessionReset } from '@/lib/session';
 import type { AppSocket } from '@/lib/socket';
@@ -131,6 +133,8 @@ function notifyIncoming(message: Message, chat: ChatSummary): void {
   if (!me) return;
   const s = me.settings;
   if (chat.type === 'direct' ? !s.messageNotifications : !s.groupNotifications) return;
+  // Do not disturb: no sound and no system notification (the unread badge still counts it).
+  if (isDnd(me)) return;
 
   const { prefs } = useUi.getState();
   const focused = isAppFocused();
@@ -163,6 +167,8 @@ export function handleNewMessage(message: Message): void {
   const mine = !!me && message.senderId === me;
   const chats = useChats.getState();
   const visible = chats.openChatId === message.chatId && isAppFocused();
+  // A live arrival: its row may play the chat's enter animation (never on loads/resyncs).
+  markArrival(arrivalKey(message));
 
   if (!chats.byId[message.chatId]) {
     // Unknown chat (normally preceded by `chat:upsert`): fetch it, it already includes this message.

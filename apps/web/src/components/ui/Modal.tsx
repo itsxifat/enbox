@@ -56,10 +56,11 @@ export function Modal({
   bodyClassName,
   ...aria
 }: ModalProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descId = useId();
-  useOverlay(open, dismissible ? onClose : undefined);
+  useOverlay(open, dismissible ? onClose : undefined, rootRef);
   useScrollLock(open);
   useFocusTrap(panelRef, open, initialFocus);
   if (!open) return null;
@@ -67,6 +68,7 @@ export function Modal({
   return (
     <Portal>
       <div
+        ref={rootRef}
         className={cn(
           'fixed inset-0 z-50 flex justify-center p-0 sm:items-center sm:p-6',
           sheetOnMobile ? 'items-end' : 'items-center p-4',

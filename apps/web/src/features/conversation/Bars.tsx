@@ -81,7 +81,7 @@ export function ChatSearchBar({ chat }: { chat: ChatSummary }) {
 
   return (
     <header
-      className="flex h-16 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 pt-safe"
+      className="flex h-16 shrink-0 items-center gap-1 bg-surface px-2 pt-safe"
       data-testid="chat-search"
     >
       <IconButton icon={ArrowLeft} label="Close search" onClick={close} />
@@ -140,7 +140,7 @@ export function SelectionBar({ chat }: { chat: ChatSummary }) {
 
   return (
     <header
-      className="flex h-16 shrink-0 items-center gap-1 border-b border-line bg-surface px-2 pt-safe"
+      className="flex h-16 shrink-0 items-center gap-1 bg-surface px-2 pt-safe"
       data-testid="selection-bar"
     >
       <IconButton icon={X} label="Cancel selection" onClick={clear} />
@@ -220,7 +220,7 @@ export function ReadOnlyFooter({ chat, onDeleted }: { chat: ChatSummary; onDelet
   return (
     <div
       className={cn(
-        'flex shrink-0 flex-col items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))] text-center text-[14px] text-muted',
+        'card-inset mx-3 mt-2 mb-[max(12px,env(safe-area-inset-bottom))] flex shrink-0 flex-col items-center gap-2 px-4 py-3 text-center text-[14px] text-muted',
       )}
       data-testid="read-only-footer"
     >

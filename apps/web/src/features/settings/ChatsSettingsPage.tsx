@@ -1,15 +1,22 @@
-import { Check, CornerDownLeft, Sparkles } from 'lucide-react';
-import { ICON_STROKE_BOLD, DoubleTickIcon } from '@/components/icons';
-import { cn } from '@/lib/cn';
+import { Check, CornerDownLeft, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
+import { ICON_STROKE_BOLD } from '@/components/icons';
+import { ChatPreview } from '@/features/appearance/ChatPreview';
 import {
-  FONT_SIZES,
-  WALLPAPERS,
-  useUi,
-  type FontSize,
-  type ThemePref,
-  type WallpaperId,
-} from '@/stores/ui';
-import { SettingsGroup, SettingsScroller, SwitchRow } from './ui';
+  AnimationPicker,
+  BUBBLE_STYLE_LABELS,
+  BubbleStylePicker,
+  MESSAGE_ANIMATION_LABELS,
+  PresetGrid,
+  Segmented,
+  SliderRow,
+  WallpaperGrid,
+} from '@/features/appearance/pickers';
+import { CHAT_THEME_PRESET_DEFS, WALLPAPER_PRESET_DEFS } from '@/features/appearance/presets';
+import { useDeviceAppearance } from '@/features/appearance/useChatAppearance';
+import { cn } from '@/lib/cn';
+import { FONT_SIZES, useUi, type FontSize, type ThemePref } from '@/stores/ui';
+import { WALLPAPER_DIM_MAX } from '@enbox/shared';
+import { SettingsGroup, SettingsRow, SettingsScroller, SwitchRow } from './ui';
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -88,51 +95,6 @@ function ThemePicker() {
   );
 }
 
-function WallpaperPicker() {
-  const wallpaper = useUi((s) => s.prefs.wallpaper);
-  const dark = useUi((s) => s.resolvedTheme === 'dark');
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Chat wallpaper"
-      className="grid grid-cols-4 gap-3 px-4 py-4 sm:grid-cols-7 lg:px-5"
-    >
-      {(Object.keys(WALLPAPERS) as WallpaperId[]).map((id) => {
-        const wp = WALLPAPERS[id];
-        const selected = wallpaper === id;
-        return (
-          <button
-            key={id}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            aria-label={wp.label}
-            title={wp.label}
-            onClick={() => useUi.getState().setPref('wallpaper', id)}
-            className="group flex flex-col items-center gap-1.5 outline-none"
-          >
-            <span
-              className={cn(
-                'relative flex aspect-square w-full items-center justify-center rounded-xl border-2 transition-transform group-active:scale-95',
-                selected ? 'border-brand' : 'border-line group-hover:border-line-strong',
-                'group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-brand',
-              )}
-              style={{ backgroundColor: dark ? wp.dark : wp.light }}
-            >
-              {selected ? (
-                <span className="flex size-6 items-center justify-center rounded-full bg-brand text-on-brand shadow">
-                  <Check size={14} strokeWidth={ICON_STROKE_BOLD} aria-hidden />
-                </span>
-              ) : null}
-            </span>
-            <span className="text-[12px] text-muted">{wp.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function FontSizePicker() {
   const fontSize = useUi((s) => s.prefs.fontSize);
   return (
@@ -164,44 +126,44 @@ function FontSizePicker() {
   );
 }
 
-/** Live preview of wallpaper + text size. */
-function ChatPreview() {
-  return (
-    <div
-      className="chat-wallpaper mx-4 mt-4 flex flex-col gap-1.5 rounded-2xl border border-line p-4 lg:mx-5"
-      aria-hidden
-    >
-      <div className="max-w-[78%] self-start rounded-2xl rounded-tl-md bg-bubble-in px-3 py-1.5 text-chat leading-snug text-fg shadow-bubble">
-        Did you see the new wallpapers? 🎨
-        <span className="ml-2 text-[11px] text-bubble-in-meta">10:41</span>
-      </div>
-      <div className="max-w-[78%] self-end rounded-2xl rounded-tr-md bg-bubble-out px-3 py-1.5 text-chat leading-snug text-fg shadow-bubble">
-        Yes! This one looks great
-        <span className="ml-2 inline-flex items-center gap-0.5 text-[11px] text-bubble-out-meta">
-          10:42 <DoubleTickIcon size={14} className="text-tick-read" />
-        </span>
-      </div>
-    </div>
-  );
+/** Live preview of the device appearance (theme preset, wallpaper, bubbles, text size). */
+function DevicePreview() {
+  const appearance = useDeviceAppearance();
+  return <ChatPreview appearance={appearance} className="mx-4 mt-4 min-h-28 lg:mx-5" />;
 }
 
-/** Settings → Chats: theme, wallpaper, text size, enter to send (device preferences). */
+/** Settings → Chats: theme, wallpaper, animations, text size, enter to send (device preferences). */
 export function ChatsSettingsPage() {
   const prefs = useUi((s) => s.prefs);
   return (
     <SettingsScroller>
       <SettingsGroup title="Theme">
         <ThemePicker />
+        <SettingsRow
+          icon={Palette}
+          title="Chat theme"
+          description={`${CHAT_THEME_PRESET_DEFS[prefs.chatTheme].label} · ${BUBBLE_STYLE_LABELS[prefs.bubbleStyle]} bubbles`}
+          to="/settings/chats/theme"
+        />
       </SettingsGroup>
-      <SettingsGroup title="Wallpaper" footer="Wallpaper and text size apply on this device only.">
-        <ChatPreview />
-        <WallpaperPicker />
-        <SwitchRow
-          icon={Sparkles}
-          title="Wallpaper doodles"
-          description="A subtle dot pattern over the wallpaper"
-          checked={prefs.wallpaperPattern}
-          onChange={(v) => useUi.getState().setPref('wallpaperPattern', v)}
+      <SettingsGroup
+        title="Wallpaper"
+        footer="Theme, wallpaper and text size apply on this device. A chat's own theme (from its menu) comes first."
+      >
+        <DevicePreview />
+        <SettingsRow
+          icon={Wallpaper}
+          title="Wallpaper"
+          description={WALLPAPER_PRESET_DEFS[prefs.wallpaperPreset].label}
+          to="/settings/chats/wallpaper"
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Animations">
+        <SettingsRow
+          icon={Zap}
+          title="Message animation"
+          description={MESSAGE_ANIMATION_LABELS[prefs.messageAnimation]}
+          to="/settings/chats/animations"
         />
       </SettingsGroup>
       <SettingsGroup title="Chat text size">
@@ -214,6 +176,126 @@ export function ChatsSettingsPage() {
           description="Enter sends your message; Shift + Enter adds a new line"
           checked={prefs.enterToSend}
           onChange={(v) => useUi.getState().setPref('enterToSend', v)}
+        />
+      </SettingsGroup>
+    </SettingsScroller>
+  );
+}
+
+/** Settings → Chats → Chat theme: the device preset and bubble style. */
+export function ChatThemePage() {
+  const prefs = useUi((s) => s.prefs);
+  const resolvedTheme = useUi((s) => s.resolvedTheme);
+  return (
+    <SettingsScroller>
+      <SettingsGroup title="Theme">
+        <DevicePreview />
+        <PresetGrid
+          value={prefs.chatTheme}
+          onChange={(v) => useUi.getState().setPref('chatTheme', v)}
+          resolvedTheme={resolvedTheme}
+          className="px-4 py-4 lg:px-5"
+        />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Bubble style"
+        footer="Cozy shows messages as rows with the sender's name and photo, like a server chat."
+      >
+        <BubbleStylePicker
+          value={prefs.bubbleStyle}
+          onChange={(v) => useUi.getState().setPref('bubbleStyle', v)}
+          className="mx-4 my-4 lg:mx-5"
+        />
+      </SettingsGroup>
+    </SettingsScroller>
+  );
+}
+
+/** Settings → Chats → Wallpaper: the device wallpaper preset, dim and doodles. */
+export function ChatWallpaperPage() {
+  const prefs = useUi((s) => s.prefs);
+  const resolvedTheme = useUi((s) => s.resolvedTheme);
+  return (
+    <SettingsScroller>
+      <SettingsGroup
+        title="Wallpaper"
+        footer="Upload your own photo or video from a chat's theme menu."
+      >
+        <DevicePreview />
+        <WallpaperGrid
+          value={prefs.wallpaperPreset}
+          onChange={(v) => {
+            if (v !== 'media') useUi.getState().setPref('wallpaperPreset', v);
+          }}
+          resolvedTheme={resolvedTheme}
+          className="px-4 py-4 lg:px-5"
+        />
+        <SliderRow
+          label="Dim"
+          value={prefs.wallpaperDim}
+          max={WALLPAPER_DIM_MAX}
+          unit="%"
+          onChange={(v) => useUi.getState().setPref('wallpaperDim', v)}
+          className="px-4 pb-4 lg:px-5"
+        />
+        <SwitchRow
+          icon={Sparkles}
+          title="Wallpaper doodles"
+          description="A subtle dot pattern over flat wallpapers"
+          checked={prefs.wallpaperPattern}
+          onChange={(v) => useUi.getState().setPref('wallpaperPattern', v)}
+        />
+      </SettingsGroup>
+    </SettingsScroller>
+  );
+}
+
+/** Settings → Chats → Animations: message enter animation, reduced motion, animated media. */
+export function ChatAnimationsPage() {
+  const prefs = useUi((s) => s.prefs);
+  return (
+    <SettingsScroller>
+      <SettingsGroup
+        title="New messages"
+        footer="How messages appear as they arrive. Off under reduced motion."
+      >
+        <DevicePreview />
+        <AnimationPicker
+          value={prefs.messageAnimation}
+          onChange={(v) => useUi.getState().setPref('messageAnimation', v)}
+          className="mx-4 my-4 lg:mx-5"
+        />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Reduce motion"
+        footer="System follows your device's accessibility setting."
+      >
+        <Segmented
+          aria-label="Reduce motion"
+          value={prefs.reduceMotion}
+          onChange={(v) => useUi.getState().setPref('reduceMotion', v)}
+          className="mx-4 my-4 lg:mx-5"
+          options={[
+            { value: 'system', label: 'System' },
+            { value: 'on', label: 'On' },
+            { value: 'off', label: 'Off' },
+          ]}
+        />
+      </SettingsGroup>
+      <SettingsGroup
+        title="Animated photos and GIFs"
+        footer="Animated profile photos, GIFs and wallpapers."
+      >
+        <Segmented
+          aria-label="Play animated media"
+          value={prefs.autoplayAnimatedMedia}
+          onChange={(v) => useUi.getState().setPref('autoplayAnimatedMedia', v)}
+          className="mx-4 my-4 lg:mx-5"
+          options={[
+            { value: 'always', label: 'Always' },
+            { value: 'hover', label: 'On hover' },
+            { value: 'never', label: 'Never' },
+          ]}
         />
       </SettingsGroup>
     </SettingsScroller>

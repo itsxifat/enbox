@@ -20,7 +20,6 @@ import {
   type Community,
   type CommunityAddMembersResult,
   type CommunityMember,
-  type ID,
   type UserPublic,
 } from '@enbox/shared';
 import { ICON_STROKE_ON_FILL } from '@/components/icons';
@@ -43,7 +42,7 @@ import { matchesUser } from '@/features/groups/shared/candidates';
 import { openDirectChat } from '@/features/groups/shared/chatActions';
 import { afterPaint } from '@/features/groups/shared/share';
 import { UserPicker } from '@/features/groups/shared/UserPicker';
-import { UserProfileModal } from '@/features/groups/shared/UserProfileModal';
+import { openProfile } from '@/features/profile/open';
 import { useBus } from '@/hooks/useBus';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { errorMessage } from '@/lib/api';
@@ -64,7 +63,6 @@ export function CommunityMembersView({
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
   const [menu, setMenu] = useState<{ member: CommunityMember; anchor: MenuAnchor } | null>(null);
-  const [profile, setProfile] = useState<ID | null>(null);
   const ctrl = useRef<AbortController | null>(null);
   const meId = getMyId();
   const store = useCommunities.getState;
@@ -121,7 +119,7 @@ export function CommunityMembersView({
             .then((chat) => navigate(`/chats/${chat.id}`))
             .catch((e: unknown) => toast.error(e)),
       },
-      { label: `View ${first}`, icon: Info, onSelect: () => setProfile(u.id) },
+      { label: `View ${first}`, icon: Info, onSelect: () => openProfile(u.id, menu.anchor) },
     );
     const admin: MenuEntry[] = [];
     if (role === 'member')
@@ -247,7 +245,6 @@ export function CommunityMembersView({
         align="end"
         aria-label="Member options"
       />
-      <UserProfileModal userId={profile} onClose={() => setProfile(null)} />
     </div>
   );
 }
@@ -309,7 +306,7 @@ function AddCommunityMembers({
         autoFocus
       />
       {selected.length ? (
-        <div className="absolute inset-x-0 bottom-0 border-t border-line bg-surface px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div className="card-inset absolute inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] px-4 py-3 shadow-elevated">
           <Button fullWidth size="lg" loading={busy} onClick={() => void add()} leftIcon={UserPlus}>
             Add{' '}
             {selected.length === 1

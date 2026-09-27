@@ -38,7 +38,7 @@ import { emitToUser } from '../realtime/emit.js';
 import { getChat, getMembership, lockChats } from './chats.js';
 import type { Effects } from './effects.js';
 import { runChatDeletionHooks } from './hooks.js';
-import { mediaUrl } from './media.js';
+import { mediaUrl, staticMediaKey } from './media.js';
 import { upsertMembership } from './membership.js';
 import { pairKey, uniq } from './sql.js';
 import { postSystemMessage } from './system.js';
@@ -64,7 +64,7 @@ export async function communitiesForPairs(
   const userIds = uniq(pairs.map((p) => p.userId));
 
   const rows = await dbx
-    .select({ community: communities, avatarKey: media.storageKey })
+    .select({ community: communities, avatarKey: staticMediaKey })
     .from(communities)
     .leftJoin(media, eq(media.id, communities.avatarMediaId))
     .where(inArray(communities.id, communityIds));
@@ -90,7 +90,7 @@ export async function communitiesForPairs(
       communityId: chats.communityId,
       isAnnouncement: chats.isAnnouncement,
       createdAt: chats.createdAt,
-      avatarKey: media.storageKey,
+      avatarKey: staticMediaKey,
     })
     .from(chats)
     .leftJoin(media, eq(media.id, chats.avatarMediaId))

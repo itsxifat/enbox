@@ -16,7 +16,7 @@ import { callParticipants, calls, chatMembers, chats, media } from '../../db/sch
 import { authUserId } from '../../http/auth.js';
 import { conflict, notFound } from '../../lib/errors.js';
 import { parse, storableDate } from '../../lib/validate.js';
-import { mediaUrl } from '../../services/media.js';
+import { mediaUrl, staticMediaKey } from '../../services/media.js';
 import { uniq } from '../../services/sql.js';
 import { toUserPublicMap } from '../../services/users.js';
 import { LIVE_CALL_STATUSES, isLive, loadCallRows, toCall } from './service.js';
@@ -53,7 +53,7 @@ async function toCallLogEntries(me: string, rows: LogRow[]): Promise<CallLogEntr
   );
   const chatIds = uniq(rows.map((r) => r.chatId));
   const chatRows = await db
-    .select({ id: chats.id, type: chats.type, name: chats.name, avatarKey: media.storageKey })
+    .select({ id: chats.id, type: chats.type, name: chats.name, avatarKey: staticMediaKey })
     .from(chats)
     .leftJoin(media, eq(media.id, chats.avatarMediaId))
     .where(inArray(chats.id, chatIds));

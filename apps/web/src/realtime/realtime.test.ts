@@ -10,6 +10,7 @@ import type {
 } from '@enbox/shared';
 import { useActiveCallForChat } from '@/features/calls/hooks';
 import { api } from '@/lib/api';
+import { playSound, showNotification } from '@/lib/notify';
 import type * as NotifyModule from '@/lib/notify';
 import { resetSessionState } from '@/lib/session';
 import type { AppSocket, ReadyInfo } from '@/lib/socket';
@@ -17,6 +18,7 @@ import { useAuth } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
 import { useChats } from '@/stores/chats';
 import { mergePage, useMessages } from '@/stores/messages';
+import { useUi } from '@/stores/ui';
 import { useUsers } from '@/stores/users';
 import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
 import { registerChatHandlers, resyncChats } from './chats';
@@ -376,5 +378,64 @@ describe('ready resync order', () => {
     expect(order).toEqual(['calls', 'chats:start', 'chats:done', 'users']);
     vi.doUnmock('./calls');
     vi.doUnmock('./users');
+  });
+});
+
+describe('presence and do not disturb (P1)', () => {
+  it('presence:update stores state and note as sent (hidden = all null)', () => {
+    const { socket, fire } = fakeSocket();
+    registerUserHandlers(socket);
+    const p = {
+      userId: 'bob',
+      online: true,
+      state: 'dnd' as const,
+      note: { text: 'Heads down', emoji: '🎧', expiresAt: null },
+      lastSeenAt: null,
+    };
+    fire('presence:update', p);
+    expect(useUsers.getState().presence.bob).toEqual(p);
+    fire('presence:update', {
+      userId: 'bob',
+      online: null,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
+    expect(useUsers.getState().presence.bob).toEqual({
+      userId: 'bob',
+      online: null,
+      state: null,
+      note: null,
+      lastSeenAt: null,
+    });
+  });
+
+  it('DND: an incoming message still counts as unread but plays no sound and shows nothing', () => {
+    useUi.getState().setPref('sounds', true);
+    useUi.getState().setPref('desktopNotifications', true);
+    useChats.getState().upsertChat(makeChat({ id: 'chat-1', lastSeq: 0 }));
+    const sound = vi.mocked(playSound);
+    const notify = vi.mocked(showNotification);
+
+    handleNewMessage(makeMessage({ id: 'm1', seq: 1, senderId: 'bob' }));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(useChats.getState().byId['chat-1']!.unreadCount).toBe(1);
+
+    useAuth.setState({ user: makeMe({ id: 'me', availability: 'dnd', availabilityUntil: null }) });
+    handleNewMessage(makeMessage({ id: 'm2', seq: 2, senderId: 'bob' }));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(sound).not.toHaveBeenCalled();
+    expect(useChats.getState().byId['chat-1']!.unreadCount).toBe(2);
+
+    // A DND choice that expired (the expiry job hasn't caught up yet) notifies again.
+    useAuth.setState({
+      user: makeMe({
+        id: 'me',
+        availability: 'dnd',
+        availabilityUntil: '2000-01-01T00:00:00.000Z',
+      }),
+    });
+    handleNewMessage(makeMessage({ id: 'm3', seq: 3, senderId: 'bob' }));
+    expect(notify).toHaveBeenCalledTimes(2);
   });
 });

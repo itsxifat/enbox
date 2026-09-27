@@ -17,7 +17,7 @@ import {
 } from '../../services/chats.js';
 import type { Effects } from '../../services/effects.js';
 import { runChatDeletionHooks } from '../../services/hooks.js';
-import { mediaUrl } from '../../services/media.js';
+import { mediaUrl, staticMediaKey } from '../../services/media.js';
 import { upsertMembership } from '../../services/membership.js';
 
 /** Guard of `/channels/:chatId/*` for followers: 404 without a row or for non-channels. */
@@ -88,7 +88,7 @@ export async function channelEntries(
     );
   const following = sql<boolean>`exists (select 1 from chat_members f where f.chat_id = ${chats.id} and f.user_id = ${viewerId} and f.left_at is null)`;
   let q = dbx
-    .select({ chat: chats, avatarKey: media.storageKey, followers, following })
+    .select({ chat: chats, avatarKey: staticMediaKey, followers, following })
     .from(chats)
     .leftJoin(media, eq(media.id, chats.avatarMediaId))
     .where(and(eq(chats.type, 'channel'), where))

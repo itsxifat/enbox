@@ -71,6 +71,8 @@ export interface StatusState {
     file: Blob;
     meta: UploadMeta & { kind: 'image' | 'video' };
     fileName?: string;
+    /** Poster of an animated image (`api.upload` thumbnail part). */
+    thumbnail?: Blob | null;
     caption?: string;
   }): Promise<Status>;
   deleteStatus(statusId: ID): Promise<void>;
@@ -266,13 +268,13 @@ export const useStatus = create<StatusState>((set, get) => {
       }
     },
 
-    async postMedia({ file, meta, fileName, caption }) {
+    async postMedia({ file, meta, fileName, thumbnail, caption }) {
       const id = newClientId();
       set({ posting: [...get().posting, { id, type: meta.kind, progress: 0 }] });
       const progress = (p: number) =>
         set({ posting: get().posting.map((x) => (x.id === id ? { ...x, progress: p } : x)) });
       try {
-        const media = await api.upload(file, meta, progress, { fileName });
+        const media = await api.upload(file, meta, progress, { fileName, thumbnail });
         const text = caption?.trim();
         const body: CreateStatusRequest = {
           type: meta.kind,
@@ -364,10 +366,20 @@ export function selfPublic(
     username: me.username,
     displayName: me.displayName,
     avatarUrl: me.avatarUrl,
+    avatarAnimatedUrl: me.avatarAnimatedUrl,
+    bannerUrl: me.bannerUrl,
+    bannerAnimatedUrl: me.bannerAnimatedUrl,
     about: me.about,
+    pronouns: me.pronouns,
+    bio: me.bio,
+    profileColor: me.profileColor,
+    accentColor: me.accentColor,
     phone: me.phone,
     online: true,
+    presenceState: 'online',
+    presenceNote: me.presenceNote,
     lastSeenAt: null,
+    createdAt: me.createdAt,
     isContact: false,
     contactName: null,
     isBlocked: false,

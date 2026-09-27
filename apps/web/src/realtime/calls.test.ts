@@ -177,3 +177,22 @@ describe('resync after a reconnect (CALLS-8)', () => {
     expect(get).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('do not disturb (P1)', () => {
+  it('rings silently while I am in DND: the silenced card, no call:ringing', () => {
+    useAuth.setState({ user: makeMe({ id: ME, availability: 'dnd', availabilityUntil: null }) });
+    emit('call:incoming', incoming(ringingCall('x', 'caller-x')));
+    expect(useCalls.getState().incoming?.call.id).toBe('x');
+    expect(useCalls.getState().incoming?.silent).toBe(true);
+    expect(ringingSentFor()).toEqual([]);
+  });
+
+  it('a DND choice that already expired rings normally', () => {
+    useAuth.setState({
+      user: makeMe({ id: ME, availability: 'dnd', availabilityUntil: '2000-01-01T00:00:00.000Z' }),
+    });
+    emit('call:incoming', incoming(ringingCall('x', 'caller-x')));
+    expect(useCalls.getState().incoming?.silent).toBe(false);
+    expect(ringingSentFor()).toEqual(['x']);
+  });
+});
