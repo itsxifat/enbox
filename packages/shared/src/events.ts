@@ -85,6 +85,7 @@ export type ChatInfoChanges = Partial<
     | 'groupSettings'
     | 'channelSettings'
     | 'disappearingSeconds'
+    | 'sharedTheme'
     | 'memberCount'
     | 'communityId'
     | 'isAnnouncement'
@@ -128,7 +129,11 @@ export interface ServerToClientEvents {
   'message:removed': (payload: { chatId: ID; messageIds: ID[] }) => void;
 
   // --- Chats ---
-  /** Create or replace a chat in the user's list (viewer-specific; user:<id>). */
+  /**
+   * Create or replace a chat in the user's list (viewer-specific; user:<id>). This is also
+   * how my private `theme`/`wallpaper` prefs (`PATCH /chats/:id/prefs`) reach my other
+   * devices: they sync to my own devices only and never appear in a room event.
+   */
   'chat:upsert': (payload: { chat: ChatSummary }) => void;
   /** Viewer-neutral chat metadata changed (room chat:<id>); shallow-merge `changes`. */
   'chat:updated': (payload: { chatId: ID; changes: ChatInfoChanges }) => void;

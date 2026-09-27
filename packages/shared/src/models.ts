@@ -15,6 +15,12 @@
  *   Everything else from the incoming payload replaces the cached value.
  * - Full objects in `chat:upsert`, `community:upsert` and `me:updated` replace the cached copy.
  */
+import type {
+  BUBBLE_STYLES,
+  CHAT_THEME_PRESETS,
+  MESSAGE_ANIMATIONS,
+  WALLPAPER_PRESETS,
+} from './constants.js';
 
 export type ID = string;
 export type ISODate = string;
@@ -283,7 +289,10 @@ export interface ChannelSettings {
 export interface ChatPermissions {
   /** Post messages (also gates forwarding into this chat). */
   canSend: boolean;
-  /** Change name/description/avatar and the disappearing timer (direct chats: timer only). */
+  /**
+   * Change name/description/avatar, the disappearing timer and the shared theme (direct
+   * chats: timer and theme only).
+   */
   canEditInfo: boolean;
   canAddMembers: boolean;
   canRemoveMembers: boolean;
@@ -301,6 +310,66 @@ export interface ChatPermissions {
   /** List members (`GET /api/chats/:chatId/members`). Channels and announcement groups: admins only. */
   canViewMembers: boolean;
 }
+
+// Chat themes (constants.ts "Chat themes"; rendering rules in apps/web/README.md)
+
+export type ChatThemePreset = (typeof CHAT_THEME_PRESETS)[number];
+export type BubbleStyle = (typeof BUBBLE_STYLES)[number];
+export type MessageAnimation = (typeof MESSAGE_ANIMATIONS)[number];
+export type WallpaperPresetId = (typeof WALLPAPER_PRESETS)[number];
+
+/** A built-in wallpaper (flat colour or animated, see WALLPAPER_PRESETS). */
+export interface ChatWallpaperPreset {
+  kind: 'preset';
+  id: WallpaperPresetId;
+}
+/**
+ * Which wallpaper a theme shows: a preset, or `media` = the viewer's own upload
+ * (`ChatSummary.wallpaper`, set through `wallpaperMediaId` in `PATCH /chats/:id/prefs`;
+ * nothing is shown while that is unset).
+ */
+export type ChatWallpaperRef = ChatWallpaperPreset | { kind: 'media' };
+
+/**
+ * A chat's look. Every field is a validated enum id or a lowercase `#rrggbb` (never CSS or
+ * URLs); `null` = "not set here", so the next layer decides (a viewer's private override
+ * over the chat's shared theme over the device prefs over the design tokens).
+ */
+export interface ChatTheme {
+  preset: ChatThemePreset | null;
+  bubbleStyle: BubbleStyle | null;
+  /** Lowercase `#rrggbb` accent (own bubbles, ticks, links); null = the preset's own. */
+  accent: string | null;
+  wallpaper: ChatWallpaperRef | null;
+  /** Wallpaper darkening, 0..WALLPAPER_DIM_MAX percent. */
+  dim: number;
+  /** Wallpaper backdrop blur, 0..WALLPAPER_BLUR_MAX px. */
+  blur: number;
+  messageAnimation: MessageAnimation | null;
+}
+
+/**
+ * The theme every member of a chat sees (`chats.theme`, `PUT /api/chats/:chatId/theme`,
+ * viewer-neutral). It can only reference built-in wallpapers: a member's own upload is
+ * private to them and never fans out to the room.
+ */
+export interface SharedChatTheme extends Omit<ChatTheme, 'wallpaper'> {
+  wallpaper: ChatWallpaperPreset | null;
+}
+
+/** The viewer's private wallpaper upload as carried by `ChatSummary.wallpaper`. */
+export type ChatWallpaperAttachment = Pick<
+  MediaAttachment,
+  | 'id'
+  | 'kind'
+  | 'url'
+  | 'thumbnailUrl'
+  | 'mimeType'
+  | 'animated'
+  | 'width'
+  | 'height'
+  | 'durationMs'
+>;
 
 /**
  * A chat as it appears in the viewer's chat list. Viewer-specific (send per user, never to
@@ -337,6 +406,11 @@ export interface ChatSummary {
   /** Invite code when `permissions.canInvite`, else null. */
   inviteCode: string | null;
   disappearingSeconds: number | null;
+  /**
+   * The chat's shared theme (viewer-neutral, `chat:updated { sharedTheme }`); null = none.
+   * Rendered under the viewer's own `theme`.
+   */
+  sharedTheme: SharedChatTheme | null;
 
   /** The last message VISIBLE to the viewer (null if none). */
   lastMessage: Message | null;
@@ -364,6 +438,13 @@ export interface ChatSummary {
   /** Muted until this time (MUTE_FOREVER_ISO for "always"), null = not muted. */
   mutedUntil: ISODate | null;
   markedUnread: boolean;
+  /**
+   * My private theme override for this chat (`chat_members.theme`); null = none. Synced to
+   * my own devices only (`chat:upsert` → user room), never to the room.
+   */
+  theme: ChatTheme | null;
+  /** My private wallpaper upload (`chat_members.wallpaper_media_id`); null = none. */
+  wallpaper: ChatWallpaperAttachment | null;
 
   createdAt: ISODate;
   /**
@@ -464,6 +545,8 @@ export type SystemEvent =
   /** Exactly one changed group setting per message (one message per changed key). */
   | { kind: 'settings_changed'; actorId: ID; setting: keyof GroupSettings; value: boolean }
   | { kind: 'disappearing_changed'; actorId: ID; seconds: number | null }
+  /** Shared theme set (`preset` = its preset, or null when set without one) or removed (`preset` null). */
+  | { kind: 'theme_changed'; actorId: ID; preset: ChatThemePreset | null }
   | { kind: 'invite_link_reset'; actorId: ID }
   | { kind: 'added_to_community'; actorId: ID; communityId: ID; communityName: string }
   /** Unlinked by an admin, or the community was deactivated. */

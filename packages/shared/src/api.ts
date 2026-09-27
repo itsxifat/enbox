@@ -72,6 +72,7 @@ import type {
   SearchMessagesQuery,
   SendMessageRequest,
   StarredMessagesQuery,
+  SetChatThemeRequest,
   SetDisappearingRequest,
   SetRoleRequest,
   StatusReactRequest,
@@ -337,6 +338,10 @@ export interface ApiRoutes {
     R: void;
   } /* delete chat for me (clears + hides); groups only after leaving */;
   'PUT /api/chats/:chatId/disappearing': { B: SetDisappearingRequest; R: ChatSummary };
+  'PUT /api/chats/:chatId/theme': {
+    B: SetChatThemeRequest;
+    R: ChatSummary;
+  } /* canEditInfo; shared theme (built-in wallpapers only); sys theme_changed + chat:updated */;
   'GET /api/chats/:chatId/members': {
     R: ChatMember[];
   } /* active members; requires permissions.canViewMembers */;

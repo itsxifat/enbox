@@ -2,7 +2,7 @@
  * Product limits and tunables shared by server and clients.
  * Keep these in one place so the UI can explain limits the server enforces.
  */
-import type { ChannelSettings, GroupSettings, UserSettings } from './models.js';
+import type { ChannelSettings, ChatThemePreset, GroupSettings, UserSettings } from './models.js';
 
 export const APP_NAME = 'Enbox';
 
@@ -149,6 +149,62 @@ export const TYPING_TIMEOUT_MS = 6_000;
 export const TYPING_REFRESH_MS = 3_000;
 
 // ---------------------------------------------------------------------------
+// Chat themes (`ChatTheme`, models.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * A theme is enum ids plus one validated `#rrggbb` accent — never CSS or URLs — so a stored
+ * theme can be applied as CSS variables without escaping (`chatThemeSchema`).
+ */
+export const CHAT_THEME_PRESETS = [
+  'default',
+  'midnight',
+  'ocean',
+  'forest',
+  'sunset',
+  'rose',
+  'mono',
+  'lavender',
+] as const;
+/** Display names of the presets (system messages, pickers). */
+export const CHAT_THEME_PRESET_LABELS: Readonly<Record<ChatThemePreset, string>> = Object.freeze({
+  default: 'Default',
+  midnight: 'Midnight',
+  ocean: 'Ocean',
+  forest: 'Forest',
+  sunset: 'Sunset',
+  rose: 'Rose',
+  mono: 'Mono',
+  lavender: 'Lavender',
+});
+/** `cozy` = Discord-style rows (avatar + name header, no bubble). */
+export const BUBBLE_STYLES = ['classic', 'rounded', 'minimal', 'cozy'] as const;
+/** Enter animation of newly arriving messages (clamped off under reduced motion). */
+export const MESSAGE_ANIMATIONS = ['none', 'fade', 'slide', 'pop'] as const;
+/**
+ * Built-in wallpapers: the flat colours (light/dark pair per id, `default` = the theme's
+ * own token) and the animated ones (`aurora`, `drift`, `starfield`, `waves`: transform/
+ * opacity keyframes, shown static under reduced motion).
+ */
+export const WALLPAPER_PRESETS = [
+  'default',
+  'lavender',
+  'sky',
+  'mint',
+  'sand',
+  'rose',
+  'slate',
+  'aurora',
+  'drift',
+  'starfield',
+  'waves',
+] as const;
+/** `ChatTheme.dim`: darkening overlay over the wallpaper, percent. */
+export const WALLPAPER_DIM_MAX = 80;
+/** `ChatTheme.blur`: backdrop blur of the wallpaper, px. */
+export const WALLPAPER_BLUR_MAX = 20;
+
+// ---------------------------------------------------------------------------
 // Invites
 // ---------------------------------------------------------------------------
 
@@ -235,8 +291,23 @@ export const MAX_BANNER_BYTES = 10 * 1024 * 1024;
 export const BANNER_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
 /** Banner aspect ratio, width : height. */
 export const BANNER_ASPECT = [5, 2] as const;
-/** Chat wallpapers (per-viewer, P2); exposed in `GET /api/config.limits` from P1. */
+/**
+ * Custom chat wallpapers (`chat_members.wallpaper_media_id`, viewer-private): an image
+ * (WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES) or a short muted video
+ * (WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES and MAX_WALLPAPER_VIDEO_MS).
+ * Animated images and videos MUST carry a static poster (multipart `thumbnail`), shown under
+ * reduced motion and while the app is hidden. `maxWallpaperBytes` is in `GET /api/config.limits`.
+ */
 export const MAX_WALLPAPER_BYTES = 15 * 1024 * 1024;
+export const MAX_WALLPAPER_VIDEO_BYTES = 25 * 1024 * 1024;
+export const MAX_WALLPAPER_VIDEO_MS = 30_000;
+export const WALLPAPER_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+] as const;
+export const WALLPAPER_VIDEO_MIME_TYPES = ['video/mp4', 'video/webm'] as const;
 /**
  * Server-side image checks (`POST /api/media`, kind image; shared `readImageInfo`): a side
  * above IMAGE_HEADER_MAX_DIMENSION, more than ANIMATED_MAX_FRAMES frames, or
@@ -333,4 +404,6 @@ export const USER_RATE_LIMITS = {
   presenceActivity: { limit: 30, windowMs: 60_000 },
   /** `GET /api/users/search` and `POST /api/contacts`, per user. */
   userSearch: { limit: 60, windowMs: 60_000 },
+  /** `PUT /api/chats/:chatId/theme` (shared theme changes, each a system message), per user. */
+  chatTheme: { limit: 20, windowMs: 60_000 },
 } as const;

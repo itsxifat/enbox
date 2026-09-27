@@ -14,6 +14,8 @@ import { z } from 'zod';
 import {
   ABOUT_MAX_LENGTH,
   BIO_MAX_LENGTH,
+  BUBBLE_STYLES,
+  CHAT_THEME_PRESETS,
   DELETED_USERNAME_PREFIX,
   DISAPPEARING_OPTIONS,
   DISPLAY_NAME_MAX_LENGTH,
@@ -32,6 +34,7 @@ import {
   MAX_MESSAGES_PAGE_SIZE,
   MAX_PRIVACY_LIST_SIZE,
   MAX_USERS_BATCH,
+  MESSAGE_ANIMATIONS,
   MESSAGES_PAGE_SIZE,
   PASSWORD_MIN_LENGTH,
   POLL_MAX_OPTIONS,
@@ -45,6 +48,9 @@ import {
   STATUS_FONT_COUNT,
   STATUS_TEXT_MAX_LENGTH,
   USERNAME_REGEX,
+  WALLPAPER_BLUR_MAX,
+  WALLPAPER_DIM_MAX,
+  WALLPAPER_PRESETS,
   WAVEFORM_MAX_SAMPLES,
 } from './constants.js';
 
@@ -330,6 +336,38 @@ export const createDirectChatSchema = z.object({
   userId: idSchema,
 });
 
+const wallpaperPresetRef = z.strictObject({
+  kind: z.literal('preset'),
+  id: z.enum(WALLPAPER_PRESETS),
+});
+/**
+ * `ChatTheme` fields shared by the private and the shared theme: enum ids, one `#rrggbb`
+ * accent (normalised to lowercase) and bounded integers — nothing that could reach CSS as
+ * text. Strict: an unknown key is rejected, every field is required.
+ */
+const chatThemeFields = {
+  preset: z.enum(CHAT_THEME_PRESETS).nullable(),
+  bubbleStyle: z.enum(BUBBLE_STYLES).nullable(),
+  accent: hexColorSchema.nullable(),
+  dim: z.int().min(0).max(WALLPAPER_DIM_MAX),
+  blur: z.int().min(0).max(WALLPAPER_BLUR_MAX),
+  messageAnimation: z.enum(MESSAGE_ANIMATIONS).nullable(),
+};
+
+/** A viewer's private theme (`chat_members.theme`): `{ kind: 'media' }` = my own wallpaper upload. */
+export const chatThemeSchema = z.strictObject({
+  ...chatThemeFields,
+  wallpaper: z
+    .discriminatedUnion('kind', [wallpaperPresetRef, z.strictObject({ kind: z.literal('media') })])
+    .nullable(),
+});
+
+/** The chat's shared theme (`chats.theme`): built-in wallpapers only (an upload is private). */
+export const sharedChatThemeSchema = z.strictObject({
+  ...chatThemeFields,
+  wallpaper: wallpaperPresetRef.nullable(),
+});
+
 export const updateChatPrefsSchema = z
   .object({
     /** At most MAX_PINNED_CHATS pinned chats (409 limit_reached). */
@@ -339,6 +377,13 @@ export const updateChatPrefsSchema = z
     mutedUntil: z.iso.datetime({ offset: true }).nullable(),
     /** Marking unread never moves the read position; reading clears it. */
     markedUnread: z.boolean(),
+    /** My private theme override for this chat, null to remove it (the shared theme shows again). */
+    theme: chatThemeSchema.nullable(),
+    /**
+     * Media id of my wallpaper upload (WALLPAPER_IMAGE_MIME_TYPES / WALLPAPER_VIDEO_MIME_TYPES,
+     * poster required for animated/video), or null to remove it.
+     */
+    wallpaperMediaId: idSchema.nullable(),
   })
   .partial();
 
@@ -350,6 +395,11 @@ export const readBodySchema = z.object({
 
 export const setDisappearingSchema = z.object({
   seconds: disappearingSeconds,
+});
+
+/** `PUT /api/chats/:chatId/theme` (permissions.canEditInfo): the shared theme, null to remove it. */
+export const setChatThemeSchema = z.object({
+  theme: sharedChatThemeSchema.nullable(),
 });
 
 export const locationSchema = z.object({
@@ -805,6 +855,7 @@ export type CreateDirectChatRequest = z.input<typeof createDirectChatSchema>;
 export type UpdateChatPrefsRequest = z.input<typeof updateChatPrefsSchema>;
 export type ReadRequest = z.input<typeof readBodySchema>;
 export type SetDisappearingRequest = z.input<typeof setDisappearingSchema>;
+export type SetChatThemeRequest = z.input<typeof setChatThemeSchema>;
 export type SendMessageRequest = z.input<typeof sendMessageSchema>;
 export type EditMessageRequest = z.input<typeof editMessageSchema>;
 export type DeleteMessageQuery = z.input<typeof deleteMessageQuerySchema>;

@@ -4,6 +4,7 @@
  * both sides agree.
  */
 import {
+  CHAT_THEME_PRESET_LABELS,
   DEFAULT_GROUP_SETTINGS,
   DEFAULT_USER_SETTINGS,
   DELETE_FOR_EVERYONE_WINDOW_MS,
@@ -19,10 +20,12 @@ import type {
   ChatKind,
   ChatPermissions,
   ChatSummary,
+  ChatTheme,
   ID,
   ISODate,
   Message,
   PresenceNote,
+  SharedChatTheme,
   SystemEvent,
   UserPublic,
   UserSettings,
@@ -103,6 +106,14 @@ export function chatTitle(chat: Pick<ChatSummary, 'type' | 'name' | 'peer'>, meI
 export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): ChatKind {
   if (chat.type === 'group' && chat.isAnnouncement) return 'announcement';
   return chat.type;
+}
+
+/**
+ * Whether a theme can be shared with the whole chat (`PUT /api/chats/:chatId/theme`): one
+ * that shows a member's own wallpaper upload (`{ kind: 'media' }`) cannot.
+ */
+export function isSharedChatTheme(theme: ChatTheme): theme is SharedChatTheme {
+  return theme.wallpaper?.kind !== 'media';
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +500,10 @@ export function systemEventText(
       return event.seconds
         ? `${actor} turned on disappearing messages (${formatTimer(event.seconds)})`
         : `${actor} turned off disappearing messages`;
+    case 'theme_changed':
+      return event.preset
+        ? `${actor} changed the chat theme to ${CHAT_THEME_PRESET_LABELS[event.preset]}`
+        : `${actor} removed the chat theme`;
     case 'invite_link_reset':
       return `${actor} reset this ${noun}'s invite link`;
     case 'added_to_community':
