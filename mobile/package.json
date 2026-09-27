@@ -9,6 +9,7 @@
     "prebuild": "expo prebuild --platform android --clean",
     "build:apk": "expo prebuild --platform android --clean && cd android && ./gradlew assembleRelease",
     "sounds": "node scripts/generate-sounds.mjs",
+    "check:native": "node scripts/check-native-versions.mjs",
     "lint": "expo lint",
     "doctor": "expo-doctor",
     "ios": "expo run:ios"
@@ -21,6 +22,7 @@
     "date-fns": "^4.4.0",
     "expo": "~54.0.36",
     "expo-application": "~7.0.8",
+    "expo-asset": "~12.0.13",
     "expo-audio": "~1.1.1",
     "expo-build-properties": "~1.0.10",
     "expo-clipboard": "~8.0.8",

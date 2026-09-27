@@ -137,7 +137,7 @@ export function ServerLink({ forceOpen = false }) {
       const prev = getApiOrigin();
       setApiOrigin(origin);
       try {
-        await api.get('/api/health', { auth: false, timeoutMs: 8_000 });
+        await api.get('/api/health', { auth: false, timeoutMs: 15_000 });
       } catch (e) {
         setApiOrigin(prev);
         throw e;
