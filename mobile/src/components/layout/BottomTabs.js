@@ -146,6 +146,8 @@ export function BottomTabs({ state, navigation }) {
                   </View>
                   <T
                     numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
                     style={[
                       tw`text-[12px]`,
                       { lineHeight: 14 },
