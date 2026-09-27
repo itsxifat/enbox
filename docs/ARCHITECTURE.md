@@ -532,14 +532,14 @@ are owner/admin-only. Reactions in channels follow `channelSettings.reactions`
 - `PUT /chats/:c/theme { theme: SharedChatTheme | null }` is modelled on the disappearing
   timer: active members with `canEditInfo` (direct chats: = `canSend`, so `403 blocked` when
   I blocked the peer; channels: admins), under the chat lock; an unchanged (deep-equal)
-  theme → no write, no events; otherwise write `chats.theme`, post `theme_changed { actorId,
-preset }` where `systemMessageAllowed` (direct chats and groups incl. announcement groups;
-  never channels; `preset` = the new theme's preset — null when the theme is removed or has
-  none), then `chat:updated { sharedTheme }` → room. Direct chat whose peer blocked me: the
-  theme applies, the system message is withheld from the peer and `chat:updated` skips them
-  (see Blocking). Only built-in wallpapers can be shared (`sharedChatThemeSchema`;
-  `{ kind: 'media' }` → 400): an upload is private to its owner and never fans out. Rate
-  limit `USER_RATE_LIMITS.chatTheme`.
+  theme → no write, no events; otherwise write `chats.theme`, post
+  `theme_changed { actorId, preset }` where `systemMessageAllowed` (direct chats and groups
+  incl. announcement groups; never channels; `preset` = the new theme's preset — null when
+  the theme is removed or has none), then `chat:updated { sharedTheme }` → room. Direct chat
+  whose peer blocked me: the theme applies, the system message is withheld from the peer and
+  `chat:updated` skips them (see Blocking). Only built-in wallpapers can be shared
+  (`sharedChatThemeSchema`; `{ kind: 'media' }` → 400): an upload is private to its owner
+  and never fans out. Rate limit `USER_RATE_LIMITS.chatTheme`.
 - A private `wallpaper: { kind: 'media' }` shows `ChatSummary.wallpaper` — the member's own
   upload (`requireWallpaperMedia`, see Media) — and is never served to anyone else; it needs
   a wallpaper row (`400` otherwise) and clearing the wallpaper clears the reference.
@@ -971,13 +971,14 @@ attachment` unless the extension is inline-safe.
   ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES). Banners (`requireBannerMedia`):
   BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, cropped client-side to BANNER_ASPECT. Animated
   avatars, banners and icons **require a static poster** (the `thumbnail` part) → `400`
-  without one. Wallpapers (`requireWallpaperMedia`, `PATCH /chats/:c/prefs
-{ wallpaperMediaId }`): kind `image` (WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES; an
-  animated one needs a poster) or kind `video` (WALLPAPER_VIDEO_MIME_TYPES, ≤
-  MAX_WALLPAPER_VIDEO_BYTES, a `durationMs` recorded at upload — required and ≤
-  MAX_WALLPAPER_VIDEO_MS; video is not parsed server-side, so it is the client's claim — and a
-  poster); any other kind, MIME, size or length → `400`. Requirers run inside the
-  referencing transaction (`FOR KEY SHARE`). Forwarding reuses media ids server-side.
+  without one. Wallpapers (`requireWallpaperMedia`,
+  `PATCH /chats/:c/prefs { wallpaperMediaId }`): kind `image` (WALLPAPER_IMAGE_MIME_TYPES,
+  ≤ MAX_WALLPAPER_BYTES; an animated one needs a poster) or kind `video`
+  (WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES, a `durationMs` recorded at
+  upload — required and ≤ MAX_WALLPAPER_VIDEO_MS; video is not parsed server-side, so it is
+  the client's claim — and a poster); any other kind, MIME, size or length → `400`.
+  Requirers run inside the referencing transaction (`FOR KEY SHARE`). Forwarding reuses
+  media ids server-side.
 - **Static by default**: `avatarUrl`/`bannerUrl` are always the static image (the poster
   when the upload is animated); `avatarAnimatedUrl`/`bannerAnimatedUrl` carry the animation
   (null when static or hidden). Group, community and channel icons (`ChatSummary`,

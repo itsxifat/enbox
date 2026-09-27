@@ -434,14 +434,14 @@ until)` → `PUT /api/me/presence`, `setPresenceNote` / `clearPresenceNote` →
   plus one validated `#rrggbb` (`chatThemeSchema`); a custom accent is accent-only and
   clamped by `contrastOk()` (meta colours via `color-mix`, `SystemPill` keeps
   `bg-surface/95`); presets are curated pairs.
-- **`ChatBackground`** — first child of the `.chat-wallpaper` container, `absolute inset-0
-pointer-events-none`, `aria-hidden`, behind the virtualised list: flat colours and the
-  animated presets (`aurora`, `drift`, `starfield`, `waves`: transform/opacity keyframes in
-  `appearance.css`, loaded lazily) via CSS; an uploaded wallpaper as `<img>` or a muted,
-  looping, `playsInline` `<video>` (`data-testid="chat-background"`); then the dim overlay
-  (`dim` %) and the optional backdrop blur (`blur` px). Under `useReducedMotion()` or while
-  `!useAppVisible()` a GIF/video shows its poster (`thumbnailUrl`) and the animated presets
-  stand still.
+- **`ChatBackground`** — first child of the `.chat-wallpaper` container,
+  `absolute inset-0 pointer-events-none`, `aria-hidden`, behind the virtualised list: flat
+  colours and the animated presets (`aurora`, `drift`, `starfield`, `waves`: transform/opacity
+  keyframes in `appearance.css`, loaded lazily) via CSS; an uploaded wallpaper as `<img>` or a
+  muted, looping, `playsInline` `<video>` (`data-testid="chat-background"`); then the dim
+  overlay (`dim` %) and the optional backdrop blur (`blur` px). Under `useReducedMotion()` or
+  while `!useAppVisible()` a GIF/video shows its poster (`thumbnailUrl`) and the animated
+  presets stand still.
 - **Bubble styles** are CSS keyed on `[data-bubble-style]` (`classic`, `rounded`, `minimal`:
   `MessageRow` chrome and tail); `cozy` renders `CozyMessageRow` instead (40 px avatar, name
   - time header on the first message of a run, no bubble background, hover toolbar), chosen
@@ -455,12 +455,12 @@ pointer-events-none`, `aria-hidden`, behind the virtualised list: flat colours a
   `[data-reduce-motion]` clamp turns them off. Reaction pops are keyed by count.
 - **Editing** — `ChatThemeSheet` (Sheet on phones, Modal on desktop) from the conversation
   header menu, `ContactInfoPanel` "Chat settings" and `GroupInfoPanel` preferences. The
-  private side saves through `patchPrefs` (`PATCH /api/chats/:id/prefs { theme,
-wallpaperMediaId }`, optimistic with rollback; the echoed `chat:upsert` syncs my other
-  devices, nothing reaches the peer); the shared side through `PUT /api/chats/:id/theme`
-  (offered only with `permissions.canEditInfo`; everyone then gets `chat:updated
-{ sharedTheme }` and the `theme_changed` system message; built-in wallpapers only). A
-  wallpaper upload goes through `probeImageFile` / `readVideoMeta` and
+  private side saves through `patchPrefs`
+  (`PATCH /api/chats/:id/prefs { theme, wallpaperMediaId }`, optimistic with rollback; the
+  echoed `chat:upsert` syncs my other devices, nothing reaches the peer); the shared side
+  through `PUT /api/chats/:id/theme` (offered only with `permissions.canEditInfo`; everyone
+  then gets `chat:updated { sharedTheme }` and the `theme_changed` system message; built-in
+  wallpapers only). A wallpaper upload goes through `probeImageFile` / `readVideoMeta` and
   `api.upload(..., { thumbnail })` with a poster (`decodeAnimatedFrame` for GIFs, a captured
   frame for videos) within `MAX_WALLPAPER_BYTES` / `MAX_WALLPAPER_VIDEO_BYTES` /
   `MAX_WALLPAPER_VIDEO_MS`; the server answers 400 for the rest and 404 for media that isn't

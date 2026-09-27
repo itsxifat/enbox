@@ -281,12 +281,12 @@ Standalone post-commit publishers (use only outside transactions; they read with
   ANIMATED_IMAGE_MIME_TYPES, ≤ MAX_ANIMATED_AVATAR_BYTES and a `thumbnail_key` (the static
   poster) — 400 "Animated images need a static poster" without one.
   `requireBannerMedia(dbx, mediaId, userId)`: BANNER_MIME_TYPES, ≤ MAX_BANNER_BYTES, same
-  poster rule. `requireWallpaperMedia(dbx, mediaId, userId)` (`PATCH /chats/:id/prefs
-{ wallpaperMediaId }`): kind `image` → WALLPAPER_IMAGE_MIME_TYPES, ≤ MAX_WALLPAPER_BYTES,
-  poster when `row.animated`; kind `video` → WALLPAPER_VIDEO_MIME_TYPES, ≤
-  MAX_WALLPAPER_VIDEO_BYTES, `duration_ms` required and ≤ MAX_WALLPAPER_VIDEO_MS, poster
-  required; anything else 400 ("Wallpapers need a static poster" without one). All three run
-  inside the referencing transaction (docs "Media").
+  poster rule. `requireWallpaperMedia(dbx, mediaId, userId)`
+  (`PATCH /chats/:id/prefs { wallpaperMediaId }`): kind `image` → WALLPAPER_IMAGE_MIME_TYPES,
+  ≤ MAX_WALLPAPER_BYTES, poster when `row.animated`; kind `video` →
+  WALLPAPER_VIDEO_MIME_TYPES, ≤ MAX_WALLPAPER_VIDEO_BYTES, `duration_ms` required and ≤
+  MAX_WALLPAPER_VIDEO_MS, poster required; anything else 400 ("Wallpapers need a static
+  poster" without one). All three run inside the referencing transaction (docs "Media").
 - `sniffFile(path)`, `isAllowedMime(kind, mime)`, `sanitizeFileName(name)`,
   `newStorageKey(ext)`, `storagePath(key)`, `moveIntoStore`, `removeFiles`, `removeStoredFiles`.
   Sniffing uses the `file-type` package; MIME names are normalised to MEDIA_MIME_ALLOWLIST's.
@@ -389,13 +389,13 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
   with a jsonb column: `requireActiveMember(tx, me, chatId, { lock: true })`, direct chats
   `assertCanSend` else `requirePermission(access, 'canEditInfo')`, deep-equal → return (no
   write, no events), `peersWhoBlockedMe` → write `chats.theme` → `postSystemMessage`
-  `theme_changed { actorId, preset }` where `systemMessageAllowed` → `fx.chatUpdated(chatId,
-{ sharedTheme }, { exceptUserIds: blockers })`; body `setChatThemeSchema`
-  (`sharedChatThemeSchema`: built-in wallpapers only); rate limit `chatTheme`. `updatePrefs`
-  takes the private side (`theme`, `wallpaperMediaId` via `requireWallpaperMedia`; a
-  `{ kind: 'media' }` wallpaper without a wallpaper row → 400; clearing the wallpaper clears
-  that ref) and still registers only `fx.chatUpsert(me, chatId)`: private looks never leave
-  the user room.
+  `theme_changed { actorId, preset }` where `systemMessageAllowed` →
+  `fx.chatUpdated(chatId, { sharedTheme }, { exceptUserIds: blockers })`; body
+  `setChatThemeSchema` (`sharedChatThemeSchema`: built-in wallpapers only); rate limit
+  `chatTheme`. `updatePrefs` takes the private side (`theme`, `wallpaperMediaId` via
+  `requireWallpaperMedia`; a `{ kind: 'media' }` wallpaper without a wallpaper row → 400;
+  clearing the wallpaper clears that ref) and still registers only
+  `fx.chatUpsert(me, chatId)`: private looks never leave the user room.
 - Clamping: marks move to the highest visible seq ≤ the requested seq (not just `min(seq, max)`),
   so a withheld message never reads as delivered/read while the block lasts.
 - Membership changes (leave/remove) also emit `chat:watermarks` to members whose ticks changed
