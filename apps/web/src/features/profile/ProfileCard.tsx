@@ -124,7 +124,7 @@ export function ProfileCard({
           />
         </span>
       </div>
-      <div className="flex flex-col gap-3 px-4 pt-2 pb-4">
+      <div className="flex flex-col gap-2.5 px-4 pt-2 pb-3">
         <div className="card-inset min-w-0 px-3 py-2.5">
           <h2
             className="truncate text-[19px] leading-tight font-semibold text-fg"

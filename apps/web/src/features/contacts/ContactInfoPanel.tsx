@@ -548,7 +548,7 @@ function ContactInfo({
         <Card>
           {user.bio ? (
             <div className="px-5 py-3">
-              <p className="text-[13px] text-muted">About me</p>
+              <p className="section-label mb-1">About me</p>
               <p
                 className="mt-0.5 text-[15.5px] leading-relaxed break-words whitespace-pre-wrap text-fg"
                 data-testid="contact-bio"
@@ -559,7 +559,7 @@ function ContactInfo({
           ) : null}
           {user.about ? (
             <div className="px-5 py-3">
-              <p className="text-[13px] text-muted">About</p>
+              <p className="section-label mb-1">About</p>
               <p className="mt-0.5 text-[15.5px] break-words text-fg" data-testid="contact-about">
                 {user.about}
               </p>
