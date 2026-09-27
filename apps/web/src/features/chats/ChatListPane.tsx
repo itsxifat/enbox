@@ -49,7 +49,7 @@ function ArchivedEntry({ count, unread }: { count: number; unread: number }) {
     <Link
       to="/archived"
       state={IN_APP_NAV}
-      className="flex items-center gap-4 px-6 py-3 text-[15px] font-medium text-fg outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
+      className="mx-2 my-0.5 flex items-center gap-4 rounded-xl px-4 py-3 text-[15px] font-medium text-fg outline-none hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <Archive size={20} className="text-brand-ink" aria-hidden />
       <span className="flex-1">Archived</span>
@@ -76,7 +76,7 @@ function SearchHeader({ context }: { context?: SearchContext }) {
   if (!context?.count) return null;
   return (
     <div className="px-4 pt-4 pb-1.5">
-      <h3 className="text-[13px] font-semibold tracking-wide text-brand-ink">Chats</h3>
+      <h3 className="section-label">Chats</h3>
     </div>
   );
 }

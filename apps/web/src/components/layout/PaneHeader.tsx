@@ -28,6 +28,10 @@ export interface PaneHeaderProps {
   /** Make the title area clickable (conversation header → info panel). */
   onTitleClick?: () => void;
   className?: string;
+  /**
+   * Kept for callers; headers no longer draw a bottom line (panes are cards, the header
+   * separates from the body by its own padding — Discord / VS Code style).
+   */
   border?: boolean;
 }
 
@@ -47,7 +51,7 @@ export function PaneHeader({
   children,
   onTitleClick,
   className,
-  border = false,
+  border: _border = false,
 }: PaneHeaderProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -68,9 +72,7 @@ export function PaneHeader({
     </div>
   );
   return (
-    <header
-      className={cn('shrink-0 bg-surface pt-safe', border && 'border-b border-line', className)}
-    >
+    <header className={cn('shrink-0 bg-surface pt-safe', className)}>
       <div className={cn('flex items-center gap-1', large ? 'h-16 pr-2 pl-4' : 'h-16 px-2')}>
         {back ? (
           <IconButton

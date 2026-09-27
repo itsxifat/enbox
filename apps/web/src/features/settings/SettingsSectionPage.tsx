@@ -88,7 +88,7 @@ export function SettingsSectionPage() {
   const page = SETTINGS_PAGES[key];
   const back = sub ? `/settings/${page?.parent ?? section}` : desktop ? undefined : '/settings';
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-surface lg:bg-app">
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <PaneHeader title={page?.title ?? 'Settings'} back={back} border />
       {page ? (
         page.render()

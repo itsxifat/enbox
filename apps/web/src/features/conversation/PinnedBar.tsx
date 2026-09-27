@@ -76,7 +76,7 @@ export function PinnedBar({ chat }: { chat: ChatSummary }) {
 
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-b border-line bg-surface py-1.5 pr-1 pl-3 animate-slide-down"
+      className="card-inset mx-3 mb-2 flex shrink-0 items-center gap-2 py-1.5 pr-1 pl-3 animate-slide-down"
       data-testid="pinned-bar"
     >
       <span className="flex h-9 flex-col justify-center gap-0.5" aria-hidden>

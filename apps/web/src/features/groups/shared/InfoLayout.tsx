@@ -11,7 +11,7 @@ import { cn } from '@/lib/cn';
 /** Scroll container with the grey app background between cards. */
 export function InfoPage({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex min-h-full flex-1 flex-col gap-2 bg-app pb-6', className)}>
+    <div className={cn('flex min-h-full flex-1 flex-col gap-3 bg-surface px-3 pb-6', className)}>
       {children}
     </div>
   );
@@ -34,10 +34,13 @@ export function InfoSection({
   'aria-label'?: string;
 }) {
   return (
-    <section className={cn('bg-surface', flush ? '' : 'py-2', className)} aria-label={ariaLabel}>
+    <section
+      className={cn('card-inset overflow-hidden', flush ? '' : 'py-1', className)}
+      aria-label={ariaLabel}
+    >
       {title || action ? (
         <div className="flex min-h-10 items-center justify-between gap-3 px-5 pt-2 pb-1">
-          {title ? <h3 className="text-[14px] font-medium text-muted">{title}</h3> : <span />}
+          {title ? <h3 className="section-label">{title}</h3> : <span />}
           {action}
         </div>
       ) : null}
@@ -147,7 +150,7 @@ export function QuickAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-[84px] flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-2.5 text-[13px] font-medium text-brand-ink transition-colors outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-40"
+      className="flex w-[84px] flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-2.5 text-[13px] font-medium text-brand-ink transition-colors outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-40"
     >
       <Icon size={22} aria-hidden />
       <span className="text-fg">{label}</span>

@@ -22,7 +22,7 @@ import { EditContactDialog } from './ContactDialogs';
 import { openDirectChat } from './contactActions';
 import { PhotoViewer } from './PhotoViewer';
 
-const LABEL = 'mb-1 text-[11.5px] font-semibold tracking-wide text-muted uppercase';
+const LABEL = 'section-label mb-1';
 
 export function UserProfilePage() {
   const { username = '' } = useParams();
@@ -94,8 +94,8 @@ export function UserProfilePage() {
         );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-app">
-      <PaneHeader title="Profile" back={back} border />
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <PaneHeader title="Profile" back={back} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error ? (
           <EmptyState
@@ -115,9 +115,9 @@ export function UserProfilePage() {
         ) : !user ? (
           <PageSpinner />
         ) : (
-          <div className="mx-auto flex w-full max-w-md flex-col pb-10 sm:px-6 sm:pt-6">
+          <div className="mx-auto flex w-full max-w-2xl flex-col px-3 pb-10 sm:px-6 sm:pt-3">
             <div
-              className="overflow-hidden bg-surface sm:rounded-3xl sm:shadow-bubble"
+              className="card-inset overflow-hidden"
               data-animate-avatars
               onPointerEnter={() => setHeroHot(true)}
               onPointerLeave={() => setHeroHot(false)}
@@ -127,7 +127,7 @@ export function UserProfilePage() {
               <div
                 className="relative w-full"
                 style={{
-                  aspectRatio: '5 / 2',
+                  aspectRatio: '3 / 1',
                   background: profileGradient(user.profileColor, user.accentColor),
                   borderBottom: user.accentColor ? `3px solid ${user.accentColor}` : undefined,
                 }}
@@ -137,12 +137,12 @@ export function UserProfilePage() {
                   <img src={banner} alt="" className="size-full object-cover" draggable={false} />
                 ) : null}
               </div>
-              <div className="flex flex-col items-center px-6 pb-8 text-center">
+              <div className="flex flex-col px-5 pb-5 text-left">
                 <button
                   type="button"
                   onClick={() => user.avatarUrl && setPhoto(true)}
                   disabled={!user.avatarUrl}
-                  className="-mt-[72px] rounded-full bg-surface ring-4 ring-surface outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                  className="-mt-[60px] self-start rounded-full bg-surface-2 ring-[6px] ring-surface-2 outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
                   aria-label={user.avatarUrl ? 'View photo' : undefined}
                 >
                   <Avatar
@@ -154,30 +154,35 @@ export function UserProfilePage() {
                     presence={state}
                   />
                 </button>
-                <h2 className="mt-4 text-[26px] font-semibold text-fg">
-                  {isMe ? `${me?.displayName} (You)` : userDisplayName(user)}
-                </h2>
-                <p className="mt-1 text-[15px] text-muted">
-                  @{user.username}
-                  {user.pronouns ? (
-                    <>
-                      {' · '}
-                      <span data-testid="profile-page-pronouns">{user.pronouns}</span>
-                    </>
+                <div className="mt-3 rounded-xl bg-surface px-4 py-3">
+                  <h2 className="text-[24px] leading-tight font-semibold text-fg">
+                    {isMe ? `${me?.displayName} (You)` : userDisplayName(user)}
+                  </h2>
+                  <p className="mt-0.5 text-[15px] text-muted">
+                    @{user.username}
+                    {user.pronouns ? (
+                      <>
+                        {' · '}
+                        <span data-testid="profile-page-pronouns">{user.pronouns}</span>
+                      </>
+                    ) : null}
+                  </p>
+                  {presenceLine ? (
+                    <p
+                      className="mt-1 text-[13.5px] text-subtle"
+                      data-testid="profile-page-presence"
+                    >
+                      {presenceLine}
+                    </p>
                   ) : null}
-                </p>
-                {presenceLine ? (
-                  <p className="mt-1 text-[13.5px] text-subtle" data-testid="profile-page-presence">
-                    {presenceLine}
-                  </p>
-                ) : null}
-                {isMe && user.presenceNote ? (
-                  <p className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[13.5px] text-fg">
-                    {formatPresenceNote(user.presenceNote)}
-                  </p>
-                ) : null}
+                  {isMe && user.presenceNote ? (
+                    <p className="mt-2 inline-block rounded-lg bg-surface-2 px-2.5 py-1.5 text-[13.5px] text-fg">
+                      {formatPresenceNote(user.presenceNote)}
+                    </p>
+                  ) : null}
+                </div>
                 {user.bio ? (
-                  <section className="mt-5 w-full rounded-2xl bg-surface-2 px-4 py-3 text-left">
+                  <section className="mt-3 w-full rounded-xl bg-surface px-4 py-3 text-left">
                     <h3 className={LABEL}>About me</h3>
                     <p
                       className="text-[15px] leading-relaxed break-words whitespace-pre-wrap text-fg"
@@ -187,15 +192,23 @@ export function UserProfilePage() {
                     </p>
                   </section>
                 ) : null}
-                {user.about ? (
-                  <p className="mt-3 max-w-sm text-[15px] break-words text-fg">{user.about}</p>
+                {user.about || user.createdAt ? (
+                  <section className="mt-3 flex w-full flex-col gap-3 rounded-xl bg-surface px-4 py-3 text-left">
+                    {user.about ? (
+                      <div>
+                        <h3 className={LABEL}>About</h3>
+                        <p className="text-[15px] break-words text-fg">{user.about}</p>
+                      </div>
+                    ) : null}
+                    {user.createdAt ? (
+                      <div>
+                        <h3 className={LABEL}>Member since</h3>
+                        <p className="text-[15px] text-fg">{formatMonthYear(user.createdAt)}</p>
+                      </div>
+                    ) : null}
+                  </section>
                 ) : null}
-                {user.createdAt ? (
-                  <p className="mt-3 text-[12.5px] text-subtle">
-                    Member since {formatMonthYear(user.createdAt)}
-                  </p>
-                ) : null}
-                <div className="mt-8 flex w-full flex-col gap-2.5">
+                <div className="mt-4 flex w-full flex-col gap-2.5 sm:flex-row">
                   {isMe ? (
                     <Button
                       leftIcon={Pencil}

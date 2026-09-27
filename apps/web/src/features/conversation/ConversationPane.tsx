@@ -162,8 +162,8 @@ function MissingChat({ loaded }: { loaded: boolean }) {
     body = <PageSpinner />;
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-app">
-      <PaneHeader title="Chat" back={desktop ? undefined : backPath(pathname)} border />
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <PaneHeader title="Chat" back={desktop ? undefined : backPath(pathname)} />
       <div className="flex min-h-0 flex-1 items-center justify-center">{body}</div>
     </div>
   );
@@ -273,7 +273,7 @@ function Conversation({
         )}
         <PinnedBar chat={chat} />
         <OngoingCallBanner chatId={chat.id} />
-        <div className="chat-wallpaper relative min-h-0 flex-1">
+        <div className="chat-wallpaper relative mx-2 min-h-0 flex-1 rounded-xl sm:mx-3">
           <ChatBackground appearance={appearance} />
           {!hasWindow ? (
             <PageSpinner />

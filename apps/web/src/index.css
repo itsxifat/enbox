@@ -71,6 +71,12 @@
   --shadow-color: 250 30% 20%;
   --chat-font-size: 15px;
 
+  /* Layout cards (see "Layout cards" at the end of this file). */
+  --radius-card: 16px;
+  --pane-gap: 8px;
+  --card-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.06), 0 6px 20px -6px hsl(var(--shadow-color) / 0.12);
+
   color-scheme: light;
 }
 
@@ -116,6 +122,8 @@
   --overlay: rgb(0 0 0 / 0.6);
 
   --shadow-color: 240 30% 2%;
+  --card-shadow:
+    0 1px 2px hsl(var(--shadow-color) / 0.5), 0 6px 20px -6px hsl(var(--shadow-color) / 0.6);
 
   color-scheme: dark;
 }
@@ -411,4 +419,39 @@
  */
 .outline-none:focus-visible {
   --tw-outline-style: solid;
+}
+
+/*
+ * Layout cards
+ * ------------
+ * Every pane (nav rail, list pane, main pane, info panel) is a separate rounded card on the
+ * app background — Discord / WhatsApp desktop / VS Code style — instead of panes split by
+ * 1px lines. `--radius-card` / `--pane-gap` / `--card-shadow` are the tokens; `.card-pane`
+ * is the pane card, `.card-inset` a grouped block inside one (settings groups, profile
+ * card sections, info panel cards). Phones keep full-bleed panes with a smaller radius.
+ */
+@media (max-width: 1023px) {
+  :root {
+    --radius-card: 12px;
+  }
+}
+
+/* `@utility` so variants work (`lg:card-pane`, `hover:card-inset`). */
+@utility card-pane {
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+@utility card-inset {
+  border-radius: 12px;
+  background-color: var(--surface-2);
+}
+/* Discord-style uppercase section label. */
+@utility section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }

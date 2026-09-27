@@ -24,7 +24,7 @@ export interface ListItemProps {
   onContextMenu?: (e: MouseEvent<HTMLElement>) => void;
   /** Selected/current row (e.g. the open chat). */
   active?: boolean;
-  /** Divider under the text column (default true). */
+  /** Kept for callers: rows are rounded cards now and never draw dividers. */
   divider?: boolean;
   /** Emphasize (bold title, brand meta) — e.g. unread chats. */
   highlight?: boolean;
@@ -53,7 +53,7 @@ export function ListItem({
   onClick,
   onContextMenu,
   active,
-  divider = true,
+  divider: _divider,
   highlight,
   dense,
   disabled,
@@ -61,8 +61,8 @@ export function ListItem({
   ...aria
 }: ListItemProps) {
   const classes = cn(
-    'group/li flex w-full items-center gap-3 text-left outline-none transition-colors duration-100',
-    dense ? 'px-4 py-2' : 'px-3 py-0 lg:px-3.5',
+    'group/li flex w-[calc(100%-16px)] mx-2 my-0.5 items-center gap-3 rounded-xl text-left outline-none transition-colors duration-100',
+    dense ? 'px-3 py-1.5' : 'px-2.5 py-0',
     (to || onClick) && !disabled && 'cursor-pointer hover:bg-hover focus-visible:bg-hover',
     'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
     active && 'bg-selected hover:bg-selected',
@@ -72,13 +72,11 @@ export function ListItem({
 
   const body = (
     <>
-      {leading ? <div className={cn('shrink-0', !dense && 'py-2.5')}>{leading}</div> : null}
+      {leading ? <div className={cn('shrink-0', !dense && 'py-2')}>{leading}</div> : null}
       <div
         className={cn(
           'flex min-w-0 flex-1 items-center gap-3 self-stretch',
-          dense ? 'py-1' : 'py-3',
-          divider && 'border-b border-line group-last/li:border-transparent',
-          active && 'border-transparent',
+          dense ? 'py-1' : 'py-2.5',
         )}
       >
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
@@ -186,11 +184,7 @@ export function ListSection({
     <section className={className}>
       {title || action ? (
         <div className="flex items-center justify-between px-4 pt-4 pb-1.5">
-          {title ? (
-            <h3 className="text-[13px] font-semibold tracking-wide text-brand-ink">{title}</h3>
-          ) : (
-            <span />
-          )}
+          {title ? <h3 className="section-label">{title}</h3> : <span />}
           {action}
         </div>
       ) : null}

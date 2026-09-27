@@ -57,7 +57,7 @@ export function ChatBackground({
       data-testid="chat-background-layer"
       data-motion={motion ? 'on' : 'off'}
       className={cn(
-        'pointer-events-none absolute inset-0 overflow-hidden',
+        'pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]',
         animated && wallpaper.kind === 'preset' && `wp-anim wp-${wallpaper.id}`,
         className,
       )}

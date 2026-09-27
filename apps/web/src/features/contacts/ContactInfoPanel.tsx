@@ -94,9 +94,7 @@ export interface InfoPanelProps {
 // ---------------------------------------------------------------------------
 
 function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <section className={cn('border-t-8 border-app bg-surface py-1', className)}>{children}</section>
-  );
+  return <section className={cn('card-inset mx-3 mt-3 py-1', className)}>{children}</section>;
 }
 
 function Row({
@@ -164,7 +162,7 @@ function QuickAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-24 flex-col items-center gap-1.5 rounded-2xl border border-line px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
+      className="flex w-24 flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-3 text-brand-ink outline-none transition-colors hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
     >
       <Icon size={22} aria-hidden />
       <span className="text-[13px] font-medium text-fg">{label}</span>
@@ -412,7 +410,7 @@ function ContactInfo({
   };
 
   return (
-    <div className="flex min-h-full flex-col bg-app" data-testid="contact-info">
+    <div className="flex min-h-full flex-col bg-surface pb-4" data-testid="contact-info">
       <PaneHeader
         title={self ? 'Message yourself' : 'Contact info'}
         back={onClose}
@@ -554,7 +552,7 @@ function ContactInfo({
         <Card>
           {user.bio ? (
             <div className="px-5 py-3">
-              <p className="text-[13px] text-muted">About me</p>
+              <p className="section-label mb-1">About me</p>
               <p
                 className="mt-0.5 text-[15.5px] leading-relaxed break-words whitespace-pre-wrap text-fg"
                 data-testid="contact-bio"
@@ -565,7 +563,7 @@ function ContactInfo({
           ) : null}
           {user.about ? (
             <div className="px-5 py-3">
-              <p className="text-[13px] text-muted">About</p>
+              <p className="section-label mb-1">About</p>
               <p className="mt-0.5 text-[15.5px] break-words text-fg" data-testid="contact-about">
                 {user.about}
               </p>

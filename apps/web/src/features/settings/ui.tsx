@@ -1,7 +1,7 @@
 /**
  * Building blocks for settings pages (agent 1): page scroller, grouped cards, rows,
- * switch rows and notes. Phones get flat full-width sections; desktop gets cards on the
- * app background, centered in the main pane.
+ * switch rows and notes. Groups are rounded `.card-inset` blocks (Discord settings feel) on
+ * every screen size, centered in the main pane on desktop.
  */
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -17,10 +17,10 @@ export function SettingsScroller({
   className?: string;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-surface scrollbar-thin lg:bg-app">
+    <div className="min-h-0 flex-1 overflow-y-auto bg-surface scrollbar-thin">
       <div
         className={cn(
-          'mx-auto flex w-full max-w-2xl flex-col pb-[max(24px,env(safe-area-inset-bottom))] lg:gap-6 lg:px-6 lg:py-6',
+          'mx-auto flex w-full max-w-2xl flex-col gap-5 px-3 py-3 pb-[max(24px,env(safe-area-inset-bottom))] lg:gap-6 lg:px-6 lg:py-6',
           className,
         )}
       >
@@ -42,19 +42,11 @@ export function SettingsGroup({
   className?: string;
 }) {
   return (
-    <section className={cn('border-b-8 border-app last:border-b-0 lg:border-0', className)}>
-      {title ? (
-        <h3 className="px-4 pt-4 pb-1 text-[13px] font-semibold tracking-wide text-brand-ink lg:px-1 lg:pt-0 lg:pb-2">
-          {title}
-        </h3>
-      ) : null}
-      <div className="flex flex-col bg-surface lg:divide-y lg:divide-line lg:overflow-hidden lg:rounded-2xl lg:border lg:border-line">
-        {children}
-      </div>
+    <section className={className}>
+      {title ? <h3 className="section-label px-2 pb-2">{title}</h3> : null}
+      <div className="card-inset flex flex-col overflow-hidden p-1">{children}</div>
       {footer ? (
-        <div className="px-4 pt-1 pb-4 text-[13px] leading-relaxed text-muted lg:px-1 lg:pt-2 lg:pb-0">
-          {footer}
-        </div>
+        <div className="px-2 pt-2 text-[13px] leading-relaxed text-muted">{footer}</div>
       ) : null}
     </section>
   );
@@ -116,7 +108,7 @@ export function SettingsRow({
     </>
   );
   const classes = cn(
-    'flex min-h-14 w-full items-center gap-4 px-4 py-3 text-left transition-colors lg:px-5',
+    'flex min-h-13 w-full items-center gap-4 rounded-lg px-3 py-2.5 text-left transition-colors lg:px-4',
     (to || onClick) && !disabled && 'cursor-pointer hover:bg-hover focus-visible:bg-hover',
     'outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
     active && 'bg-selected',
@@ -165,7 +157,7 @@ export function SwitchRow({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-4 px-4 lg:px-5">
+    <div className="flex items-center gap-4 rounded-lg px-3 lg:px-4">
       {Icon ? <Icon size={22} className="shrink-0 text-muted" aria-hidden /> : null}
       <Switch
         label={<span className="text-[16px]">{title}</span>}
@@ -173,7 +165,7 @@ export function SwitchRow({
         checked={checked}
         onChange={onChange}
         disabled={disabled}
-        className="min-h-14 flex-1"
+        className="min-h-13 flex-1"
       />
     </div>
   );
@@ -182,7 +174,7 @@ export function SwitchRow({
 /** Explanatory paragraph inside a page. */
 export function SettingsNote({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn('px-4 py-3 text-[13.5px] leading-relaxed text-muted lg:px-1', className)}>
+    <p className={cn('px-2 py-1 text-[13.5px] leading-relaxed text-muted', className)}>
       {children}
     </p>
   );

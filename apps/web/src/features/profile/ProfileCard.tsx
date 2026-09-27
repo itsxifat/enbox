@@ -57,11 +57,11 @@ export interface ProfileCardProps {
   className?: string;
 }
 
-const LABEL = 'mb-1 text-[11.5px] font-semibold tracking-wide text-muted uppercase';
+const LABEL = 'section-label mb-1';
 const LINK =
   'inline-flex items-center gap-1 rounded text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand';
 const ROW =
-  'flex min-h-11 w-full items-center gap-3 rounded-xl border border-line bg-surface px-3 py-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand';
+  'card-inset flex min-h-11 w-full items-center gap-3 px-3 py-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand';
 
 function capitalize(s: string): string {
   return s ? s[0]!.toUpperCase() + s.slice(1) : s;
@@ -111,7 +111,7 @@ export function ProfileCard({
         ) : null}
       </div>
       <div className="px-4">
-        <span className="-mt-10 inline-flex rounded-full bg-elevated ring-4 ring-elevated">
+        <span className="-mt-10 inline-flex rounded-full bg-elevated ring-[6px] ring-elevated">
           <Avatar
             src={deleted ? null : user.avatarUrl}
             animatedSrc={deleted ? null : user.avatarAnimatedUrl}
@@ -124,8 +124,8 @@ export function ProfileCard({
           />
         </span>
       </div>
-      <div className="flex flex-col gap-3 px-4 pt-2 pb-4">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-2.5 px-4 pt-2 pb-3">
+        <div className="card-inset min-w-0 px-3 py-2.5">
           <h2
             className="truncate text-[19px] leading-tight font-semibold text-fg"
             data-testid="card-name"
@@ -151,7 +151,7 @@ export function ProfileCard({
           ) : null}
           {note ? (
             <p
-              className="mt-1.5 inline-block max-w-full rounded-lg bg-surface-2 px-2.5 py-1.5 text-[13.5px] break-words text-fg"
+              className="mt-2 inline-block max-w-full rounded-lg bg-elevated px-2.5 py-1.5 text-[13.5px] break-words text-fg"
               data-testid="card-note"
             >
               {formatPresenceNote(note)}

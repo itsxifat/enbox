@@ -117,6 +117,18 @@ export const callsRoutes: RouteObject[] = [
 - Tabs: `components/layout/tabs.ts` (`TABS`, `activeTab(pathname)`); badges from
   `useTabBadges()` (unread chats count; Updates dot for unseen status/unread channels).
 - Use `useIsDesktop()` (≥ 1024px, same as Tailwind `lg`) for layout decisions in JS.
+- **Layout cards** (`index.css`, "Layout cards"): on desktop the nav rail, the list pane, the
+  main pane and the info `Sheet` are separate rounded cards (`.card-pane`: `--radius-card`,
+  `--card-shadow`) on the `bg-app` background with a `--pane-gap` between them — no 1px
+  `border-r` / `border-b` pane separators anywhere. Grouped blocks inside a card (settings
+  groups, info panel sections, the profile card's identity block, the composer, pinned /
+  connection chips) are `.card-inset`; section titles use `.section-label` (Discord-style
+  uppercase). List rows (`ListItem`, chat / call / settings rows) are rounded `mx-2 my-0.5`
+  rows with `hover:bg-hover` / `bg-selected` instead of full-width dividers. Phones keep
+  full-bleed panes with the same rounded headers and rows; `BottomTabs` floats as a rounded
+  card above the safe area. `PaneHeader`'s `border` prop is kept for callers but draws
+  nothing. The nav rail is Discord-style: 44px tiles, a pill indicator on the left edge,
+  red badges, the self avatar at the bottom.
 
 ## Calling the API (`lib/api.ts`)
 

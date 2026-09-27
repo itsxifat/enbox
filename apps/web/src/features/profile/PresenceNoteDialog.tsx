@@ -108,7 +108,7 @@ export function PresenceNoteDialog({ open, onClose }: { open: boolean; onClose: 
             aria-label={emoji ? `Emoji: ${emoji}` : 'Pick an emoji'}
             aria-pressed={pickerOpen}
             onClick={() => setPickerOpen((v) => !v)}
-            className="mt-6 flex size-11 shrink-0 items-center justify-center rounded-xl border border-line bg-surface-2 text-[22px] outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand"
+            className="mt-6 flex size-11 shrink-0 items-center justify-center card-inset text-[22px] outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand"
             data-testid="status-emoji"
           >
             {emoji ?? <Smile size={22} className="text-muted" aria-hidden />}
@@ -139,7 +139,7 @@ export function PresenceNoteDialog({ open, onClose }: { open: boolean; onClose: 
           ) : null}
         </div>
         {pickerOpen ? (
-          <div className="h-[300px] overflow-hidden rounded-xl border border-line">
+          <div className="card-inset h-[300px] overflow-hidden">
             <Suspense
               fallback={
                 <div className="flex h-full items-center justify-center text-brand-ink">

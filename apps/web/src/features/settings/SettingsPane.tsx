@@ -43,7 +43,7 @@ export function SettingsPane() {
         {me ? (
           <div
             className={cn(
-              'mx-2 mb-2 flex items-center gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-hover',
+              'card-inset mx-2 mb-2 flex items-center gap-4 px-3 py-3 transition-colors hover:bg-hover',
               section === 'profile' && 'bg-selected hover:bg-selected',
             )}
             data-testid="settings-profile-card"
@@ -80,8 +80,7 @@ export function SettingsPane() {
             </Link>
           </div>
         ) : null}
-        <div className="mx-4 mb-2 h-px bg-line" />
-        <ul className="flex flex-col px-2">
+        <ul className="card-inset mx-2 flex flex-col p-1">
           {SETTINGS_SECTIONS.filter((s) => s.id !== 'profile').map((s) => {
             const active = section === s.id;
             return (
@@ -105,7 +104,9 @@ export function SettingsPane() {
               </li>
             );
           })}
-          <li className="mt-2 border-t border-line pt-2">
+        </ul>
+        <ul className="card-inset mx-2 mt-2 flex flex-col p-1">
+          <li>
             <button
               type="button"
               onClick={() => void confirmLogout()}
