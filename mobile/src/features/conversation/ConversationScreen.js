@@ -5,7 +5,7 @@
  * - `useChats().setOpenChat(chatId)` while focused (read receipts, unread suppression,
  *   notification muting — see realtime/chats.ts `markChatRead`)
  * - loads with `loadLatest(chatId)` (or `loadAround` for `?m=<seq>` links)
- * - info panels by chat type (contact / group / channel) at /chats/:chatId/info
+ * - info panels by chat type (contact / group / channel) in a slide-in <Sheet>
  * - calls start with `useCalls().startCall(chatId, 'audio' | 'video')`
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -14,11 +14,14 @@ import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { MessageCircleOff } from 'lucide-react-native';
 import { PaneHeader } from '@/components/layout/PaneHeader';
-import { Button, EmptyState, PageSpinner } from '@/components/ui';
+import { Button, EmptyState, PageSpinner, Sheet } from '@/components/ui';
 import { ChatBackground, useChatAppearance } from '@/features/appearance/ChatBackground';
 import { ChatThemeSheet } from '@/features/appearance/ChatThemeSheet';
 import { OngoingCallBanner } from '@/features/calls/OngoingCallBanner';
+import { ChannelInfoPanel } from '@/features/channels/ChannelInfoPanel';
 import { chatPath } from '@/features/chats/links';
+import { ContactInfoPanel } from '@/features/contacts/ContactInfoPanel';
+import { GroupInfoPanel } from '@/features/groups/GroupInfoPanel';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { ColorScope, useTheme } from '@/theme';
@@ -36,6 +39,13 @@ function targetFromParams(params) {
   const seq = Number(params.m);
   if (!Number.isInteger(seq) || seq <= 0) return null;
   return { seq, messageId: typeof params.mid === 'string' ? params.mid : undefined };
+}
+
+/** Contact / group / channel info by chat type (all `{ chatId, onClose }`). */
+function InfoPanel({ chat, onClose }) {
+  if (chat.type === 'direct') return <ContactInfoPanel chatId={chat.id} onClose={onClose} />;
+  if (chat.type === 'channel') return <ChannelInfoPanel chatId={chat.id} onClose={onClose} />;
+  return <GroupInfoPanel chatId={chat.id} onClose={onClose} />;
 }
 
 export function ConversationScreen() {
@@ -166,7 +176,9 @@ function Conversation({ chat, initialTarget }) {
     [chat.id],
   );
 
-  const openInfo = useCallback(() => router.push(`/chats/${chat.id}/info`), [router, chat.id]);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const openInfo = useCallback(() => setInfoOpen(true), []);
+  const closeInfo = useCallback(() => setInfoOpen(false), []);
   const onAvoid = useCallback((v) => setAvoidKeyboard(v), []);
   const canCompose = chat.membership === 'active' && chat.permissions.canSend;
 
@@ -210,6 +222,9 @@ function Conversation({ chat, initialTarget }) {
         <ForwardDialog />
         <MessageInfoSheet />
         <Lightbox chatId={chat.id} />
+        <Sheet open={infoOpen} onClose={closeInfo} scroll={false}>
+          <InfoPanel chat={chat} onClose={closeInfo} />
+        </Sheet>
         {themeOpen ? <ChatThemeSheet chat={chat} onClose={() => setThemeOpen(false)} /> : null}
       </View>
     </ColorScope>

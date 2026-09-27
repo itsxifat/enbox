@@ -5,7 +5,7 @@
  * minimal full-screen viewer.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Linking, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { FlatList, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +26,7 @@ import {
 } from '@/components/ui';
 import { api, errorMessage, mediaUrl } from '@/lib/api';
 import { openFile } from '@/lib/files';
+import { openUrl } from '@/lib/links';
 import { formatChatListTime } from '@/lib/format';
 import { nameOf } from '@/stores/users';
 import { useTheme } from '@/theme';
@@ -85,7 +86,7 @@ export function RichText({ text, style }) {
           <T
             key={i}
             style={tw`text-brand-ink`}
-            onPress={() => void Linking.openURL(part.href).catch(() => undefined)}
+            onPress={() => openUrl(part.href)}
             suppressHighlighting
           >
             {part.text}
@@ -267,7 +268,7 @@ function GalleryList({ chatId, kind }) {
           const href = hrefOf(url);
           return (
             <Press
-              onPress={() => href && void Linking.openURL(href).catch(() => undefined)}
+              onPress={() => href && openUrl(href)}
               style={tw`flex-row items-center gap-3 px-4 py-3`}
             >
               <View style={tw`size-11 items-center justify-center rounded-xl bg-brand-soft`}>

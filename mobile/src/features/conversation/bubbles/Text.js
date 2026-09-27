@@ -7,13 +7,14 @@
  *                line reserves room, the visible meta sits in the bubble's bottom-right corner
  */
 import { memo, useMemo } from 'react';
-import { Linking, View } from 'react-native';
+import { View } from 'react-native';
 import { Star } from 'lucide-react-native';
 import { tickStatus } from '@enbox/shared';
 import { Icon } from '@/components/icons';
 import { T } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { formatTime } from '@/lib/format';
+import { openUrl } from '@/lib/links';
 import { useAuth } from '@/stores/auth';
 import { useUserName } from '@/stores/users';
 import { alpha, useTheme } from '@/theme';
@@ -51,7 +52,7 @@ function Plain({ text, highlight }) {
 }
 
 function openLink(href) {
-  void Linking.openURL(href).catch(() => undefined);
+  openUrl(href);
 }
 
 function Segments({ segments, highlight }) {
