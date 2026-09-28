@@ -25,6 +25,12 @@ on:
 permissions:
   contents: write
 
+# A newer push cancels an older build of the same branch so a stale APK can never overwrite
+# the release after a fix has been published.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-latest
