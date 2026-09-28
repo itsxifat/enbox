@@ -51,13 +51,17 @@ npm run web        # quick preview in a browser (Expo web)
 npm run android    # dev build on a device/emulator (needs the Android SDK)
 ```
 
-When the app starts, pick the server on the sign-in screen with **Server**, for example
-`https://chat.example.com` or `http://192.168.1.20:4000` on your LAN. It is saved on the
-device. To bake in a default, set `EXPO_PUBLIC_API_URL` at build time:
+A stock build talks to the hosted Enbox (`PRODUCTION_ORIGIN` in `src/lib/env.js`,
+`https://enbox.dev`) and never asks for a server address. To point a build at your own
+server instead, bake it in with `EXPO_PUBLIC_API_URL` at build time:
 
 ```bash
 EXPO_PUBLIC_API_URL=https://chat.example.com npm run build:apk
 ```
+
+Dev builds (and builds with a custom server) also show a **Server** link on the sign-in
+screen for switching to another server, for example `http://192.168.1.20:4000` on your
+LAN; the choice is saved on the device.
 
 ## Build the APK
 
@@ -89,9 +93,15 @@ Signing:
 
 The [Android APK workflow](../.github/workflows/android.yml) builds the APK:
 
-- It runs on every change under `mobile/` or `packages/shared/`.
-- The APK is uploaded as the `enbox-android-apk` artifact.
-- Run it manually (**Actions → Android APK → Run workflow**) to bake in a server address.
+- It runs on every push (any branch) and pull request that touches `mobile/`,
+  `packages/shared/` or the workflow itself.
+- The APK is uploaded as the `enbox-android-apk` artifact of the run.
+- Pushes also publish it as `enbox.apk` on the rolling `android` GitHub release, so the
+  newest stock build is always at
+  `https://github.com/itsxifat/enbox/releases/download/android/enbox.apk`; the Enbox
+  servers redirect `https://enbox.dev/download/android` (and `/enbox.apk`) there.
+- Run it manually (**Actions → Android APK → Run workflow**) with `api_url` to bake in
+  another server address; such builds are kept as run artifacts only.
 
 ## Server notes
 

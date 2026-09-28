@@ -1,8 +1,11 @@
 name: Android APK
 
+# Builds the release APK on every push that touches the app (any branch) and on pull
+# requests. Pushes also publish the APK as the `enbox.apk` asset of the rolling `android`
+# GitHub release, which the servers link to at https://enbox.dev/download/android.
 on:
   push:
-    branches: [main]
+    branches: ['**']
     paths:
       - 'mobile/**'
       - 'packages/shared/**'
@@ -15,9 +18,12 @@ on:
   workflow_dispatch:
     inputs:
       api_url:
-        description: 'Default server address baked into the app, e.g. https://chat.example.com (optional; it can also be set on the sign-in screen)'
+        description: 'Server address baked into the app (defaults to the hosted Enbox, https://enbox.dev)'
         required: false
         default: ''
+
+permissions:
+  contents: write
 
 jobs:
   apk:
@@ -42,12 +48,25 @@ jobs:
       # `android/` is generated from app.json (Continuous Native Generation), never committed.
       - run: npx expo prebuild --platform android --clean --no-install
       # Phone CPUs only; add x86_64 for PC emulators.
+      # The app falls back to PRODUCTION_ORIGIN (mobile/src/lib/env.js) when this is empty;
+      # the dispatch input lets self-hosters bake in their own server.
       - run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
         working-directory: mobile/android
         env:
           EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
+      - run: cp android/app/build/outputs/apk/release/app-release.apk enbox.apk
       - uses: actions/upload-artifact@v4
         with:
           name: enbox-android-apk
-          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          path: mobile/enbox.apk
           retention-days: 14
+      # Rolling release: one stable download URL for the newest stock build.
+      - if: github.event_name != 'pull_request' && inputs.api_url == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create android --repo "$GITHUB_REPOSITORY" --title "Enbox for Android" \
+                 --notes "Rolling build of the Android app. Download enbox.apk and open it on your phone (allow installs from your browser when asked)."
+          gh release upload android enbox.apk --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit android --repo "$GITHUB_REPOSITORY" --notes "Rolling build of the Android app from commit ${GITHUB_SHA::7} (${GITHUB_REF_NAME}). Download enbox.apk and open it on your phone (allow installs from your browser when asked)."

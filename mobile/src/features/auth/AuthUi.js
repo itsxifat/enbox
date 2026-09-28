@@ -1,7 +1,8 @@
 /**
  * Auth frame and controls (web features/auth: AuthLayout, PasswordInput,
  * PasswordStrengthMeter) plus the app-only server picker (`ServerLink`): the Android app is
- * not served by the Enbox server, so it asks which one to use.
+ * not served by the Enbox server, so a stock build talks to the built-in one and the picker
+ * only appears once a custom server is set (or in dev builds).
  */
 import { useState } from 'react';
 import { View } from 'react-native';
@@ -11,7 +12,7 @@ import { AlertCircle, Eye, EyeOff, Server } from 'lucide-react-native';
 import { Icon, LogoMark } from '@/components/icons';
 import { Button, IconButton, Input, Modal, Press, T, toast } from '@/components/ui';
 import { api } from '@/lib/api';
-import { getApiOrigin, normalizeOrigin, setApiOrigin } from '@/lib/env';
+import { getApiOrigin, isDefaultOrigin, normalizeOrigin, setApiOrigin } from '@/lib/env';
 import { useTheme } from '@/theme';
 import { passwordStrength } from './validation';
 
@@ -115,7 +116,11 @@ export function PasswordStrengthMeter({ password }) {
   );
 }
 
-/** "Server: enbox.example.com" link under the auth forms + the sheet to change it. */
+/**
+ * "Server: enbox.example.com" link under the auth forms + the sheet to change it. Hidden while
+ * the app talks to its built-in server (stock builds never ask for an address); `forceOpen`
+ * only opens the sheet when no server is configured at all (custom builds without a default).
+ */
 export function ServerLink({ forceOpen = false }) {
   const { tw, c } = useTheme();
   const [open, setOpen] = useState(forceOpen && !getApiOrigin());
@@ -124,6 +129,7 @@ export function ServerLink({ forceOpen = false }) {
   const [busy, setBusy] = useState(false);
   const current = getApiOrigin();
   const host = current.replace(/^https?:\/\//, '');
+  if (isDefaultOrigin() && current && !__DEV__) return null;
 
   const save = async () => {
     const origin = normalizeOrigin(value);

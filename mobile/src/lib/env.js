@@ -1,13 +1,19 @@
 /**
  * Runtime environment. Unlike the web client (same-origin), the Android app talks to an
- * absolute server origin: `EXPO_PUBLIC_API_URL` at build time, overridable on the sign-in
- * screen ("Server") and persisted in `enbox.server`.
+ * absolute server origin: `EXPO_PUBLIC_API_URL` at build time (falling back to the hosted
+ * Enbox at PRODUCTION_ORIGIN, so a stock build connects without asking), overridable from
+ * the sign-in screen ("Server", shown only when a custom server is set) and persisted in
+ * `enbox.server`.
  *
- *   getApiOrigin()             // 'https://enbox.example.com' (no trailing slash)
+ *   getApiOrigin()             // 'https://enbox.dev' (no trailing slash)
  *   setApiOrigin('http://192.168.1.20:4000')
+ *   isDefaultOrigin()          // true while the app talks to the built-in server
  */
 import { Platform } from 'react-native';
 import { storage, StorageKeys } from './storage';
+
+/** The hosted Enbox every stock build talks to unless EXPO_PUBLIC_API_URL overrides it. */
+export const PRODUCTION_ORIGIN = 'https://enbox.dev';
 
 export function normalizeOrigin(value) {
   let v = (value ?? '').trim();
@@ -22,12 +28,15 @@ export function normalizeOrigin(value) {
   }
 }
 
-/** Build-time default: EXPO_PUBLIC_API_URL, else the web page's own origin (web preview). */
+/**
+ * Build-time default: EXPO_PUBLIC_API_URL, else the web page's own origin (web preview),
+ * else the hosted Enbox.
+ */
 function defaultOrigin() {
   const fromEnv = normalizeOrigin(process.env.EXPO_PUBLIC_API_URL);
   if (fromEnv) return fromEnv;
   if (Platform.OS === 'web' && typeof window !== 'undefined') return window.location.origin;
-  return '';
+  return PRODUCTION_ORIGIN;
 }
 
 let origin = null;
@@ -49,6 +58,11 @@ export function setApiOrigin(value) {
 
 export function hasApiOrigin() {
   return !!getApiOrigin();
+}
+
+/** True while no custom server overrides the build-time default. */
+export function isDefaultOrigin() {
+  return getApiOrigin() === defaultOrigin();
 }
 
 export const IS_PROD = !__DEV__;

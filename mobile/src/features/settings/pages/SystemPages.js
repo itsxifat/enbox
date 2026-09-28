@@ -426,7 +426,7 @@ const FAQ = [
   },
   {
     q: 'Which server does the app use?',
-    a: 'The server address is shown under “Server” on this page. You can change it from the login screen after logging out.',
+    a: 'The server address is shown under “Server” on this page. Stock builds use the hosted Enbox; builds pointed at another server can switch it from the login screen after logging out.',
   },
 ];
 
