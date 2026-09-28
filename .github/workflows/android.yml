@@ -55,10 +55,21 @@ jobs:
         env:
           EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
       - run: cp android/app/build/outputs/apk/release/app-release.apk enbox.apk
+      # Emulator build (PC CPUs) for testing on a desktop; published next to the phone APK.
+      - if: github.event_name != 'pull_request'
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=x86_64
+        working-directory: mobile/android
+        env:
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url }}
+      - if: github.event_name != 'pull_request'
+        run: cp android/app/build/outputs/apk/release/app-release.apk enbox-x86_64.apk
       - uses: actions/upload-artifact@v4
         with:
           name: enbox-android-apk
-          path: mobile/enbox.apk
+          path: |
+            mobile/enbox.apk
+            mobile/enbox-x86_64.apk
+          if-no-files-found: ignore
           retention-days: 14
       # Rolling release: one stable download URL for the newest stock build.
       - if: github.event_name != 'pull_request' && inputs.api_url == ''
@@ -68,5 +79,5 @@ jobs:
           gh release view android --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create android --repo "$GITHUB_REPOSITORY" --title "Enbox for Android" \
                  --notes "Rolling build of the Android app. Download enbox.apk and open it on your phone (allow installs from your browser when asked)."
-          gh release upload android enbox.apk --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload android enbox.apk enbox-x86_64.apk --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit android --repo "$GITHUB_REPOSITORY" --notes "Rolling build of the Android app from commit ${GITHUB_SHA::7} (${GITHUB_REF_NAME}). Download enbox.apk and open it on your phone (allow installs from your browser when asked)."
