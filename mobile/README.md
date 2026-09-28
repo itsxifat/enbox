@@ -71,10 +71,14 @@ committed.
 ```bash
 cd mobile
 npm ci
+npm run check:native   # every native module matches the Expo SDK version
 npx expo prebuild --platform android --clean
 cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
 # → android/app/build/outputs/apk/release/app-release.apk (~70 MB)
 ```
+
+`check:native` catches native modules installed at a version for a different Expo SDK. npm can
+do that through a peer dependency, and such a module crashes the app on launch.
 
 The `-PreactNativeArchitectures` flag limits the build to phone CPUs. Without it the APK also
 carries x86/x86_64 libraries for PC emulators and is about twice the size.

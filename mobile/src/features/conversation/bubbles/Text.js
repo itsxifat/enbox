@@ -174,7 +174,9 @@ export function MetaSpacer({ m, mine }) {
   // The web's `ml-2` gap, then the meta's own content at 11px: star (12px + gap), "Edited ",
   // the time, ticks (16px + gap); em/en spaces stand in for the icons.
   const pad = `\u00A0\u00A0\u00A0${m.starred ? '\u2003\u2002' : ''}${edited ? 'Edited\u00A0' : ''}${formatTime(m.createdAt)}${mine ? '\u2003\u2003\u2002' : '\u2002'}`;
-  return <T style={{ fontSize: 11, color: 'transparent' }}>{pad}</T>;
+  // Not 'transparent': Android drops a fully transparent colour on nested text and paints it in
+  // the parent's colour. Alpha 1/255 is invisible and honoured everywhere.
+  return <T style={{ fontSize: 11, color: '#00000001' }}>{pad}</T>;
 }
 
 /** Visible meta in the bubble's bottom-right corner (pair with `MetaSpacer`). */

@@ -45,6 +45,7 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
+      - run: npm run check:native
       # `android/` is generated from app.json (Continuous Native Generation), never committed.
       - run: npx expo prebuild --platform android --clean --no-install
       # Phone CPUs only; add x86_64 for PC emulators.
