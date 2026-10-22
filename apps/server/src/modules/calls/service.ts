@@ -75,16 +75,17 @@ import {
   settingsOf,
   toUserPublicsForPairs,
 } from '../../services/users.js';
+import { NODE_ID } from '../../cluster/node.js';
+import { deadNodeSql, isNodeAlive } from '../../cluster/nodes.js';
 import {
   bindCallSocket,
-  boundSocketId,
   callTimings,
   clearCallTimers,
   clearGrace,
   clearRingCheck,
   emitToRoom,
   isCallSocket,
-  isSocketConnected,
+  isLocalSocketConnected,
   releaseCall,
   releaseCallSocket,
   scheduleGrace,
@@ -272,6 +273,8 @@ export interface CallCtx {
   after: (() => void)[];
   /** The chat (and with it the call message) is deleted in this transaction: no message rewrite. */
   chatDeleted: boolean;
+  /** userId → call socket bound when the call was locked (released post-commit when replaced or left). */
+  boundAtLock: Map<string, string>;
 }
 
 function newCtx(
@@ -297,6 +300,9 @@ function newCtx(
     ended: false,
     after: [],
     chatDeleted: false,
+    boundAtLock: new Map(
+      parts.flatMap((p) => (p.socketId ? [[p.userId, p.socketId] as const] : [])),
+    ),
   };
 }
 
@@ -392,7 +398,7 @@ async function endCall(ctx: CallCtx, status: CallStatus, reason: RingStopReason)
     );
   await ctx.tx
     .update(callParticipants)
-    .set({ status: 'left', leftAt: now, disconnectedAt: null })
+    .set({ status: 'left', leftAt: now, disconnectedAt: null, socketId: null, nodeId: null })
     .where(and(eq(callParticipants.callId, ctx.call.id), eq(callParticipants.status, 'joined')));
   ctx.parts = await ctx.tx
     .select()
@@ -441,25 +447,28 @@ async function finalize(ctx: CallCtx): Promise<void> {
 
   // 2. Leavers: their call socket leaves the rooms, then peers learn about it.
   for (const userId of ctx.left) {
+    const socketId = ctx.boundAtLock.get(userId);
     fx.add(() => {
       clearGrace(callId, userId);
-      releaseCallSocket(callId, userId);
+      if (socketId) releaseCallSocket(callId, userId, socketId);
       emitToRoom(rooms.call(callId), 'call:participant-left', { callId, userId });
     });
   }
 
-  // 3. Newcomers (accept/join/rejoin): peers first, then the new call socket joins the rooms.
+  // 3. Newcomers (accept/join/rejoin): peers first, then the new call socket joins the rooms
+  //    (the op already wrote the binding; a replaced socket leaves the rooms first).
   if (!ended) {
     for (const j of ctx.joined) {
+      const prev = ctx.boundAtLock.get(j.userId);
       fx.add(() => {
         clearGrace(callId, j.userId);
-        releaseCallSocket(callId, j.userId);
+        if (prev && prev !== j.socket?.id) releaseCallSocket(callId, j.userId, prev);
         if (j.announce)
           emitToRoom(rooms.call(callId), 'call:participant-joined', { callId, userId: j.userId });
         if (!j.socket) return;
         if (j.socket.disconnected) {
           // Lost before we could bind it: treat like a call-socket disconnect.
-          void callSocketGone(callId, j.userId);
+          void callSocketGone(callId, j.userId, j.socket.id);
           return;
         }
         bindCallSocket(callId, j.userId, j.socket);
@@ -488,9 +497,10 @@ async function finalize(ctx: CallCtx): Promise<void> {
 
   // 5. Call state to every visible participant.
   if (ended) {
+    const userIds = ctx.parts.map((p) => p.userId);
     fx.toUsers(visible, 'call:ended', { callId, status: ctx.call.status, call });
     fx.add(() => {
-      releaseCall(callId);
+      releaseCall(callId, userIds);
       clearCallTimers(callId);
     });
   } else if (ctx.changed) {
@@ -640,7 +650,13 @@ function initialMedia(type: CallType, input: { audioMuted?: boolean; videoOff?: 
 // ---------------------------------------------------------------------------
 
 async function leaveParticipant(ctx: CallCtx, userId: string): Promise<void> {
-  await patchPart(ctx, userId, { status: 'left', leftAt: new Date(), disconnectedAt: null });
+  await patchPart(ctx, userId, {
+    status: 'left',
+    leftAt: new Date(),
+    disconnectedAt: null,
+    socketId: null,
+    nodeId: null,
+  });
   ctx.left.push(userId);
   ctx.changed = true;
 }
@@ -765,6 +781,8 @@ export async function startCall(
               invitedAt: now,
               joinedAt: now,
               sessionId,
+              socketId: socket.id,
+              nodeId: NODE_ID,
               ...initialMedia(input.type, input),
             },
             ...invitees.map((id) => ({
@@ -818,7 +836,7 @@ export async function joinCall(
     await requireActiveMember(ctx.tx, userId, ctx.chat.id, { chat: ctx.chat, allowHidden: true });
     if (!isLive(ctx.call.status)) throw expired('This call has ended');
     if (mine?.status === 'joined') {
-      if (boundSocketId(ctx.call.id, userId) === socket.id) return;
+      if (mine.socketId === socket.id) return;
       throw conflict('You are already in this call on another device');
     }
     const ringingMe = !!mine && isPending(mine.status);
@@ -836,6 +854,8 @@ export async function joinCall(
         leftAt: null,
         sessionId,
         disconnectedAt: null,
+        socketId: socket.id,
+        nodeId: NODE_ID,
         ...media,
       });
     } else {
@@ -847,6 +867,8 @@ export async function joinCall(
           invitedAt: now,
           joinedAt: now,
           sessionId,
+          socketId: socket.id,
+          nodeId: NODE_ID,
           ...media,
         },
       ]);
@@ -876,9 +898,9 @@ export async function rejoinCall(
     if (!mine || mine.hiddenAt) throw notFound('Call');
     if (!isLive(ctx.call.status)) throw expired('This call has ended');
     if (mine.status !== 'joined') throw conflict('You are no longer in this call');
-    const bound = boundSocketId(ctx.call.id, userId);
+    const bound = mine.socketId;
     if (bound === socket.id) return;
-    if (bound && isSocketConnected(bound))
+    if (bound && (await bindingConnected(ctx.tx, mine)))
       throw conflict('This call is active in another tab or on another device');
     const sameSession = mine.sessionId === sessionId;
     const inGrace =
@@ -891,6 +913,8 @@ export async function rejoinCall(
     await patchPart(ctx, userId, {
       sessionId,
       disconnectedAt: null,
+      socketId: socket.id,
+      nodeId: NODE_ID,
       ...initialMedia(ctx.call.type, input),
     });
     ctx.joined.push({ userId, socket, announce: true });
@@ -936,12 +960,12 @@ export async function leaveCall(
 ): Promise<void> {
   const { userId, socket } = actor;
   const wasCallSocket = opts.wasCallSocket ?? isCallSocket(socket, callId, userId);
-  const boundNow = boundSocketId(callId, userId);
-  if (!wasCallSocket && boundNow && boundNow !== socket.id) return; // another device holds the call
   await runCallOp(callId, async (ctx) => {
     const mine = part(ctx, userId);
     if (!mine || mine.status !== 'joined' || !isLive(ctx.call.status)) return;
-    const bound = boundSocketId(ctx.call.id, userId);
+    // Another device holds the call — unless this socket WAS the call socket when the leave
+    // arrived (it disconnected meanwhile, and its binding was cleared).
+    const bound = mine.socketId;
     if (bound ? bound !== socket.id : !wasCallSocket) return;
     await leaveParticipant(ctx, userId);
   });
@@ -1047,21 +1071,27 @@ export async function updateMediaState(
 // ---------------------------------------------------------------------------
 
 /**
- * The call socket of `userId` is gone. Session revoked (its `session_id` was nulled by the
- * FK) → leave now; otherwise set `disconnected_at` (emit nothing) and start the grace timer.
+ * The call socket `socketId` of `userId` is gone (null: the row had no socket bound, e.g. a
+ * participant left by a release that predates socket bindings). Another socket bound
+ * meanwhile → no-op. Session revoked (its `session_id` was nulled by the FK) → leave now;
+ * otherwise set `disconnected_at`, clear the binding (emit nothing) and start the grace timer.
  */
-export async function callSocketGone(callId: string, userId: string): Promise<void> {
+export async function callSocketGone(
+  callId: string,
+  userId: string,
+  socketId: string | null,
+): Promise<void> {
   try {
     await runCallOp(callId, async (ctx) => {
       const p = part(ctx, userId);
       if (!isLive(ctx.call.status) || !p || p.status !== 'joined') return;
-      if (boundSocketId(callId, userId)) return; // a new call socket was bound meanwhile
+      if (p.socketId && p.socketId !== socketId) return; // a new call socket was bound meanwhile
       if (!p.sessionId) {
         await leaveParticipant(ctx, userId);
         return;
       }
       if (p.disconnectedAt) return;
-      await patchPart(ctx, userId, { disconnectedAt: new Date() });
+      await patchPart(ctx, userId, { disconnectedAt: new Date(), socketId: null, nodeId: null });
       ctx.after.push(() =>
         scheduleGrace(
           callId,
@@ -1079,7 +1109,7 @@ export async function callSocketGone(callId: string, userId: string): Promise<vo
 /** Socket disconnect handler: every call this socket was the call socket of. */
 export function onSocketDisconnect(socket: AppSocket): void {
   for (const { callId, userId } of takeSocketBindings(socket.id))
-    void callSocketGone(callId, userId);
+    void callSocketGone(callId, userId, socket.id);
 }
 
 /** Reconnect grace over: the participant leaves (end rules apply). */
@@ -1088,7 +1118,7 @@ export async function expireGrace(callId: string, userId: string): Promise<void>
     await runCallOp(callId, async (ctx) => {
       const p = part(ctx, userId);
       if (!isLive(ctx.call.status) || !p || p.status !== 'joined' || !p.disconnectedAt) return;
-      if (boundSocketId(callId, userId)) return;
+      if (p.socketId) return; // rejoined meanwhile
       const due = p.disconnectedAt.getTime() + callTimings.reconnectGraceMs;
       if (due > Date.now()) {
         ctx.after.push(() =>
@@ -1200,42 +1230,25 @@ export async function forceLeaveAllCallsTx(tx: Tx, fx: Effects, userId: string):
 // ---------------------------------------------------------------------------
 
 /**
- * Crash recovery (boot): every ongoing call → ended, every ringing call → missed;
- * participants closed and call messages updated. v1 assumes a single instance.
+ * Whether a joined participant's bound call socket is still connected somewhere: on this
+ * process the socket itself is checked; on another one, whether that process is alive (it
+ * clears the binding when the socket disconnects).
  */
-export async function recoverCalls(): Promise<number> {
-  const live = await db
-    .select({ id: calls.id })
-    .from(calls)
-    .where(inArray(calls.status, LIVE_CALL_STATUSES));
-  let failed = 0;
-  for (const { id } of live) {
-    try {
-      await runCallOp(id, async (ctx) => {
-        if (!isLive(ctx.call.status)) return;
-        await endCall(ctx, ctx.call.status === 'ongoing' ? 'ended' : 'missed', 'ended');
-      });
-    } catch (err) {
-      failed += 1;
-      logOpError(err, 'crash recovery', id);
-    }
-  }
-  if (live.length)
-    logger.info(
-      { calls: live.length, failed },
-      'calls: closed calls left open by a previous process',
-    );
-  // The calls job retries the whole recovery on its next run (it is idempotent).
-  if (failed) throw new Error(`calls: crash recovery failed for ${failed} call(s)`);
-  return live.length;
+async function bindingConnected(
+  dbx: DbOrTx,
+  p: Pick<CallParticipantRow, 'socketId' | 'nodeId'>,
+): Promise<boolean> {
+  if (!p.socketId) return false;
+  if (p.nodeId === NODE_ID) return isLocalSocketConnected(p.socketId);
+  return isNodeAlive(dbx, p.nodeId);
 }
 
 /**
- * Safety net for lost timers and lost disconnect bookkeeping: overdue rings, expired reconnect
- * windows, and joined participants without a call socket in this process whose disconnect was
- * never recorded (e.g. the disconnect transaction failed) — they enter the reconnect grace
- * now (`callSocketGone` re-checks the binding under the call queue). Relies on the documented
- * single-instance assumption (bindings are per process).
+ * Cluster sweep (leader, docs "Cluster" → "Calls"): overdue rings and expired reconnect
+ * windows (timers lost with their process), then joined participants whose call socket was
+ * bound on a DEAD process (crash, restart, a release that predates socket bindings): they
+ * enter the reconnect grace now, so their clients can `call:rejoin` through any process. A
+ * restart therefore never ends calls by itself.
  */
 export async function sweepCalls(): Promise<void> {
   const now = Date.now();
@@ -1263,8 +1276,12 @@ export async function sweepCalls(): Promise<void> {
       ),
     );
   for (const { callId, userId } of lost) await expireGrace(callId, userId);
-  const unbound = await db
-    .select({ callId: callParticipants.callId, userId: callParticipants.userId })
+  const orphaned = await db
+    .select({
+      callId: callParticipants.callId,
+      userId: callParticipants.userId,
+      socketId: callParticipants.socketId,
+    })
     .from(callParticipants)
     .innerJoin(calls, eq(calls.id, callParticipants.callId))
     .where(
@@ -1272,10 +1289,37 @@ export async function sweepCalls(): Promise<void> {
         eq(callParticipants.status, 'joined'),
         isNull(callParticipants.disconnectedAt),
         inArray(calls.status, LIVE_CALL_STATUSES),
+        deadNodeSql(callParticipants.nodeId),
       ),
     );
-  for (const { callId, userId } of unbound) {
-    if (!boundSocketId(callId, userId)) await callSocketGone(callId, userId);
+  for (const p of orphaned) await callSocketGone(p.callId, p.userId, p.socketId);
+}
+
+/**
+ * Node sweep (every process): joined participants bound to a socket of THIS process that is
+ * gone without a recorded disconnect (e.g. the disconnect transaction failed) enter the
+ * reconnect grace now (`callSocketGone` re-checks the binding under the call lock).
+ */
+export async function sweepLocalCalls(): Promise<void> {
+  const bound = await db
+    .select({
+      callId: callParticipants.callId,
+      userId: callParticipants.userId,
+      socketId: callParticipants.socketId,
+    })
+    .from(callParticipants)
+    .innerJoin(calls, eq(calls.id, callParticipants.callId))
+    .where(
+      and(
+        eq(callParticipants.status, 'joined'),
+        isNull(callParticipants.disconnectedAt),
+        eq(callParticipants.nodeId, NODE_ID),
+        inArray(calls.status, LIVE_CALL_STATUSES),
+      ),
+    );
+  for (const p of bound) {
+    if (!p.socketId || !isLocalSocketConnected(p.socketId))
+      await callSocketGone(p.callId, p.userId, p.socketId);
   }
 }
 

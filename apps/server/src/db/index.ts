@@ -14,9 +14,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import type { NodePgDatabase, NodePgQueryResultHKT } from 'drizzle-orm/node-postgres';
+import type { Pool } from 'pg';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 import * as schema from './schema.js';
 import { logger } from '../lib/logger.js';
+import { ADVISORY_MIGRATE, ADVISORY_NAMESPACE } from '../cluster/constants.js';
 
 export { schema };
 export type Schema = typeof schema;
@@ -29,6 +31,8 @@ export interface DbHandle {
   db: Database;
   close: () => Promise<void>;
   driver: 'pg' | 'pglite';
+  /** node-postgres pool (pg driver only): dedicated connections for session advisory locks. */
+  pool?: Pool;
 }
 
 /** Process-wide database (live ESM binding, set by `initDb`). */
@@ -75,9 +79,14 @@ export async function initDb(opts: InitDbOptions): Promise<DbHandle> {
     const database = drizzle(pool, { schema });
     if (shouldMigrate) {
       const { migrate } = await import('drizzle-orm/node-postgres/migrator');
-      await migrate(database, { migrationsFolder: migrationsFolder() });
+      // Several processes boot together (docs "Cluster"): the advisory lock makes the others
+      // wait, then find nothing pending. It is held on its own connection; the migrator uses
+      // the pool's other connections.
+      await withSessionLock(pool, ADVISORY_MIGRATE, () =>
+        migrate(database, { migrationsFolder: migrationsFolder() }),
+      );
     }
-    handle = { db: database, close: () => pool.end(), driver: 'pg' };
+    handle = { db: database, close: () => pool.end(), driver: 'pg', pool };
   } else {
     const { PGlite } = await import('@electric-sql/pglite');
     const { drizzle } = await import('drizzle-orm/pglite');
@@ -95,6 +104,38 @@ export async function initDb(opts: InitDbOptions): Promise<DbHandle> {
   }
   db = handle.db;
   return handle;
+}
+
+/**
+ * Run `fn` while holding the session advisory lock (ADVISORY_NAMESPACE, key) on a dedicated
+ * connection of `pool` (waits for the lock). PGlite has one connection and one process: no lock.
+ */
+export async function withSessionLock<T>(
+  pool: Pool,
+  key: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('select pg_advisory_lock($1::int, $2::int)', [ADVISORY_NAMESPACE, key]);
+    try {
+      return await fn();
+    } finally {
+      await client.query('select pg_advisory_unlock($1::int, $2::int)', [ADVISORY_NAMESPACE, key]);
+    }
+  } finally {
+    client.release();
+  }
+}
+
+/** The node-postgres pool, or undefined on PGlite. */
+export function pgPool(): Pool | undefined {
+  return handle?.pool;
+}
+
+/** Which driver the process database uses. */
+export function dbDriver(): DbHandle['driver'] | undefined {
+  return handle?.driver;
 }
 
 export async function closeDb(): Promise<void> {

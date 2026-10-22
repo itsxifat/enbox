@@ -5,20 +5,21 @@ import { presenceEvents, setSocketIdle } from '../../realtime/presence.js';
 import type { SocketRegistrar } from '../../realtime/types.js';
 import {
   forgetPresenceSocket,
-  reevaluatePresence,
+  reevaluateLocalPresence,
   subscribePresence,
   unsubscribePresence,
 } from './presence.js';
 
-// Online/offline transitions (first socket connected / last one gone) and auto-idle changes
-// re-evaluate the subject's presence for every subscribed socket (per-viewer privacy, changes
-// only — an invisible user therefore never produces an update from any of these).
-presenceEvents.on('online', (userId) => void reevaluatePresence(userId));
+// Online/offline transitions (first socket in the cluster connected / last one gone) and
+// auto-idle changes re-evaluate the subject's presence for every subscribed socket of THIS
+// process — the registry fires them on every process (per-viewer privacy, changes only — an
+// invisible user therefore never produces an update from any of these).
+presenceEvents.on('online', (userId) => void reevaluateLocalPresence(userId));
 presenceEvents.on(
   'offline',
-  (userId, lastSeenAt) => void reevaluatePresence(userId, { lastSeenAt }),
+  (userId, lastSeenAt) => void reevaluateLocalPresence(userId, { lastSeenAt }),
 );
-presenceEvents.on('activity', (userId) => void reevaluatePresence(userId));
+presenceEvents.on('activity', (userId) => void reevaluateLocalPresence(userId));
 
 /**
  * Users socket handlers (see ClientToServerEvents in @enbox/shared):
@@ -53,9 +54,9 @@ export const registerUsersSocket: SocketRegistrar = (_io, socket) => {
   socket.on(
     'presence:activity',
     socketHandler(socket, presenceActivitySchema, ({ idle }, { userId }) => {
-      const changed = setSocketIdle(userId, socket.id, idle);
+      // A cluster-wide auto-idle flip fires the registry's 'activity' event.
+      setSocketIdle(userId, socket.id, idle);
       assertUserLimit(socket.id, 'presenceActivity', USER_RATE_LIMITS.presenceActivity);
-      if (changed) presenceEvents.emit('activity', userId);
     }),
   );
   socket.on('disconnect', () => forgetPresenceSocket(socket.id));

@@ -1,0 +1,52 @@
+# /etc/systemd/system/enbox@.service — one Enbox process per instance; the instance name is
+# its port (enbox@4000, enbox@4001, …). All instances share /etc/enbox/enbox.env (PostgreSQL,
+# REDIS_URL, secrets) and sit behind the nginx upstream `enbox_app` (deploy/nginx/).
+[Unit]
+Description=Enbox messenger process on port %i (API, realtime and web client)
+Documentation=https://github.com/itsxifat/enbox
+After=network-online.target postgresql.service valkey-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=enbox
+Group=enbox
+EnvironmentFile=/etc/enbox/enbox.env
+# `current` is a symlink to the active release (see /opt/enbox/deploy.sh). PORT is set on the
+# command line because EnvironmentFile= would override an Environment=PORT line.
+WorkingDirectory=/opt/enbox/current/apps/server
+ExecStart=/usr/bin/env PORT=%i /opt/enbox/node/bin/node dist/index.js
+Restart=always
+RestartSec=3
+# Graceful shutdown hands over the jobs leadership and the presence of this process, then
+# removes its cluster heartbeat so its calls move to the reconnect grace at once.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+LimitNOFILE=65536
+UMask=0027
+
+# Sandboxing: read-only system, writable data directory only, no privileges.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/enbox
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

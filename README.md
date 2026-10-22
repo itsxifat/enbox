@@ -128,7 +128,7 @@ The most important ones:
 | `CORS_ORIGINS`                          | Allowed browser origins                                                                                       |
 | `STUN_URLS`, `TURN_URLS`, `TURN_SECRET` | WebRTC ICE servers; configure TURN for reliable calls behind strict NATs                                      |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | Web Push (generate with `npx web-push generate-vapid-keys`)                                                   |
-| `REDIS_URL`                             | Optional Socket.IO Redis adapter                                                                              |
+| `REDIS_URL`                             | Valkey/Redis for running several processes (Socket.IO adapter + cluster bus); unset = one process             |
 
 ## Deployment
 

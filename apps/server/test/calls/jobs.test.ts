@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '../../src/db/index.js';
 import { callParticipants, messages, statuses } from '../../src/db/schema.js';
 import { runJobsOnce } from '../../src/jobs/index.js';
 import { forceLeaveDirectCall, sweepCalls } from '../../src/modules/calls/service.js';
-import { resetCallState } from '../../src/modules/calls/state.js';
+import { resetCallState, setCallTimings } from '../../src/modules/calls/state.js';
 import { transact } from '../../src/services/effects.js';
 import { runAccountDeletionHooks } from '../../src/services/hooks.js';
 import { sleep, startTestServer, type TestServer } from '../helpers.js';
@@ -30,7 +30,7 @@ describe('calls: jobs and hooks', () => {
     return m!;
   };
 
-  it('crash recovery (first run of the calls job): ongoing → ended, ringing → missed, messages fixed; later runs only sweep', async () => {
+  it("a dead process's calls (calls job): its participants get the reconnect grace, then ongoing → ended, ringing → cancelled, messages fixed; healthy calls are left alone", async () => {
     const [alice, bob, carol, dave] = await Promise.all(
       ['A', 'B', 'C', 'D'].map((n) => t.createUser({ displayName: n })),
     );
@@ -43,8 +43,21 @@ describe('calls: jobs and hooks', () => {
     const ringing = await ackCall(c!, 'call:start', { chatId: cd, type: 'audio' });
     await sleep(30);
 
-    resetCallState(); // the previous process is gone: no timers, no bindings
-    await runJobsOnce();
+    resetCallState(); // the previous process is gone: no timers, no index…
+    // …and its call sockets were bound there.
+    await db
+      .update(callParticipants)
+      .set({ nodeId: 'dead-node' })
+      .where(inArray(callParticipants.callId, [ongoing.id, ringing.id]));
+    setCallTimings({ reconnectGraceMs: 100 });
+    try {
+      await runJobsOnce(); // the grace starts: nothing ends yet
+      expect((await callRow(ongoing.id)).status).toBe('ongoing');
+      await sleep(200);
+      await runJobsOnce(); // the grace is over
+    } finally {
+      setCallTimings();
+    }
 
     const o = await callRow(ongoing.id);
     expect(o.status).toBe('ended');
@@ -54,12 +67,13 @@ describe('calls: jobs and hooks', () => {
       status: 'ended',
       durationSec: expect.any(Number),
     });
+    // The caller's grace ended a ringing call: cancelled, the callee's ring stops (missed).
     const r = await callRow(ringing.id);
-    expect(r.status).toBe('missed');
+    expect(r.status).toBe('cancelled');
     expect((await partOf(ringing.id, dave!.id)).status).toBe('missed');
     expect((await partOf(ringing.id, carol!.id)).status).toBe('left');
     expect((await messageOf(ringing.id)).metadata.call).toMatchObject({
-      status: 'missed',
+      status: 'cancelled',
       durationSec: null,
     });
     await until(() => rb.of('call:ended').length === 1, 3000, 'call:ended');

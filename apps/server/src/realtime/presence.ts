@@ -1,86 +1,100 @@
 /**
  * Presence bookkeeping for this process.
  *
- * 1. Online state: the counted sockets per user. A user is online while at least one of
- *    their sockets is connected (and counted: io.ts counts a socket once its rooms are
- *    joined). (With multiple instances behind the Redis adapter this is per-instance — a
- *    shared registry is out of scope for v1; see docs/ARCHITECTURE.md.)
+ * 1. Online state: cluster-wide (cluster/presenceRegistry.ts). This node counts its own
+ *    sockets (io.ts counts a socket once its rooms are joined) and replicates every other
+ *    node's counts over the cluster bus; a user is online while any node counts a socket.
  * 2. Idle: a flag per counted socket, set by `presence:activity` (a device with no input for
- *    PRESENCE_IDLE_AFTER_MS, or hidden). The user is auto-idle when EVERY counted socket is
- *    idle; a fresh socket starts active. Flags are ignored until the socket counts and
- *    dropped with it.
- * 3. Subscriptions: presence is NOT room-based. Each socket subscribes to subjects
- *    (`presence:subscribe`); the users module evaluates the subject's privacy PER VIEWER at
- *    subscribe time and at every emit, and emits `presence:update` to each subscribing
- *    socket individually (`emitToSocket`). Subscriptions die with the socket; clients
- *    re-subscribe after reconnecting.
+ *    PRESENCE_IDLE_AFTER_MS, or hidden). The user is auto-idle when EVERY counted socket in
+ *    the cluster is idle; a fresh socket starts active. Flags are ignored until the socket
+ *    counts and dropped with it.
+ * 3. Subscriptions (this node only): presence is NOT room-based. Each socket subscribes to
+ *    subjects (`presence:subscribe`); the users module evaluates the subject's privacy PER
+ *    VIEWER at subscribe time and at every emit, and emits `presence:update` to each
+ *    subscribing socket individually (`emitToSocket`). Subscriptions die with the socket;
+ *    clients re-subscribe after reconnecting. Every node re-evaluates its own subscribers:
+ *    `presenceEvents` fire on every node for every global transition.
  */
 import { EventEmitter } from 'node:events';
 import { MAX_PRESENCE_SUBSCRIPTIONS } from '@enbox/shared';
+import { onBus, onBusReconnect, publishRemote } from '../cluster/bus.js';
+import { CLUSTER_HEARTBEAT_MS, CLUSTER_NODE_TTL_MS } from '../cluster/constants.js';
+import { NODE_ID } from '../cluster/node.js';
+import { PresenceRegistry, type PresenceEvents } from '../cluster/presenceRegistry.js';
 
-/** userId → counted socket ids (online = at least one). */
-const countedSockets = new Map<string, Set<string>>();
-/** Counted socket ids whose device reported itself idle. */
-const socketIdle = new Set<string>();
-
-export interface PresenceEvents {
-  online: [userId: string];
-  offline: [userId: string, lastSeenAt: Date];
-  /** The user's auto-idle state (every counted socket idle) flipped. */
-  activity: [userId: string];
-}
+export type { PresenceEvents };
 
 /**
- * Emits 'online' when a user's first socket connects, 'offline' when the last one
- * disconnects and 'activity' when their auto-idle state changes in between.
+ * Emits 'online' when a user's first socket in the cluster connects, 'offline' when the last
+ * one disconnects, 'activity' when their auto-idle state changes in between and 'lost' when a
+ * vanished node took the last sockets of some users with it. Fired on EVERY node.
  */
 export const presenceEvents = new EventEmitter<PresenceEvents>();
 
+const registry = new PresenceRegistry(NODE_ID, { publish: publishRemote }, presenceEvents);
+
+onBus('presence:delta', (d, from) => registry.onDelta(from, d));
+onBus('presence:snapshot', (s, from) => registry.onSnapshot(from, s));
+onBus('presence:hello', (_d, from) => registry.onHello(from));
+onBus('presence:beat', (_d, from) => registry.onBeat(from));
+onBus('presence:bye', (_d, from) => registry.onBye(from));
+// Deltas may have been lost while the bus was down: resynchronise both ways.
+onBusReconnect(() => registry.announce());
+
+let ticker: NodeJS.Timeout | undefined;
+
+/** Join the cluster's presence (after the bus connected): snapshots both ways, then beats. */
+export function startPresenceReplication(): void {
+  registry.announce();
+  ticker ??= setInterval(() => registry.tick(CLUSTER_NODE_TTL_MS), CLUSTER_HEARTBEAT_MS);
+  ticker.unref();
+}
+
+/** Leave the cluster's presence (shutdown): the others drop our users at once. */
+export function stopPresenceReplication(): void {
+  if (ticker) clearInterval(ticker);
+  ticker = undefined;
+  publishRemote('presence:bye', {});
+}
+
 export function isOnline(userId: string): boolean {
-  return (countedSockets.get(userId)?.size ?? 0) > 0;
+  return registry.isOnline(userId);
 }
 
 export function onlineUserIds(): string[] {
-  return [...countedSockets.keys()];
+  return registry.onlineUserIds();
 }
 
-/** Every counted socket of the user reported itself idle (false when offline). */
+/** Every counted socket of the user (cluster-wide) reported itself idle (false when offline). */
 export function autoIdle(userId: string): boolean {
-  const mine = countedSockets.get(userId);
-  if (!mine || mine.size === 0) return false;
-  for (const socketId of mine) if (!socketIdle.has(socketId)) return false;
-  return true;
+  return registry.autoIdle(userId);
 }
 
-/** Count `socketId` for the user (it starts active). Returns true if the user just came online. */
-export function markConnected(userId: string, socketId: string): boolean {
-  let mine = countedSockets.get(userId);
-  if (!mine) countedSockets.set(userId, (mine = new Set()));
-  mine.add(socketId);
-  return mine.size === 1;
+/** Count `socketId` for the user (it starts active); transitions fire `presenceEvents`. */
+export function markConnected(userId: string, socketId: string): void {
+  registry.markConnected(userId, socketId);
 }
 
-/** Uncount `socketId` (its idle flag goes with it). Returns true if the user just went offline. */
-export function markDisconnected(userId: string, socketId: string): boolean {
-  socketIdle.delete(socketId);
-  const mine = countedSockets.get(userId);
-  if (!mine) return true;
-  mine.delete(socketId);
-  if (mine.size > 0) return false;
-  countedSockets.delete(userId);
-  return true;
+/**
+ * Uncount `socketId` (its idle flag goes with it). Returns true when it was the user's last
+ * socket on THIS node (record the last-seen time); a cluster-wide offline fires `offline`.
+ */
+export function markDisconnected(userId: string, socketId: string, at?: Date): boolean {
+  return registry.markDisconnected(userId, socketId, at);
 }
 
 /**
  * `presence:activity`: record the device's idle state. Ignored (returns false) unless the
- * socket is counted for the user. Returns true when the user's auto-idle state changed.
+ * socket is counted for the user. Returns true when the user's auto-idle state changed (the
+ * `activity` event has fired by then).
  */
 export function setSocketIdle(userId: string, socketId: string, idle: boolean): boolean {
-  if (!countedSockets.get(userId)?.has(socketId)) return false;
-  const before = autoIdle(userId);
-  if (idle) socketIdle.add(socketId);
-  else socketIdle.delete(socketId);
-  return autoIdle(userId) !== before;
+  return registry.setSocketIdle(userId, socketId, idle);
+}
+
+/** The presence registry (tests). */
+export function presenceRegistry(): PresenceRegistry {
+  return registry;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,8 +164,7 @@ export function presenceSubscribers(subjectId: string): { socketId: string; view
 }
 
 export function resetPresence() {
-  countedSockets.clear();
-  socketIdle.clear();
+  registry.reset();
   subscribers.clear();
   bySocket.clear();
   viewerOf.clear();

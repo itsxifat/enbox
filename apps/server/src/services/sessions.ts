@@ -6,6 +6,7 @@ import { and, eq, gt } from 'drizzle-orm';
 import { db, type DbOrTx } from '../db/index.js';
 import { sessions, type SessionRow } from '../db/schema.js';
 import { config } from '../config.js';
+import { onBus, publishRemote } from '../cluster/bus.js';
 import { generateToken, sha256 } from '../lib/crypto.js';
 
 export interface AuthContext {
@@ -83,15 +84,23 @@ function touch(sessionId: string, now: number) {
 }
 
 /**
- * Drop cached lookups for these sessions (call after deleting session rows, then emit
- * `session:revoked` to rooms.session(id) and `disconnectSession(id)`). Other instances may
- * honour a revoked token for up to CACHE_TTL_MS (30 s).
+ * Drop cached lookups for these sessions on every process (call after deleting session rows,
+ * then emit `session:revoked` to rooms.session(id) and `disconnectSession(id)`). Without the
+ * cluster bus another process would honour a revoked token for up to CACHE_TTL_MS (30 s).
  */
 export function invalidateSessions(sessionIds: string[]) {
+  if (sessionIds.length === 0) return;
+  dropCachedSessions(sessionIds);
+  publishRemote('sessions:invalidate', { sessionIds });
+}
+
+function dropCachedSessions(sessionIds: string[]) {
   const ids = new Set(sessionIds);
   for (const [hash, entry] of cache) if (ids.has(entry.ctx.sessionId)) cache.delete(hash);
   for (const id of sessionIds) lastTouch.delete(id);
 }
+
+onBus('sessions:invalidate', ({ sessionIds }) => dropCachedSessions(sessionIds));
 
 export function guessDeviceName(userAgent: string | null | undefined): string {
   const ua = userAgent ?? '';

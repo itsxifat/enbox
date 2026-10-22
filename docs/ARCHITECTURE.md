@@ -17,7 +17,7 @@ counterpart; where a shared helper encodes a rule (`computeChatPermissions`, `ca
 | Contracts          | `@enbox/shared`: wire models, zod request schemas, REST route catalogue, Socket.IO event maps, pure helpers                        |
 | Server             | Node 22, Express 5, Socket.IO 4, Drizzle ORM                                                                                       |
 | Database           | PostgreSQL (production, `DATABASE_URL`) or embedded **PGlite** (zero-config dev when `DATABASE_URL` is unset; in-memory for tests) |
-| Realtime scale-out | Optional Redis adapter for Socket.IO (`REDIS_URL`); presence counts, idle flags, subscriptions, rate limits are per process in v1  |
+| Realtime scale-out | Any number of identical processes (see "Cluster"): Valkey/Redis (`REDIS_URL`) carries the Socket.IO adapter and the cluster bus    |
 | Media              | Local disk (`UPLOAD_DIR`), served at `/uploads/<key>` with unguessable keys                                                        |
 | Calls              | WebRTC, full-mesh (≤ 8 participants), signaling over Socket.IO, STUN/TURN from env                                                 |
 | Push               | Web Push (VAPID) when keys are configured                                                                                          |
@@ -906,13 +906,15 @@ validation_error`. `call:invite`: group calls only, by joined participants with 
   the user is still invited/ringing; the final check and emit run in the call's queue, so a
   device never gets a stale `call:incoming` after its `call:ring-stop`. `GET /calls/active` = live calls in my active chats,
   including calls ringing me (hidden participant rows excluded).
-- **Crash recovery**: on boot (calls job `runOnStart`), every `ongoing` call → `ended`
-  (`ended_at = now()`), every `ringing` call → `missed`; participants closed; call messages
-  updated. A failed recovery is retried on every run until it succeeds. The periodic runs
-  also catch joined participants without a call socket in this process whose disconnect
-  was never recorded (e.g. that transaction failed): they enter the reconnect grace. (v1
-  assumes a single server instance; with several instances this must be limited to calls
-  whose call sockets lived on the restarted node.)
+- **Call sockets across processes**: a joined participant's call socket and the process it
+  is connected to are stored on the participant (`socket_id`, `node_id`; both null while
+  disconnected), so any process can check and replace a binding under the call lock, and
+  call rooms are left through the adapter. **Dead processes**: the leader's calls sweep moves
+  joined participants bound to a dead process (see "Cluster"; also rows without a binding)
+  into the reconnect grace, so their clients `call:rejoin` through any process; a restart or
+  crash therefore never ends calls by itself, only an expired grace does. Each process's own
+  sweep catches participants bound to one of its sockets that is gone without a recorded
+  disconnect (e.g. that transaction failed): they enter the reconnect grace too.
 - **Forced leave**: leaving/removal from the chat, a block between direct-call peers,
   revocation of the session holding the call socket, account deletion. A chat being deleted
   (community deactivation) ends its live call inside the deleting transaction.
@@ -1044,9 +1046,42 @@ chat:<chatId>`, `url = /chats/<chatId>`, TTL PUSH_MESSAGE_TTL_SEC.
 | Per user (server, `SERVER_RATE_LIMITS`) | socket handshakes 60/min (connect_error `rate_limited`), status posts 30/h                                                                                                                                                                                                                              |
 | Per socket                              | typing 1/s per chat and 20/s across chats (dropped silently), presenceSubscribe 30/min, presenceActivity 30/min (the flag still applies; the re-evaluation is dropped silently); server: `chat:read` 100/5 s, `call:media` 40/10 s (ack `rate_limited`)                                                 |
 
+## Cluster
+
+Enbox runs as any number of identical processes (nodes) sharing PostgreSQL and Valkey/Redis
+(`REDIS_URL`); without `REDIS_URL` the process is a cluster of one. Code in `cluster/`.
+
+- **Node identity and liveness**: `NODE_ID` is unique per process start (a restart is a new
+  node). Each node upserts its `cluster_nodes` row every 5 s and deletes it on graceful
+  shutdown; a row older than 20 s is a dead node. PostgreSQL, not Redis, decides liveness, so a
+  lost Redis connection never makes healthy nodes look dead.
+- **Cluster bus** (`cluster/bus.ts`): typed fire-and-forget messages over Redis pub/sub;
+  `publish` also runs this process's handlers. At-most-once and unordered relative to Socket.IO
+  broadcasts: consumers are idempotent, versioned or re-check the database.
+- **Presence** is cluster-wide (`cluster/presenceRegistry.ts`): each node counts its own sockets
+  and replicates the others' counts (deltas, snapshots on hello, beats, bye); online/offline
+  and auto-idle transitions fire on every node, which re-evaluates its own subscribers.
+  `reevaluatePresence` (privacy, contacts, blocks, availability) runs on every node. The node
+  whose last local socket of a user closed writes `last_seen_at` (`greatest`); users lost with
+  a vanished node get it written by the others.
+- **Sessions**: revocations drop cached tokens on every node at once.
+- **Migrations** run under a PostgreSQL advisory lock: nodes booting together migrate once.
+- **Jobs**: `cluster` jobs run on the leader only (the node holding a session advisory lock on
+  a dedicated connection; PGlite: always the leader); `node` jobs run everywhere.
+- **Calls**: see "Calls → Call sockets across processes".
+- **Rate limits** are per process; nginx routes by client IP (`hash $remote_addr consistent`,
+  also required by Socket.IO's long-polling fallback), so one client's requests and sockets
+  reach one node. Uploads are on the local disk: all nodes run on one host until uploads move
+  to an object store.
+- **Deployment**: `deploy/` (systemd template `enbox@<port>`, nginx upstream, rolling
+  `deploy.sh`, Valkey notes). Tests: `test/cluster/` (registry unit tests; a two-process test
+  against real PostgreSQL + Valkey when `ENBOX_TEST_PG_URL` and `ENBOX_TEST_REDIS_URL` are set,
+  run by the CI `cluster` job).
+
 ## Jobs
 
-Registered in `jobs/register.ts`; idempotent, safe on every instance.
+Registered in `jobs/register.ts`; idempotent. Cluster-scoped jobs (the default) run on the
+jobs leader only; node-scoped ones on every process (see "Cluster").
 
 - **Disappearing purge** (every minute): `DELETE FROM messages WHERE id IN (SELECT id … WHERE
 expires_at <= now() ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED) RETURNING id,
@@ -1057,8 +1092,9 @@ chat_id`, looping while full; `message:removed` → room per chat.
   → the three note columns null (batches, `FOR UPDATE SKIP LOCKED`); after commit, per
   user: re-evaluate their presence subscribers and `me:updated` → U(user). Clients hide an
   expired note locally before the job runs.
-- **Calls** (every ~5 s, `runOnStart` for crash recovery, retried until it succeeds): ring
-  timeouts, reconnect-grace expiry, lost call sockets, end rules.
+- **Calls** (leader, every ~5 s and on becoming the leader): ring timeouts, reconnect-grace
+  expiry, participants bound to dead processes → reconnect grace, end rules. **Calls-local**
+  (every process, every ~5 s): participants bound to a gone socket of this process.
 - **Media GC** (hourly and at boot; also stale upload temp files) and **session cleanup**
   (expired sessions).
 

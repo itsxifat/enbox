@@ -352,8 +352,12 @@ socket.on('chat:read', socketHandler(socket, receiptPayloadSchema, ({ chatId, se
   rooms: viewer-neutral only).
 - **Socket connect work**: `onBeforeReady` / `onAfterReady` (realtime/hooks.ts), registered at
   import time from your `socket.ts`.
-- **Single instance (v1)**: presence, rate limits, the domain event bus and call state are
-  per process; don't build cross-instance coordination.
+- **Cluster** (docs "Cluster"): N identical processes. Truth lives in PostgreSQL; never keep
+  process-local truth. Cross-process notifications go through `cluster/bus.ts` (idempotent
+  consumers); presence and call bindings are already cluster-wide; domain events stay on the
+  producing process (their consumers act on the database); per-user rate limits are per
+  process (nginx routes a client to one process). Cluster-wide periodic work is a
+  `scope: 'cluster'` job (leader only).
 - **Tests**: `test/<module>.test.ts` (routes) or `test/services/*.test.ts` (primitives). Boot
   with `startTestServer()` (fresh in-memory PGlite per file), `t.createUser()`,
   `t.api(user)`, `t.connect(user)`, `waitForEvent`, `expectNoEvent`, `emitAck`

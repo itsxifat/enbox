@@ -1,13 +1,15 @@
 /**
- * In-memory live call state (per process; v1 assumes a single instance, see
- * docs/ARCHITECTURE.md "Calls"):
+ * In-process live call state (docs/ARCHITECTURE.md "Calls", "Cluster"):
  * - tunable timings (ring timeout, reconnect grace) — overridable in tests;
  * - a per-call operation queue so accept/join/rejoin/leave/invite/timeouts of one call run
- *   one after the other in this process (the `calls` row lock serializes them in the DB, the
- *   queue additionally orders the post-commit socket bindings and timers);
- * - the call-socket binding of each joined participant (socket id ↔ rooms `call:<id>` and
- *   `call:<id>:<userId>`);
- * - ring-timeout and reconnect-grace timers (the calls job re-checks the DB as a safety net).
+ *   one after the other in this process (the `calls` row lock serializes them in the DB and
+ *   across processes, the queue additionally orders this process's post-commit socket work);
+ * - an index of the call sockets bound on THIS process (socket id → calls), so a disconnect
+ *   finds its calls. The binding itself is truth in `call_participants.socket_id/node_id`
+ *   (any process may hold any participant's call socket); rooms `call:<id>` and
+ *   `call:<id>:<userId>` are left through the adapter, so that works across processes too;
+ * - ring-timeout and reconnect-grace timers (the calls jobs re-check the DB as a safety net,
+ *   also when the process that set a timer died).
  */
 import { CALL_RECONNECT_GRACE_MS, CALL_RING_TIMEOUT_MS, rooms } from '@enbox/shared';
 import { getIo } from '../../realtime/emit.js';
@@ -58,42 +60,25 @@ export function withCallQueue<T>(callId: string, fn: () => Promise<T>): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Call-socket bindings
+// Call-socket bindings (this process's index; truth: call_participants.socket_id/node_id)
 // ---------------------------------------------------------------------------
 
-/** callId → userId → socket id of that participant's call socket. */
-const byCall = new Map<string, Map<string, string>>();
-/** socket id → callId → userId. */
+/** socket id (on this process) → callId → userId. */
 const bySocket = new Map<string, Map<string, string>>();
 
 function callRooms(callId: string, userId: string): string[] {
   return [rooms.call(callId), rooms.callMember(callId, userId)];
 }
 
-function forget(callId: string, userId: string, socketId: string): void {
-  const users = byCall.get(callId);
-  if (users?.get(userId) === socketId) {
-    users.delete(userId);
-    if (users.size === 0) byCall.delete(callId);
-  }
+function forget(callId: string, socketId: string): void {
   const calls = bySocket.get(socketId);
-  if (calls?.get(callId) === userId) {
-    calls.delete(callId);
-    if (calls.size === 0) bySocket.delete(socketId);
-  }
+  if (!calls) return;
+  calls.delete(callId);
+  if (calls.size === 0) bySocket.delete(socketId);
 }
 
-/** The socket id bound as `userId`'s call socket for `callId` (this process), if any. */
-export function boundSocketId(callId: string, userId: string): string | undefined {
-  return byCall.get(callId)?.get(userId);
-}
-
-/**
- * Whether the socket with this id is still connected to this process (a bound call socket
- * is unbound synchronously on disconnect, so a binding normally implies it; a socket this
- * process doesn't know counts as gone).
- */
-export function isSocketConnected(socketId: string): boolean {
+/** Whether the socket with this id is connected to THIS process. */
+export function isLocalSocketConnected(socketId: string): boolean {
   return getIo()?.sockets.sockets.get(socketId)?.connected ?? false;
 }
 
@@ -102,43 +87,41 @@ export function isCallSocket(socket: AppSocket, callId: string, userId: string):
   return socket.rooms.has(rooms.callMember(callId, userId));
 }
 
-/** Make `socket` the call socket of `userId` (the previous one, if any, leaves the call rooms). */
+/**
+ * Post-commit half of a binding (the op already wrote socket_id/node_id): `socket` (on this
+ * process) joins the call rooms and is indexed for its disconnect.
+ */
 export function bindCallSocket(callId: string, userId: string, socket: AppSocket): void {
-  const prev = boundSocketId(callId, userId);
-  if (prev && prev !== socket.id) releaseCallSocket(callId, userId);
   void socket.join(callRooms(callId, userId));
-  let users = byCall.get(callId);
-  if (!users) byCall.set(callId, (users = new Map()));
-  users.set(userId, socket.id);
   let calls = bySocket.get(socket.id);
   if (!calls) bySocket.set(socket.id, (calls = new Map()));
   calls.set(callId, userId);
 }
 
-/** `userId`'s call socket (if any) leaves the call rooms and is unbound. */
-export function releaseCallSocket(callId: string, userId: string): void {
-  const socketId = boundSocketId(callId, userId);
-  if (!socketId) return;
+/** The socket `socketId` (on any process) leaves `userId`'s call rooms and is unindexed. */
+export function releaseCallSocket(callId: string, userId: string, socketId: string): void {
   getIo()?.in(socketId).socketsLeave(callRooms(callId, userId));
-  forget(callId, userId, socketId);
+  forget(callId, socketId);
 }
 
-/** Every call socket leaves the call rooms (call ended). */
-export function releaseCall(callId: string): void {
-  for (const userId of [...(byCall.get(callId)?.keys() ?? [])]) releaseCallSocket(callId, userId);
-  getIo()?.in(rooms.call(callId)).socketsLeave(rooms.call(callId));
+/** Every call socket (on any process) leaves the call rooms (call ended). */
+export function releaseCall(callId: string, userIds: Iterable<string>): void {
+  const all = [rooms.call(callId), ...[...userIds].map((u) => rooms.callMember(callId, u))];
+  getIo()?.in(rooms.call(callId)).socketsLeave(all);
+  for (const [socketId, calls] of [...bySocket]) if (calls.has(callId)) forget(callId, socketId);
 }
 
 /**
- * A socket disconnected: drop its bindings (Socket.IO already removed it from its rooms) and
- * return the calls it was the call socket of.
+ * A socket of this process disconnected: drop its index entries (Socket.IO already removed it
+ * from its rooms) and return the calls it was (as far as this process knew) the call socket
+ * of. Entries can be stale — another process may have released or replaced the binding — so
+ * callers re-check `socket_id` under the call lock.
  */
 export function takeSocketBindings(socketId: string): { callId: string; userId: string }[] {
   const calls = bySocket.get(socketId);
   if (!calls) return [];
-  const out = [...calls].map(([callId, userId]) => ({ callId, userId }));
-  for (const { callId, userId } of out) forget(callId, userId, socketId);
-  return out;
+  bySocket.delete(socketId);
+  return [...calls].map(([callId, userId]) => ({ callId, userId }));
 }
 
 /** Emit to an arbitrary room (call rooms; emit.ts only covers user/chat/session/socket targets). */
@@ -222,13 +205,12 @@ export function clearCallTimers(callId: string): void {
   }
 }
 
-/** Forget all in-memory call state (tests). */
+/** Forget all in-process call state (tests; the DB bindings stay). */
 export function resetCallState(): void {
   for (const t of ringTimers.values()) clearTimeout(t);
   for (const t of graceTimers.values()) clearTimeout(t);
   ringTimers.clear();
   graceTimers.clear();
-  byCall.clear();
   bySocket.clear();
   queues.clear();
 }

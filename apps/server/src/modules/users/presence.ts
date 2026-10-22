@@ -13,6 +13,7 @@
  * quick online → offline sequence can't be emitted out of order.
  */
 import { effectiveAvailability, type Presence } from '@enbox/shared';
+import { onBus, publishRemote } from '../../cluster/bus.js';
 import { db } from '../../db/index.js';
 import { logger } from '../../lib/logger.js';
 import { emitToSocket } from '../../realtime/emit.js';
@@ -116,11 +117,32 @@ async function evaluate(subjectId: string, override: { lastSeenAt?: Date }): Pro
 }
 
 /**
- * Re-evaluate `subjectId`'s presence for every subscribed socket and emit `presence:update`
- * where the viewer's value changed. Call AFTER commit (reads the global db). `lastSeenAt`
- * overrides a possibly not-yet-written `users.last_seen_at` (disconnect).
+ * Re-evaluate `subjectId`'s presence for every subscribed socket in the CLUSTER and emit
+ * `presence:update` where the viewer's value changed (privacy, contacts, blocks, availability
+ * changes…). Call AFTER commit (reads the global db). Resolves when this process's subscribers
+ * are done; the other processes evaluate theirs on receipt.
  */
 export function reevaluatePresence(
+  subjectId: string,
+  override: { lastSeenAt?: Date } = {},
+): Promise<void> {
+  publishRemote('presence:reevaluate', {
+    subjectId,
+    lastSeenAt: override.lastSeenAt?.toISOString() ?? null,
+  });
+  return reevaluateLocalPresence(subjectId, override);
+}
+
+onBus('presence:reevaluate', ({ subjectId, lastSeenAt }) => {
+  void reevaluateLocalPresence(subjectId, lastSeenAt ? { lastSeenAt: new Date(lastSeenAt) } : {});
+});
+
+/**
+ * Re-evaluate `subjectId` for THIS process's subscribers only (presence registry transitions,
+ * which fire on every process). `lastSeenAt` overrides a possibly not-yet-written
+ * `users.last_seen_at` (disconnect).
+ */
+export function reevaluateLocalPresence(
   subjectId: string,
   override: { lastSeenAt?: Date } = {},
 ): Promise<void> {

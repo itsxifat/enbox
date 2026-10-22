@@ -5,8 +5,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { io as ioClient } from 'socket.io-client';
 import { rooms } from '@enbox/shared';
-import { sweepCalls } from '../../src/modules/calls/service.js';
-import { boundSocketId, resetCallState, setCallTimings } from '../../src/modules/calls/state.js';
+import { sweepCalls, sweepLocalCalls } from '../../src/modules/calls/service.js';
+import { resetCallState, setCallTimings } from '../../src/modules/calls/state.js';
 import { createSession } from '../../src/services/sessions.js';
 import {
   startTestServer,
@@ -17,7 +17,7 @@ import {
 } from '../helpers.js';
 import { createDirect, recordEvents, settle } from '../services/fixtures.js';
 import { delayNextResult, delayNextTxResult, failNextTxQuery } from '../support/db-hooks.js';
-import { ackCall, callRow, partOf, rawAck, send, until } from './helpers.js';
+import { ackCall, callRow, partOf, partRows, rawAck, send, until } from './helpers.js';
 
 describe('calls: review regressions', () => {
   let t: TestServer;
@@ -204,8 +204,9 @@ describe('calls: review regressions', () => {
       ownerEnded: ro.of('call:ended').map((p) => [p.callId, p.status]),
       m1Ended: r1.of('call:ended').map((p) => p.callId),
       ghostSignalsToM1: r1.of('call:signal').length,
-      ownerStillBound: boundSocketId(call.id, o.id) ?? null,
-      m1StillBound: boundSocketId(call.id, m1.id) ?? null,
+      // The chat (and its call) is deleted: no participant row, hence no binding, is left.
+      ownerStillBound: (await partRows(call.id)).find((p) => p.userId === o.id)?.socketId ?? null,
+      m1StillBound: (await partRows(call.id)).find((p) => p.userId === m1.id)?.socketId ?? null,
       callRoom: [...(t.io.of('/').adapter.rooms.get(rooms.call(call.id)) ?? [])],
     }).toEqual({
       m2RingStopped: [call.id],
@@ -324,7 +325,7 @@ describe('calls: review regressions', () => {
     setCallTimings({ reconnectGraceMs: 200 });
     const { b, sa, sb, call } = await ongoingPair();
     const inj = failNextTxQuery((text) =>
-      /^update "call_participants" set "disconnected_at" = \$1 where/.test(text),
+      /^update "call_participants" set "disconnected_at" = \$1, "socket_id" = \$2/.test(text),
     );
     try {
       sb.disconnect();
@@ -339,7 +340,8 @@ describe('calls: review regressions', () => {
       disconnectedAt: null,
     });
 
-    await sweepCalls(); // the calls job's periodic run: the lost participant enters the grace
+    // The node sweep (calls-local): bound to this process, its socket is gone → grace.
+    await sweepLocalCalls();
     await until(
       async () => (await partOf(call.id, b.id)).disconnectedAt !== null,
       3000,
@@ -352,9 +354,10 @@ describe('calls: review regressions', () => {
     sa.disconnect();
   });
 
-  it('the sweep leaves participants whose call socket is bound alone', async () => {
+  it('the sweeps leave participants whose call socket is bound alone', async () => {
     const { a, b, sa, sb, call } = await ongoingPair();
     await sweepCalls();
+    await sweepLocalCalls();
     await settle(100);
     expect((await partOf(call.id, a.id)).disconnectedAt).toBeNull();
     expect((await partOf(call.id, b.id)).disconnectedAt).toBeNull();

@@ -724,6 +724,13 @@ export const callParticipants = pgTable(
     sessionId: uuid('session_id').references(() => sessions.id, { onDelete: 'set null' }),
     /** Set when the call socket disconnects; cleared by call:rejoin. Left after CALL_RECONNECT_GRACE_MS. */
     disconnectedAt: ts('disconnected_at'),
+    /**
+     * The joined participant's call socket and the cluster node it is connected to (docs
+     * "Cluster" → "Calls"); both null while disconnected/not joined. A participant bound to a
+     * dead node is treated as disconnected by the leader's calls sweep.
+     */
+    socketId: text('socket_id'),
+    nodeId: text('node_id'),
     audioMuted: boolean('audio_muted').notNull().default(false),
     videoOff: boolean('video_off').notNull().default(false),
     screenSharing: boolean('screen_sharing').notNull().default(false),
@@ -739,6 +746,24 @@ export const callParticipants = pgTable(
       .on(t.userId)
       .where(sql`${t.status} = 'joined'`),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Cluster
+// ---------------------------------------------------------------------------
+
+/**
+ * Live Enbox processes (docs "Cluster"): each node upserts its row every CLUSTER_HEARTBEAT_MS
+ * and deletes it on graceful shutdown; a row older than CLUSTER_NODE_TTL_MS is a dead node.
+ */
+export const clusterNodes = pgTable(
+  'cluster_nodes',
+  {
+    id: text('id').primaryKey(),
+    startedAt: ts('started_at').notNull().defaultNow(),
+    heartbeatAt: ts('heartbeat_at').notNull().defaultNow(),
+  },
+  (t) => [index('cluster_nodes_heartbeat_idx').on(t.heartbeatAt)],
 );
 
 // ---------------------------------------------------------------------------

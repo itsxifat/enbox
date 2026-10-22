@@ -9,8 +9,8 @@
  * Listeners run synchronously in registration order; a throwing listener (or a rejected
  * promise returned by an async listener) is logged and never affects the producer or the
  * other listeners. Long work (web push) should be fire-and-forget inside the listener.
- * Per process: with several instances each instance only sees its own events (v1 assumes a
- * single instance, see docs/ARCHITECTURE.md).
+ * Per process: with several processes (docs "Cluster") each one only sees the events it
+ * produced, which is what the consumers want — they act on the database (push, calls).
  */
 import type { CallParticipantStatus, CallStatus, CallType, RingStopReason } from '@enbox/shared';
 import type { ChatRow, MessageRow } from '../db/schema.js';
