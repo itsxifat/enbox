@@ -1,293 +1,338 @@
+/**
+ * Settings → Profiles (Discord's two-column profile editor).
+ *
+ * - Main Profile: the form on the left, a sticky live preview on the right (on phones a
+ *   collapsible preview card above the form). Every field edits a draft (`useProfileDraft`);
+ *   nothing saves until Save Changes, which sends one `PATCH /api/me` with only the changed
+ *   fields. While there are unsaved changes the bar at the bottom offers Reset / Save, and
+ *   leaving (another page, the other tab, closing the tab) is blocked and shakes the bar.
+ * - Per-server Profiles: a Space picker and that Space's profile editor.
+ */
 import { useState } from 'react';
+import { Link } from 'react-router';
+import { Sparkles } from 'lucide-react';
 import {
-  AtSign,
-  Check,
-  CircleUserRound,
-  Copy,
-  Info,
-  Link2,
-  Palette,
-  ScrollText,
-  Share2,
-  Tag,
-} from 'lucide-react';
-import { DISPLAY_NAME_MAX_LENGTH } from '@enbox/shared';
-import { PhoneIcon } from '@/components/icons';
-import { Button, IconButton, Spinner, toast } from '@/components/ui';
-import { useUsernameAvailability } from '@/features/auth/usernameAvailability';
-import { canonicalPhone, normalizeUsernameInput, usernameIssue } from '@/features/auth/validation';
-import { selfCardUser } from '@/features/profile/model';
-import { ProfileCard } from '@/features/profile/ProfileCard';
+  BIO_MAX_LENGTH,
+  DISPLAY_NAME_MAX_LENGTH,
+  PRONOUNS_MAX_LENGTH,
+  cosmeticName,
+  type UserSelf,
+} from '@enbox/shared';
+import { IN_APP_NAV } from '@/components/layout/navigation';
+import { Button, Input, Tabs, Textarea, toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useMe } from '@/stores/auth';
-import { EditFieldModal } from '../EditFieldModal';
-import { updateProfile } from '../settingsApi';
-import { SettingsGroup, SettingsRow, SettingsScroller } from '../ui';
-import { AvatarEditor } from './AvatarEditor';
-import { BannerEditor } from './BannerEditor';
+import { AccountSection } from './AccountSection';
+import { ColorPicker } from './ColorPicker';
+import { CosmeticPickerModal, type PickerKind } from './CosmeticPickerModal';
+import { draftCardUser, effectiveDisplayName } from './draft';
+import { FormSection } from './FormSection';
+import { AvatarField, BannerField } from './MediaFields';
+import { NameStyleField } from './NameStyleField';
+import { PerServerProfiles, SPACE_PROFILE_UNSAVED } from './PerServerProfiles';
+import { PreviewPanel } from './ProfilePreview';
+import { UnsavedChangesBar, UnsavedChangesGuard } from './UnsavedChangesBar';
+import { useProfileDraft, type ProfileDraftApi } from './useProfileDraft';
 
-/** Public share link for my profile (`/u/<username>`, opened by features/contacts). */
-export function profileLink(username: string): string {
-  return `${window.location.origin}/u/${username}`;
-}
+export { profileLink } from './AccountSection';
 
-type Editing = 'name' | 'username' | 'phone' | null;
+type Tab = 'main' | 'server';
 
-/** Small colour chip for the "Profile colours" row. */
-function Swatch({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-block size-3 rounded-full ring-1 ring-line-strong ring-inset"
-      style={{ backgroundColor: color }}
-    />
-  );
-}
+const PRONOUN_SUGGESTIONS = [
+  'she/her',
+  'he/him',
+  'they/them',
+  'she/they',
+  'he/they',
+  'any pronouns',
+];
 
-/**
- * Settings → Profile: a live preview of my profile card, banner, photo, name, pronouns,
- * about, bio, profile colours, username, phone and the share link.
- */
+const CHIP =
+  'rounded-full px-3 py-1 text-[13px] transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand';
+
 export function ProfilePage() {
   const me = useMe();
-  const [editing, setEditing] = useState<Editing>(null);
-  const [copied, setCopied] = useState(false);
   if (!me) return null;
-  const link = profileLink(me.username);
+  return <ProfilesEditor me={me} />;
+}
 
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      toast.success('Link copied');
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Couldn't copy the link");
-    }
+function ProfilesEditor({ me }: { me: UserSelf }) {
+  const d = useProfileDraft(me);
+  const [tab, setTab] = useState<Tab>('main');
+  const [shake, setShake] = useState(0);
+  /** The per-Space editor (Per-server tab) has unsaved changes of its own. */
+  const [serverDirty, setServerDirty] = useState(false);
+  const blocked = () => {
+    if (d.dirty) setShake((n) => n + 1);
+    else toast.info(SPACE_PROFILE_UNSAVED);
   };
-  const share = async () => {
-    try {
-      await navigator.share({ title: `${me.displayName} on Enbox`, url: link });
-    } catch {
-      /* dismissed */
-    }
+
+  const switchTab = (next: Tab) => {
+    if (next === tab) return;
+    // Discord keeps you on the tab until the changes are saved or reset.
+    if (d.dirty || serverDirty) return blocked();
+    setTab(next);
   };
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   return (
-    <SettingsScroller>
-      {/* What others see on the card (their privacy view may hide some of it). */}
-      <SettingsGroup title="Preview">
-        <div className="p-4 lg:p-5" data-testid="profile-preview">
-          <ProfileCard
-            user={selfCardUser(me)}
-            self
-            preview
-            className="rounded-2xl border border-line"
-          />
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Banner"
-        footer="Shown at the top of your profile card. JPEG, PNG, WebP or GIF, cropped to 5:2."
-      >
-        <div className="p-4 lg:p-5">
-          <BannerEditor />
-        </div>
-      </SettingsGroup>
-
-      <div className="flex flex-col items-center gap-3 px-6 pt-8 pb-6 lg:pt-2 lg:pb-0">
-        <AvatarEditor size={160} />
-        <div className="mt-2 text-center">
-          <p className="text-[22px] font-semibold text-fg">{me.displayName}</p>
-          <p className="text-[14px] text-muted">@{me.username}</p>
-        </div>
+    <div
+      className="@container min-h-0 flex-1 overflow-y-auto bg-surface scrollbar-thin"
+      data-testid="profiles-editor"
+    >
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-3 py-3 pb-[max(16px,env(safe-area-inset-bottom))] lg:px-6 lg:py-5">
+        <Tabs
+          value={tab}
+          onChange={switchTab}
+          variant="chips"
+          aria-label="Profiles"
+          idBase="profiles"
+          items={[
+            { value: 'main', label: 'Main Profile' },
+            { value: 'server', label: 'Per-server Profiles' },
+          ]}
+        />
+        {tab === 'main' ? (
+          <div role="tabpanel" id="profiles-panel-main" aria-labelledby="profiles-tab-main">
+            <MainProfile me={me} d={d} />
+          </div>
+        ) : (
+          <div role="tabpanel" id="profiles-panel-server" aria-labelledby="profiles-tab-server">
+            <PerServerProfiles onDirtyChange={setServerDirty} />
+          </div>
+        )}
+        <UnsavedChangesBar
+          open={d.dirty}
+          saving={d.saving}
+          onReset={d.reset}
+          onSave={() => void d.save()}
+          shakeKey={shake}
+        />
       </div>
-
-      <SettingsGroup>
-        <SettingsRow
-          icon={CircleUserRound}
-          title="Name"
-          description={me.displayName}
-          onClick={() => setEditing('name')}
-          testId="profile-name"
-        />
-        <SettingsRow
-          icon={Tag}
-          title="Pronouns"
-          description={me.pronouns ?? 'Add your pronouns'}
-          to="/settings/profile/pronouns"
-          testId="profile-pronouns"
-        />
-        <SettingsRow
-          icon={Info}
-          title="About"
-          description={me.about || 'Add a few words about yourself'}
-          to="/settings/profile/about"
-          testId="profile-about"
-        />
-        <SettingsRow
-          icon={ScrollText}
-          title="Bio"
-          description={
-            me.bio ? (
-              <span className="line-clamp-2 whitespace-pre-line">{me.bio}</span>
-            ) : (
-              'Tell people about yourself'
-            )
-          }
-          to="/settings/profile/bio"
-          testId="profile-bio"
-        />
-        <SettingsRow
-          icon={Palette}
-          title="Profile colours"
-          description={
-            me.profileColor || me.accentColor ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Swatch color={me.profileColor ?? 'var(--brand)'} />
-                {me.profileColor ?? 'Default'}
-                <span aria-hidden>·</span>
-                <Swatch color={me.accentColor ?? me.profileColor ?? 'var(--brand)'} />
-                {me.accentColor ?? 'Default'}
-              </span>
-            ) : (
-              'Default'
-            )
-          }
-          to="/settings/profile/colours"
-          testId="profile-colours"
-        />
-        <SettingsRow
-          icon={AtSign}
-          title="Username"
-          description={`@${me.username}`}
-          onClick={() => setEditing('username')}
-          testId="profile-username"
-        />
-        <SettingsRow
-          icon={PhoneIcon}
-          title="Phone"
-          description={me.phone ?? 'Not added'}
-          onClick={() => setEditing('phone')}
-          testId="profile-phone"
-        />
-      </SettingsGroup>
-
-      <SettingsGroup
-        title="Share your profile"
-        footer="Anyone with this link can open your profile and start a chat with you on Enbox. What they see follows your privacy settings."
-      >
-        <SettingsRow
-          icon={Link2}
-          title={<span className="break-all">{link.replace(/^https?:\/\//, '')}</span>}
-          chevron={false}
-          end={
-            <div className="flex shrink-0 items-center gap-1">
-              {canShare ? (
-                <IconButton icon={Share2} label="Share link" onClick={() => void share()} />
-              ) : null}
-              <IconButton
-                icon={copied ? Check : Copy}
-                label="Copy link"
-                onClick={() => void copy()}
-              />
-            </div>
-          }
-        />
-      </SettingsGroup>
-
-      <EditFieldModal
-        open={editing === 'name'}
-        onClose={() => setEditing(null)}
-        title="Edit name"
-        label="Your name"
-        initialValue={me.displayName}
-        maxLength={DISPLAY_NAME_MAX_LENGTH}
-        autoComplete="name"
-        validate={(v) => (v.trim() ? null : "Name can't be empty")}
-        onSave={async (v) => {
-          await updateProfile({ displayName: v.trim() });
-          toast.success('Name updated');
-        }}
-        hint="This is how you appear to people who haven't saved you as a contact."
-      />
-      <EditFieldModal
-        open={editing === 'username'}
-        onClose={() => setEditing(null)}
-        title="Edit username"
-        label="Username"
-        prefix="@"
-        initialValue={me.username}
-        maxLength={32}
-        transform={normalizeUsernameInput}
-        validate={(v) => usernameIssue(v) ?? (v ? null : 'Choose a username')}
-        status={(v) => <UsernameStatus value={v} current={me.username} />}
-        onSave={async (v) => {
-          await updateProfile({ username: v });
-          toast.success('Username updated');
-        }}
-      />
-      <EditFieldModal
-        open={editing === 'phone'}
-        onClose={() => setEditing(null)}
-        title={me.phone ? 'Change phone number' : 'Add phone number'}
-        label="Phone number"
-        inputMode="tel"
-        autoComplete="tel"
-        placeholder="+1 555 123 4567"
-        initialValue={me.phone ?? ''}
-        validate={(v) =>
-          !v.trim() || canonicalPhone(v) ? null : 'Enter a valid phone number with country code'
-        }
-        hint="Include your country code. Only contacts who saved your number can see it."
-        onSave={async (v) => {
-          await updateProfile({ phone: v.trim() ? canonicalPhone(v) : null });
-          toast.success(v.trim() ? 'Phone number saved' : 'Phone number removed');
-        }}
-        extraAction={
-          me.phone ? (
-            <Button
-              variant="ghost"
-              className="text-danger"
-              onClick={() => {
-                void updateProfile({ phone: null })
-                  .then(() => {
-                    toast.success('Phone number removed');
-                    setEditing(null);
-                  })
-                  .catch((e: unknown) => toast.error(e));
-              }}
-            >
-              Remove
-            </Button>
-          ) : null
-        }
-      />
-    </SettingsScroller>
+      <UnsavedChangesGuard when={d.dirty || serverDirty} onBlocked={blocked} />
+    </div>
   );
 }
 
-/** Live availability (GET /api/auth/username-available, same check as registration). */
-function UsernameStatus({ value, current }: { value: string; current: string }) {
-  const { state, message } = useUsernameAvailability(value, { current });
-  if (state === 'checking')
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <Spinner size={12} label={null} /> Checking availability…
-      </span>
-    );
-  if (!message) return <>Lowercase letters, numbers, dots or underscores.</>;
+function MainProfile({ me, d }: { me: UserSelf; d: ProfileDraftApi }) {
+  const { draft, set } = d;
+  const [picker, setPicker] = useState<PickerKind | null>(null);
+  const user = draftCardUser(me, draft);
+  const pronouns = draft.pronouns.trim();
+  const pickerValue =
+    picker === 'decoration'
+      ? draft.avatarDecoration
+      : picker === 'effect'
+        ? draft.profileEffect
+        : draft.nameplate;
+
   return (
-    <span
-      className={cn(
-        state === 'available' && 'text-success',
-        (state === 'taken' || state === 'invalid') && 'text-danger',
-      )}
-      data-testid="username-availability"
-    >
-      {message}
-    </span>
+    <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] @3xl:gap-8">
+      {/* First in the DOM so phones get the (collapsible) preview above the form. */}
+      <aside className="min-w-0 @3xl:col-start-2 @3xl:row-start-1" aria-label="Preview">
+        <div className="@3xl:sticky @3xl:top-0">
+          <PreviewPanel user={user} />
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-col gap-7 @3xl:col-start-1 @3xl:row-start-1">
+        <Link
+          to="/collectibles"
+          state={IN_APP_NAV}
+          className="card-inset flex items-center gap-3 px-3.5 py-3 outline-none hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand"
+          data-testid="collectibles-link"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-on-brand">
+            <Sparkles size={18} aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14.5px] font-semibold text-fg">Collectibles</span>
+            <span className="block text-[12.5px] text-muted">
+              Decorations, effects, nameplates and name styles. Every item is free.
+            </span>
+          </span>
+        </Link>
+
+        <FormSection title="Display Name" hint="Leave it empty to use your username.">
+          <Input
+            aria-label="Display Name"
+            value={draft.displayName}
+            onChange={(e) => set('displayName', e.target.value)}
+            placeholder={me.username}
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+            autoComplete="name"
+            data-testid="display-name-input"
+          />
+        </FormSection>
+
+        <FormSection title="Pronouns">
+          <Input
+            aria-label="Pronouns"
+            value={draft.pronouns}
+            onChange={(e) => set('pronouns', e.target.value)}
+            placeholder="Add your pronouns"
+            maxLength={PRONOUNS_MAX_LENGTH}
+            autoComplete="off"
+            autoCapitalize="none"
+            data-testid="pronouns-input"
+          />
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Pronoun suggestions">
+            {PRONOUN_SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={pronouns === s}
+                onClick={() => set('pronouns', s)}
+                className={cn(
+                  CHIP,
+                  pronouns === s
+                    ? 'bg-brand-soft text-brand-ink'
+                    : 'bg-surface-2 text-muted hover:bg-line hover:text-fg',
+                )}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </FormSection>
+
+        <AvatarField me={me} draft={draft} set={set} />
+
+        <CosmeticField
+          title="Avatar Decoration"
+          current={cosmeticName('decoration', draft.avatarDecoration)}
+          changeLabel="Change Decoration"
+          onChange={() => setPicker('decoration')}
+          onRemove={draft.avatarDecoration ? () => set('avatarDecoration', null) : undefined}
+          testId="decoration-field"
+        />
+        <CosmeticField
+          title="Profile Effect"
+          current={cosmeticName('effect', draft.profileEffect)}
+          changeLabel="Change Effect"
+          onChange={() => setPicker('effect')}
+          onRemove={draft.profileEffect ? () => set('profileEffect', null) : undefined}
+          testId="effect-field"
+        />
+        <CosmeticField
+          title="Nameplate"
+          current={cosmeticName('nameplate', draft.nameplate)}
+          changeLabel="Change Nameplate"
+          onChange={() => setPicker('nameplate')}
+          onRemove={draft.nameplate ? () => set('nameplate', null) : undefined}
+          testId="nameplate-field"
+        />
+
+        <NameStyleField
+          name={effectiveDisplayName(me, draft)}
+          value={draft.nameStyle}
+          onChange={(s) => set('nameStyle', s)}
+        />
+
+        <BannerField me={me} draft={draft} set={set} />
+
+        <FormSection
+          title="Profile Theme"
+          hint="The primary colour fills your card's header when there is no banner; the accent completes the gradient."
+          testId="theme-field"
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ColorPicker
+              label="Primary colour"
+              value={draft.profileColor}
+              onChange={(c) => set('profileColor', c)}
+            />
+            <ColorPicker
+              label="Accent colour"
+              value={draft.accentColor}
+              fallback={draft.profileColor ?? '#6d5dfc'}
+              onChange={(c) => set('accentColor', c)}
+            />
+          </div>
+          {draft.profileColor || draft.accentColor ? (
+            <div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  set('profileColor', null);
+                  set('accentColor', null);
+                }}
+              >
+                Reset theme
+              </Button>
+            </div>
+          ) : null}
+        </FormSection>
+
+        <FormSection
+          title="About Me"
+          hint="Line breaks are kept. Who can see it follows your About privacy setting."
+        >
+          <Textarea
+            aria-label="About Me"
+            value={draft.bio}
+            onChange={(e) => set('bio', e.target.value)}
+            maxLength={BIO_MAX_LENGTH}
+            autoResize
+            rows={4}
+            placeholder="Climber, coffee nerd, always up for a hike."
+            aside={
+              <span className="text-[12px] text-muted tabular-nums" data-testid="bio-counter">
+                {draft.bio.length}/{BIO_MAX_LENGTH}
+              </span>
+            }
+            data-testid="bio-input"
+          />
+        </FormSection>
+
+        <AccountSection me={me} />
+      </div>
+
+      <CosmeticPickerModal
+        kind={picker}
+        value={pickerValue}
+        user={user}
+        onClose={() => setPicker(null)}
+        onApply={(id) => {
+          if (picker === 'decoration') set('avatarDecoration', id);
+          else if (picker === 'effect') set('profileEffect', id);
+          else if (picker === 'nameplate') set('nameplate', id);
+        }}
+      />
+    </div>
+  );
+}
+
+function CosmeticField({
+  title,
+  current,
+  changeLabel,
+  onChange,
+  onRemove,
+  testId,
+}: {
+  title: string;
+  current: string | null;
+  changeLabel: string;
+  onChange: () => void;
+  onRemove?: () => void;
+  testId: string;
+}) {
+  return (
+    <FormSection title={title} testId={testId}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={onChange}>
+          {changeLabel}
+        </Button>
+        {onRemove ? (
+          <Button size="sm" variant="ghost" onClick={onRemove}>
+            Remove
+          </Button>
+        ) : null}
+        <span className="text-[13px] text-muted" data-testid={`${testId}-current`}>
+          {current ?? 'None'}
+        </span>
+      </div>
+    </FormSection>
   );
 }

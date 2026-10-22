@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
-import type { ImageInfo } from '@enbox/shared';
+import type { ImageInfo, MediaAttachment } from '@enbox/shared';
 import { Button, Modal, Spinner, toast } from '@/components/ui';
 import { errorMessage } from '@/lib/api';
 import { probeImageFile } from '@/lib/media';
@@ -15,7 +15,9 @@ import {
   renderAvatar,
   renderPoster,
   uploadAnimatedAvatar,
+  uploadAnimatedAvatarMedia,
   uploadAvatar,
+  uploadAvatarMedia,
   zoomCrop,
   type CropState,
   type ImageSize,
@@ -28,13 +30,26 @@ export interface AvatarCropDialogProps {
   file: File | null;
   onClose: () => void;
   onDone?: () => void;
+  /**
+   * Hand the uploaded media to the caller instead of setting it as my profile photo (the
+   * profile editor stages it in its draft until Save).
+   */
+  onUploaded?: (media: MediaAttachment) => void | Promise<void>;
+  /** Toast after a successful upload; null for none. */
+  successToast?: string | null;
 }
 
 /**
  * Square crop editor for profile photos: drag to move, wheel / pinch / slider to zoom,
  * arrow keys and +/- for keyboard users. "Set photo" renders, uploads and saves it.
  */
-export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProps) {
+export function AvatarCropDialog({
+  file,
+  onClose,
+  onDone,
+  onUploaded,
+  successToast = 'Profile photo updated',
+}: AvatarCropDialogProps) {
   const [src, setSrc] = useState<string | null>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [size, setSize] = useState<ImageSize | null>(null);
@@ -164,12 +179,16 @@ export function AvatarCropDialog({ file, onClose, onDone }: AvatarCropDialogProp
       const rect = cropRect(crop, size, VIEWPORT);
       if (info?.animated) {
         // The crop frames the still only; the animation is uploaded whole (stripped).
-        await uploadAnimatedAvatar(file, info, await renderPoster(img, rect), setProgress);
+        const poster = await renderPoster(img, rect);
+        if (onUploaded)
+          await onUploaded(await uploadAnimatedAvatarMedia(file, info, poster, setProgress));
+        else await uploadAnimatedAvatar(file, info, poster, setProgress);
       } else {
         const { blob, size: out } = await renderAvatar(img, rect);
-        await uploadAvatar(blob, out, setProgress);
+        if (onUploaded) await onUploaded(await uploadAvatarMedia(blob, out, setProgress));
+        else await uploadAvatar(blob, out, setProgress);
       }
-      toast.success('Profile photo updated');
+      if (successToast) toast.success(successToast);
       onDone?.();
       onClose();
     } catch (e) {

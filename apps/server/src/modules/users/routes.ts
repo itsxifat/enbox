@@ -231,7 +231,7 @@ router.patch('/me', async (req, res) => {
 router.put('/me/rail-layout', async (req, res) => {
   const me = authUserId(req);
   const body = parse(railLayoutSchema, req.body ?? {});
-  assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
+  assertUserLimit(me, 'railLayout', USER_RATE_LIMITS.railLayout);
   const layout = await transact(async (tx, fx) => {
     const mine = new Set(
       (

@@ -89,13 +89,14 @@ test.describe('settings', () => {
       .click();
     await expect(B.page.getByTestId('contact-name')).toHaveText('Avery Stone');
 
-    // A renames themself in Settings → Profile.
+    // A renames themself in Settings → Profiles (draft, then Save Changes).
     const A = await openAs(browser, a, '/settings/profile');
-    await A.page.getByTestId('profile-name').click();
-    const dialog = A.page.getByRole('dialog', { name: 'Edit name' });
-    await dialog.getByLabel('Your name').fill('Avery Stone-Ray');
-    await dialog.getByRole('button', { name: 'Save' }).click();
-    await expect(A.page.getByTestId('profile-name')).toContainText('Avery Stone-Ray');
+    await A.page.getByTestId('display-name-input').fill('Avery Stone-Ray');
+    await A.page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
+    await expect(A.page.getByTestId('unsaved-bar')).toBeHidden();
+    await expect(A.page.getByTestId('profile-preview').getByTestId('card-name')).toHaveText(
+      'Avery Stone-Ray',
+    );
 
     // B sees it without reloading (user:changed → refetch → chat peer patched).
     await expect(B.page.getByTestId('contact-name')).toHaveText('Avery Stone-Ray');
@@ -123,22 +124,19 @@ test.describe('settings', () => {
     await crop.getByRole('slider', { name: 'Zoom' }).fill('1.5');
     await crop.getByRole('button', { name: 'Set photo' }).click();
     await expect(crop).toBeHidden();
+    await page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
 
     await expect
       .poll(async () => (await apiAs<UserSelf>(user, 'GET', '/api/me')).avatarUrl)
       .toMatch(/^\/uploads\/.+\.jpe?g$/);
-    await expect(
-      page.getByRole('button', { name: 'Change profile photo' }).locator('img'),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change avatar' }).locator('img')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Change profile photo' }).click();
-    await page.getByRole('menuitem', { name: 'Remove photo' }).click();
-    await page
-      .getByRole('dialog', { name: 'Remove profile photo?' })
-      .getByRole('button', { name: 'Remove' })
-      .click();
-    await expect(page.getByRole('button', { name: 'Add profile photo' })).toBeVisible();
-    expect((await apiAs<UserSelf>(user, 'GET', '/api/me')).avatarUrl).toBeNull();
+    await page.getByRole('button', { name: 'Remove Avatar' }).click();
+    await page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
+    await expect(page.getByRole('button', { name: 'Add avatar' })).toBeVisible();
+    await expect
+      .poll(async () => (await apiAs<UserSelf>(user, 'GET', '/api/me')).avatarUrl)
+      .toBeNull();
     await context.close();
   });
 

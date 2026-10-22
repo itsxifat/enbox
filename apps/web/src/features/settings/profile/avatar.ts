@@ -4,7 +4,8 @@
  * Animated input (GIF / animated WebP / APNG by its bytes — `probeImageFile`) skips the
  * re-encode: the original is uploaded metadata-stripped, ≤ MAX_ANIMATED_AVATAR_BYTES, with
  * the cropped still as its poster (`thumbnail` part); the crop only frames that still, the
- * animation itself is shown whole (object-cover) by `Avatar`.
+ * animation itself is shown whole (object-cover) by `Avatar`. The `…Media` uploads stop
+ * before the PATCH: the profile editor stages the media id in its draft until Save.
  *
  * Crop geometry: the image is drawn inside a square viewport of `viewport` px at
  * `scale = coverScale × zoom`; `x`/`y` are the image's top-left offset relative to the
@@ -18,6 +19,7 @@ import {
   MAX_AVATAR_BYTES,
   formatBytes,
   type ImageInfo,
+  type MediaAttachment,
   type UserSelf,
 } from '@enbox/shared';
 import { makeThumbnail } from '@/features/conversation/lib/mediaProcessing';
@@ -160,24 +162,34 @@ export async function renderAvatar(
   return { blob, size };
 }
 
+/** Upload a rendered avatar (the media only; the profile editor stages it until Save). */
+export function uploadAvatarMedia(
+  blob: Blob,
+  size: number,
+  onProgress?: (fraction: number) => void,
+): Promise<MediaAttachment> {
+  return api.upload(blob, { kind: 'image', width: size, height: size }, onProgress, {
+    fileName: 'avatar.jpg',
+  });
+}
+
+async function setAvatar(avatarMediaId: string | null): Promise<UserSelf> {
+  const user = await api.patch<UserSelf>('/api/me', { avatarMediaId });
+  useAuth.getState().setUser(user);
+  return user;
+}
+
 /** Upload a rendered avatar and set it as my profile photo. */
 export async function uploadAvatar(
   blob: Blob,
   size: number,
   onProgress?: (fraction: number) => void,
 ): Promise<UserSelf> {
-  const media = await api.upload(blob, { kind: 'image', width: size, height: size }, onProgress, {
-    fileName: 'avatar.jpg',
-  });
-  const user = await api.patch<UserSelf>('/api/me', { avatarMediaId: media.id });
-  useAuth.getState().setUser(user);
-  return user;
+  return setAvatar((await uploadAvatarMedia(blob, size, onProgress)).id);
 }
 
-export async function removeAvatar(): Promise<UserSelf> {
-  const user = await api.patch<UserSelf>('/api/me', { avatarMediaId: null });
-  useAuth.getState().setUser(user);
-  return user;
+export function removeAvatar(): Promise<UserSelf> {
+  return setAvatar(null);
 }
 
 // ---------------------------------------------------------------------------
@@ -232,16 +244,21 @@ export async function uploadAnimatedAvatar(
   poster: Blob,
   onProgress?: (fraction: number) => void,
 ): Promise<UserSelf> {
+  return setAvatar((await uploadAnimatedAvatarMedia(file, info, poster, onProgress)).id);
+}
+
+/** Upload an animated photo as-is (metadata stripped) with its cropped poster (the media only). */
+export async function uploadAnimatedAvatarMedia(
+  file: File,
+  info: ImageInfo,
+  poster: Blob,
+  onProgress?: (fraction: number) => void,
+): Promise<MediaAttachment> {
   const issue = animatedAvatarIssue(file, info);
   if (issue) throw new Error(issue);
   const blob = await stripImageBlob(file);
-  const media = await api.upload(
-    blob,
-    { kind: 'image', width: info.width, height: info.height },
-    onProgress,
-    { fileName: file.name, thumbnail: poster },
-  );
-  const user = await api.patch<UserSelf>('/api/me', { avatarMediaId: media.id });
-  useAuth.getState().setUser(user);
-  return user;
+  return api.upload(blob, { kind: 'image', width: info.width, height: info.height }, onProgress, {
+    fileName: file.name,
+    thumbnail: poster,
+  });
 }

@@ -102,7 +102,8 @@ test('share a location, a contact card and a document', async ({ browser }) => {
   const card = a.page.getByTestId('message').filter({ hasText: 'Carol Card' });
   await expect(card).toBeVisible();
 
-  // Text typed before attaching a document isn't consumed by it: it stays in the composer.
+  // A picked document waits in the attachment tray; Enter sends it with the typed text as
+  // its caption.
   const box = a.page.getByRole('textbox', { name: 'Message' });
   await box.fill('see the notes');
   await a.page.locator('input[type="file"]:not([accept])').setInputFiles({
@@ -110,10 +111,14 @@ test('share a location, a contact card and a document', async ({ browser }) => {
     mimeType: 'text/plain',
     buffer: Buffer.from('Meeting notes\n- ship it\n'),
   });
+  await expect(a.page.getByTestId('attachment-tile')).toContainText('notes.txt');
+  await box.press('Enter');
   const doc = a.page.getByTestId('message').filter({ hasText: 'notes.txt' });
   await expect(doc).toBeVisible();
   await expect(doc.getByRole('link', { name: 'Download notes.txt' })).toBeVisible();
-  await expect(box).toHaveValue('see the notes');
+  await expect(doc).toContainText('see the notes');
+  await expect(box).toHaveValue('');
+  await expect(a.page.getByTestId('attachment-tray')).toHaveCount(0);
 
   // Bob receives all three.
   const b = await openAs(browser, bob, `/chats/${chatId}`);

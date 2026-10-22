@@ -6,6 +6,11 @@
  *
  * Media goes through TURN only while the server says `relayOnly` (the media server's ports
  * are not reachable from the internet yet).
+ *
+ * A moderator can move me (`voice:moved`): the server already moved my voice state and sends
+ * a token for the new room, so the engine swaps rooms without asking again. When the media
+ * server drops me from a room, the socket says why (moved, disconnected by a moderator…); only
+ * without word from it is that a plain disconnect.
  */
 import {
   DisconnectReason,
@@ -15,8 +20,9 @@ import {
   type Participant,
   type RemoteTrack,
 } from 'livekit-client';
-import type { ChatSummary, IceServerConfig, ID, VoiceDisconnectReason } from '@enbox/shared';
+import type { ChatSummary, IceServerConfig, ID, VoiceDisconnectReason, VoiceJoinResult } from '@enbox/shared';
 import { api } from '@/lib/api';
+import { bus } from '@/lib/bus';
 import { API_ORIGIN } from '@/lib/env';
 import { playSound } from '@/lib/notify';
 import { serverConfig } from '@/lib/serverConfig';
@@ -30,6 +36,8 @@ let room: Room | null = null;
 /** Set while we end the room ourselves (no "disconnected" toast, no extra leave). */
 let leaving = false;
 let audioHost: HTMLDivElement | null = null;
+/** After the media server removed me: how long to wait for the socket to say why. */
+const REMOVED_GRACE_MS = 4_000;
 
 export function getVoiceRoom(): Room | null {
   return room;
@@ -137,10 +145,27 @@ function wire(r: Room): void {
     if (r !== room) return;
     cleanup();
     if (leaving) return;
-    sendEvent('voice:leave', {});
-    useVoice.getState().setConnection(null);
-    if (reason !== DisconnectReason.CLIENT_INITIATED) toast.error('Disconnected from voice');
+    const c = useVoice.getState().connection;
+    if (reason === DisconnectReason.PARTICIPANT_REMOVED && c) {
+      // The server dropped me (moved or disconnected by a moderator, another device…): its
+      // `voice:moved` / `voice:disconnected` follows. A `voice:leave` now could end the
+      // connection it just moved.
+      setStatus('reconnecting');
+      setTimeout(() => {
+        const now = useVoice.getState().connection;
+        if (now?.channelId === c.channelId && !room) dropped(reason);
+      }, REMOVED_GRACE_MS);
+      return;
+    }
+    dropped(reason);
   });
+}
+
+/** The media connection ended without us asking: leave voice. */
+function dropped(reason?: DisconnectReason): void {
+  sendEvent('voice:leave', {});
+  useVoice.getState().setConnection(null);
+  if (reason !== DisconnectReason.CLIENT_INITIATED) toast.error('Disconnected from voice');
 }
 
 function setStatus(status: 'connecting' | 'connected' | 'reconnecting') {
@@ -179,46 +204,78 @@ export async function connectVoice(chat: ChatSummary): Promise<void> {
   await endRoom();
   useVoice.getState().setConnection({ spaceId, channelId: chat.id, status: 'connecting' });
   const { muted, deafened } = useVoiceSelf.getState();
-  const prefs = useUi.getState().prefs;
   try {
     const res = await emitWithAck('voice:join', {
       channelId: chat.id,
       selfMute: muted || deafened,
       selfDeaf: deafened,
     });
-    const ice = await iceServers().catch(() => [] as RTCIceServer[]);
-    if (useVoice.getState().connection?.channelId !== chat.id) return;
-    const r = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-      audioCaptureDefaults: {
-        noiseSuppression: prefs.noiseCancellation,
-        echoCancellation: prefs.echoCancellation,
-        autoGainControl: prefs.autoGainControl,
-      },
-      publishDefaults: { dtx: true, red: true },
-    });
-    wire(r);
-    room = r;
-    await r.connect(resolveUrl(res.url), res.token, {
-      rtcConfig: { iceServers: ice, iceTransportPolicy: res.relayOnly ? 'relay' : 'all' },
-    });
-    if (room !== r || useVoice.getState().connection?.channelId !== chat.id) {
-      await r.disconnect();
-      return;
-    }
-    await applyMic();
-    applyAudioOut();
-    useVoice.setState({ audioBlocked: !r.canPlaybackAudio });
-    setStatus('connected');
-    playSound('sent');
+    await openRoom(res, chat.id);
   } catch (e) {
-    if (useVoice.getState().connection?.channelId === chat.id) {
-      useVoice.getState().setConnection(null);
-      sendEvent('voice:leave', {});
-      await endRoom();
-      toast.error(e);
-    }
+    await failConnect(chat.id, e);
+  }
+}
+
+/** Connect the media room of `channelId` with the server's token (`voice:join` / `voice:moved`). */
+async function openRoom(res: VoiceJoinResult, channelId: ID): Promise<void> {
+  const prefs = useUi.getState().prefs;
+  const ice = await iceServers().catch(() => [] as RTCIceServer[]);
+  if (useVoice.getState().connection?.channelId !== channelId) return;
+  const r = new Room({
+    adaptiveStream: true,
+    dynacast: true,
+    audioCaptureDefaults: {
+      noiseSuppression: prefs.noiseCancellation,
+      echoCancellation: prefs.echoCancellation,
+      autoGainControl: prefs.autoGainControl,
+    },
+    publishDefaults: { dtx: true, red: true },
+  });
+  wire(r);
+  room = r;
+  await r.connect(resolveUrl(res.url), res.token, {
+    rtcConfig: { iceServers: ice, iceTransportPolicy: res.relayOnly ? 'relay' : 'all' },
+  });
+  if (room !== r || useVoice.getState().connection?.channelId !== channelId) {
+    await r.disconnect();
+    return;
+  }
+  await applyMic();
+  applyAudioOut();
+  useVoice.setState({ audioBlocked: !r.canPlaybackAudio });
+  setStatus('connected');
+  playSound('sent');
+}
+
+/** Connecting to `channelId` failed: leave voice (unless I went elsewhere meanwhile). */
+async function failConnect(channelId: ID, e: unknown): Promise<void> {
+  if (useVoice.getState().connection?.channelId !== channelId) return;
+  useVoice.getState().setConnection(null);
+  sendEvent('voice:leave', {});
+  await endRoom();
+  toast.error(e);
+}
+
+/**
+ * A moderator moved me to another voice channel (`voice:moved`): the server already moved my
+ * voice state, so leave the old room and join the new one with its token (no `voice:join`).
+ * The view follows only when I was looking at the old channel.
+ */
+export async function voiceMovedByServer(from: ID, result: VoiceJoinResult): Promise<void> {
+  const c = useVoice.getState().connection;
+  if (!c || c.channelId !== from) return;
+  const { spaceId, channelId, userId } = result.state;
+  const old = `/spaces/${spaceId}/${from}`;
+  const path = window.location.pathname;
+  const viewing = path === old || path.startsWith(`${old}/`);
+  await endRoom();
+  useVoice.getState().setConnection({ spaceId, channelId, status: 'connecting' });
+  useVoice.getState().applyState({ spaceId, channelId, userId, state: result.state });
+  if (viewing) bus.emit('navigate', { to: `/spaces/${spaceId}/${channelId}`, replace: true });
+  try {
+    await openRoom(result, channelId);
+  } catch (e) {
+    await failConnect(channelId, e);
   }
 }
 

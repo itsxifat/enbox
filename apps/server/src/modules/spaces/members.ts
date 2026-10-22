@@ -68,8 +68,9 @@ import {
   removeSpaceMemberTx,
   sortNameOf,
   toSpace,
-  toSpaceMember,
+  toSpaceMembers,
 } from '../../services/spaces.js';
+import { requireAvatarMedia, requireBannerMedia } from '../../services/media.js';
 import { toUserPublicMap } from '../../services/users.js';
 import { myChannelBits, myTop, requireChannelBit, requireSpaceChannel, topOf } from './service.js';
 
@@ -147,11 +148,27 @@ router.get('/spaces/:spaceId/members', async (req, res) => {
     page.map((m) => m.userId),
   );
   const out: SpaceMemberPage = {
-    members: page.map((m) => toSpaceMember(m, roles.get(m.userId)?.roleIds ?? [])),
+    members: await toSpaceMembers(
+      db,
+      page.map((member) => ({ member, roleIds: roles.get(member.userId)?.roleIds ?? [] })),
+    ),
     nextCursor: rows.length > limit ? cursorOf(page[page.length - 1]!) : null,
   };
   res.json(out);
 });
+
+/** Per-Space profile fields of `PATCH members/me` (each null = the main profile's value). */
+const PROFILE_FIELDS = [
+  'avatarMediaId',
+  'bannerMediaId',
+  'bio',
+  'pronouns',
+  'profileColor',
+  'accentColor',
+  'avatarDecoration',
+  'profileEffect',
+  'nameplate',
+] as const;
 
 // GET /spaces/:spaceId/members/me → Space
 router.get('/spaces/:spaceId/members/me', async (req, res) => {
@@ -162,11 +179,16 @@ router.get('/spaces/:spaceId/members/me', async (req, res) => {
   res.json(space);
 });
 
-// PATCH /spaces/:spaceId/members/me → Space. space:upsert → U(me); nickname: space:member-updated.
+// PATCH /spaces/:spaceId/members/me → Space. space:upsert → U(me); nickname or per-Space
+// profile changes: space:member-updated → the Space (member list subscribers when large).
+// Profile images must be my own uploads (requireAvatarMedia / requireBannerMedia: 404 for
+// someone else's, 400 for the wrong kind); every profile field accepts null = use the main one.
 router.patch('/spaces/:spaceId/members/me', async (req, res) => {
   const me = authUserId(req);
   const { spaceId } = parse(P.space, req.params);
   const body = parse(updateMyMemberSchema, req.body ?? {});
+  const profileChange = PROFILE_FIELDS.some((f) => body[f] !== undefined);
+  if (profileChange) assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
   await transact(async (tx, fx) => {
     const space = await lockSpace(tx, spaceId);
     const access = await requireSpaceMember(tx, spaceId, me);
@@ -184,6 +206,22 @@ router.patch('/spaces/:spaceId/members/me', async (req, res) => {
     if (body.suppressEveryone !== undefined) patch.suppressEveryone = body.suppressEveryone;
     if (body.suppressRoles !== undefined) patch.suppressRoles = body.suppressRoles;
     if (body.hideMutedChannels !== undefined) patch.hideMutedChannels = body.hideMutedChannels;
+    // Per-Space profile (locks the media rows against the GC until commit).
+    if (body.avatarMediaId !== undefined) {
+      if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);
+      patch.avatarMediaId = body.avatarMediaId;
+    }
+    if (body.bannerMediaId !== undefined) {
+      if (body.bannerMediaId) await requireBannerMedia(tx, body.bannerMediaId, me);
+      patch.bannerMediaId = body.bannerMediaId;
+    }
+    if (body.bio !== undefined) patch.bio = body.bio;
+    if (body.pronouns !== undefined) patch.pronouns = body.pronouns;
+    if (body.profileColor !== undefined) patch.profileColor = body.profileColor;
+    if (body.accentColor !== undefined) patch.accentColor = body.accentColor;
+    if (body.avatarDecoration !== undefined) patch.avatarDecoration = body.avatarDecoration;
+    if (body.profileEffect !== undefined) patch.profileEffect = body.profileEffect;
+    if (body.nameplate !== undefined) patch.nameplate = body.nameplate;
     if (Object.keys(patch).length === 0) return;
     const [row] = await tx
       .update(spaceMembers)
@@ -191,11 +229,10 @@ router.patch('/spaces/:spaceId/members/me', async (req, res) => {
       .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, me)))
       .returning();
     fxSpaceUpsert(fx, me, spaceId);
-    if (body.nickname !== undefined)
-      fxMemberEvent(fx, space, () => ({
-        event: 'space:member-updated',
-        member: toSpaceMember(row!, access.me.roleIds),
-      }));
+    if (body.nickname !== undefined || profileChange) {
+      const [member] = await toSpaceMembers(tx, [{ member: row!, roleIds: access.me.roleIds }]);
+      fxMemberEvent(fx, space, () => ({ event: 'space:member-updated', member: member! }));
+    }
   });
   const space = await toSpace(db, me, spaceId);
   res.json(space);
@@ -208,12 +245,17 @@ router.post('/spaces/:spaceId/members/batch', async (req, res) => {
   const { userIds } = parse(spaceMembersBatchSchema, req.body ?? {});
   await requireSpaceMember(db, spaceId, me);
   const found = await loadSpaceMembers(db, spaceId, userIds);
-  const out: SpaceMember[] = userIds
-    .map((id) => found.get(id))
-    .filter((m): m is MemberCtx => !!m)
-    .map((m) => toSpaceMember(m.member, m.roleIds));
+  const out: SpaceMember[] = await toSpaceMembers(
+    db,
+    userIds.map((id) => found.get(id)).filter((m): m is MemberCtx => !!m),
+  );
   res.json(out);
 });
+
+/** One member on the wire (profile images included). */
+async function serializeMember(dbx: DbOrTx, m: MemberCtx): Promise<SpaceMember> {
+  return (await toSpaceMembers(dbx, [m]))[0]!;
+}
 
 // GET /spaces/:spaceId/members/:userId → SpaceMember
 router.get('/spaces/:spaceId/members/:userId', async (req, res) => {
@@ -221,7 +263,7 @@ router.get('/spaces/:spaceId/members/:userId', async (req, res) => {
   const { spaceId, userId } = parse(P.member, req.params);
   await requireSpaceMember(db, spaceId, me);
   const m = await memberOrThrow(db, spaceId, userId);
-  res.json(toSpaceMember(m.member, m.roleIds));
+  res.json(await serializeMember(db, m));
 });
 
 // PATCH /spaces/:spaceId/members/:userId → SpaceMember (nickname / roles / timeout / mute / deaf).
@@ -341,10 +383,8 @@ router.patch('/spaces/:spaceId/members/:userId', async (req, res) => {
       reason: body.reason ?? null,
     });
     const fresh = await memberOrThrow(tx, spaceId, userId);
-    fxMemberEvent(fx, space, () => ({
-      event: 'space:member-updated',
-      member: toSpaceMember(fresh.member, roleIds),
-    }));
+    const member = await serializeMember(tx, { member: fresh.member, roleIds });
+    fxMemberEvent(fx, space, () => ({ event: 'space:member-updated', member }));
     fxSpaceUpsert(fx, userId, spaceId);
     if (permsChanged) {
       fxMemberChanged(fx, spaceId, userId);
@@ -353,7 +393,7 @@ router.patch('/spaces/:spaceId/members/:userId', async (req, res) => {
     }
   });
   const m = await memberOrThrow(db, spaceId, userId);
-  res.json(toSpaceMember(m.member, m.roleIds));
+  res.json(await serializeMember(db, m));
 });
 
 // DELETE /spaces/:spaceId/members/:userId (KICK_MEMBERS, above them) → 204
@@ -420,16 +460,14 @@ async function setRole(req: Request, add: boolean): Promise<SpaceMember> {
     const roleIds = add
       ? [...target.roleIds, roleId]
       : target.roleIds.filter((id) => id !== roleId);
-    fxMemberEvent(fx, space, () => ({
-      event: 'space:member-updated',
-      member: toSpaceMember(target.member, roleIds),
-    }));
+    const member = await serializeMember(tx, { member: target.member, roleIds });
+    fxMemberEvent(fx, space, () => ({ event: 'space:member-updated', member }));
     fxSpaceUpsert(fx, userId, spaceId);
     fxMemberChanged(fx, spaceId, userId);
     fxChannelsChanged(fx, spaceId, userId);
   });
   const m = await memberOrThrow(db, spaceId, userId);
-  return toSpaceMember(m.member, m.roleIds);
+  return serializeMember(db, m);
 }
 
 // PUT|DELETE /spaces/:spaceId/members/:userId/roles/:roleId (MANAGE_ROLES, role below mine) → SpaceMember

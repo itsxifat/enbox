@@ -457,6 +457,10 @@ export const USER_RATE_LIMITS = {
   presenceActivity: { limit: 30, windowMs: 60_000 },
   /** `GET /api/users/search` and `POST /api/contacts`, per user. */
   userSearch: { limit: 60, windowMs: 60_000 },
+  /** `PUT /api/me/rail-layout` (drag-reordering Spaces and folders), per user. */
+  railLayout: { limit: 60, windowMs: 60_000 },
+  /** `PUT /api/users/:userId/note` (private notes; saved on blur), per user. */
+  userNote: { limit: 60, windowMs: 60_000 },
   /** `PUT /api/chats/:chatId/theme` (shared theme changes, each a system message), per user. */
   chatTheme: { limit: 20, windowMs: 60_000 },
   /** `POST /api/spaces`, per user. */

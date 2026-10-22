@@ -10,6 +10,7 @@ import {
   type SpaceMember,
   type SpaceMemberPage,
 } from '@enbox/shared';
+import { Nameplate, StyledName } from '@/components/cosmetics';
 import { Avatar, Menu, SearchInput, Spinner, type MenuAnchor } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -17,18 +18,23 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { subscribeSpaceMembers } from '@/realtime/spaces';
 import { usePresence, useUser, useUsers } from '@/stores/users';
-import { topColoredRole, useSpace, useSpaces } from '@/stores/spaces';
+import { roleNameStyle, topColoredRole, topIconRole, useSpace, useSpaces } from '@/stores/spaces';
 import { MemberActionsMenu } from './MemberActions';
+import { RoleIcon } from './RoleIcon';
+import { withSpaceProfile } from './serverProfile/merge';
 
 type Row =
   | { kind: 'header'; key: string; label: string; count: number }
   | { kind: 'member'; key: string; member: SpaceMember };
 
-function MemberRow({ space, member, onMenu }: { space: Space; member: SpaceMember; onMenu: (m: SpaceMember, a: MenuAnchor) => void }) {
+export function MemberRow({ space, member, onMenu }: { space: Space; member: SpaceMember; onMenu: (m: SpaceMember, a: MenuAnchor) => void }) {
   const user = useUser(member.userId);
   const presence = usePresence(member.userId);
   const role = topColoredRole(space, member.roleIds);
+  const iconRole = topIconRole(space, member.roleIds);
   const name = member.nickname || userDisplayName(user);
+  // The per-Space profile (avatar, decoration, nameplate) wins over the main one.
+  const shown = user ? withSpaceProfile(user, member, member.nickname) : null;
   const offline = !presence?.online;
   return (
     <button
@@ -39,26 +45,30 @@ function MemberRow({ space, member, onMenu }: { space: Space; member: SpaceMembe
         onMenu(member, { x: e.clientX, y: e.clientY });
       }}
       className={cn(
-        'group/m flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-hover',
+        'group/m relative flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-hover',
         offline && 'opacity-60 hover:opacity-100',
       )}
       data-testid="space-member-row"
       data-animate-avatars
     >
+      {/* Behind the row's content, which is positioned (relative) to paint over it. */}
+      <Nameplate id={shown?.nameplate} />
       <Avatar
-        src={user?.avatarUrl}
-        animatedSrc={user?.avatarAnimatedUrl}
+        src={shown?.avatarUrl}
+        animatedSrc={shown?.avatarAnimatedUrl}
         name={name}
         colorSeed={member.userId}
         size={32}
         presence={presence?.state ?? null}
+        decoration={shown?.avatarDecoration}
         decorative
       />
-      <span className="min-w-0 flex-1 truncate text-[15px] font-medium" style={role?.color ? { color: role.color } : undefined}>
-        {name}
+      <span className="relative flex min-w-0 flex-1 items-center gap-1 text-[15px] font-medium">
+        <StyledName name={name} style={user?.nameStyle} role={role ? roleNameStyle(role) : null} mode="full" className="truncate" />
+        <RoleIcon role={iconRole} size={16} />
       </span>
-      {space.ownerId === member.userId ? <Crown size={14} className="shrink-0 text-warning" aria-label="Owner" /> : null}
-      {member.timedOutUntil ? <Shield size={14} className="shrink-0 text-danger" aria-label="Timed out" /> : null}
+      {space.ownerId === member.userId ? <Crown size={14} className="relative shrink-0 text-warning" aria-label="Owner" /> : null}
+      {member.timedOutUntil ? <Shield size={14} className="relative shrink-0 text-danger" aria-label="Timed out" /> : null}
     </button>
   );
 }

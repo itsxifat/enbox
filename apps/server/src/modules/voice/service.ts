@@ -8,6 +8,8 @@
  *   grants follow the bits (SPEAK → microphone, VIDEO → camera, STREAM → screen) and the server
  *   mute/deafen flags.
  * - `leaveVoice` / `updateVoice`: only the socket that holds the row.
+ * - `moveMember`: a moderator drags someone into another voice channel of the Space; the row
+ *   keeps its socket, which gets `voice:moved` with a token for the new room.
  * - Fan-out: `voice:state` to the channel's room (`chat:<id>`, a virtual room that only reaches
  *   those who can see the channel); leaving sends `state: null`.
  * - Cleanup: socket disconnects leave at once; `sweepVoice` (leader) drops rows of dead
@@ -40,12 +42,19 @@ import {
   channelBits,
   isTimedOut,
   loadChannelOverwrites,
+  loadSpaceMember,
   requireSpaceMember,
   requireSpacePermission,
 } from '../../services/spaceAccess.js';
 import { audit } from '../../services/spaces.js';
 
 type VoiceRow = typeof voiceStates.$inferSelect;
+
+/**
+ * A moved member's client leaves the old media room itself on `voice:moved`; the server drops
+ * it from there this much later (a client that does not, without racing the event).
+ */
+const MOVE_KICK_DELAY_MS = 5_000;
 
 export function voiceEnabled(): boolean {
   return !!(config.voice.apiKey && config.voice.apiSecret);
@@ -82,6 +91,35 @@ function kickFromRoom(channelId: string, userId: string) {
   void liveKit()
     ?.removeParticipant(channelId, userId)
     .catch((err: unknown) => logger.debug({ err, channelId, userId }, 'livekit removeParticipant failed'));
+}
+
+/**
+ * A short-lived LiveKit token for `channelId`: the publish grants follow the bits (SPEAK →
+ * microphone, VIDEO → camera, STREAM → screen) and the server mute/deafen flags.
+ */
+async function mediaToken(
+  userId: string,
+  channelId: string,
+  bits: number,
+  member: { serverMute: boolean; serverDeaf: boolean },
+): Promise<string> {
+  const sources: TrackSource[] = [];
+  if (hasPerm(bits, PERM.SPEAK) && !member.serverMute) sources.push(TrackSource.MICROPHONE);
+  if (hasPerm(bits, PERM.VIDEO)) sources.push(TrackSource.CAMERA);
+  if (hasPerm(bits, PERM.STREAM)) sources.push(TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
+  const at = new AccessToken(config.voice.apiKey, config.voice.apiSecret, {
+    identity: userId,
+    ttl: VOICE_TOKEN_TTL_SEC,
+  });
+  at.addGrant({
+    room: channelId,
+    roomJoin: true,
+    canSubscribe: !member.serverDeaf,
+    canPublish: sources.length > 0,
+    canPublishSources: sources,
+    canPublishData: true,
+  });
+  return at.toJwt();
 }
 
 // ---------------------------------------------------------------------------
@@ -177,23 +215,8 @@ export async function joinVoice(
   }
   emitState(state.spaceId, channelId, userId, state);
 
-  const sources: TrackSource[] = [];
-  if (hasPerm(bits, PERM.SPEAK) && !member.serverMute) sources.push(TrackSource.MICROPHONE);
-  if (hasPerm(bits, PERM.VIDEO)) sources.push(TrackSource.CAMERA);
-  if (hasPerm(bits, PERM.STREAM)) sources.push(TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
-  const at = new AccessToken(config.voice.apiKey, config.voice.apiSecret, {
-    identity: userId,
-    ttl: VOICE_TOKEN_TTL_SEC,
-  });
-  at.addGrant({
-    room: channelId,
-    roomJoin: true,
-    canSubscribe: !member.serverDeaf,
-    canPublish: sources.length > 0,
-    canPublishSources: sources,
-    canPublishData: true,
-  });
-  return { url: config.voice.url, token: await at.toJwt(), state, relayOnly: config.voice.relayOnly };
+  const token = await mediaToken(userId, channelId, bits, member);
+  return { url: config.voice.url, token, state, relayOnly: config.voice.relayOnly };
 }
 
 /** Leave my voice channel (only the socket that holds the connection, unless `socketId` is null). */
@@ -238,6 +261,89 @@ export async function disconnectMember(actorId: string, spaceId: string, targetI
     return r;
   });
   endConnection(row, 'disconnected_by_moderator');
+}
+
+/**
+ * Move someone to another voice channel of the Space (Discord's drag in the channel list),
+ * audited. The mover needs MOVE_MEMBERS where they are and in the target, and CONNECT on the
+ * target; the moved member must be able to see it. The user limit does not apply. The row
+ * keeps its socket: `voice:moved` hands it a token for the new room (no new `voice:join`).
+ */
+export async function moveMember(
+  actorId: string,
+  spaceId: string,
+  targetId: string,
+  channelId: string,
+): Promise<void> {
+  if (!voiceEnabled()) throw badRequest('Voice channels are not available on this server yet');
+
+  const moved = await db.transaction(async (tx) => {
+    // Lock order: the target channel row, then the voice state (as joinVoice).
+    const access = await getChatAccess(tx, actorId, channelId, { lock: true });
+    if (access.chat.type !== 'space_voice' || !access.space || access.chat.spaceId !== spaceId)
+      throw badRequest('Members can only be moved to a voice channel of this Space');
+    const { ctx, me, base, bits } = access.space;
+    if (!hasPerm(bits, PERM.MOVE_MEMBERS)) throw forbidden('You cannot move members to this voice channel');
+    if (!hasPerm(bits, PERM.CONNECT)) throw forbidden('You do not have permission to connect to this voice channel');
+
+    const [row] = await tx
+      .select()
+      .from(voiceStates)
+      .where(and(eq(voiceStates.userId, targetId), eq(voiceStates.spaceId, spaceId)))
+      .for('update');
+    if (!row) throw notFound('Voice connection');
+    if (row.channelId === channelId) return null;
+
+    const overwrites = await loadChannelOverwrites(tx, [row.channelId, channelId]);
+    const fromBits = channelBits(ctx, actorId, me, 'space_voice', overwrites.get(row.channelId) ?? [], base);
+    if (!hasPerm(fromBits, PERM.MOVE_MEMBERS)) throw forbidden('You cannot move members out of that voice channel');
+    const target = targetId === actorId ? me : await loadSpaceMember(tx, spaceId, targetId);
+    if (!target) throw notFound('Voice connection');
+    const targetBits = channelBits(ctx, targetId, target, 'space_voice', overwrites.get(channelId) ?? []);
+    if (!hasPerm(targetBits, PERM.VIEW_CHANNEL)) throw forbidden('They cannot see that voice channel');
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(voiceStates)
+      // Camera and screen start off in the new room (as on every join).
+      .set({ channelId, selfVideo: false, selfStream: false, joinedAt: now, updatedAt: now })
+      .where(eq(voiceStates.userId, targetId))
+      .returning();
+    await audit(tx, {
+      spaceId,
+      actorId,
+      action: 'member.voice_move',
+      targetType: 'member',
+      targetId,
+      changes: { from: row.channelId, to: channelId },
+    });
+    return { from: row.channelId, row: updated!, bits: targetBits, member: target.member };
+  });
+  if (!moved) return;
+
+  const state = toVoiceState(moved.row, moved.member);
+  emitState(spaceId, moved.from, targetId, null);
+  emitState(spaceId, channelId, targetId, state);
+  const token = await mediaToken(targetId, channelId, moved.bits, moved.member);
+  emitToSocket(moved.row.socketId, 'voice:moved', {
+    from: moved.from,
+    result: { url: config.voice.url, token, state, relayOnly: config.voice.relayOnly },
+  });
+  const kick = setTimeout(() => void kickIfStillMoved(targetId, moved.from), MOVE_KICK_DELAY_MS);
+  kick.unref?.();
+}
+
+/** After a move: drop the member from the old room, unless they went back there meanwhile. */
+async function kickIfStillMoved(userId: string, from: string): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ channelId: voiceStates.channelId })
+      .from(voiceStates)
+      .where(eq(voiceStates.userId, userId));
+    if (row?.channelId !== from) kickFromRoom(from, userId);
+  } catch (err) {
+    logger.debug({ err, userId }, 'voice move cleanup failed');
+  }
 }
 
 function endConnection(row: VoiceRow, reason: VoiceDisconnectReason) {

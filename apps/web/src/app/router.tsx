@@ -7,6 +7,7 @@
  *   /updates[/channels/:chatId]             features/updates → channels (agent 3), status (agent 4)
  *   /spaces[/:spaceId[/:chatId]]            features/spaces (communities became Spaces)
  *   /calls                                  features/calls       (agent 4)
+ *   /collectibles                           features/collectibles
  *   /settings[/:section]                    features/settings    (agent 1)
  *   /new                                    features/contacts    (agent 1)
  *   /new/group                              features/groups      (agent 3)
@@ -17,9 +18,11 @@ import { AppShell } from '@/components/layout/AppShell';
 import { authRoutes } from '@/features/auth/routes';
 import { callsRoutes } from '@/features/calls/routes';
 import { chatsRoutes } from '@/features/chats/routes';
+import { collectiblesRoutes } from '@/features/collectibles/routes';
 import { contactsRoutes } from '@/features/contacts/routes';
 import { groupsRoutes } from '@/features/groups/routes';
 import { invitesRoutes } from '@/features/invites/routes';
+import { profileRoutes } from '@/features/profile/routes';
 import { settingsRoutes } from '@/features/settings/routes';
 import { spacesRoutes } from '@/features/spaces/routes';
 import { updatesRoutes } from '@/features/updates/routes';
@@ -45,10 +48,12 @@ export const routes: RouteObject[] = [
               ...updatesRoutes,
               ...spacesRoutes,
               ...callsRoutes,
+              ...collectiblesRoutes,
               ...settingsRoutes,
               ...contactsRoutes,
               ...groupsRoutes,
               ...invitesRoutes,
+              ...profileRoutes,
               { path: '*', element: <NotFound /> },
             ],
           },

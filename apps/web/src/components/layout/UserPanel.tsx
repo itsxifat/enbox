@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router';
 import { Headphones, HeadphoneOff, Mic, MicOff, Settings } from 'lucide-react';
 import { activePresenceNote, effectiveAvailability, type Availability } from '@enbox/shared';
+import { StyledName } from '@/components/cosmetics';
 import { Avatar, IconButton } from '@/components/ui';
 import { selfPresenceState } from '@/features/profile/model';
 import { openProfile } from '@/features/profile/open';
@@ -56,6 +57,7 @@ export function UserPanel({ className }: { className?: string }) {
           onClick={(e) => openProfile(me.id, e.currentTarget)}
           className="group/me flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pr-1 pl-0.5 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand"
           data-testid="nav-self-avatar"
+          data-animate-avatars
         >
           <Avatar
             src={me.avatarUrl}
@@ -64,9 +66,10 @@ export function UserPanel({ className }: { className?: string }) {
             colorSeed={me.id}
             size={32}
             presence={selfPresenceState(me)}
+            decoration={me.avatarDecoration}
           />
           <span className="min-w-0 flex-1 leading-tight">
-            <span className="block truncate text-[14px] font-semibold text-fg">{me.displayName}</span>
+            <StyledName name={me.displayName} style={me.nameStyle} mode="full" className="block truncate text-[14px] font-semibold text-fg" />
             <span className="relative block h-4 overflow-hidden text-[12px] text-muted">
               <span className="block truncate transition-transform duration-150 group-hover/me:-translate-y-4">{status}</span>
               <span className="block truncate transition-transform duration-150 group-hover/me:-translate-y-4">@{me.username}</span>

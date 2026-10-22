@@ -85,6 +85,61 @@ const refetchTimers = new Map<ID, ReturnType<typeof setTimeout>>();
 const pendingMembers = new Map<ID, Set<ID>>();
 let memberTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** The per-Space profile fields (`SpaceProfile`), as both `SpaceMember` and `space.me` carry them. */
+export const SPACE_PROFILE_KEYS = [
+  'avatarUrl',
+  'avatarAnimatedUrl',
+  'bannerUrl',
+  'bannerAnimatedUrl',
+  'bio',
+  'pronouns',
+  'profileColor',
+  'accentColor',
+  'avatarDecoration',
+  'profileEffect',
+  'nameplate',
+] as const satisfies readonly (keyof SpaceProfile)[];
+
+/** The per-Space profile of a member / `space.me` (absent fields = null = the main profile). */
+export function spaceProfileOf(m: SpaceProfile): Required<SpaceProfile> {
+  const out = {} as Record<keyof SpaceProfile, string | null>;
+  for (const k of SPACE_PROFILE_KEYS) out[k] = m[k] ?? null;
+  return out as Required<SpaceProfile>;
+}
+
+function sameProfile(a: SpaceProfile, b: SpaceProfile): boolean {
+  return SPACE_PROFILE_KEYS.every((k) => (a[k] ?? null) === (b[k] ?? null));
+}
+
+/**
+ * My cached `SpaceMember` follows `space.me` (my nickname / roles / profile changed through a
+ * `space:upsert` or my own PATCH): messages and the member list show the change at once.
+ */
+function syncMyMember(
+  members: Record<ID, Record<ID, SpaceMember>>,
+  space: Space,
+): Record<ID, Record<ID, SpaceMember>> {
+  const me = myId();
+  const cur = me ? members[space.id]?.[me] : undefined;
+  if (!cur) return members;
+  const mine = space.me;
+  if (
+    cur.nickname === mine.nickname &&
+    cur.roleIds.join() === mine.roleIds.join() &&
+    cur.timedOutUntil === mine.timedOutUntil &&
+    sameProfile(cur, mine)
+  )
+    return members;
+  const next: SpaceMember = {
+    ...cur,
+    nickname: mine.nickname,
+    roleIds: mine.roleIds,
+    timedOutUntil: mine.timedOutUntil,
+    ...spaceProfileOf(mine),
+  };
+  return { ...members, [space.id]: { ...members[space.id], [me]: next } };
+}
+
 function orderOf(byId: Record<ID, Space>): ID[] {
   return Object.values(byId)
     .sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1))
@@ -187,7 +242,11 @@ export const useSpaces = create<SpacesState>((set, get) => ({
   upsertSpace(space) {
     set((s) => {
       const byId = { ...s.byId, [space.id]: space };
-      return { byId, order: s.byId[space.id] ? s.order : orderOf(byId) };
+      return {
+        byId,
+        order: s.byId[space.id] ? s.order : orderOf(byId),
+        members: syncMyMember(s.members, space),
+      };
     });
     get().recompute(space.id);
   },
@@ -264,10 +323,9 @@ export const useSpaces = create<SpacesState>((set, get) => ({
     const mine = members.find((m) => m.userId === me);
     const space = get().byId[spaceId];
     if (mine && space) {
-      const changed =
-        mine.roleIds.join() !== space.me.roleIds.join() ||
-        mine.timedOutUntil !== space.me.timedOutUntil ||
-        mine.nickname !== space.me.nickname;
+      const permsChanged =
+        mine.roleIds.join() !== space.me.roleIds.join() || mine.timedOutUntil !== space.me.timedOutUntil;
+      const changed = permsChanged || mine.nickname !== space.me.nickname || !sameProfile(mine, space.me);
       if (changed) {
         set((s) => ({
           byId: {
@@ -279,11 +337,12 @@ export const useSpaces = create<SpacesState>((set, get) => ({
                 roleIds: mine.roleIds,
                 timedOutUntil: mine.timedOutUntil,
                 nickname: mine.nickname,
+                ...spaceProfileOf(mine),
               },
             },
           },
         }));
-        get().recompute(spaceId);
+        if (permsChanged) get().recompute(spaceId);
       }
     }
   },
@@ -381,12 +440,20 @@ export function useSpaceMember(spaceId: ID | null | undefined, userId: ID | null
   return useSpaces((s) => (spaceId && userId ? s.members[spaceId]?.[userId] : undefined));
 }
 
-/** The highest coloured role of a member (name colour in messages and the member list). */
+/**
+ * The highest coloured role of a member (name colour in messages and the member list). A
+ * holographic role counts even without colours (the client draws its own palette).
+ */
 export function topColoredRole(space: Space | undefined, roleIds: readonly ID[] | undefined): SpaceRole | null {
   if (!space || !roleIds?.length) return null;
   let best: SpaceRole | null = null;
   for (const r of space.roles)
-    if (roleIds.includes(r.id) && r.color && (!best || r.position > best.position)) best = r;
+    if (
+      roleIds.includes(r.id) &&
+      (r.color || r.colorStyle === 'holographic') &&
+      (!best || r.position > best.position)
+    )
+      best = r;
   return best;
 }
 
@@ -418,21 +485,52 @@ export function notifyLevelOf(chat: Pick<ChatSummary, 'space' | 'notifyLevel'>):
  * Rail badges: unread dot / mention count per Space from its loaded channels (else the server
  * aggregate). A muted Space shows no unread dot (Discord); mentions of me still count.
  */
-export function useSpaceBadge(space: Space): { unread: boolean; mentions: number; muted: boolean } {
+export interface SpaceBadge {
+  unread: boolean;
+  mentions: number;
+  muted: boolean;
+}
+
+/**
+ * Badges of Spaces in one pass over the chats: from the loaded text channels when a Space's
+ * channel list is loaded (muted channels never count as unread), else the server's aggregate.
+ * A muted Space is never unread; its mentions still count.
+ */
+export function computeSpaceBadges(
+  spaces: readonly Space[],
+  chats: Record<ID, ChatSummary>,
+  channelsLoaded: Record<ID, boolean>,
+  now = Date.now(),
+): Map<ID, SpaceBadge> {
+  const live = new Map<ID, { unread: boolean; mentions: number }>();
+  for (const s of spaces) if (channelsLoaded[s.id]) live.set(s.id, { unread: false, mentions: 0 });
+  if (live.size)
+    for (const c of Object.values(chats)) {
+      const acc = c.space ? live.get(c.space.spaceId) : undefined;
+      if (!acc || c.type !== 'space_text') continue;
+      if (c.lastSeq > c.lastReadSeq && !(c.mutedUntil && Date.parse(c.mutedUntil) > now)) acc.unread = true;
+      acc.mentions += c.unreadMentionCount;
+    }
+  const out = new Map<ID, SpaceBadge>();
+  for (const s of spaces) {
+    const muted = isSpaceMuted(s, now);
+    const l = live.get(s.id);
+    out.set(s.id, {
+      unread: (l ? l.unread : s.unread) && !muted,
+      mentions: l ? l.mentions : s.unreadMentionCount,
+      muted,
+    });
+  }
+  return out;
+}
+
+export function useSpaceBadge(space: Space): SpaceBadge {
   const byId = useChats((s) => s.byId);
   const loaded = useSpaces((s) => !!s.channelsLoaded[space.id]);
-  const muted = isSpaceMuted(space);
-  return useMemo(() => {
-    if (!loaded) return { unread: space.unread && !muted, mentions: space.unreadMentionCount, muted };
-    let unread = false;
-    let mentions = 0;
-    for (const c of Object.values(byId)) {
-      if (c.space?.spaceId !== space.id || c.type !== 'space_text') continue;
-      if (c.lastSeq > c.lastReadSeq && !(c.mutedUntil && Date.parse(c.mutedUntil) > Date.now())) unread = true;
-      mentions += c.unreadMentionCount;
-    }
-    return { unread: unread && !muted, mentions, muted };
-  }, [byId, loaded, muted, space.id, space.unread, space.unreadMentionCount]);
+  return useMemo(
+    () => computeSpaceBadges([space], byId, { [space.id]: loaded }).get(space.id)!,
+    [byId, loaded, space],
+  );
 }
 
 /** Spaces tab badge: total mentions (or a dot for unread messages) across my unmuted Spaces. */
@@ -493,13 +591,20 @@ export function useSpaceAuthor(
   }, [spaceId, userId, member]);
   return useMemo(() => {
     if (!spaceId || !userId) return null;
-    const top = topColoredRole(space, member?.roleIds);
+    // Me before my member row loads: `space.me` has the same fields.
+    const m = member ?? (space && userId === myId() ? space.me : undefined);
+    const top = topColoredRole(space, m?.roleIds);
     return {
-      nickname: member?.nickname ?? null,
+      nickname: m?.nickname ?? null,
       color: top?.color ?? null,
-      role: top ? { color: top.color, colorSecondary: top.colorSecondary ?? null, colorStyle: top.colorStyle ?? 'solid' } : null,
-      iconRole: topIconRole(space, member?.roleIds),
-      profile: member ?? null,
+      role: top ? roleNameStyle(top) : null,
+      iconRole: topIconRole(space, m?.roleIds),
+      profile: m ? spaceProfileOf(m) : null,
     };
   }, [spaceId, userId, space, member]);
+}
+
+/** A role's name colouring for `StyledName` (`role` prop). */
+export function roleNameStyle(role: Pick<SpaceRole, 'color' | 'colorSecondary' | 'colorStyle'>): RoleNameStyle {
+  return { color: role.color, colorSecondary: role.colorSecondary ?? null, colorStyle: role.colorStyle ?? 'solid' };
 }

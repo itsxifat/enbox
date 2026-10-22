@@ -40,6 +40,7 @@ import { ChatSearchBar, ReadOnlyFooter, SelectionBar } from './Bars';
 import { RowAppearanceContext } from './bubbles/appearance';
 import { Composer } from './composer/Composer';
 import { ConversationHeader, backPath } from './ConversationHeader';
+import { ConversationDropzone } from './dropzone/ConversationDropzone';
 import { ForwardDialog } from './ForwardDialog';
 import { LazyLightbox } from './lazy';
 import { MessageActionsHost } from './MessageActionsHost';
@@ -269,7 +270,7 @@ export function Conversation({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col"
+      className="relative flex min-h-0 flex-1 flex-col"
       onKeyDown={onKeyDown}
       data-testid="conversation"
       data-chat-id={chat.id}
@@ -294,6 +295,8 @@ export function Conversation({
             <MessageList chat={chat} unread={unread} initialTarget={initialTarget} />
           )}
         </div>
+        {/* Files dragged over the window land in this chat's composer (read-only: none). */}
+        {canCompose ? <ConversationDropzone chat={chat} /> : null}
         {canCompose ? (
           <Composer chat={chat} />
         ) : (

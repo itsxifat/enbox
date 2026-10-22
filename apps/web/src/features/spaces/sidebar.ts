@@ -1,7 +1,8 @@
 /**
  * Channel sidebar logic (pure, unit-tested): grouping by category, what a collapsed category
- * or "Hide Muted Channels" leaves visible, mute helpers shared by the Space, channel and
- * category menus, and the notification override rows of the Notification Settings dialog.
+ * or "Hide Muted Channels" leaves visible, the position changes of a channel or category drag,
+ * mute helpers shared by the Space, channel and category menus, and the notification override
+ * rows of the Notification Settings dialog.
  */
 import {
   MUTE_FOREVER_ISO,
@@ -91,6 +92,90 @@ export function visibleGroups(
     if (!hiddenByMute) out.push({ group, shown });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Drag reorder (channels and categories)
+// ---------------------------------------------------------------------------
+
+/** Where a dragged channel lands: next to a channel, or at the start / end of a category (null: none). */
+export type ChannelDrop =
+  | { kind: 'before' | 'after'; channelId: ID }
+  | { kind: 'start' | 'end'; categoryId: ID | null };
+
+/** One item of `PATCH /api/spaces/:id/channels/positions`. */
+export interface ChannelPositionItem {
+  id: ID;
+  categoryId: ID | null;
+  position: number;
+  /** Moving a synced channel into another category syncs it there (Discord). */
+  syncPermissions?: boolean;
+}
+
+/** Text-like channels always list before voice ones in a category; positions count per kind. */
+const sortClass = (c: Pick<ChatSummary, 'type'>) => (c.type === 'space_voice' ? 1 : 0);
+
+/**
+ * The position changes of dropping channel `dragId` at `drop` (Discord's channel drag): it
+ * joins the target category, where the channels of its kind are numbered 0…n in their new
+ * order. Only the channels whose category or position change are returned (one PATCH); a
+ * drop that changes nothing returns [].
+ */
+export function channelMoveItems(groups: readonly ChannelGroup[], dragId: ID, drop: ChannelDrop): ChannelPositionItem[] {
+  const from = groups.find((g) => g.channels.some((c) => c.id === dragId));
+  const dragged = from?.channels.find((c) => c.id === dragId);
+  if (!from || !dragged?.space) return [];
+  const edge = 'categoryId' in drop ? drop : null;
+  const next = 'channelId' in drop ? drop : null;
+  const to = edge
+    ? groups.find((g) => (g.category?.id ?? null) === edge.categoryId)
+    : next && next.channelId !== dragId
+      ? groups.find((g) => g.channels.some((c) => c.id === next.channelId))
+      : undefined;
+  if (!to) return [];
+  const rest = to.channels.filter((c) => c.id !== dragId);
+  const at = edge
+    ? edge.kind === 'start'
+      ? 0
+      : rest.length
+    : rest.findIndex((c) => c.id === next!.channelId) + (next!.kind === 'after' ? 1 : 0);
+  const klass = sortClass(dragged);
+  // Dropped among the other kind's channels: the nearest end of its own kind's run.
+  const index = rest.slice(0, at).filter((c) => sortClass(c) === klass).length;
+  const list = rest.filter((c) => sortClass(c) === klass);
+  list.splice(index, 0, dragged);
+  const categoryId = to.category?.id ?? null;
+  const moved = from !== to;
+  const items: ChannelPositionItem[] = [];
+  list.forEach((c, position) => {
+    if ((c.space?.categoryId ?? null) === categoryId && c.space?.position === position) return;
+    const item: ChannelPositionItem = { id: c.id, categoryId, position };
+    if (c.id === dragId && moved && categoryId && dragged.space!.permissionsSynced) item.syncPermissions = true;
+    items.push(item);
+  });
+  return items;
+}
+
+/** Where a dragged category lands: before or after another one. */
+export interface CategoryDrop {
+  kind: 'before' | 'after';
+  categoryId: ID;
+}
+
+/** The position changes of a category drag (categories numbered 0…n in their new order). */
+export function categoryMoveItems(
+  categories: readonly SpaceCategory[],
+  dragId: ID,
+  drop: CategoryDrop,
+): { id: ID; position: number }[] {
+  if (drop.categoryId === dragId) return [];
+  const sorted = [...categories].sort((a, b) => a.position - b.position);
+  const dragged = sorted.find((c) => c.id === dragId);
+  const rest = sorted.filter((c) => c.id !== dragId);
+  const i = rest.findIndex((c) => c.id === drop.categoryId);
+  if (!dragged || i < 0) return [];
+  rest.splice(drop.kind === 'after' ? i + 1 : i, 0, dragged);
+  return rest.flatMap((c, position) => (c.position === position ? [] : [{ id: c.id, position }]));
 }
 
 /** Every channel of the category is muted (and it has some). */

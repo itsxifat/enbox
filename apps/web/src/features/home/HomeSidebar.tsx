@@ -1,9 +1,11 @@
 import { memo, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { Virtuoso } from 'react-virtuoso';
-import { Archive, Plus, Star, Users, X } from 'lucide-react';
+import { Archive, Plus, Sparkles, Star, Users, X } from 'lucide-react';
 import { activePresenceNote, chatTitle, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { UserAvatar } from '@/components/common/UserAvatar';
+import { Nameplate, StyledName } from '@/components/cosmetics';
 import { CallsIcon, UpdatesIcon } from '@/components/icons';
 import { UserPanel } from '@/components/layout/UserPanel';
 import { useTabBadges } from '@/components/layout/useTabBadges';
@@ -11,6 +13,7 @@ import { Badge, IconButton, Menu, type IconType, type MenuAnchor } from '@/compo
 import { chatMenuItems, setArchived } from '@/features/chats/chatActions';
 import { cn } from '@/lib/cn';
 import { isChatUnread, useArchivedCounts, useSortedChats } from '@/stores/chats';
+import { useQuickSwitcher } from '@/stores/quickSwitcher';
 
 function NavRow({
   to,
@@ -43,8 +46,10 @@ function NavRow({
   );
 }
 
-const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; active: boolean }) {
+export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; active: boolean }) {
   const navigate = useNavigate();
+  // Direct chats wear the peer's cosmetics: decoration, nameplate, name style.
+  const peer = chat.type === 'direct' && chat.peer && !chat.peer.isDeleted ? chat.peer : null;
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const unread = isChatUnread(chat);
   const note = chat.type === 'direct' ? activePresenceNote(chat.peer?.presenceNote ?? null, Date.now()) : null;
@@ -60,27 +65,37 @@ const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; active:
         to={`/chats/${chat.id}`}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'flex h-[42px] items-center gap-3 rounded-lg pr-8 pl-2',
+          'relative flex h-[42px] items-center gap-3 rounded-lg pr-8 pl-2',
           active ? 'bg-selected text-fg' : unread ? 'text-fg hover:bg-hover' : 'text-muted hover:bg-hover hover:text-fg',
         )}
         data-testid="dm-row"
+        data-animate-avatars
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY });
         }}
       >
-        <ChatAvatar chat={chat} size={32} showPresence />
-        <span className="min-w-0 flex-1 leading-tight">
-          <span className={cn('block truncate text-[15px]', unread ? 'font-semibold' : 'font-medium')}>{chatTitle(chat)}</span>
+        {/* Behind the row's content, which is positioned (relative) to paint over it. */}
+        <Nameplate id={peer?.nameplate} />
+        {peer ? <UserAvatar user={peer} size={32} showPresence /> : <ChatAvatar chat={chat} size={32} showPresence />}
+        <span className="relative min-w-0 flex-1 leading-tight">
+          <StyledName
+            name={chatTitle(chat)}
+            style={peer?.nameStyle}
+            mode="full"
+            className={cn('block truncate text-[15px]', unread ? 'font-semibold' : 'font-medium')}
+          />
           {sub ? <span className="block truncate text-[12px] text-subtle">{sub}</span> : null}
         </span>
         {chat.unreadCount > 0 && !active ? (
-          <Badge
-            count={chat.unreadCount}
-            size="sm"
-            tone="danger"
-            label={`${chat.unreadCount} unread message${chat.unreadCount === 1 ? '' : 's'}`}
-          />
+          <span className="relative flex shrink-0">
+            <Badge
+              count={chat.unreadCount}
+              size="sm"
+              tone="danger"
+              label={`${chat.unreadCount} unread message${chat.unreadCount === 1 ? '' : 's'}`}
+            />
+          </span>
         ) : null}
       </NavLink>
       {/* Discord's "close DM": hides it from the list (archives it; a new message brings it back). */}
@@ -122,6 +137,7 @@ function HomeHeader({ context }: { context: HeaderContext }) {
         label="Calls"
         badge={badges.calls?.count ? <Badge count={badges.calls.count} size="sm" tone="danger" /> : null}
       />
+      <NavRow to="/collectibles" icon={Sparkles} label="Collectibles" />
       <NavRow to="/starred" icon={Star} label="Starred messages" />
       <NavRow
         to="/archived"
@@ -156,7 +172,8 @@ export function HomeSidebar() {
       <div className="flex h-12 shrink-0 items-center px-2.5">
         <button
           type="button"
-          onClick={() => void navigate('/new')}
+          onClick={() => useQuickSwitcher.getState().show()}
+          aria-keyshortcuts="Control+K"
           className="flex h-8 w-full items-center rounded-lg bg-surface-2 px-2.5 text-left text-[14px] text-subtle hover:text-muted focus-visible:outline-2 focus-visible:outline-brand"
         >
           Find or start a conversation

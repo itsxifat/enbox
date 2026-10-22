@@ -3,6 +3,8 @@ import { MUTE_FOREVER_ISO, type ChatSummary, type NotifyLevel, type SpaceCategor
 import { makeChat } from '@/test/factories';
 import { spaceMemory } from './actions';
 import {
+  categoryMoveItems,
+  channelMoveItems,
   groupsOf,
   isCategoryMuted,
   muteUntilIso,
@@ -157,6 +159,98 @@ describe('notification overrides', () => {
       ['category', 'a', 'all'],
       ['category', 'b', null],
     ]);
+  });
+});
+
+describe('drag reorder', () => {
+  /** A channel at `position` in `categoryId` (voice with `voice`), synced unless told otherwise. */
+  function at(id: string, categoryId: string | null, position: number, p: { voice?: boolean; synced?: boolean } = {}): ChatSummary {
+    const c = channel(id, categoryId);
+    return {
+      ...c,
+      type: p.voice ? 'space_voice' : 'space_text',
+      space: { ...c.space!, position, permissionsSynced: p.synced ?? true },
+    };
+  }
+  // Sidebar order: (none) t0 · A: a0 a1 a2 🔊av0 🔊av1 · B: b0 · EMPTY.
+  const chans = [
+    at('t0', null, 0),
+    at('a0', 'a', 0),
+    at('a1', 'a', 1),
+    at('a2', 'a', 2),
+    at('av0', 'a', 0, { voice: true }),
+    at('av1', 'a', 1, { voice: true }),
+    at('b0', 'b', 0, { synced: false }),
+  ];
+  const groups = groupsOf({ categories: [cat('a', 0), cat('b', 1), cat('empty', 2)] }, chans);
+
+  it('within a category: renumbers its kind, sends only what changed', () => {
+    expect(channelMoveItems(groups, 'a2', { kind: 'before', channelId: 'a0' })).toEqual([
+      { id: 'a2', categoryId: 'a', position: 0 },
+      { id: 'a0', categoryId: 'a', position: 1 },
+      { id: 'a1', categoryId: 'a', position: 2 },
+    ]);
+    expect(channelMoveItems(groups, 'a0', { kind: 'after', channelId: 'a1' })).toEqual([
+      { id: 'a1', categoryId: 'a', position: 0 },
+      { id: 'a0', categoryId: 'a', position: 1 },
+    ]);
+    expect(channelMoveItems(groups, 'av1', { kind: 'before', channelId: 'av0' })).toEqual([
+      { id: 'av1', categoryId: 'a', position: 0 },
+      { id: 'av0', categoryId: 'a', position: 1 },
+    ]);
+  });
+
+  it('text stays above voice: a drop among the other kind lands at the nearest end of its own', () => {
+    // A text channel dropped among the voice ones goes last of the text ones.
+    expect(channelMoveItems(groups, 'a0', { kind: 'after', channelId: 'av0' })).toEqual([
+      { id: 'a1', categoryId: 'a', position: 0 },
+      { id: 'a2', categoryId: 'a', position: 1 },
+      { id: 'a0', categoryId: 'a', position: 2 },
+    ]);
+    // A voice channel dropped above the text ones goes first of the voice ones.
+    expect(channelMoveItems(groups, 'av1', { kind: 'before', channelId: 'a1' })).toEqual([
+      { id: 'av1', categoryId: 'a', position: 0 },
+      { id: 'av0', categoryId: 'a', position: 1 },
+    ]);
+  });
+
+  it('across categories: joins the target (synced channels sync there), including into no category', () => {
+    expect(channelMoveItems(groups, 'a1', { kind: 'before', channelId: 'b0' })).toEqual([
+      { id: 'a1', categoryId: 'b', position: 0, syncPermissions: true },
+      { id: 'b0', categoryId: 'b', position: 1 },
+    ]);
+    expect(channelMoveItems(groups, 'b0', { kind: 'end', categoryId: null })).toEqual([
+      { id: 'b0', categoryId: null, position: 1 },
+    ]);
+    expect(channelMoveItems(groups, 'av0', { kind: 'start', categoryId: 'empty' })).toEqual([
+      { id: 'av0', categoryId: 'empty', position: 0, syncPermissions: true },
+    ]);
+    // An unsynced channel keeps its own permissions.
+    expect(channelMoveItems(groups, 'b0', { kind: 'start', categoryId: 'empty' })).toEqual([
+      { id: 'b0', categoryId: 'empty', position: 0 },
+    ]);
+  });
+
+  it('a drop that changes nothing sends nothing', () => {
+    expect(channelMoveItems(groups, 'a1', { kind: 'after', channelId: 'a0' })).toEqual([]);
+    expect(channelMoveItems(groups, 'a1', { kind: 'before', channelId: 'a1' })).toEqual([]);
+    expect(channelMoveItems(groups, 'a2', { kind: 'end', categoryId: 'a' })).toEqual([]);
+    expect(channelMoveItems(groups, 'nope', { kind: 'end', categoryId: 'a' })).toEqual([]);
+  });
+
+  it('categories: numbered 0…n in their new order, only the changed ones', () => {
+    const cats = [cat('a', 0), cat('b', 1), cat('c', 2)];
+    expect(categoryMoveItems(cats, 'c', { kind: 'before', categoryId: 'a' })).toEqual([
+      { id: 'c', position: 0 },
+      { id: 'a', position: 1 },
+      { id: 'b', position: 2 },
+    ]);
+    expect(categoryMoveItems(cats, 'a', { kind: 'after', categoryId: 'b' })).toEqual([
+      { id: 'b', position: 0 },
+      { id: 'a', position: 1 },
+    ]);
+    expect(categoryMoveItems(cats, 'b', { kind: 'after', categoryId: 'a' })).toEqual([]);
+    expect(categoryMoveItems(cats, 'b', { kind: 'before', categoryId: 'b' })).toEqual([]);
   });
 });
 

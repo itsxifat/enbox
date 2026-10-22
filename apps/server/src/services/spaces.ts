@@ -18,6 +18,7 @@ import {
   type SpaceCategory,
   type SpaceInfoChanges,
   type SpaceMember,
+  type SpaceProfile,
   type SpaceRemovedReason,
   type SpaceRole,
 } from '@enbox/shared';
@@ -34,6 +35,7 @@ import {
   spaceRoles,
   spaces,
   users,
+  type MediaRow,
   type SpaceMemberRow,
   type SpaceRoleRow,
   type SpaceRow,
@@ -47,7 +49,7 @@ import {
   spaceStructureChanged,
 } from '../realtime/spaceRegistry.js';
 import type { Effects } from './effects.js';
-import { mediaUrl, staticMediaUrl } from './media.js';
+import { loadMediaMap, mediaUrl, staticMediaUrl } from './media.js';
 import {
   baseBits,
   channelBits,
@@ -62,7 +64,30 @@ import { pairKey, rawRows, uniq, uuidArray } from './sql.js';
 // Small serializers
 // ---------------------------------------------------------------------------
 
-export function toSpaceRole(r: SpaceRoleRow): SpaceRole {
+/** Media rows by id (the images of per-Space profiles and role icons). */
+export type MediaById = ReadonlyMap<string, MediaRow>;
+
+/** The media ids a serializer of these roles needs (`toSpaceRole`'s `media`). */
+export function roleMediaIds(roles: readonly Pick<SpaceRoleRow, 'iconMediaId'>[]): string[] {
+  return roles.map((r) => r.iconMediaId).filter((x): x is string => !!x);
+}
+
+/** The media ids a serializer of these members needs (`toSpaceMember`'s `media`). */
+export function memberMediaIds(
+  rows: readonly Pick<SpaceMemberRow, 'avatarMediaId' | 'bannerMediaId'>[],
+): string[] {
+  return rows.flatMap((m) => [m.avatarMediaId, m.bannerMediaId]).filter((x): x is string => !!x);
+}
+
+/**
+ * A role on the wire. Name style: `solid` uses `color`; `gradient` runs `color` →
+ * `colorSecondary` (both required by the routes); `holographic` is drawn by the client from
+ * its own palette — the colours are kept and serve as the fallback (mention pills, older
+ * clients). The icon image (static, `iconUrl`) wins over `iconEmoji`; `media` must hold the
+ * icon's row (else `iconUrl` is null).
+ */
+export function toSpaceRole(r: SpaceRoleRow, media?: MediaById): SpaceRole {
+  const icon = r.iconMediaId ? media?.get(r.iconMediaId) : undefined;
   return {
     id: r.id,
     name: r.name,
@@ -72,10 +97,50 @@ export function toSpaceRole(r: SpaceRoleRow): SpaceRole {
     hoist: r.hoist,
     mentionable: r.mentionable,
     isDefault: r.isDefault,
+    colorStyle: r.colorStyle,
+    colorSecondary: r.colorSecondary,
+    iconUrl: icon ? staticMediaUrl(icon) : null,
+    iconEmoji: r.iconEmoji,
   };
 }
 
-export function toSpaceMember(m: SpaceMemberRow, roleIds: string[]): SpaceMember {
+/** A Space's roles in position order, icons resolved (two queries). */
+export async function loadSpaceRoles(dbx: DbOrTx, spaceId: string): Promise<SpaceRole[]> {
+  const rows = await dbx
+    .select()
+    .from(spaceRoles)
+    .where(eq(spaceRoles.spaceId, spaceId))
+    .orderBy(asc(spaceRoles.position));
+  const mediaById = await loadMediaMap(dbx, roleMediaIds(rows));
+  return rows.map((r) => toSpaceRole(r, mediaById));
+}
+
+/**
+ * Per-Space profile overrides of a member row (null = the main profile). The images follow the
+ * user profile's split: `*Url` is the static image (the poster of an animated upload), the
+ * animated original travels as `*AnimatedUrl`. Visible to every member of the Space (the
+ * user's own privacy settings govern the main profile only). `media` must hold the rows of
+ * `avatarMediaId` / `bannerMediaId` (`memberMediaIds`), else those URLs are null.
+ */
+export function toSpaceProfile(m: SpaceMemberRow, media?: MediaById): Required<SpaceProfile> {
+  const avatar = m.avatarMediaId ? media?.get(m.avatarMediaId) : undefined;
+  const banner = m.bannerMediaId ? media?.get(m.bannerMediaId) : undefined;
+  return {
+    avatarUrl: avatar ? staticMediaUrl(avatar) : null,
+    avatarAnimatedUrl: avatar?.animated ? mediaUrl(avatar.storageKey) : null,
+    bannerUrl: banner ? staticMediaUrl(banner) : null,
+    bannerAnimatedUrl: banner?.animated ? mediaUrl(banner.storageKey) : null,
+    bio: m.bio,
+    pronouns: m.pronouns,
+    profileColor: m.profileColor,
+    accentColor: m.accentColor,
+    avatarDecoration: m.avatarDecoration,
+    profileEffect: m.profileEffect,
+    nameplate: m.nameplate,
+  };
+}
+
+export function toSpaceMember(m: SpaceMemberRow, roleIds: string[], media?: MediaById): SpaceMember {
   return {
     userId: m.userId,
     nickname: m.nickname,
@@ -87,7 +152,20 @@ export function toSpaceMember(m: SpaceMemberRow, roleIds: string[]): SpaceMember
         : null,
     serverMute: m.serverMute,
     serverDeaf: m.serverDeaf,
+    ...toSpaceProfile(m, media),
   };
+}
+
+/** Members on the wire, their profile images loaded in one query. */
+export async function toSpaceMembers(
+  dbx: DbOrTx,
+  list: readonly { member: SpaceMemberRow; roleIds: string[] }[],
+): Promise<SpaceMember[]> {
+  const mediaById = await loadMediaMap(
+    dbx,
+    memberMediaIds(list.map((m) => m.member)),
+  );
+  return list.map((m) => toSpaceMember(m.member, m.roleIds, mediaById));
 }
 
 /** `space_members.sort_name`: the member list order. */
@@ -169,19 +247,22 @@ export async function toSpaces(
   for (const r of roleRows) myRoles.set(r.spaceId, [...(myRoles.get(r.spaceId) ?? []), r.roleId]);
 
   const spaceRows = await dbx.select().from(spaces).where(inArray(spaces.id, ids));
-  const mediaIds = uniq(
-    spaceRows.flatMap((s) => [s.iconMediaId, s.bannerMediaId]).filter((x): x is string => !!x),
-  );
-  const mediaRows = mediaIds.length
-    ? await dbx.select().from(media).where(inArray(media.id, mediaIds))
-    : [];
-  const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
   const categories = await loadCategories(dbx, ids);
   const ctxs = new Map<string, SpacePermCtx>();
   for (const id of ids) {
     const ctx = await loadSpacePermCtx(dbx, id);
     if (ctx) ctxs.set(id, ctx);
   }
+  // One media query: Space icons/banners, my per-Space profile images, role icons.
+  const mediaIds = uniq([
+    ...spaceRows.flatMap((s) => [s.iconMediaId, s.bannerMediaId]).filter((x): x is string => !!x),
+    ...memberMediaIds(memberRows),
+    ...[...ctxs.values()].flatMap((c) => roleMediaIds(c.roles)),
+  ]);
+  const mediaRows = mediaIds.length
+    ? await dbx.select().from(media).where(inArray(media.id, mediaIds))
+    : [];
+  const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
 
   // Unread channels: activity after my read position (row) or my join (no row), not muted.
   const unreadRows = await rawRows<{ space_id: string; chat_id: string; type: string }>(
@@ -274,9 +355,10 @@ export async function toSpaces(
       isDiscoverable: s.isDiscoverable,
       vanityCode: hasPerm(base, PERM.MANAGE_SPACE) ? s.vanityCode : null,
       createdAt: s.createdAt.toISOString(),
-      roles: ctx.roles.map(toSpaceRole),
+      roles: ctx.roles.map((r) => toSpaceRole(r, mediaById)),
       categories: categories.get(s.id) ?? [],
       me: {
+        ...toSpaceProfile(m, mediaById),
         roleIds,
         nickname: m.nickname,
         joinedAt: m.joinedAt.toISOString(),
@@ -357,13 +439,7 @@ export function fxRolesChanged(fx: Effects, spaceId: string): void {
   fx.add(
     () => emitToRooms([rooms.space(spaceId)], 'space:updated', { spaceId, changes: { roles } }),
     async (dbx) => {
-      roles = (
-        await dbx
-          .select()
-          .from(spaceRoles)
-          .where(eq(spaceRoles.spaceId, spaceId))
-          .orderBy(asc(spaceRoles.position))
-      ).map(toSpaceRole);
+      roles = await loadSpaceRoles(dbx, spaceId);
     },
   );
 }

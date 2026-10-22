@@ -54,6 +54,12 @@ export interface BusEvents {
    * keeps the newest message in view when it was at the bottom.
    */
   'conversation:row-grew': void;
+  /**
+   * Files dropped anywhere over an open conversation (conversation/dropzone) for its
+   * composer: added to the attachment tray, or uploaded right away when `direct` (Shift was
+   * held). Carries in-memory File handles: never serialised.
+   */
+  'composer:files': { chatId: ID; files: File[]; direct: boolean };
 
   // --- Navigation ---
   /** Ask the router to navigate (used by notifications / service worker clicks). */

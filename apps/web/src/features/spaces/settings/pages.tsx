@@ -192,6 +192,8 @@ const ACTIONS: Record<string, string> = {
   'member.kick': 'kicked a member',
   'member.ban': 'banned a member',
   'member.unban': 'unbanned a member',
+  'member.voice_disconnect': 'disconnected a member from voice',
+  'member.voice_move': 'moved a member to another voice channel',
   'invite.create': 'created an invite',
   'invite.delete': 'revoked an invite',
 };

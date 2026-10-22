@@ -133,3 +133,53 @@ describe('MediaBody (animated images)', () => {
     expect(img()).toHaveAttribute('src', GIF);
   });
 });
+
+describe('MediaBody (spoilers)', () => {
+  const photo = (fileName: string) =>
+    gifMessage(false, { url: '/uploads/pic.jpg', mimeType: 'image/jpeg', fileName });
+
+  it('blurs a SPOILER_ image behind a pill until clicked, without opening the viewer', () => {
+    const { container, onOpen } = renderBody(photo('SPOILER_pic.jpg'));
+    const media = container.querySelector('button[aria-hidden="true"]')!;
+    expect(media).toHaveClass('blur-2xl');
+    expect(media).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByText('SPOILER')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal spoiler image' }));
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByText('SPOILER')).toBeNull();
+    const open = screen.getByRole('button', { name: 'Open photo' });
+    expect(open).not.toHaveClass('blur-2xl');
+    fireEvent.click(open);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a spoiler GIF still and hides the video badge until revealed', () => {
+    useUi.getState().setPref('autoplayAnimatedMedia', 'always');
+    const gif = renderBody(gifMessage(true, { fileName: 'SPOILER_fun.gif' }));
+    expect(gif.img()).toHaveAttribute('src', POSTER);
+    expect(gif.container).not.toHaveTextContent('GIF');
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal spoiler image' }));
+    expect(gif.img()).toHaveAttribute('src', GIF);
+    gif.unmount();
+    const video = makeMessage({
+      type: 'video',
+      text: null,
+      media: {
+        ...gifMessage().media!,
+        kind: 'video',
+        mimeType: 'video/mp4',
+        animated: false,
+        fileName: 'SPOILER_clip.mp4',
+      },
+    });
+    renderBody(video);
+    expect(screen.getByRole('button', { name: 'Reveal spoiler video' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Play video' })).toBeNull();
+  });
+
+  it('shows other images as usual', () => {
+    renderBody(photo('pic.jpg'));
+    expect(screen.queryByText('SPOILER')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open photo' })).not.toHaveClass('blur-2xl');
+  });
+});

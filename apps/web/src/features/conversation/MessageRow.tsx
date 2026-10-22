@@ -19,14 +19,23 @@ import {
   type RefObject,
 } from 'react';
 import { Ban, Check, ChevronDown, FastForward, Forward, RotateCw, SmilePlus } from 'lucide-react';
-import { FORWARDED_MANY_TIMES_THRESHOLD, type BubbleStyle, type ChatSummary } from '@enbox/shared';
+import {
+  FORWARDED_MANY_TIMES_THRESHOLD,
+  userDisplayName,
+  type BubbleStyle,
+  type ChatSummary,
+} from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { StyledName } from '@/components/cosmetics';
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { openProfile } from '@/features/profile/open';
+import { RoleIcon } from '@/features/spaces/RoleIcon';
+import { withSpaceProfile } from '@/features/spaces/serverProfile/merge';
 import { cn } from '@/lib/cn';
+import { useAuth } from '@/stores/auth';
 import type { ClientMessage } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
-import { useUserName } from '@/stores/users';
+import { useUser, useUserName } from '@/stores/users';
 import { useSpaceAuthor } from '@/stores/spaces';
 import { useLongPress } from '@/features/chats/useLongPress';
 import { canReact, canReply, retry, startReply } from './actions';
@@ -94,7 +103,10 @@ export function SenderName({
   /** Per-sender colour (bubbles); Discord rows use the text colour. */
   coloured?: boolean;
 }) {
-  const userName = useUserName(userId, { you });
+  // The same subscriptions as useUserName, keeping the user for their name style.
+  const me = useAuth((s) => (s.user?.id === userId ? s.user : null));
+  const other = useUser(me ? null : userId);
+  const userName = me ? (you ?? 'You') : userDisplayName(other);
   const author = useSpaceAuthor(spaceId, userId);
   const name = author?.nickname || userName;
   const dark = useUi((s) => s.resolvedTheme === 'dark');
@@ -109,14 +121,16 @@ export function SenderName({
         openProfile(userId, e.currentTarget, { spaceId: spaceId ?? undefined });
       }}
       className={cn(
-        'block max-w-full truncate rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand',
+        'flex max-w-full min-w-0 items-center gap-1 rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand',
         className,
       )}
-      // Discord: role colour in Spaces, otherwise the default text colour; bubbles keep
-      // the per-sender colours that tell group members apart.
-      style={{ color: author ? (author.color ?? undefined) : coloured ? senderColor(userId, dark) : undefined }}
+      // Discord: role colour in Spaces (StyledName), otherwise the default text colour;
+      // bubbles keep the per-sender colours that tell group members apart.
+      style={{ color: !author && coloured ? senderColor(userId, dark) : undefined }}
     >
-      {name}
+      {/* Message rows wear the name font only; the role's colours win in a Space. */}
+      <StyledName name={name} style={(me ?? other)?.nameStyle} role={author?.role} mode="font" className="truncate" />
+      <RoleIcon role={author?.iconRole} size={16} />
     </button>
   );
 }
@@ -125,12 +139,18 @@ export function SenderAvatar({
   userId,
   selecting,
   size = 32,
+  spaceId,
 }: {
   userId: string;
   selecting: boolean;
   size?: number;
+  /** Space channels: the per-Space avatar and decoration win. */
+  spaceId?: string | null;
 }) {
   const name = useUserName(userId);
+  const user = useUser(userId);
+  const author = useSpaceAuthor(spaceId, userId);
+  const shown = user && author ? withSpaceProfile(user, author.profile, author.nickname) : user;
   return (
     <button
       type="button"
@@ -139,11 +159,11 @@ export function SenderAvatar({
       onClick={(e) => {
         if (selecting) return;
         e.stopPropagation();
-        openProfile(userId, e.currentTarget);
+        openProfile(userId, e.currentTarget, { spaceId: spaceId ?? undefined });
       }}
       className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
-      <UserAvatar userId={userId} size={size} />
+      <UserAvatar user={shown} userId={userId} size={size} />
     </button>
   );
 }

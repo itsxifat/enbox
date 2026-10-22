@@ -46,7 +46,9 @@ export interface BannerCropDialogProps {
    * Save the uploaded banner somewhere other than my profile (a Space banner): called with the
    * media, and the profile is left alone.
    */
-  onUploaded?: (media: MediaAttachment) => Promise<void>;
+  onUploaded?: (media: MediaAttachment) => void | Promise<void>;
+  /** Toast after a successful upload; null for none. */
+  successToast?: string | null;
 }
 
 /**
@@ -55,7 +57,13 @@ export interface BannerCropDialogProps {
  * renders (JPEG ≤ MAX_BANNER_BYTES), uploads and saves it; an animated image goes up whole
  * with the cropped still as its poster.
  */
-export function BannerCropDialog({ file, onClose, onDone, onUploaded }: BannerCropDialogProps) {
+export function BannerCropDialog({
+  file,
+  onClose,
+  onDone,
+  onUploaded,
+  successToast = 'Banner updated',
+}: BannerCropDialogProps) {
   const [viewport, setViewport] = useState<Viewport>(viewportFor);
   const [src, setSrc] = useState<string | null>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -188,14 +196,16 @@ export function BannerCropDialog({ file, onClose, onDone, onUploaded }: BannerCr
       if (info?.animated) {
         // The crop frames the still only; the animation is uploaded whole (stripped).
         const poster = await renderBannerPoster(img, rect);
-        if (onUploaded) await onUploaded(await uploadAnimatedBannerMedia(file, info, poster, setProgress));
+        if (onUploaded)
+          await onUploaded(await uploadAnimatedBannerMedia(file, info, poster, setProgress));
         else await uploadAnimatedBanner(file, info, poster, setProgress);
       } else {
         const { blob, width, height } = await renderBanner(img, rect);
-        if (onUploaded) await onUploaded(await uploadBannerMedia(blob, { width, height }, setProgress));
+        if (onUploaded)
+          await onUploaded(await uploadBannerMedia(blob, { width, height }, setProgress));
         else await uploadBanner(blob, { width, height }, setProgress);
       }
-      toast.success('Banner updated');
+      if (successToast) toast.success(successToast);
       onDone?.();
       onClose();
     } catch (e) {

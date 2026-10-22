@@ -50,7 +50,7 @@ describe('Space menus', () => {
       '—',
       'Notification Settings',
       '—',
-      'Edit Space Profile',
+      'Edit Per-server Profile',
       'Hide Muted Channels [ ]',
       '—',
       'Leave Space',

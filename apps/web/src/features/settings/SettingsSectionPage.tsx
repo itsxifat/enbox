@@ -40,7 +40,7 @@ interface PageDef {
 }
 
 export const SETTINGS_PAGES: Record<string, PageDef> = {
-  profile: { title: 'Profile', render: () => <ProfilePage /> },
+  profile: { title: 'Profiles', render: () => <ProfilePage /> },
   'profile/about': { title: 'About', render: () => <AboutPage /> },
   'profile/bio': { title: 'Bio', render: () => <BioPage /> },
   'profile/pronouns': { title: 'Pronouns', render: () => <PronounsPage /> },

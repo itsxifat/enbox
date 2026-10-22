@@ -7,6 +7,7 @@ import type { SocketRegistrar } from '../realtime/types.js';
 import { publicRouter as systemPublic } from './system/routes.js';
 import { publicRouter as authPublic, router as auth } from './auth/routes.js';
 import { router as users } from './users/routes.js';
+import { router as userProfiles } from './users/profile.js';
 import { router as media } from './media/routes.js';
 import { router as chats } from './chats/routes.js';
 import { router as messages } from './messages/routes.js';
@@ -33,6 +34,7 @@ export const publicRouters: Router[] = [systemPublic, authPublic];
 export const authedRouters: Router[] = [
   auth,
   users,
+  userProfiles,
   media,
   chats,
   messages,

@@ -139,7 +139,9 @@ export function Popover({
     const place = () => {
       const el = ref.current;
       if (!el) return;
-      const box = el.getBoundingClientRect();
+      // Layout size, not getBoundingClientRect: the scale-in animation's transform would make
+      // a tall popover measure short and overflow the viewport once it reaches full size.
+      const box = { width: el.offsetWidth, height: el.offsetHeight };
       setPos(
         placePopover(
           anchorRect(anchor),

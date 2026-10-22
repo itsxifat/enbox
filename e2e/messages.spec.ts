@@ -156,10 +156,11 @@ test('image upload shows in both chats', async ({ browser }) => {
       mimeType: 'image/png',
       buffer: await pngFixture(320, 200),
     });
-  const dialog = a.page.getByRole('dialog', { name: 'Send photos and videos' });
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('textbox', { name: 'Caption' }).fill('Look at this sunset');
-  await dialog.getByRole('button', { name: 'Send' }).click();
+  // Desktop: the photo waits in the attachment tray; the typed text becomes its caption.
+  await expect(a.page.getByTestId('attachment-tile')).toContainText('sunset.png');
+  const box = a.page.getByRole('textbox', { name: 'Message' });
+  await box.fill('Look at this sunset');
+  await box.press('Enter');
 
   const photo = bubble(a.page, 'Look at this sunset');
   await expect(photo.getByRole('button', { name: 'Open photo' })).toBeVisible();

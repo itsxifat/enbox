@@ -14,6 +14,10 @@ const ProfileCardHost = lazyNamed(
   () => import('@/features/profile/ProfileCardHost'),
   'ProfileCardHost',
 );
+const KeyboardShortcuts = lazyNamed(
+  () => import('@/features/quickSwitcher/KeyboardShortcuts'),
+  'KeyboardShortcuts',
+);
 
 /** Sections that live under Home (Discord's DMs): they get the DM sidebar on desktop. */
 const NOT_HOME = ['/spaces', '/settings', '/join', '/communities'];
@@ -27,7 +31,8 @@ function isHomePath(pathname: string): boolean {
  * Desktop: [rail (Home, unread DMs, Spaces) | Home sidebar on Home routes | section];
  * phone: [section] + the floating bottom tabs.
  * The call overlay (agent 4) floats above everything; the profile card host renders the
- * card opened through the bus (`profile:open`) from anywhere in the app.
+ * card opened through the bus (`profile:open`) from anywhere in the app; KeyboardShortcuts
+ * owns Ctrl+K (Quick Switcher) and the other app-wide keys.
  */
 export function AppShell() {
   const desktop = useIsDesktop();
@@ -50,6 +55,10 @@ export function AppShell() {
       <Suspense fallback={null}>
         <CallOverlay />
         <ProfileCardHost />
+      </Suspense>
+      {/* Its own boundary: Ctrl+K must not wait for the call overlay's chunk. */}
+      <Suspense fallback={null}>
+        <KeyboardShortcuts />
       </Suspense>
     </div>
   );

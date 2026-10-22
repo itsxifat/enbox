@@ -19,6 +19,14 @@ function mockPatch() {
   });
 }
 
+/** The card banner's colour, as hex or as the rgb() jsdom may turn it into. */
+function hasColour(el: HTMLElement, hex: string): boolean {
+  const n = parseInt(hex.slice(1), 16);
+  const rgb = `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+  const css = el.getAttribute('style') ?? '';
+  return css.includes(hex) || css.includes(rgb);
+}
+
 beforeEach(() => {
   useAuth.setState({ user: makeMe({ id: 'me' }), token: 't', status: 'authenticated' });
   useUi.setState({ toasts: [] });
@@ -87,8 +95,7 @@ describe('ColoursPage', () => {
     expect(screen.queryByText('Use a #rrggbb colour')).toBeNull();
     expect(profile).toHaveValue('#abcdef');
     // The preview follows.
-    const banner = screen.getByTestId('card-banner');
-    expect(banner.style.background).toContain('#abcdef');
+    expect(hasColour(screen.getByTestId('card-banner'), '#abcdef')).toBe(true);
     fireEvent.click(screen.getByRole('group', { name: 'Accent colour presets' }).children[1]!);
     fireEvent.click(save);
     await waitFor(() =>
@@ -109,11 +116,11 @@ describe('ColoursPage', () => {
     const profile = screen.getByTestId('profile-color-input');
     fireEvent.change(profile, { target: { value: '#6d5dfc' } });
     expect(save).toBeEnabled();
-    expect(screen.getByTestId('card-banner').style.background).toContain('#6d5dfc');
+    expect(hasColour(screen.getByTestId('card-banner'), '#6d5dfc')).toBe(true);
     fireEvent.change(profile, { target: { value: '#6d5df' } });
     expect(screen.getByText('Use a #rrggbb colour')).toBeInTheDocument();
     expect(save).toBeDisabled();
-    expect(screen.getByTestId('card-banner').style.background).not.toContain('#6d5dfc');
+    expect(hasColour(screen.getByTestId('card-banner'), '#6d5dfc')).toBe(false);
   });
 
   it('"Use default" clears both colours', async () => {

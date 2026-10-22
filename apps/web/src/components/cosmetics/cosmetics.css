@@ -1,0 +1,579 @@
+/*
+ * Profile cosmetics (components/cosmetics): avatar decorations, nameplates and name styles.
+ *
+ * Motion is CSS only, so a member list of hundreds of decorated rows adds no listener or
+ * subscription per row. Every moving part carries `.cos-anim` plus a motion class that sets
+ * `--cos-a` (an `animation` shorthand); the part only plays when its `.cos-art` root allows it:
+ *
+ *   data-play='always'   plays (profile cards, the editor; the component freezes it itself
+ *                        under reduced motion or a hidden app)
+ *   data-play='hover'    plays while the avatar, or the closest `[data-animate-avatars]` host
+ *                        (a list row, the profile card), is hovered or has focus within
+ *   data-play='never'    the still poster pose
+ *
+ * The 0% keyframe of every motion is the identity, so a part at rest is its poster pose.
+ * `html[data-reduce-motion]` / `html[data-autoplay-media]` (stores/ui.ts applyAppearance)
+ * and the OS reduced-motion query freeze everything. SVG parts animate transform/opacity only.
+ */
+
+.cos-art[data-play='always'] .cos-anim,
+:hover > .cos-art[data-play='hover'] .cos-anim,
+[data-animate-avatars]:hover .cos-art[data-play='hover'] .cos-anim,
+[data-animate-avatars]:focus-within .cos-art[data-play='hover'] .cos-anim,
+html[data-autoplay-media='always'] .cos-deco[data-play='hover'] .cos-anim {
+  animation: var(--cos-a);
+}
+
+html[data-autoplay-media='never'] .cos-anim,
+html[data-reduce-motion='on'] .cos-anim {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-reduce-motion='off']) .cos-anim {
+    animation: none !important;
+  }
+}
+
+/* Decorations: an SVG over the avatar (Avatar.tsx renders it inside the avatar root). */
+.cos-deco {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  overflow: visible;
+}
+.cos-deco .cos-anim {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Motion classes. `--cos-a` is the whole animation; inline animation-delay / -duration tune it. */
+.cos-spin {
+  --cos-a: cos-spin 12s linear infinite;
+  transform-box: view-box !important;
+  transform-origin: 50% 50% !important;
+}
+.cos-spin-rev {
+  --cos-a: cos-spin-rev 16s linear infinite;
+  transform-box: view-box !important;
+  transform-origin: 50% 50% !important;
+}
+.cos-rock {
+  --cos-a: cos-rock 4s ease-in-out infinite;
+  transform-box: view-box !important;
+  transform-origin: 50% 50% !important;
+}
+.cos-turn {
+  --cos-a: cos-spin 10s linear infinite;
+}
+.cos-bob {
+  --cos-a: cos-bob 2.6s ease-in-out infinite;
+}
+.cos-float {
+  --cos-a: cos-float 3.4s ease-in-out infinite;
+}
+.cos-twinkle {
+  --cos-a: cos-twinkle 1.8s ease-in-out infinite;
+}
+.cos-pulse {
+  --cos-a: cos-pulse 2.2s ease-in-out infinite;
+}
+.cos-neon {
+  --cos-a: cos-neon 3.2s linear infinite;
+}
+.cos-flicker {
+  --cos-a: cos-flicker 0.7s ease-in-out infinite alternate;
+  transform-origin: 50% 100% !important;
+}
+.cos-sway {
+  --cos-a: cos-sway 3s ease-in-out infinite;
+  transform-origin: 50% 100% !important;
+}
+.cos-swing {
+  --cos-a: cos-sway 2.4s ease-in-out infinite;
+}
+.cos-squash {
+  --cos-a: cos-squash 1.6s ease-in-out infinite;
+  transform-origin: 50% 100% !important;
+}
+.cos-rise {
+  --cos-a: cos-rise 2.8s ease-in infinite;
+}
+.cos-fall {
+  --cos-a: cos-fall 1.1s linear infinite;
+}
+.cos-flap-l {
+  --cos-a: cos-flap 0.55s ease-in-out infinite;
+  transform-origin: 100% 50% !important;
+}
+.cos-flap-r {
+  --cos-a: cos-flap 0.55s ease-in-out infinite;
+  transform-origin: 0% 50% !important;
+}
+.cos-beat-l {
+  --cos-a: cos-beat-l 1.6s ease-in-out infinite;
+  transform-origin: 100% 80% !important;
+}
+.cos-beat-r {
+  --cos-a: cos-beat-r 1.6s ease-in-out infinite;
+  transform-origin: 0% 80% !important;
+}
+.cos-blink {
+  --cos-a: cos-blink 2.4s steps(1, end) infinite;
+}
+.cos-jitter {
+  --cos-a: cos-jitter 0.9s steps(1, end) infinite;
+}
+.cos-eq {
+  --cos-a: cos-eq 0.9s ease-in-out infinite;
+  transform-origin: 50% 100% !important;
+}
+.cos-hop {
+  --cos-a: cos-hop 1.4s ease-out infinite;
+}
+.cos-flip {
+  --cos-a: cos-flip 1.6s linear infinite;
+}
+.cos-twitch {
+  --cos-a: cos-twitch 3.6s ease-in-out infinite;
+  transform-origin: 50% 100% !important;
+}
+.cos-drift {
+  --cos-a: cos-drift 3s ease-in-out infinite;
+}
+
+@keyframes cos-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes cos-spin-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes cos-rock {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-6deg);
+  }
+}
+@keyframes cos-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes cos-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(1.5px, -2.5px);
+  }
+  66% {
+    transform: translate(-1.5px, -1px);
+  }
+}
+@keyframes cos-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.55);
+  }
+}
+@keyframes cos-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes cos-neon {
+  0%,
+  18%,
+  22%,
+  60%,
+  100% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0.35;
+  }
+  62% {
+    opacity: 0.6;
+  }
+  64% {
+    opacity: 1;
+  }
+}
+@keyframes cos-flicker {
+  0% {
+    transform: scale(1, 1);
+  }
+  100% {
+    transform: scale(0.9, 1.14);
+  }
+}
+@keyframes cos-sway {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(7deg);
+  }
+  75% {
+    transform: rotate(-7deg);
+  }
+}
+@keyframes cos-squash {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.08, 0.88);
+  }
+}
+@keyframes cos-rise {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-12px);
+    opacity: 0;
+  }
+}
+@keyframes cos-fall {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+}
+@keyframes cos-flap {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(0.3);
+  }
+}
+@keyframes cos-beat-l {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes cos-beat-r {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes cos-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  46% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 1;
+  }
+  54% {
+    opacity: 0.3;
+  }
+  58% {
+    opacity: 1;
+  }
+}
+@keyframes cos-jitter {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-2px, 1px);
+  }
+  40% {
+    transform: translate(2px, -1px);
+  }
+  60% {
+    transform: translate(-1px, 0);
+  }
+  80% {
+    transform: translate(1.5px, 1px);
+  }
+}
+@keyframes cos-eq {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.3);
+  }
+}
+@keyframes cos-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-5px);
+  }
+  55% {
+    transform: translateY(0);
+  }
+  70% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes cos-flip {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  25% {
+    transform: scaleX(0.1);
+  }
+  50% {
+    transform: scaleX(-1);
+  }
+  75% {
+    transform: scaleX(0.1);
+  }
+}
+@keyframes cos-twitch {
+  0%,
+  78%,
+  100% {
+    transform: rotate(0deg);
+  }
+  84% {
+    transform: rotate(-12deg);
+  }
+  90% {
+    transform: rotate(7deg);
+  }
+  95% {
+    transform: rotate(-3deg);
+  }
+}
+@keyframes cos-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(2px, -3px);
+    opacity: 0.4;
+  }
+}
+
+/*
+ * Nameplates: behind a list row's content. The plate is the row's first child and the content
+ * after it is positioned (`relative`), so it paints over the plate; the row is `relative` and
+ * rounded, and the plate inherits the radius. The mask fades it out to the left, under the
+ * avatar and the name, so names stay legible on every theme.
+ */
+.cos-plate {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(0 0 0 / 0.1) 22%,
+    rgb(0 0 0 / 0.55) 58%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgb(0 0 0 / 0.1) 22%,
+    rgb(0 0 0 / 0.55) 58%,
+    #000 100%
+  );
+}
+:root:not(.dark) .cos-plate {
+  opacity: 0.85;
+}
+.cos-plate > span {
+  position: absolute;
+  inset: 0;
+}
+/* The base paint (nameplates.ts) comes as a variable: several background layers in one. */
+.cos-plate > span:first-child {
+  background: var(--cos-plate-base);
+}
+/* The detail layer is wider than the row so drifting left never shows an edge. */
+.cos-plate > .cos-plate-fx {
+  right: -30%;
+}
+.cos-plate-drift {
+  --cos-a: cos-plate-drift 7s ease-in-out infinite alternate;
+}
+.cos-plate-rise {
+  --cos-a: cos-plate-rise 4s ease-in-out infinite alternate;
+}
+.cos-plate-twinkle {
+  --cos-a: cos-pulse 2.4s ease-in-out infinite;
+}
+.cos-plate-shine {
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.45) 48%,
+    transparent 66%
+  );
+  transform: translateX(-100%);
+  --cos-a: cos-plate-shine 2.6s ease-in-out infinite;
+}
+@keyframes cos-plate-drift {
+  to {
+    transform: translateX(-20%);
+  }
+}
+@keyframes cos-plate-rise {
+  to {
+    transform: translate(-6%, -18%);
+  }
+}
+@keyframes cos-plate-shine {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/*
+ * Display name styles (StyledName.tsx sets --n1 / --n2 / --np for the user's colours and
+ * --r1 / --r2 for a Space role). Unlayered, so they beat a `text-*` utility on the element.
+ */
+.cos-name[data-effect='solid'] {
+  color: var(--n1);
+}
+.cos-name[data-effect='gradient'],
+.cos-name[data-role='gradient'],
+.cos-name[data-role='holographic'] {
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.cos-name[data-effect='gradient'] {
+  background-image: linear-gradient(90deg, var(--n1), var(--n2));
+}
+.cos-name[data-effect='neon'] {
+  color: color-mix(in srgb, var(--n1) 22%, white);
+  text-shadow:
+    0 0 1px var(--n1),
+    0 0 4px var(--n1),
+    0 0 10px color-mix(in srgb, var(--n1) 70%, transparent);
+}
+:root:not(.dark) .cos-name[data-effect='neon'] {
+  color: color-mix(in srgb, var(--n1) 72%, black);
+  text-shadow:
+    0 0 5px color-mix(in srgb, var(--n1) 65%, transparent),
+    0 0 10px color-mix(in srgb, var(--n1) 35%, transparent);
+}
+/* Toon: a sticker outline (light on dark themes, dark on Light) and a hard drop shadow. */
+.cos-name[data-effect='toon'] {
+  --o: color-mix(in srgb, var(--n1) 22%, white);
+  --d: color-mix(in srgb, var(--n1) 35%, #0b0a14);
+  color: var(--n1);
+  text-shadow:
+    -1px -1px 0 var(--o),
+    1px -1px 0 var(--o),
+    -1px 1px 0 var(--o),
+    1px 1px 0 var(--o),
+    0 -1px 0 var(--o),
+    0 1px 0 var(--o),
+    -1px 0 0 var(--o),
+    1px 0 0 var(--o),
+    1.5px 2.5px 0 var(--d);
+}
+:root:not(.dark) .cos-name[data-effect='toon'] {
+  --o: color-mix(in srgb, var(--n1) 40%, #0b0a14);
+  --d: color-mix(in srgb, var(--n1) 30%, rgb(0 0 0 / 0.35));
+}
+/* Pop: a hard offset shadow in the second colour, else a tint that contrasts with the theme. */
+.cos-name[data-effect='pop'] {
+  color: var(--n1);
+  text-shadow: 0.08em 0.08em 0 var(--np, color-mix(in srgb, var(--n1) 38%, white));
+}
+:root:not(.dark) .cos-name[data-effect='pop'] {
+  text-shadow: 0.08em 0.08em 0 var(--np, color-mix(in srgb, var(--n1) 50%, black));
+}
+.cos-name[data-effect='glow'] {
+  color: var(--n1);
+  text-shadow:
+    0 0 6px color-mix(in srgb, var(--n1) 80%, transparent),
+    0 0 14px color-mix(in srgb, var(--n1) 45%, transparent);
+}
+
+.cos-name[data-role='solid'] {
+  color: var(--r1);
+}
+.cos-name[data-role='gradient'] {
+  background-image: linear-gradient(90deg, var(--r1), var(--r2));
+}
+.cos-name[data-role='holographic'] {
+  background-image: linear-gradient(90deg, #a9c9ff, #ffbbec, #fff2a8, #a9ffe0, #a9c9ff);
+  background-size: 200% 100%;
+}
+:root:not(.dark) .cos-name[data-role='holographic'] {
+  background-image: linear-gradient(90deg, #4c63d9, #c03f9f, #a8740a, #0f8a73, #4c63d9);
+}
+.cos-name[data-role='holographic'][data-play='always'],
+[data-animate-avatars]:hover .cos-name[data-role='holographic'][data-play='hover'] {
+  animation: cos-holo 3s linear infinite;
+}
+html[data-reduce-motion='on'] .cos-name,
+html[data-autoplay-media='never'] .cos-name {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-reduce-motion='off']) .cos-name {
+    animation: none !important;
+  }
+}
+@keyframes cos-holo {
+  to {
+    background-position: 200% 0;
+  }
+}

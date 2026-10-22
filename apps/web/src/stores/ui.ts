@@ -6,8 +6,8 @@
  * - `theme`: 'light' | 'ash' | 'dark' | 'onyx' | 'system'; `resolvedTheme`: 'light' | 'dark'
  * - `prefs`: { enterToSend, linkPreviews, voiceIsolation, noiseCancellation, echoCancellation,
  *   autoGainControl, fontSize, wallpaperPattern, sounds, desktopNotifications,
- *   reduceMotion, autoplayAnimatedMedia, chatTheme, bubbleStyle, messageAnimation,
- *   wallpaperPreset, wallpaperDim, wallpaperBlur }
+ *   reduceMotion, autoplayAnimatedMedia, showNameStyles, chatTheme, bubbleStyle,
+ *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
  * Actions: `setTheme(t)`, `setPref(key, value)`, `pushToast`, `dismissToast`
@@ -21,7 +21,8 @@
  *
  * Call `initTheme()` once at startup (main.tsx) to apply the theme, font size, the device
  * chat appearance (`data-bubble-style` / `data-msg-anim` / `data-wallpaper-preset` + the preset
- * variables, see features/appearance/presets.ts) and the `data-reduce-motion` attribute.
+ * variables, see features/appearance/presets.ts) and the `data-reduce-motion` /
+ * `data-autoplay-media` attributes (the CSS-only cosmetics animations read them).
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -74,6 +75,8 @@ export interface DevicePrefs {
   reduceMotion: ReduceMotionPref;
   /** Animated avatars and GIF bubbles: 'hover' shows the poster until hovered or tapped. */
   autoplayAnimatedMedia: AutoplayAnimatedMedia;
+  /** Display name fonts and effects (components/cosmetics/StyledName); off = plain names. */
+  showNameStyles: boolean;
   /**
    * Device defaults of the chat appearance (features/appearance): the layer under a chat's
    * shared theme and my private override. 'default' / 'classic' / 'fade' = the design tokens.
@@ -101,6 +104,7 @@ export const DEFAULT_PREFS: DevicePrefs = {
   desktopNotifications: true,
   reduceMotion: 'system',
   autoplayAnimatedMedia: 'hover',
+  showNameStyles: true,
   chatTheme: 'default',
   bubbleStyle: 'cozy',
   messageAnimation: 'fade',
@@ -378,6 +382,8 @@ function applyAppearance(s: Pick<UiState, 'theme' | 'resolvedTheme' | 'prefs'>):
   root.dataset.wallpaperPattern = s.prefs.wallpaperPattern ? 'on' : 'off';
   // `html[data-reduce-motion='on'] *` (index.css) clamps animations like the OS media query.
   root.dataset.reduceMotion = s.prefs.reduceMotion;
+  // Cosmetics (components/cosmetics/cosmetics.css): decorations play always / on hover / never.
+  root.dataset.autoplayMedia = s.prefs.autoplayAnimatedMedia;
 }
 
 let themeInitialized = false;

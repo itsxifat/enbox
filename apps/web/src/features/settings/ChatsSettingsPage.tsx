@@ -1,4 +1,4 @@
-import { Check, CornerDownLeft, Link2, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
+import { CaseSensitive, Check, CornerDownLeft, Link2, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { ChatPreview } from '@/features/appearance/ChatPreview';
 import {
@@ -275,7 +275,7 @@ export function ChatWallpaperPage() {
   );
 }
 
-/** Settings → Chats → Animations: message enter animation, reduced motion, animated media. */
+/** Settings → Chats → Animations: message enter animation, reduced motion, animated media, name styles. */
 export function ChatAnimationsPage() {
   const prefs = useUi((s) => s.prefs);
   return (
@@ -321,6 +321,15 @@ export function ChatAnimationsPage() {
             { value: 'hover', label: 'On hover' },
             { value: 'never', label: 'Never' },
           ]}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Display names" footer="Server role colours still show when this is off.">
+        <SwitchRow
+          icon={CaseSensitive}
+          title="Show display name styles"
+          description="Fonts and effects people pick for their names"
+          checked={prefs.showNameStyles}
+          onChange={(v) => useUi.getState().setPref('showNameStyles', v)}
         />
       </SettingsGroup>
     </SettingsScroller>

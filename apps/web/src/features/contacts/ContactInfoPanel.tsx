@@ -468,9 +468,11 @@ function ContactInfo({
               name={me.displayName}
               colorSeed={me.id}
               size="3xl"
+              decoration={me.avatarDecoration}
+              animate="always"
             />
           ) : user && !deleted ? (
-            <UserAvatar user={user} size="3xl" showPresence />
+            <UserAvatar user={user} size="3xl" showPresence animate="always" />
           ) : (
             <ChatAvatar chat={chat} size="3xl" />
           )}

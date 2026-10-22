@@ -7,9 +7,11 @@
  * Members, bans, invites and the audit log: members.ts.
  */
 import { Router } from 'express';
-import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import {
+  AVATAR_MIME_TYPES,
   CHANNEL_NAME_MAX_LENGTH,
+  MAX_AVATAR_BYTES,
   MAX_OVERWRITES_PER_CHANNEL,
   MAX_SPACE_CATEGORIES,
   MAX_SPACE_CHANNELS,
@@ -37,10 +39,11 @@ import {
   updateSpaceSchema,
   type ChatSummary,
   type PermissionOverwrite,
+  type RoleColorStyle,
   type SpaceDetail,
 } from '@enbox/shared';
 import { z } from 'zod';
-import { db } from '../../db/index.js';
+import { db, type DbOrTx } from '../../db/index.js';
 import {
   chats,
   spaceCategories,
@@ -60,6 +63,7 @@ import { runChatDeletionHooks } from '../../services/hooks.js';
 import {
   requireAvatarMedia,
   requireBannerMedia,
+  requireOwnedMedia,
   staticMediaUrl,
   mediaUrl,
   loadMediaMap,
@@ -83,9 +87,9 @@ import {
   fxSpaceUpsert,
   fxStructureChanged,
   loadCategories,
+  loadSpaceRoles,
   removeSpaceMemberTx,
   toSpace,
-  toSpaceRole,
   toSpaces,
   type SpaceSettingsChanges,
 } from '../../services/spaces.js';
@@ -1040,13 +1044,43 @@ router.delete(
 // ---------------------------------------------------------------------------
 
 async function rolesOf(spaceId: string) {
-  return (
-    await db
-      .select()
-      .from(spaceRoles)
-      .where(eq(spaceRoles.spaceId, spaceId))
-      .orderBy(asc(spaceRoles.position))
-  ).map(toSpaceRole);
+  return loadSpaceRoles(db, spaceId);
+}
+
+/**
+ * A role icon image: uploaded by me, a static image (AVATAR_MIME_TYPES, ≤ MAX_AVATAR_BYTES).
+ * Animated uploads are refused — icons sit next to every name and never animate.
+ */
+async function requireRoleIconMedia(dbx: DbOrTx, mediaId: string, userId: string) {
+  const row = await requireOwnedMedia(dbx, mediaId, userId, {
+    kinds: ['image'],
+    mimeTypes: AVATAR_MIME_TYPES,
+    maxBytes: MAX_AVATAR_BYTES,
+  });
+  if (row.animated) throw badRequest('Role icons must be a still image');
+  return row;
+}
+
+/** `iconEmoji`: one emoji (a keycap, flag or ZWJ sequence counts as one), null = none. */
+const ROLE_ICON_EMOJI = new RegExp('^\\p{RGI_Emoji}$', 'v');
+function roleIconEmoji(value: string | null): string | null {
+  if (value === null) return null;
+  if (!ROLE_ICON_EMOJI.test(value)) throw badRequest('iconEmoji: use a single emoji');
+  return value;
+}
+
+/**
+ * Name style rule (checked on the role as it will be stored): a gradient needs both colours.
+ * Holographic needs none — the client draws it from its own palette; any stored colours stay
+ * as its fallback (mention pills, older clients), so switching styles back loses nothing.
+ */
+function assertRoleStyle(r: {
+  colorStyle: string;
+  color: string | null;
+  colorSecondary: string | null;
+}): void {
+  if (r.colorStyle === 'gradient' && (!r.color || !r.colorSecondary))
+    throw badRequest('A gradient needs both colours (color and colorSecondary)');
 }
 
 // GET /spaces/:spaceId/roles → SpaceRole[] (position order)
@@ -1073,6 +1107,13 @@ router.post('/spaces/:spaceId/roles', async (req, res) => {
       throw limitReached(`A Space can have at most ${MAX_SPACE_ROLES} roles`);
     const permissions = body.permissions ?? 0;
     assertGrantable(access.base, permissions);
+    const style = {
+      colorStyle: (body.colorStyle ?? 'solid') as RoleColorStyle,
+      color: body.color ?? null,
+      colorSecondary: body.colorSecondary ?? null,
+    };
+    assertRoleStyle(style);
+    if (body.iconMediaId) await requireRoleIconMedia(tx, body.iconMediaId, me);
     // Positions stay dense: the new role takes 1, everything above moves up.
     await tx
       .update(spaceRoles)
@@ -1083,7 +1124,9 @@ router.post('/spaces/:spaceId/roles', async (req, res) => {
       .values({
         spaceId,
         name: body.name,
-        color: body.color ?? null,
+        ...style,
+        iconEmoji: roleIconEmoji(body.iconEmoji ?? null),
+        iconMediaId: body.iconMediaId ?? null,
         position: 1,
         permissions,
         hoist: body.hoist ?? false,
@@ -1158,11 +1201,27 @@ router.patch('/spaces/:spaceId/roles/:roleId', async (req, res) => {
     const role = access.ctx.roles.find((r) => r.id === roleId);
     if (!role) throw notFound('Role');
     if (!role.isDefault) assertRoleManageable(access, me, role.position);
-    if (role.isDefault && (body.name !== undefined || body.hoist || body.color !== undefined))
+    if (
+      role.isDefault &&
+      (body.name !== undefined ||
+        body.hoist ||
+        body.color !== undefined ||
+        body.colorStyle !== undefined ||
+        body.colorSecondary !== undefined ||
+        body.iconEmoji !== undefined ||
+        body.iconMediaId !== undefined)
+    )
       throw badRequest('@everyone can only change its permissions and mentionability');
     const patch: Partial<typeof spaceRoles.$inferInsert> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.color !== undefined) patch.color = body.color;
+    if (body.colorStyle !== undefined) patch.colorStyle = body.colorStyle as RoleColorStyle;
+    if (body.colorSecondary !== undefined) patch.colorSecondary = body.colorSecondary;
+    if (body.iconEmoji !== undefined) patch.iconEmoji = roleIconEmoji(body.iconEmoji);
+    if (body.iconMediaId !== undefined && body.iconMediaId !== role.iconMediaId) {
+      if (body.iconMediaId) await requireRoleIconMedia(tx, body.iconMediaId, me);
+      patch.iconMediaId = body.iconMediaId;
+    }
     if (body.hoist !== undefined) patch.hoist = body.hoist;
     if (body.mentionable !== undefined) patch.mentionable = body.mentionable;
     if (body.permissions !== undefined) {
@@ -1170,6 +1229,11 @@ router.patch('/spaces/:spaceId/roles/:roleId', async (req, res) => {
       patch.permissions = body.permissions;
     }
     if (Object.keys(patch).length === 0) return;
+    assertRoleStyle({
+      colorStyle: patch.colorStyle ?? role.colorStyle,
+      color: patch.color !== undefined ? patch.color : role.color,
+      colorSecondary: patch.colorSecondary !== undefined ? patch.colorSecondary : role.colorSecondary,
+    });
     await tx.update(spaceRoles).set(patch).where(eq(spaceRoles.id, roleId));
     await bumpPermVersion(tx, spaceId);
     await audit(tx, {

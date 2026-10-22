@@ -1,42 +1,59 @@
 /**
- * Discord-style profile card: banner (or the profile-colour gradient), avatar with the presence
- * badge, name / saved name, @username · pronouns, the custom status, "About me" (bio), about,
- * member since, groups in common and the actions — Message / Voice / Video / Add contact /
- * Block / View full profile for others; availability, custom status and Edit profile on my
- * own card. Rendered by ProfilePopover (popover / sheet) and, in `preview` mode (no
- * actions), at the top of Settings → Profile.
+ * The profile popout (Discord 2025 layout, ~300px): a themed surface (profile → accent
+ * gradient with contrast-aware ink, else the plain surface), the banner (image, or the
+ * profile colour), the decorated 80px avatar cutting into it with the presence badge, the
+ * custom status as a thought bubble beside it, the styled name / @username / pronouns, badges,
+ * the markdown bio (clamped), roles and both join dates in a Space, the mutuals line, my
+ * private note and "Message @name". Others get a "..." menu (View Full Profile, contact,
+ * calls, copy username / id, block) on the banner; my own card keeps availability, custom
+ * status and Edit profile. The profile effect plays once on open and again on hover.
  *
- * Privacy: fields the subject hides arrive as null and are simply not rendered; missing
- * colours fall back to the brand gradient. An animated avatar / banner plays here (the card
- * is the one place with `animate: 'always'`), never under reduced motion or the 'never' pref.
+ * Rendered by ProfilePopover (popover / sheet), and in `preview` mode — no actions, effects on
+ * loop — as the live preview of the profile editor (`<ProfileCard user={draft} preview />`).
+ *
+ * In a Space (`spaceId`) the member's per-Space profile wins (avatar, banner, bio, pronouns,
+ * colours, decoration, effect) with a "View Main Profile" toggle back. Privacy: fields the
+ * subject hides arrive as null and are simply not rendered.
  */
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
-import { Ban, MessageCircle, Pencil, Smile, UserPlus, UserRoundX } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Pencil, Smile, UserPlus, UserRoundX } from 'lucide-react';
 import {
   activePresenceNote,
-  chatTitle,
-  userDisplayName,
-  type ChatSummary,
+  profileBadges,
+  type ID,
   type Presence,
   type PresenceNote,
+  type UserProfile,
   type UserPublic,
 } from '@enbox/shared';
-import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { presenceBadge } from '@/components/common/UserAvatar';
-import { PhoneIcon, VideoIcon } from '@/components/icons';
-import { Avatar, Button, IconButton, Skeleton, toast } from '@/components/ui';
-import { confirmBlock, confirmUnblock, openDirectChat } from '@/features/contacts/contactActions';
-import { useAppVisible } from '@/hooks/useAppVisible';
-import { useReducedMotion } from '@/hooks/useMediaQuery';
-import { mediaUrl } from '@/lib/api';
+import { ProfileEffect, StyledName } from '@/components/cosmetics';
+import {
+  BadgeRow,
+  MemberSince,
+  ProfileAvatar,
+  ProfileBanner,
+  ProfilePanel,
+  StatusBubble,
+  ThemedProfileSurface,
+  profileTheme,
+  surfaceRing,
+} from '@/components/profile';
+import { Button, IconButton } from '@/components/ui';
+import { RichText } from '@/features/conversation/bubbles/RichText';
 import { cn } from '@/lib/cn';
-import { formatMonthYear, formatPresenceNote, presenceLabel } from '@/lib/format';
-import { useCalls } from '@/stores/calls';
-import { useChats } from '@/stores/chats';
-import { useUi } from '@/stores/ui';
+import { formatPresenceNote, presenceLabel } from '@/lib/format';
 import { AvailabilityPicker } from './AvailabilityPicker';
-import { profileGradient, type ProfileCardUser } from './model';
+import type { ProfileCardUser } from './model';
+import type { FullProfileTab } from './open';
+import { ProfileMessageInput } from './ProfileMessageInput';
+import { ProfileMoreMenu } from './ProfileMoreMenu';
+import { ProfileNote } from './ProfileNote';
+import { RoleChips } from './RoleChips';
+import { useDirectActions } from './useDirectActions';
+import { useProfileBannerSrc } from './useProfileBanner';
+import { useProfileView } from './useProfileView';
 
 export interface ProfileCardProps {
   user: ProfileCardUser;
@@ -44,24 +61,34 @@ export interface ProfileCardProps {
   presence?: Presence | null;
   /** My own card: availability, custom status and Edit profile instead of the contact actions. */
   self?: boolean;
-  /** Settings preview: no actions. */
+  /** Settings preview: no actions, the profile effect on loop. */
   preview?: boolean;
-  /** Groups in common: null while loading; omit to hide the section. */
-  commonGroups?: ChatSummary[] | null;
+  /** Opened inside a Space: nickname, roles, join date and the per-Space profile. */
+  spaceId?: ID | null;
+  /** The full profile (mutual counts); omit to hide the mutuals line. */
+  profile?: UserProfile | null;
   /** Called right before the card navigates somewhere (the host closes the popover). */
   onNavigate?: () => void;
   /** Self card: open the custom-status dialog (rendered by the host, outside the popover). */
   onSetStatus?: () => void;
   /** Add / edit contact dialog (rendered by the host, outside the popover). */
   onEditContact?: (user: UserPublic) => void;
+  /** Open the full profile (avatar, "View Full Profile", the mutuals line). */
+  onOpenFull?: (tab?: FullProfileTab) => void;
   className?: string;
 }
 
 const LABEL = 'section-label mb-1';
-const LINK =
-  'inline-flex items-center gap-1 rounded text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand';
 const ROW =
   'card-inset flex min-h-11 w-full items-center gap-3 px-3 py-1.5 text-left outline-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand';
+const LINK =
+  'rounded text-[12.5px] font-medium text-fg hover:underline focus-visible:outline-2 focus-visible:outline-brand';
+
+/** Banner heights: an image or a themed colour, else the short header. */
+const BANNER_TALL = 105;
+const BANNER_SHORT = 60;
+const AVATAR = 80;
+const RING = 6;
 
 function capitalize(s: string): string {
   return s ? s[0]!.toUpperCase() + s.slice(1) : s;
@@ -72,290 +99,224 @@ export function ProfileCard({
   presence,
   self = false,
   preview = false,
-  commonGroups,
+  spaceId,
+  profile,
   onNavigate,
   onSetStatus,
   onEditContact,
+  onOpenFull,
   className,
 }: ProfileCardProps) {
-  const reduceMotion = useReducedMotion();
-  const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
-  const appVisible = useAppVisible();
-  const playBanner =
-    !!user.bannerAnimatedUrl && !reduceMotion && autoplay !== 'never' && appVisible;
-  const banner = mediaUrl(playBanner ? user.bannerAnimatedUrl : user.bannerUrl);
+  const navigate = useNavigate();
+  const view = useProfileView(user, spaceId);
+  const { shown, name } = view;
   const deleted = user.isDeleted;
+  const theme = deleted ? null : profileTheme(shown.profileColor, shown.accentColor);
+  const ring = surfaceRing(theme);
+  const banner = useProfileBannerSrc(deleted ? null : shown);
+  const bannerHeight = banner || theme ? BANNER_TALL : BANNER_SHORT;
   const state = deleted ? null : presence ? presenceBadge(presence) : user.presenceState;
   const note = deleted ? null : activePresenceNote(presence ? presence.note : user.presenceNote);
-  const name = userDisplayName(user);
-  const alias =
-    !deleted && user.contactName && user.contactName !== user.displayName ? user.displayName : null;
+  const [replay, setReplay] = useState(0);
+  const others = !preview && !self && !deleted;
+  const direct = useDirectActions(user, onNavigate);
+  const openFull =
+    !preview && !deleted
+      ? (tab?: FullProfileTab) => {
+          if (onOpenFull) onOpenFull(tab);
+          else {
+            onNavigate?.();
+            void navigate(`/u/${user.username}`);
+          }
+        }
+      : undefined;
 
   return (
-    <div
-      className={cn('flex flex-col overflow-hidden bg-elevated text-left', className)}
+    <ThemedProfileSurface
+      theme={theme}
+      className={className}
       data-testid="profile-card"
       data-user-id={user.id}
+      onPointerEnter={() => setReplay((n) => n + 1)}
     >
-      <div
-        className="relative w-full shrink-0"
-        style={{
-          aspectRatio: '5 / 2',
-          background: profileGradient(user.profileColor, user.accentColor),
-          borderBottom: user.accentColor ? `3px solid ${user.accentColor}` : undefined,
-        }}
+      <ProfileBanner
+        src={banner}
+        color={theme?.primary ?? shown.profileColor ?? 'var(--brand)'}
+        height={bannerHeight}
         data-testid="card-banner"
       >
-        {banner ? (
-          <img src={banner} alt="" className="size-full object-cover" draggable={false} />
+        {others ? (
+          <div className="absolute top-2 right-2 flex items-center gap-1.5">
+            {!user.isContact && onEditContact ? (
+              <IconButton
+                icon={UserPlus}
+                label="Add to contacts"
+                size="sm"
+                variant="glass"
+                onClick={() => onEditContact(user)}
+              />
+            ) : null}
+            <ProfileMoreMenu
+              user={user}
+              onViewFull={openFull ? () => openFull() : undefined}
+              onEditContact={onEditContact}
+              canCall={direct.canCall && !direct.busy}
+              onCall={(type) => void direct.call(type)}
+            />
+          </div>
         ) : null}
-      </div>
-      <div className="px-4">
-        <span className="-mt-10 inline-flex rounded-full bg-elevated ring-[6px] ring-elevated">
-          <Avatar
-            src={deleted ? null : user.avatarUrl}
-            animatedSrc={deleted ? null : user.avatarAnimatedUrl}
-            animate="always"
+      </ProfileBanner>
+
+      <ProfilePanel theme={theme}>
+        <div className="relative px-4" style={{ height: AVATAR / 2 + RING + 4 }}>
+          <ProfileAvatar
+            className="absolute left-[10px]"
+            style={{ top: -(AVATAR / 2 + RING) }}
             name={name}
             colorSeed={user.id}
-            size={80}
+            src={deleted ? null : shown.avatarUrl}
+            animatedSrc={deleted ? null : shown.avatarAnimatedUrl}
+            decoration={deleted ? null : shown.avatarDecoration}
             presence={state}
-            decorative={false}
+            size={AVATAR}
+            ring={ring}
+            ringWidth={RING}
+            onClick={openFull ? () => openFull() : undefined}
+            label={openFull ? `View full profile of ${name}` : undefined}
           />
-        </span>
-      </div>
-      <div className="flex flex-col gap-2.5 px-4 pt-2 pb-3">
-        <div className="card-inset min-w-0 px-3 py-2.5">
-          <h2
-            className="truncate text-[19px] leading-tight font-semibold text-fg"
-            data-testid="card-name"
-          >
-            {name}
-          </h2>
-          {alias ? <p className="truncate text-[13.5px] text-muted">~{alias}</p> : null}
-          {!deleted ? (
-            <p className="truncate text-[13.5px] text-muted">
-              @{user.username}
-              {user.pronouns ? (
-                <>
-                  {' · '}
-                  <span data-testid="card-pronouns">{user.pronouns}</span>
-                </>
-              ) : null}
-            </p>
-          ) : null}
-          {state && state !== 'offline' ? (
-            <p className="mt-1 text-[12.5px] text-subtle" data-testid="card-state">
-              {capitalize(presenceLabel(state))}
-            </p>
-          ) : null}
           {note ? (
-            <p
-              className="mt-2 inline-block max-w-full rounded-lg bg-elevated px-2.5 py-1.5 text-[13.5px] break-words text-fg"
+            <StatusBubble
+              note={note}
+              background={ring}
+              className="absolute top-[-26px] left-[114px] max-w-[calc(100%-126px)]"
+              onClick={self && !preview ? onSetStatus : undefined}
+              label="Edit custom status"
               data-testid="card-note"
-            >
-              {formatPresenceNote(note)}
-            </p>
+            />
           ) : null}
         </div>
 
-        {user.bio ? (
-          <section>
-            <h3 className={LABEL}>About me</h3>
-            <p
-              className="text-[14px] leading-relaxed break-words whitespace-pre-wrap text-fg"
-              data-testid="card-bio"
+        <div className="flex flex-col gap-3 px-4 pt-2 pb-4">
+          <div className="min-w-0">
+            <h2
+              className="text-[20px] leading-6 font-bold break-words text-fg"
+              data-testid="card-name"
             >
-              {user.bio}
-            </p>
-          </section>
-        ) : null}
-        {user.about ? (
-          <section>
-            <h3 className={LABEL}>About</h3>
-            <p className="text-[14px] break-words text-fg" data-testid="card-about">
-              {user.about}
-            </p>
-          </section>
-        ) : null}
-        {user.createdAt ? (
-          <section>
-            <h3 className={LABEL}>Member since</h3>
-            <p className="text-[14px] text-fg" data-testid="card-member-since">
-              {formatMonthYear(user.createdAt)}
-            </p>
-          </section>
-        ) : null}
-        {commonGroups !== undefined && !self && !deleted ? (
-          <CommonGroups groups={commonGroups} onNavigate={onNavigate} />
-        ) : null}
+              <StyledName name={name} style={deleted ? null : shown.nameStyle} mode="full" />
+            </h2>
+            {view.alias ? <p className="truncate text-[13.5px] text-muted">~{view.alias}</p> : null}
+            {!deleted ? <p className="truncate text-[14px] text-fg">@{user.username}</p> : null}
+            {shown.pronouns && !deleted ? (
+              <p className="text-[13px] text-muted" data-testid="card-pronouns">
+                {shown.pronouns}
+              </p>
+            ) : null}
+            {state && state !== 'offline' ? (
+              <span className="sr-only" data-testid="card-state">
+                {capitalize(presenceLabel(state))}
+              </span>
+            ) : null}
+            <BadgeRow badges={profileBadges(user)} owner={view.owner} className="mt-1.5" />
+            {view.hasOverrides ? (
+              <button
+                type="button"
+                className={cn(LINK, 'mt-1.5')}
+                onClick={() => view.setShowMain(!view.showMain)}
+                aria-pressed={view.showMain}
+              >
+                {view.showMain ? 'View Space Profile' : 'View Main Profile'}
+              </button>
+            ) : null}
+          </div>
 
-        {preview ? null : deleted ? (
-          <p className="flex items-center gap-2 text-[13px] text-muted">
-            <UserRoundX size={16} aria-hidden /> This account was deleted.
-          </p>
-        ) : self ? (
-          <SelfActions note={note} onNavigate={onNavigate} onSetStatus={onSetStatus} />
-        ) : (
-          <UserActions user={user} onNavigate={onNavigate} onEditContact={onEditContact} />
-        )}
-      </div>
-    </div>
+          {shown.bio && !deleted ? (
+            <section>
+              <h3 className={LABEL}>About Me</h3>
+              <div
+                className="line-clamp-6 text-[14px] leading-[1.375] break-words whitespace-pre-wrap text-fg"
+                data-testid="card-bio"
+              >
+                <RichText text={shown.bio} />
+              </div>
+            </section>
+          ) : null}
+          {user.about && !deleted ? (
+            <section>
+              <h3 className={LABEL}>About</h3>
+              <p className="text-[14px] break-words text-fg" data-testid="card-about">
+                {user.about}
+              </p>
+            </section>
+          ) : null}
+          {view.space && view.member && !deleted ? (
+            <RoleChips space={view.space} member={view.member} />
+          ) : null}
+          {user.createdAt ? (
+            <MemberSince
+              createdAt={user.createdAt}
+              space={view.space}
+              joinedAt={view.member?.joinedAt}
+            />
+          ) : null}
+          {profile && others ? <Mutuals profile={profile} onOpen={openFull} /> : null}
+          {others ? <ProfileNote userId={user.id} /> : null}
+
+          {preview ? null : deleted ? (
+            <p className="flex items-center gap-2 text-[13px] text-muted">
+              <UserRoundX size={16} aria-hidden /> This account was deleted.
+            </p>
+          ) : self ? (
+            <SelfActions note={note} onNavigate={onNavigate} onSetStatus={onSetStatus} />
+          ) : (
+            <ProfileMessageInput user={user} name={name} onNavigate={onNavigate} />
+          )}
+        </div>
+      </ProfilePanel>
+      <ProfileEffect
+        id={deleted ? null : shown.profileEffect}
+        play={preview ? 'loop' : 'once'}
+        replayKey={replay}
+        className="pointer-events-none absolute inset-0 z-10"
+      />
+    </ThemedProfileSurface>
   );
 }
 
-function CommonGroups({
-  groups,
-  onNavigate,
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "2 Mutual Friends • 3 Mutual Spaces • 1 Group in common", each opening its tab. */
+function Mutuals({
+  profile,
+  onOpen,
 }: {
-  groups: ChatSummary[] | null;
-  onNavigate?: () => void;
+  profile: UserProfile;
+  onOpen?: (tab: FullProfileTab) => void;
 }) {
-  const navigate = useNavigate();
-  if (groups === null) return <Skeleton className="h-4 w-36" />;
-  if (!groups.length) return null;
-  const shown = groups.slice(0, 3);
+  const parts: { tab: FullProfileTab; text: string }[] = [];
+  if (profile.mutualFriends.length)
+    parts.push({ tab: 'friends', text: plural(profile.mutualFriends.length, 'Mutual Friend', 'Mutual Friends') });
+  if (profile.mutualSpaces.length)
+    parts.push({ tab: 'spaces', text: plural(profile.mutualSpaces.length, 'Mutual Space', 'Mutual Spaces') });
+  if (profile.mutualGroupCount)
+    parts.push({ tab: 'groups', text: plural(profile.mutualGroupCount, 'Group in common', 'Groups in common') });
+  if (!parts.length) return null;
   return (
-    <section data-testid="card-common-groups">
-      <h3 className={LABEL}>
-        {groups.length === 1 ? '1 group in common' : `${groups.length} groups in common`}
-      </h3>
-      <ul className="-mx-1 flex flex-col">
-        {shown.map((g) => (
-          <li key={g.id}>
-            <button
-              type="button"
-              onClick={() => {
-                onNavigate?.();
-                void navigate(`/chats/${g.id}`);
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 text-left outline-none hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
-            >
-              <ChatAvatar chat={g} size="xs" />
-              <span className="truncate text-[13.5px] text-fg">{chatTitle(g)}</span>
+    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-muted" data-testid="card-mutuals">
+      {parts.map((p, i) => (
+        <span key={p.tab} className="inline-flex items-center gap-1.5">
+          {i > 0 ? <span aria-hidden className="size-1 rounded-full bg-subtle" /> : null}
+          {onOpen ? (
+            <button type="button" className={cn(LINK, 'text-muted hover:text-fg')} onClick={() => onOpen(p.tab)}>
+              {p.text}
             </button>
-          </li>
-        ))}
-        {groups.length > shown.length ? (
-          <li className="px-1 pt-0.5 text-[12.5px] text-muted">
-            and {groups.length - shown.length} more
-          </li>
-        ) : null}
-      </ul>
-    </section>
-  );
-}
-
-function UserActions({
-  user,
-  onNavigate,
-  onEditContact,
-}: {
-  user: UserPublic;
-  onNavigate?: () => void;
-  onEditContact?: (user: UserPublic) => void;
-}) {
-  const navigate = useNavigate();
-  const [busy, setBusy] = useState<'message' | 'audio' | 'video' | null>(null);
-  // The cached direct chat (if any) says whether calls are allowed (`permissions.canCall`).
-  const directChat = useChats((s) =>
-    Object.values(s.byId).find((c) => c.type === 'direct' && c.peer?.id === user.id),
-  );
-  const canCall = directChat ? directChat.permissions.canCall : !user.isBlocked;
-
-  const message = async () => {
-    setBusy('message');
-    try {
-      const chat = await openDirectChat(user.id);
-      onNavigate?.();
-      void navigate(`/chats/${chat.id}`);
-    } catch (e) {
-      toast.error(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const call = async (type: 'audio' | 'video') => {
-    setBusy(type);
-    try {
-      const chat = directChat ?? (await openDirectChat(user.id));
-      if (!chat.permissions.canCall) {
-        toast.error("You can't call this person.");
-        return;
-      }
-      onNavigate?.();
-      void useCalls.getState().startCall(chat.id, type);
-    } catch (e) {
-      toast.error(e);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <>
-      <div className="flex items-center gap-2">
-        <Button
-          leftIcon={MessageCircle}
-          fullWidth
-          loading={busy === 'message'}
-          disabled={!!busy}
-          onClick={() => void message()}
-        >
-          Message
-        </Button>
-        {canCall ? (
-          <>
-            <IconButton
-              icon={PhoneIcon}
-              label="Voice call"
-              variant="solid"
-              disabled={!!busy}
-              onClick={() => void call('audio')}
-            />
-            <IconButton
-              icon={VideoIcon}
-              label="Video call"
-              variant="solid"
-              disabled={!!busy}
-              onClick={() => void call('video')}
-            />
-          </>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-        {onEditContact ? (
-          <button type="button" className={LINK} onClick={() => onEditContact(user)}>
-            {user.isContact ? (
-              <>
-                <Pencil size={14} aria-hidden /> Edit contact
-              </>
-            ) : (
-              <>
-                <UserPlus size={14} aria-hidden /> Add to contacts
-              </>
-            )}
-          </button>
-        ) : null}
-        {user.isBlocked ? (
-          <button type="button" className={LINK} onClick={() => void confirmUnblock(user)}>
-            <Ban size={14} aria-hidden /> Unblock
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={cn(LINK, 'text-danger')}
-            onClick={() => void confirmBlock(user)}
-          >
-            <Ban size={14} aria-hidden /> Block
-          </button>
-        )}
-        <Link to={`/u/${user.username}`} onClick={onNavigate} className={cn(LINK, 'ml-auto')}>
-          View full profile
-        </Link>
-      </div>
-    </>
+          ) : (
+            <span className="text-[12.5px]">{p.text}</span>
+          )}
+        </span>
+      ))}
+    </p>
   );
 }
 

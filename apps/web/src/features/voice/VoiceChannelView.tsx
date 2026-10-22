@@ -15,6 +15,7 @@ import { PERM, hasPerm, userDisplayName, type ChatSummary, type Space } from '@e
 import { Avatar, Button, IconButton } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
+import { withSpaceProfile } from '@/features/spaces/serverProfile/merge';
 import { useSpaceAuthor } from '@/stores/spaces';
 import { useUser } from '@/stores/users';
 import { useVoice, useVoiceChannelStates } from '@/stores/voice';
@@ -29,10 +30,14 @@ import {
   voiceAvailable,
 } from './engine';
 
-function useName(spaceId: string, userId: string): string {
+/** A participant as the Space shows them: nickname, and the per-Space avatar and decoration. */
+function useVoiceUser(spaceId: string, userId: string) {
   const user = useUser(userId);
   const author = useSpaceAuthor(spaceId, userId);
-  return author?.nickname || userDisplayName(user);
+  return {
+    name: author?.nickname || userDisplayName(user),
+    user: user ? withSpaceProfile(user, author?.profile, author?.nickname) : undefined,
+  };
 }
 
 function VideoTrack({ participant, source }: { participant: Participant; source: Track.Source }) {
@@ -58,7 +63,7 @@ function VideoTrack({ participant, source }: { participant: Participant; source:
   );
 }
 
-function Tile({
+export function Tile({
   participant,
   spaceId,
   source,
@@ -67,8 +72,7 @@ function Tile({
   spaceId: string;
   source: Track.Source;
 }) {
-  const name = useName(spaceId, participant.identity);
-  const user = useUser(participant.identity);
+  const { name, user } = useVoiceUser(spaceId, participant.identity);
   const speaking = useVoice((s) => !!s.speaking[participant.identity]);
   const state = useVoice((s) => s.byUser[participant.identity]);
   const screen = source === Track.Source.ScreenShare;
@@ -82,11 +86,20 @@ function Tile({
       )}
       aria-label={screen ? `${name}'s screen` : `${name}${muted ? ', muted' : ''}`}
       data-testid="voice-tile"
+      data-animate-avatars
     >
       {hasVideo ? (
         <VideoTrack participant={participant} source={source} />
       ) : (
-        <Avatar src={user?.avatarUrl} animatedSrc={user?.avatarAnimatedUrl} name={name} colorSeed={participant.identity} size={80} decorative />
+        <Avatar
+          src={user?.avatarUrl}
+          animatedSrc={user?.avatarAnimatedUrl}
+          name={name}
+          colorSeed={participant.identity}
+          size={80}
+          decoration={user?.avatarDecoration}
+          decorative
+        />
       )}
       <span className="absolute bottom-2 left-2 flex max-w-[80%] items-center gap-1 rounded-md bg-black/55 px-2 py-0.5 text-[13px] font-medium text-white">
         {screen ? <MonitorUp size={14} aria-hidden /> : muted ? <MicOff size={14} aria-hidden /> : null}
@@ -128,11 +141,10 @@ function Lobby({ chat, space }: { chat: ChatSummary; space: Space }) {
 }
 
 function LobbyAvatar({ spaceId, userId }: { spaceId: string; userId: string }) {
-  const user = useUser(userId);
-  const name = useName(spaceId, userId);
+  const { name, user } = useVoiceUser(spaceId, userId);
   return (
     <span className="rounded-full ring-4 ring-surface" title={name}>
-      <Avatar src={user?.avatarUrl} name={name} colorSeed={userId} size={48} decorative />
+      <Avatar src={user?.avatarUrl} name={name} colorSeed={userId} size={48} decoration={user?.avatarDecoration} decorative />
     </span>
   );
 }

@@ -33,6 +33,7 @@ test.describe('profile', () => {
     await expect(crop.getByRole('button', { name: 'Set banner' })).toBeEnabled();
     await crop.getByRole('button', { name: 'Set banner' }).click();
     await expect(crop).toBeHidden();
+    await page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
 
     await expect
       .poll(async () => (await me(user)).bannerUrl)
@@ -41,12 +42,8 @@ test.describe('profile', () => {
       page.getByTestId('profile-preview').locator('[data-testid="card-banner"] img'),
     ).toBeVisible();
 
-    await page.getByRole('button', { name: 'Change banner' }).click();
-    await page.getByRole('menuitem', { name: 'Remove banner' }).click();
-    await page
-      .getByRole('dialog', { name: 'Remove banner?' })
-      .getByRole('button', { name: 'Remove' })
-      .click();
+    await page.getByRole('button', { name: 'Remove Banner' }).click();
+    await page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
     await expect(page.getByRole('button', { name: 'Add banner' })).toBeVisible();
     await expect.poll(async () => (await me(user)).bannerUrl).toBeNull();
     await context.close();
@@ -55,19 +52,19 @@ test.describe('profile', () => {
   test('pronouns and bio persist and show on the profile card', async ({ browser }) => {
     const user = await registerUser({ displayName: 'Pia Person' });
     const { page, context } = await openAs(browser, user, '/settings/profile');
-    await page.getByTestId('profile-pronouns').click();
-    await page.getByRole('button', { name: 'they/them' }).click();
-    await page.getByRole('button', { name: 'Save' }).click();
-    await expect.poll(async () => (await me(user)).pronouns).toBe('they/them');
-
-    await page.goto('/settings/profile/bio');
+    await page
+      .getByRole('group', { name: 'Pronoun suggestions' })
+      .getByRole('button', { name: 'they/them' })
+      .click();
     await page.getByTestId('bio-input').fill('Climber.\nCoffee.');
-    await page.getByRole('button', { name: 'Save' }).click();
+    // One Save Changes sends both fields.
+    await page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
+    await expect.poll(async () => (await me(user)).pronouns).toBe('they/them');
     await expect.poll(async () => (await me(user)).bio).toBe('Climber.\nCoffee.');
 
-    await page.goto('/settings/profile');
-    await expect(page.getByTestId('profile-pronouns')).toContainText('they/them');
-    await expect(page.getByTestId('profile-bio')).toContainText('Climber.');
+    await page.reload();
+    await expect(page.getByTestId('pronouns-input')).toHaveValue('they/them');
+    await expect(page.getByTestId('bio-input')).toHaveValue('Climber.\nCoffee.');
     const preview = page.getByTestId('profile-preview');
     await expect(preview.getByTestId('card-pronouns')).toHaveText('they/them');
     await expect(preview.getByTestId('card-bio')).toHaveText('Climber.\nCoffee.');
@@ -86,6 +83,7 @@ test.describe('profile', () => {
     await expect(crop.getByRole('button', { name: 'Set photo' })).toBeEnabled();
     await crop.getByRole('button', { name: 'Set photo' }).click();
     await expect(crop).toBeHidden();
+    await page.getByTestId('unsaved-bar').getByRole('button', { name: 'Save Changes' }).click();
 
     // `avatarUrl` is always the static poster; the GIF itself travels separately.
     await expect
@@ -146,8 +144,8 @@ test.describe('profile', () => {
     await expect(card.getByTestId('card-name')).toHaveText('Sam Sender');
     await expect(card.getByTestId('card-bio')).toHaveText('Sends messages for a living.');
     await expect(card.getByTestId('card-pronouns')).toHaveText('he/him');
-    await expect(card.getByTestId('card-common-groups')).toContainText('Card group');
-    await expect(card.getByRole('button', { name: 'Message' })).toBeVisible();
+    await expect(card.getByTestId('card-mutuals')).toContainText('1 Group in common');
+    await expect(card.getByRole('textbox', { name: 'Message @Sam Sender' })).toBeVisible();
     await B.page.keyboard.press('Escape');
     await expect(card).toBeHidden();
     await B.context.close();

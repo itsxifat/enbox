@@ -1,32 +1,117 @@
-import { useEffect } from 'react';
-import { HeadphoneOff, MicOff } from 'lucide-react';
-import { VideoIcon } from '@/components/icons';
-import { userDisplayName, type ChatSummary, type VoiceState } from '@enbox/shared';
-import { Avatar } from '@/components/ui';
+import { useEffect, useState } from 'react';
+import { useDraggable } from '@dnd-kit/core';
+import { ArrowRightLeft, HeadphoneOff, MicOff, UserRound, Volume2 } from 'lucide-react';
+import { PhoneOffIcon, VideoIcon } from '@/components/icons';
+import { PERM, hasPerm, userDisplayName, type ChatSummary, type ID, type VoiceState } from '@enbox/shared';
+import { Avatar, Menu, contextMenuAnchor, toast, type MenuAnchor, type MenuEntry } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
+import { tidy } from '@/features/spaces/menus';
 import { cn } from '@/lib/cn';
+import { inActiveDrag, pointerListeners } from '@/lib/dnd';
 import { useSpaceAuthor } from '@/stores/spaces';
 import { useUser } from '@/stores/users';
 import { useVoice, useVoiceChannelStates } from '@/stores/voice';
+import { disconnectVoiceMember, moveVoiceMember } from './actions';
 
-function Occupant({ state, speaking }: { state: VoiceState; speaking: boolean }) {
+/** Drag data of an occupant row: the channel sidebar drops it on another voice channel. */
+export interface VoiceDragData {
+  kind: 'voice';
+  state: VoiceState;
+  /** Their name, for the drag preview and announcements. */
+  label: string;
+}
+
+/**
+ * The right-click menu of someone in a voice channel: their profile, and with MOVE_MEMBERS in
+ * that channel "Move To ▸" (the other voice channels I may move people into: MOVE_MEMBERS and
+ * CONNECT there) and "Disconnect".
+ */
+export function occupantMenuItems(o: {
+  state: VoiceState;
+  /** The channel they are in (my bits there decide). */
+  channel: Pick<ChatSummary, 'spacePermissions'>;
+  /** The Space's channels in sidebar order (only voice ones are offered). */
+  channels: readonly ChatSummary[];
+  onProfile: () => void;
+  onMove: (channelId: ID) => void;
+  onDisconnect: () => void;
+}): MenuEntry[] {
+  const canMove = hasPerm(o.channel.spacePermissions, PERM.MOVE_MEMBERS);
+  const targets = o.channels.filter(
+    (c) =>
+      c.type === 'space_voice' &&
+      c.id !== o.state.channelId &&
+      hasPerm(c.spacePermissions, PERM.MOVE_MEMBERS) &&
+      hasPerm(c.spacePermissions, PERM.CONNECT),
+  );
+  return tidy([
+    { label: 'Profile', icon: UserRound, onSelect: o.onProfile },
+    canMove && 'separator',
+    canMove && {
+      label: 'Move To',
+      icon: ArrowRightLeft,
+      submenu: targets.length
+        ? targets.map((c) => ({ label: c.name ?? 'Voice', icon: Volume2, onSelect: () => o.onMove(c.id) }))
+        : [{ label: 'No other voice channels', disabled: true }],
+    },
+    canMove && { label: 'Disconnect', icon: PhoneOffIcon, danger: true, onSelect: o.onDisconnect },
+  ]);
+}
+
+function Occupant({
+  chat,
+  state,
+  speaking,
+  channels,
+}: {
+  chat: ChatSummary;
+  state: VoiceState;
+  speaking: boolean;
+  channels: readonly ChatSummary[];
+}) {
   const user = useUser(state.userId);
   const author = useSpaceAuthor(state.spaceId, state.userId);
   const name = author?.nickname || userDisplayName(user);
   const muted = state.selfMute || state.serverMute;
   const deaf = state.selfDeaf || state.serverDeaf;
   const label = [name, muted && 'muted', deaf && 'deafened', state.selfVideo && 'camera on', state.selfStream && 'live'].filter(Boolean).join(', ');
+  const canMove = hasPerm(chat.spacePermissions, PERM.MOVE_MEMBERS);
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
+  const data: VoiceDragData = { kind: 'voice', state, label: name };
+  const { setNodeRef, listeners, isDragging } = useDraggable({ id: `voice:${state.userId}`, data, disabled: !canMove });
+  // Pointer drags only: Space and Enter keep opening the profile; the keyboard has "Move To".
+  const pointer = canMove ? pointerListeners(listeners) : null;
+  const items = () =>
+    occupantMenuItems({
+      state,
+      channel: chat,
+      channels,
+      onProfile: () => openProfile(state.userId, anchor, { spaceId: state.spaceId }),
+      onMove: (channelId) =>
+        void moveVoiceMember(state.spaceId, state.userId, channelId).catch((e: unknown) => toast.error(e)),
+      onDisconnect: () =>
+        void disconnectVoiceMember(state.spaceId, state.userId).catch((e: unknown) => toast.error(e)),
+    });
   return (
     <li>
       <button
+        ref={setNodeRef}
         type="button"
+        {...pointer}
         onClick={(e) => openProfile(state.userId, e.currentTarget, { spaceId: state.spaceId })}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (!inActiveDrag(e.currentTarget)) setAnchor(contextMenuAnchor(e));
+        }}
         aria-label={label}
-        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[14px] text-muted hover:bg-hover hover:text-fg"
+        className={cn(
+          'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[14px] text-muted hover:bg-hover hover:text-fg',
+          isDragging && 'opacity-40',
+        )}
         data-testid="voice-occupant"
       >
         <span className={cn('shrink-0 rounded-full ring-2 transition-shadow', speaking ? 'ring-success' : 'ring-transparent')}>
-          <Avatar src={user?.avatarUrl} name={name} colorSeed={state.userId} size={24} decorative />
+          <Avatar src={user?.avatarUrl} name={name} colorSeed={state.userId} size={24} decoration={user?.avatarDecoration} decorative />
         </span>
         <span className={cn('min-w-0 flex-1 truncate', speaking && 'text-fg')}>{name}</span>
         {state.selfStream ? (
@@ -36,12 +121,34 @@ function Occupant({ state, speaking }: { state: VoiceState; speaking: boolean })
         {muted ? <MicOff size={15} className={cn('shrink-0', state.serverMute && 'text-danger')} aria-hidden /> : null}
         {deaf ? <HeadphoneOff size={15} className={cn('shrink-0', state.serverDeaf && 'text-danger')} aria-hidden /> : null}
       </button>
+      <Menu
+        open={!!anchor}
+        onClose={() => setAnchor(null)}
+        anchor={anchor}
+        items={anchor ? items() : []}
+        aria-label={`${name} menu`}
+      />
     </li>
   );
 }
 
-/** Who is in a voice channel, listed under its row in the channel sidebar (Discord). */
-export function VoiceChannelOccupants({ chat }: { chat: ChatSummary }) {
+/** The drag preview of an occupant (avatar and name). */
+export function OccupantDragPreview({ data }: { data: VoiceDragData }) {
+  const user = useUser(data.state.userId);
+  return (
+    <div className="flex h-8 w-56 items-center gap-2 rounded-md bg-elevated px-2 text-[14px] text-fg shadow-elevated">
+      <Avatar src={user?.avatarUrl} name={data.label} colorSeed={data.state.userId} size={24} decorative />
+      <span className="min-w-0 flex-1 truncate">{data.label}</span>
+    </div>
+  );
+}
+
+/**
+ * Who is in a voice channel, listed under its row in the channel sidebar (Discord). With
+ * MOVE_MEMBERS, a row drags onto another voice channel and its menu has "Move To".
+ * `channels`: the Space's channels in sidebar order (the "Move To" choices).
+ */
+export function VoiceChannelOccupants({ chat, channels = [] }: { chat: ChatSummary; channels?: readonly ChatSummary[] }) {
   const spaceId = chat.space?.spaceId;
   useEffect(() => {
     if (spaceId)
@@ -56,7 +163,7 @@ export function VoiceChannelOccupants({ chat }: { chat: ChatSummary }) {
   return (
     <ul className="mb-1 flex flex-col pr-2 pl-7" aria-label={`In ${chat.name ?? 'voice'}`}>
       {states.map((v) => (
-        <Occupant key={v.userId} state={v} speaking={!!speaking[v.userId]} />
+        <Occupant key={v.userId} chat={chat} state={v} speaking={!!speaking[v.userId]} channels={channels} />
       ))}
     </ul>
   );

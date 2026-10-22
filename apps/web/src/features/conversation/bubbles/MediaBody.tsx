@@ -4,6 +4,8 @@
  * tapped (device pref `autoplayAnimatedMedia` 'hover'), play right away ('always') or stay
  * still ('never', reduced motion, hidden app — the viewer plays them). One without a poster
  * (an upload that came without one) shows a still tile instead: the gates hold either way.
+ * Spoilers (a file name starting `SPOILER_`) stay blurred behind a SPOILER pill until
+ * clicked, for this message in this view; nothing plays meanwhile.
  */
 import { useState, type ReactNode } from 'react';
 import { ImageOff, Play, RotateCw, X } from 'lucide-react';
@@ -14,6 +16,7 @@ import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import type { ClientMessage } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
+import { isSpoilerName } from '../dropzone/files';
 import { cancelUpload } from '../lib/sendMedia';
 
 const MAX_W = 330;
@@ -117,6 +120,8 @@ export function MediaBody({
   const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [hot, setHot] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const hidden = isSpoilerName(media.fileName) && !revealed;
   const box = mediaBox(media.width, media.height);
   const video = m.type === 'video';
   const uploading = !!m.pending && m.uploadProgress !== undefined && m.uploadProgress < 1;
@@ -128,7 +133,7 @@ export function MediaBody({
   const poster = media.thumbnailUrl ? mediaUrl(media.thumbnailUrl) : undefined;
   const animated = !video && (media.animated || media.mimeType === 'image/gif');
   const canPlay = animated && autoplay !== 'never' && !reduceMotion && appVisible;
-  const playing = canPlay && (autoplay === 'always' || hot);
+  const playing = canPlay && !hidden && (autoplay === 'always' || hot);
   const src = video || (animated && !playing) ? poster : mediaUrl(m.localUrl ?? media.url);
   const placeholder = !video && !animated ? poster : undefined;
 
@@ -139,7 +144,12 @@ export function MediaBody({
     >
       <button
         type="button"
-        className="absolute inset-0 block size-full outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
+        className={cn(
+          'absolute inset-0 block size-full outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset',
+          hidden && 'scale-110 blur-2xl',
+        )}
+        tabIndex={hidden ? -1 : undefined}
+        aria-hidden={hidden || undefined}
         onClick={(e) => {
           e.stopPropagation();
           if (uploading || m.failed) return;
@@ -200,7 +210,23 @@ export function MediaBody({
         )}
       </button>
 
-      {animated && !playing && !uploading && !m.failed ? (
+      {hidden ? (
+        <button
+          type="button"
+          aria-label={video ? 'Reveal spoiler video' : 'Reveal spoiler image'}
+          onClick={(e) => {
+            e.stopPropagation();
+            setRevealed(true);
+          }}
+          className="absolute inset-0 flex items-center justify-center bg-black/25 outline-none hover:bg-black/15 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
+        >
+          <span className="rounded-full bg-black/70 px-3.5 py-1.5 text-[13px] font-bold tracking-wider text-white">
+            SPOILER
+          </span>
+        </button>
+      ) : null}
+
+      {animated && !playing && !uploading && !m.failed && !hidden ? (
         <span
           className="pointer-events-none absolute top-1.5 left-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-white backdrop-blur-sm"
           aria-hidden
@@ -209,7 +235,7 @@ export function MediaBody({
         </span>
       ) : null}
 
-      {video && !uploading && !m.failed ? (
+      {video && !uploading && !m.failed && !hidden ? (
         <>
           <span className="pointer-events-none absolute inset-0 m-auto flex size-12 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm">
             <Play size={22} className="ml-0.5 fill-current" aria-hidden />

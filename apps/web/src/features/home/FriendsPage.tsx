@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { MessageCircle, MoreVertical, Users } from 'lucide-react';
 import { activePresenceNote, userDisplayName, type UserPublic } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { StyledName } from '@/components/cosmetics';
 import { Button, EmptyState, IconButton, Input, Menu, SearchInput, toast, type MenuAnchor } from '@/components/ui';
 import { ensureDirectChat } from '@/features/calls/directChat';
 import { openProfile } from '@/features/profile/open';
@@ -20,7 +21,7 @@ function statusLine(user: UserPublic, state: keyof typeof STATE_LABEL): string {
   return note ? [note.emoji, note.text].filter(Boolean).join(' ') : STATE_LABEL[state];
 }
 
-function FriendRow({
+export function FriendRow({
   user,
   state,
   blocked,
@@ -41,12 +42,12 @@ function FriendRow({
     }
   };
   return (
-    <div className="group/friend mx-3 flex h-[62px] items-center gap-3 rounded-lg border-t border-line px-3 first:border-transparent hover:border-transparent hover:bg-hover lg:mx-5" data-testid="friend-row">
+    <div className="group/friend mx-3 flex h-[62px] items-center gap-3 rounded-lg border-t border-line px-3 first:border-transparent hover:border-transparent hover:bg-hover lg:mx-5" data-testid="friend-row" data-animate-avatars>
       <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={(e) => openProfile(user.id, e.currentTarget)}>
         <UserAvatar user={user} size="md" showPresence />
         <span className="min-w-0 flex-1 leading-tight">
           <span className="flex items-baseline gap-1.5">
-            <span className="truncate text-[16px] font-semibold text-fg">{userDisplayName(user)}</span>
+            <StyledName name={userDisplayName(user)} style={user.nameStyle} mode="full" className="truncate text-[16px] font-semibold text-fg" />
             <span className="hidden truncate text-[14px] text-muted group-hover/friend:inline">{user.username}</span>
           </span>
           <span className="block truncate text-[13px] text-muted">{blocked ? 'Blocked' : statusLine(user, state)}</span>

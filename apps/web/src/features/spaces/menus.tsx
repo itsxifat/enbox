@@ -4,7 +4,7 @@
  * permissions and owns the dialogs they open. Mute / notification submenu builders are shared
  * with the channel and category menus (ChannelSidebar).
  */
-import { useState, type ReactNode } from 'react';
+import { Suspense, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Bell,
@@ -29,6 +29,7 @@ import {
 } from '@enbox/shared';
 import { confirm, toast, type MenuEntry } from '@/components/ui';
 import { copyText } from '@/features/groups/shared/share';
+import { lazyNamed } from '@/lib/lazy';
 import { useMe } from '@/stores/auth';
 import { isSpaceMuted } from '@/stores/spaces';
 import { leaveSpace, markSpaceRead, updateMyMember } from './actions';
@@ -39,6 +40,12 @@ import { NicknameDialog } from './dialogs/NicknameDialog';
 import { NotificationDialog } from './dialogs/NotificationDialog';
 import { canOpenSpaceSettings, settingsPath, visibleSettingsSections } from './settings/sections';
 import { NOTIFY_LABELS, muteUntilIso, mutedUntilText } from './sidebar';
+
+// The per-server profile editor (crop, pickers, profile card preview) loads when opened.
+const ServerProfileDialog = lazyNamed(
+  () => import('./serverProfile/ServerProfileDialog'),
+  'ServerProfileDialog',
+);
 
 /** Copy an id to the clipboard ("Copy Space ID" etc.). */
 export function copyId(id: ID, what: string): void {
@@ -101,6 +108,7 @@ type SpaceDialog =
   | { kind: 'channel' }
   | { kind: 'category' }
   | { kind: 'nickname' }
+  | { kind: 'serverProfile' }
   | { kind: 'notifications' };
 
 export interface SpaceMenu {
@@ -172,6 +180,12 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
     icon: UserPen,
     onSelect: () => setDialog({ kind: 'nickname' }),
   };
+  // Nickname, avatar, banner, bio… for this Space only (the nickname field follows CHANGE_NICKNAME).
+  const serverProfile: MenuEntry = {
+    label: 'Edit Per-server Profile',
+    icon: UserPen,
+    onSelect: () => setDialog({ kind: 'serverProfile' }),
+  };
   const hideMuted: MenuEntry = {
     label: 'Hide Muted Channels',
     icon: EyeOff,
@@ -192,7 +206,7 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
       'separator',
       { label: 'Notification Settings', icon: Bell, onSelect: () => setDialog({ kind: 'notifications' }) },
       'separator',
-      profile,
+      serverProfile,
       hideMuted,
       'separator',
       leaveItem,
@@ -255,6 +269,11 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
       {dialog?.kind === 'channel' ? <ChannelDialog spaceId={space.id} onClose={close} /> : null}
       {dialog?.kind === 'category' ? <CategoryDialog spaceId={space.id} onClose={close} /> : null}
       {dialog?.kind === 'nickname' ? <NicknameDialog space={space} onClose={close} /> : null}
+      {dialog?.kind === 'serverProfile' ? (
+        <Suspense fallback={null}>
+          <ServerProfileDialog space={space} onClose={close} />
+        </Suspense>
+      ) : null}
       {dialog?.kind === 'notifications' ? <NotificationDialog space={space} onClose={close} /> : null}
     </>
   );

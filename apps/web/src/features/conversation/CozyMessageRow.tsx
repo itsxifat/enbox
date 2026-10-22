@@ -87,7 +87,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
         {/* Avatar column: the avatar on the group's first row, the time on hover below it. */}
         <span className="w-10 shrink-0 self-start">
           {header ? (
-            <SenderAvatar userId={m.senderId!} selecting={selecting} size={40} />
+            <SenderAvatar userId={m.senderId!} selecting={selecting} size={40} spaceId={chat.space?.spaceId} />
           ) : (
             <span
               className="block pt-1 text-right text-[10.5px] leading-4 text-muted opacity-0 group-hover/msg:opacity-100"

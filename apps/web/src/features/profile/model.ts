@@ -1,15 +1,19 @@
 /**
- * The profile card's view model is a `UserPublic`: other users come from the users store as
- * they are; my own `UserSelf` is mapped onto the same shape (`selfCardUser`) so one card
- * renders both — and the contact dialogs / actions can take it unchanged.
+ * The profile card's view model is a `UserPublic` (cosmetics included): other users come from
+ * the users store as they are; my own `UserSelf` is mapped onto the same shape
+ * (`selfCardUser`) so one card renders both — and the contact dialogs / actions can take it
+ * unchanged. Inside a Space, the member's per-Space profile is laid over it with
+ * `withSpaceProfile` (features/spaces/serverProfile).
  */
 import {
   activePresenceNote,
   effectiveAvailability,
   type PresenceState,
+  type SpaceProfile,
   type UserPublic,
   type UserSelf,
 } from '@enbox/shared';
+import { SPACE_PROFILE_KEYS } from '@/stores/spaces';
 
 export type ProfileCardUser = UserPublic;
 
@@ -35,6 +39,10 @@ export function selfCardUser(me: UserSelf, now = Date.now()): ProfileCardUser {
     bio: me.bio || null,
     profileColor: me.profileColor,
     accentColor: me.accentColor,
+    avatarDecoration: me.avatarDecoration ?? null,
+    profileEffect: me.profileEffect ?? null,
+    nameplate: me.nameplate ?? null,
+    nameStyle: me.nameStyle ?? null,
     phone: me.phone,
     online: presenceState !== 'offline',
     presenceState,
@@ -46,6 +54,15 @@ export function selfCardUser(me: UserSelf, now = Date.now()): ProfileCardUser {
     isBlocked: false,
     isDeleted: false,
   };
+}
+
+/**
+ * Whether a member set any per-Space override (the card then offers "View Main Profile").
+ * Set = non-null, the rule of the merge itself (`withSpaceProfile` in
+ * features/spaces/serverProfile).
+ */
+export function hasSpaceOverrides(p: SpaceProfile | null | undefined): boolean {
+  return !!p && SPACE_PROFILE_KEYS.some((k) => p[k] !== null && p[k] !== undefined);
 }
 
 /** CSS background for the card header without a banner: profile colour → accent colour. */

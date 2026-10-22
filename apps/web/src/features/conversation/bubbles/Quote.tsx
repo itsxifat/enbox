@@ -16,6 +16,7 @@ import { useChats } from '@/stores/chats';
 import { useUi } from '@/stores/ui';
 import { useUserName, useUsers } from '@/stores/users';
 import { mentionName, typeIcon } from '@/features/chats/preview';
+import { isSpoilerName } from '../dropzone/files';
 import { senderColor } from '../lib/senderColor';
 
 function QuoteFrame({
@@ -123,6 +124,8 @@ export function ReplyQuote({
     !preview.deleted && preview.media && (preview.type === 'image' || preview.type === 'video')
       ? (preview.media.thumbnailUrl ?? (preview.type === 'image' ? preview.media.url : null))
       : null;
+  // Spoilered media stays hidden in quotes too (the bubble reveals it on click).
+  const spoiler = isSpoilerName(preview.media?.fileName);
   return (
     <QuoteFrame
       color={color}
@@ -133,14 +136,18 @@ export function ReplyQuote({
       }
       thumb={
         thumbSrc ? (
-          <span className="relative size-12 shrink-0">
+          <span className="relative size-12 shrink-0 overflow-hidden">
             <img
               src={mediaUrl(thumbSrc)}
               alt=""
-              className="size-full object-cover"
+              className={cn('size-full object-cover', spoiler && 'scale-110 blur-md')}
               loading="lazy"
             />
-            {preview.type === 'video' ? (
+            {spoiler ? (
+              <span className="absolute inset-0 m-auto h-fit w-fit rounded bg-black/60 px-1 text-[8px] font-bold tracking-wide text-white">
+                SPOILER
+              </span>
+            ) : preview.type === 'video' ? (
               <Play
                 size={14}
                 className="absolute inset-0 m-auto fill-white text-white drop-shadow"

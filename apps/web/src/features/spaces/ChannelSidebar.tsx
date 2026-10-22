@@ -1,5 +1,14 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import {
   ArrowDown,
   ArrowUp,
@@ -36,13 +45,29 @@ import {
   type MenuEntry,
 } from '@/components/ui';
 import { UserPanel } from '@/components/layout/UserPanel';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import {
+  collisionTarget,
+  dndAccessibility,
+  dropZone,
+  inActiveDrag,
+  pointCollision,
+  pointerListeners,
+  suppressClickAfterDrag,
+  useDragSensors,
+} from '@/lib/dnd';
 import { copyText } from '@/features/groups/shared/share';
 import { patchPrefs } from '@/features/chats/chatActions';
-import { joinVoiceChannel } from '@/features/voice/actions';
-import { VoiceChannelOccupants } from '@/features/voice/VoiceChannelOccupants';
+import { joinVoiceChannel, moveVoiceMember } from '@/features/voice/actions';
+import {
+  OccupantDragPreview,
+  VoiceChannelOccupants,
+  type VoiceDragData,
+} from '@/features/voice/VoiceChannelOccupants';
 import { markChatRead } from '@/realtime';
-import { useSpace, useSpaceChannels } from '@/stores/spaces';
+import { useChats } from '@/stores/chats';
+import { useSpace, useSpaceChannels, useSpaces } from '@/stores/spaces';
 import { deleteCategory, deleteChannel, moveChannels, setChannelsMuted, spaceMemory } from './actions';
 import { CategoryDialog } from './dialogs/CategoryDialog';
 import { ChannelDialog } from './dialogs/ChannelDialog';
@@ -50,24 +75,81 @@ import { CloneChannelDialog } from './dialogs/CloneChannelDialog';
 import { InviteDialog } from './dialogs/InviteDialog';
 import { copyId, muteEntry, notifyLevelEntries, spaceNotifyLevel, tidy, useSpaceMenu } from './menus';
 import {
+  categoryMoveItems,
+  channelMoveItems,
   groupsOf,
   isCategoryMuted,
   isChannelMuted,
   isChannelUnread,
   visibleGroups,
+  type CategoryDrop,
+  type ChannelDrop,
+  type ChannelGroup,
+  type ChannelPositionItem,
 } from './sidebar';
 
 export { isChannelUnread };
 
+// ---------------------------------------------------------------------------
+// Drag and drop (MANAGE_CHANNELS: channels and categories; MOVE_MEMBERS: voice occupants)
+// ---------------------------------------------------------------------------
+
+type DragData =
+  | { kind: 'channel'; chat: ChatSummary; label: string }
+  | { kind: 'category'; category: SpaceCategory; label: string }
+  | VoiceDragData;
+
+type DropData = { kind: 'channel'; chat: ChatSummary; label: string } | { kind: 'category'; categoryId: ID; label: string };
+
+/** Where the indicator line shows: above or below a channel row (`ch:`) or a category header (`cat:`). */
+interface DropLine {
+  id: string;
+  side: 'before' | 'after';
+}
+
+type SidebarDrop =
+  | { kind: 'channel'; drop: ChannelDrop; line: DropLine }
+  | { kind: 'category'; drop: CategoryDrop }
+  | { kind: 'voice'; channelId: ID };
+
+const sameDrop = (a: SidebarDrop | null, b: SidebarDrop | null) => JSON.stringify(a) === JSON.stringify(b);
+const collision = pointCollision();
+
+/** The drop indicator line (brand colour) at the top or bottom edge of a `relative` box. */
+function DropIndicator({ side, className }: { side: 'before' | 'after'; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-brand',
+        className ?? (side === 'before' ? '-top-px' : '-bottom-px'),
+      )}
+      data-testid="drop-indicator"
+    />
+  );
+}
+
 function ChannelRow({
   chat,
   active,
+  draggable,
+  line,
+  voiceTarget,
+  channels,
   onMenu,
   onInvite,
   onEdit,
 }: {
   chat: ChatSummary;
   active: boolean;
+  /** I may drag it (MANAGE_CHANNELS). */
+  draggable: boolean;
+  /** The drop indicator on this row. */
+  line?: 'before' | 'after';
+  /** A voice occupant is dragged over this voice channel. */
+  voiceTarget: boolean;
+  /** The Space's channels in sidebar order (the occupants' "Move To"). */
+  channels: readonly ChatSummary[];
   onMenu: (chat: ChatSummary, anchor: MenuAnchor) => void;
   onInvite: (chat: ChatSummary) => void;
   onEdit: (chat: ChatSummary) => void;
@@ -78,30 +160,53 @@ function ChannelRow({
   const Icon = voice ? Volume2 : Hash;
   const canManage = hasPerm(chat.spacePermissions, PERM.MANAGE_CHANNELS);
   const canInvite = hasPerm(chat.spacePermissions, PERM.CREATE_INVITE);
+  const label = chat.name ?? 'channel';
+  const drag = useDraggable({
+    id: `ch:${chat.id}`,
+    data: { kind: 'channel', chat, label } satisfies DragData,
+    disabled: !draggable,
+  });
+  // The row and its voice occupants are one drop target.
+  const drop = useDroppable({ id: `ch:${chat.id}`, data: { kind: 'channel', chat, label } satisfies DropData });
+  // The link is the handle: Space on its invite / edit buttons still presses them.
+  const { setNodeRef: setDragNode, setActivatorNodeRef: setDragHandle } = drag;
+  const linkRef = useCallback(
+    (el: HTMLAnchorElement | null) => {
+      setDragNode(el);
+      setDragHandle(el);
+    },
+    [setDragNode, setDragHandle],
+  );
   return (
-    <div className="group/ch relative px-2">
+    <div ref={drop.setNodeRef} className={cn('group/ch relative px-2', drag.isDragging && 'opacity-40')}>
       {/* Unread pill on the sidebar edge (Discord). */}
       {unread && !active ? (
         <span aria-hidden className="absolute top-1/2 left-0 h-2 w-1 -translate-y-1/2 rounded-r-full bg-fg" />
       ) : null}
+      {line ? <DropIndicator side={line} /> : null}
       <Link
+        ref={linkRef}
         to={`/spaces/${chat.space!.spaceId}/${chat.id}`}
         aria-current={active ? 'page' : undefined}
+        draggable={false}
+        {...(draggable ? { ...drag.listeners, 'aria-describedby': drag.attributes['aria-describedby'] } : null)}
         // Discord: clicking a voice channel connects at once (and shows it).
         onClick={voice ? () => joinVoiceChannel(chat) : undefined}
-        onContextMenu={(e: MouseEvent) => {
+        onContextMenu={(e: MouseEvent<HTMLAnchorElement>) => {
           e.preventDefault();
-          onMenu(chat, contextMenuAnchor(e));
+          if (!inActiveDrag(e.currentTarget)) onMenu(chat, contextMenuAnchor(e));
         }}
         className={cn(
-          'flex h-9 items-center gap-1.5 rounded-lg px-2 text-[15px] transition-colors outline-none focus-visible:outline-2 focus-visible:outline-brand',
-          active
-            ? 'bg-selected font-semibold text-fg'
-            : unread
-              ? 'font-semibold text-fg hover:bg-hover'
-              : muted
-                ? 'text-subtle hover:bg-hover hover:text-muted'
-                : 'text-muted hover:bg-hover hover:text-fg',
+          'flex h-9 items-center gap-1.5 rounded-lg px-2 text-[15px] transition-colors outline-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-brand',
+          voiceTarget
+            ? 'bg-brand-soft font-semibold text-fg ring-2 ring-brand'
+            : active
+              ? 'bg-selected font-semibold text-fg'
+              : unread
+                ? 'font-semibold text-fg hover:bg-hover'
+                : muted
+                  ? 'text-subtle hover:bg-hover hover:text-muted'
+                  : 'text-muted hover:bg-hover hover:text-fg',
         )}
         data-testid="space-channel-row"
         data-channel-name={chat.name}
@@ -142,7 +247,131 @@ function ChannelRow({
           </button>
         ) : null}
       </Link>
-      {voice ? <VoiceChannelOccupants chat={chat} /> : null}
+      {voice ? <VoiceChannelOccupants chat={chat} channels={channels} /> : null}
+    </div>
+  );
+}
+
+/** A category's header: collapse toggle, create button; drags (MANAGE_CHANNELS) and takes drops. */
+function CategoryHeader({
+  category,
+  collapsed,
+  draggable,
+  line,
+  onToggle,
+  onCreate,
+  onMenu,
+}: {
+  category: SpaceCategory;
+  collapsed: boolean;
+  draggable: boolean;
+  line?: 'before' | 'after';
+  onToggle: () => void;
+  onCreate?: () => void;
+  onMenu: (anchor: MenuAnchor) => void;
+}) {
+  const label = category.name;
+  const drag = useDraggable({ id: `cat:${category.id}`, data: { kind: 'category', category, label } satisfies DragData, disabled: !draggable });
+  const drop = useDroppable({ id: `cat:${category.id}`, data: { kind: 'category', categoryId: category.id, label } satisfies DropData });
+  const { setNodeRef: setDragNode } = drag;
+  const { setNodeRef: setDropNode } = drop;
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      setDragNode(el);
+      setDropNode(el);
+    },
+    [setDragNode, setDropNode],
+  );
+  return (
+    <div
+      ref={ref}
+      {...(draggable ? pointerListeners(drag.listeners) : null)}
+      className={cn('group/cat relative flex items-center pr-3 pl-2', drag.isDragging && 'opacity-40')}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (!inActiveDrag(e.currentTarget)) onMenu(contextMenuAnchor(e));
+      }}
+    >
+      {line ? <DropIndicator side={line} /> : null}
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-0.5 rounded px-1 py-1 text-[12px] font-bold tracking-wide text-muted uppercase hover:text-fg"
+      >
+        {collapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
+        <span className="truncate">{category.name}</span>
+      </button>
+      {onCreate ? (
+        <button
+          type="button"
+          aria-label={`Create channel in ${category.name}`}
+          title="Create Channel"
+          onClick={onCreate}
+          className="rounded p-0.5 text-muted opacity-0 group-hover/cat:opacity-100 hover:text-fg focus-visible:opacity-100"
+        >
+          <PlusCircle size={16} aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** What the pointer is over while dragging (null: nowhere it could drop, or no change). */
+function dropFor(
+  a: DragData,
+  e: DragMoveEvent,
+  groups: readonly ChannelGroup[],
+  categories: readonly SpaceCategory[],
+): SidebarDrop | null {
+  const hit = collisionTarget<DropData>(e.collisions);
+  if (!hit) return null;
+  const over = hit.data;
+  if (a.kind === 'voice') {
+    // Onto another voice channel I may move people into.
+    if (over.kind !== 'channel' || over.chat.type !== 'space_voice' || over.chat.id === a.state.channelId) return null;
+    const bits = over.chat.spacePermissions;
+    return hasPerm(bits, PERM.MOVE_MEMBERS) && hasPerm(bits, PERM.CONNECT) ? { kind: 'voice', channelId: over.chat.id } : null;
+  }
+  const side = dropZone(hit.point.y, hit.rect, 0.5) === 'before' ? 'before' : 'after';
+  if (a.kind === 'channel') {
+    let next: SidebarDrop;
+    if (over.kind === 'channel') {
+      next = { kind: 'channel', drop: { kind: side, channelId: over.chat.id }, line: { id: `ch:${over.chat.id}`, side } };
+    } else if (side === 'before') {
+      // Above a category header: the end of the group above it (the first one: no category).
+      const i = groups.findIndex((g) => g.category?.id === over.categoryId);
+      const above = groups[i - 1];
+      next = { kind: 'channel', drop: { kind: 'end', categoryId: above?.category?.id ?? null }, line: { id: `cat:${over.categoryId}`, side } };
+    } else {
+      next = { kind: 'channel', drop: { kind: 'start', categoryId: over.categoryId }, line: { id: `cat:${over.categoryId}`, side } };
+    }
+    return channelMoveItems(groups, a.chat.id, next.drop).length ? next : null;
+  }
+  // A category: next to another one; over a channel, after its category (uncategorised: before the first).
+  let drop: CategoryDrop | null;
+  if (over.kind === 'category') drop = { kind: side, categoryId: over.categoryId };
+  else {
+    const g = groups.find((x) => x.channels.some((c) => c.id === over.chat.id));
+    const first = groups.find((x) => x.category)?.category;
+    drop = g?.category ? { kind: 'after', categoryId: g.category.id } : first ? { kind: 'before', categoryId: first.id } : null;
+  }
+  return drop && categoryMoveItems(categories, a.category.id, drop).length ? { kind: 'category', drop } : null;
+}
+
+function DragPreview({ data }: { data: DragData }) {
+  if (data.kind === 'voice') return <OccupantDragPreview data={data} />;
+  if (data.kind === 'category')
+    return (
+      <div className="w-max max-w-60 truncate rounded-lg bg-elevated px-3 py-1.5 text-[12px] font-bold tracking-wide text-muted uppercase shadow-elevated">
+        {data.label}
+      </div>
+    );
+  const Icon = data.chat.type === 'space_voice' ? Volume2 : Hash;
+  return (
+    <div className="flex h-9 w-60 items-center gap-1.5 rounded-lg bg-elevated px-2 text-[15px] font-semibold text-fg shadow-elevated">
+      <Icon size={18} className="shrink-0 opacity-70" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{data.label}</span>
     </div>
   );
 }
@@ -157,7 +386,13 @@ type ContextMenu =
   | { kind: 'channel'; chatId: ID; anchor: MenuAnchor }
   | { kind: 'category'; categoryId: ID; anchor: MenuAnchor };
 
-/** Channel list of one Space (Discord's left column), with the Space menu in its header. */
+/**
+ * Channel list of one Space (Discord's left column), with the Space menu in its header.
+ * With MANAGE_CHANNELS, channels drag within and across categories (into "no category" too:
+ * above the first category) and categories drag among themselves; with MOVE_MEMBERS, people
+ * in voice drag onto another voice channel. Moves show at once (one PATCH; reverted with a
+ * toast if it fails).
+ */
 export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
   const space = useSpace(spaceId);
   const channels = useSpaceChannels(spaceId);
@@ -173,6 +408,10 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
     () => visibleGroups(groups, { collapsed, hideMuted, activeId: chatId }),
     [groups, collapsed, hideMuted, chatId],
   );
+  const sensors = useDragSensors(12);
+  const [dragging, setDragging] = useState<DragData | null>(null);
+  const [drop, setDrop] = useState<SidebarDrop | null>(null);
+  const dropRef = useRef<SidebarDrop | null>(null);
 
   if (!space) {
     return (
@@ -197,21 +436,90 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
 
   const mute = (list: ChatSummary[], until: string | null) => void setChannelsMuted(list, until);
 
-  /** Swap with the neighbour of the same type in its category (text always sorts before voice). */
-  const move = (c: ChatSummary, dir: -1 | 1) => {
-    const catId = c.space?.categoryId ?? null;
-    const row = channels
-      .filter((x) => x.type === c.type && (x.space?.categoryId ?? null) === catId)
-      .sort((a, b) => (a.space?.position ?? 0) - (b.space?.position ?? 0));
-    const i = row.findIndex((x) => x.id === c.id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= row.length) return;
-    [row[i], row[j]] = [row[j]!, row[i]!];
-    void moveChannels(
-      spaceId,
-      row.map((x, position) => ({ id: x.id, categoryId: catId, position })),
-    ).catch((e: unknown) => toast.error(e));
+  /** Optimistic channel moves; back where they were (and a toast) when the PATCH fails. */
+  const applyChannelMove = (items: ChannelPositionItem[]) => {
+    if (!items.length) return;
+    const byId = useChats.getState().byId;
+    const before = items.map((it) => ({
+      id: it.id,
+      categoryId: byId[it.id]?.space?.categoryId ?? null,
+      position: byId[it.id]?.space?.position ?? 0,
+    }));
+    void moveChannels(spaceId, items).catch((e: unknown) => {
+      for (const b of before)
+        useChats
+          .getState()
+          .mutateChat(b.id, (c) => (c.space ? { space: { ...c.space, categoryId: b.categoryId, position: b.position } } : null));
+      toast.error(e);
+    });
   };
+
+  /** Optimistic category moves, reverted with a toast when the PATCH fails. */
+  const applyCategoryMove = (items: { id: ID; position: number }[]) => {
+    if (!items.length) return;
+    const was = new Map(space.categories.map((c) => [c.id, c.position]));
+    const to = new Map(items.map((i) => [i.id, i.position]));
+    const store = useSpaces.getState();
+    store.applySpaceUpdate(spaceId, {
+      categories: space.categories.map((c) => (to.has(c.id) ? { ...c, position: to.get(c.id)! } : c)),
+    });
+    void api.patch(`/api/spaces/${spaceId}/categories/positions`, { items }).catch((e: unknown) => {
+      const cur = useSpaces.getState().byId[spaceId];
+      if (cur)
+        useSpaces.getState().applySpaceUpdate(spaceId, {
+          categories: cur.categories.map((c) => (was.has(c.id) ? { ...c, position: was.get(c.id)! } : c)),
+        });
+      toast.error(e);
+    });
+  };
+
+  /** Move Up / Move Down: past the neighbour of the same kind in its category (text always sorts before voice). */
+  const move = (c: ChatSummary, dir: -1 | 1) => {
+    const g = groups.find((x) => x.channels.some((y) => y.id === c.id));
+    const row = (g?.channels ?? []).filter((x) => (x.type === 'space_voice') === (c.type === 'space_voice'));
+    const next = row[row.findIndex((x) => x.id === c.id) + dir];
+    if (next) applyChannelMove(channelMoveItems(groups, c.id, { kind: dir < 0 ? 'before' : 'after', channelId: next.id }));
+  };
+
+  const moveCategory = (category: SpaceCategory, dir: -1 | 1) => {
+    const sorted = [...space.categories].sort((a, b) => a.position - b.position);
+    const next = sorted[sorted.findIndex((x) => x.id === category.id) + dir];
+    if (next)
+      applyCategoryMove(categoryMoveItems(space.categories, category.id, { kind: dir < 0 ? 'before' : 'after', categoryId: next.id }));
+  };
+
+  const endDrag = () => {
+    setDragging(null);
+    setDrop(null);
+    dropRef.current = null;
+  };
+  const onDragStart = (e: DragStartEvent) => {
+    setDragging((e.active.data.current as DragData | undefined) ?? null);
+    setDrop(null);
+    dropRef.current = null;
+  };
+  const onDragMove = (e: DragMoveEvent) => {
+    const a = e.active.data.current as DragData | undefined;
+    const next = a ? dropFor(a, e, groups, space.categories) : null;
+    if (sameDrop(next, dropRef.current)) return;
+    dropRef.current = next;
+    setDrop(next);
+  };
+  const onDragEnd = (e: DragEndEvent) => {
+    const a = e.active.data.current as DragData | undefined;
+    const d = dropRef.current;
+    endDrag();
+    suppressClickAfterDrag();
+    if (!a || !d) return;
+    if (a.kind === 'voice' && d.kind === 'voice')
+      void moveVoiceMember(spaceId, a.state.userId, d.channelId).catch((e: unknown) => toast.error(e));
+    else if (a.kind === 'channel' && d.kind === 'channel') applyChannelMove(channelMoveItems(groups, a.chat.id, d.drop));
+    else if (a.kind === 'category' && d.kind === 'category')
+      applyCategoryMove(categoryMoveItems(space.categories, a.category.id, d.drop));
+  };
+  const lineOf = (id: string) => (drop?.kind === 'channel' && drop.line.id === id ? drop.line.side : undefined);
+  const groupLine = (categoryId: ID | undefined) =>
+    drop?.kind === 'category' && categoryId && drop.drop.categoryId === categoryId ? drop.drop.kind : undefined;
 
   const removeChannel = (c: ChatSummary) =>
     void confirm({
@@ -265,8 +573,8 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
       canManage && 'separator',
       canManage && { label: 'Edit Channel', icon: Pencil, onSelect: () => setDialog({ kind: 'channel', chat: c }) },
       canManage && manageChannels && { label: 'Clone Channel', icon: CopyPlus, onSelect: () => setDialog({ kind: 'clone', chat: c }) },
-      canManage && { label: 'Move Up', icon: ArrowUp, onSelect: () => move(c, -1) },
-      canManage && { label: 'Move Down', icon: ArrowDown, onSelect: () => move(c, 1) },
+      canManage && manageChannels && { label: 'Move Up', icon: ArrowUp, onSelect: () => move(c, -1) },
+      canManage && manageChannels && { label: 'Move Down', icon: ArrowDown, onSelect: () => move(c, 1) },
       canManage && { label: 'Delete Channel', icon: Trash2, danger: true, onSelect: () => removeChannel(c) },
       'separator',
       { label: 'Copy Channel ID', icon: IdCard, onSelect: () => copyId(c.id, 'Channel') },
@@ -305,6 +613,8 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
         ),
       manageChannels && 'separator',
       manageChannels && { label: 'Edit Category', icon: Pencil, onSelect: () => setDialog({ kind: 'category', category }) },
+      manageChannels && { label: 'Move Up', icon: ArrowUp, onSelect: () => moveCategory(category, -1) },
+      manageChannels && { label: 'Move Down', icon: ArrowDown, onSelect: () => moveCategory(category, 1) },
       manageChannels && {
         label: 'Delete Category',
         icon: Trash2,
@@ -334,13 +644,51 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
     return category ? categoryItems(category) : [];
   };
 
+  const list = shown.map(({ group: g, shown: rows }) => {
+    const isCollapsed = g.category ? !!collapsed[g.category.id] : false;
+    const line = groupLine(g.category?.id);
+    return (
+      <div key={g.category?.id ?? 'none'} className="relative pt-4">
+        {line === 'before' ? <DropIndicator side="before" className="top-2" /> : null}
+        {g.category ? (
+          <CategoryHeader
+            category={g.category}
+            collapsed={isCollapsed}
+            draggable={manageChannels}
+            line={lineOf(`cat:${g.category.id}`)}
+            onToggle={() => toggle(g.category!.id)}
+            onCreate={manageChannels ? () => setDialog({ kind: 'channel', categoryId: g.category!.id }) : undefined}
+            onMenu={(anchor) => setMenu({ kind: 'category', categoryId: g.category!.id, anchor })}
+          />
+        ) : null}
+        <div className="mt-0.5 flex flex-col gap-0.5">
+          {rows.map((c) => (
+            <ChannelRow
+              key={c.id}
+              chat={c}
+              active={c.id === chatId}
+              draggable={manageChannels}
+              line={lineOf(`ch:${c.id}`)}
+              voiceTarget={drop?.kind === 'voice' && drop.channelId === c.id}
+              channels={channels}
+              onMenu={(chat, anchor) => setMenu({ kind: 'channel', chatId: chat.id, anchor })}
+              onInvite={(chat) => setDialog({ kind: 'invite', channelId: chat.id })}
+              onEdit={(chat) => setDialog({ kind: 'channel', chat })}
+            />
+          ))}
+        </div>
+        {line === 'after' ? <DropIndicator side="after" className="-bottom-2" /> : null}
+      </div>
+    );
+  });
+
   return (
     <aside aria-label="Channels" className="lg:card-pane flex w-[260px] min-w-0 flex-1 flex-col bg-surface lg:flex-none">
       <DropdownMenu
         aria-label={`${space.name} menu`}
         align="start"
         items={spaceMenu.headerItems()}
-        trigger={(p) => (
+        trigger={({ active, ...p }) => (
           <button
             type="button"
             {...p}
@@ -348,7 +696,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
             data-testid="space-header"
           >
             <span className="min-w-0 flex-1 truncate text-[16px]">{space.name}</span>
-            <ChevronDown size={18} className={cn('shrink-0 transition-transform', p.active && 'rotate-180')} aria-hidden />
+            <ChevronDown size={18} className={cn('shrink-0 transition-transform', active && 'rotate-180')} aria-hidden />
           </button>
         )}
       />
@@ -357,56 +705,23 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
           <img src={space.bannerUrl} alt="" className="size-full object-cover" />
         </div>
       ) : null}
-      <nav className="min-h-0 flex-1 overflow-y-auto pb-4" aria-label={`${space.name} channels`}>
-        {shown.map(({ group: g, shown: list }) => {
-          const isCollapsed = g.category ? !!collapsed[g.category.id] : false;
-          return (
-            <div key={g.category?.id ?? 'none'} className="pt-4">
-              {g.category ? (
-                <div
-                  className="group/cat flex items-center pr-3 pl-2"
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({ kind: 'category', categoryId: g.category!.id, anchor: contextMenuAnchor(e) });
-                  }}
-                >
-                  <button
-                    type="button"
-                    aria-expanded={!isCollapsed}
-                    onClick={() => toggle(g.category!.id)}
-                    className="flex min-w-0 flex-1 items-center gap-0.5 rounded px-1 py-1 text-[12px] font-bold tracking-wide text-muted uppercase hover:text-fg"
-                  >
-                    {isCollapsed ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
-                    <span className="truncate">{g.category.name}</span>
-                  </button>
-                  {manageChannels ? (
-                    <button
-                      type="button"
-                      aria-label={`Create channel in ${g.category.name}`}
-                      title="Create Channel"
-                      onClick={() => setDialog({ kind: 'channel', categoryId: g.category!.id })}
-                      className="rounded p-0.5 text-muted opacity-0 group-hover/cat:opacity-100 hover:text-fg focus-visible:opacity-100"
-                    >
-                      <PlusCircle size={16} aria-hidden />
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="mt-0.5 flex flex-col gap-0.5">
-                {list.map((c) => (
-                  <ChannelRow
-                    key={c.id}
-                    chat={c}
-                    active={c.id === chatId}
-                    onMenu={(chat, anchor) => setMenu({ kind: 'channel', chatId: chat.id, anchor })}
-                    onInvite={(chat) => setDialog({ kind: 'invite', channelId: chat.id })}
-                    onEdit={(chat) => setDialog({ kind: 'channel', chat })}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
+      <nav
+        className="min-h-0 flex-1 overflow-y-auto pb-4"
+        aria-label={`${space.name} channels`}
+        data-dragging={dragging ? 'true' : undefined}
+      >
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collision}
+          accessibility={dndAccessibility}
+          onDragStart={onDragStart}
+          onDragMove={onDragMove}
+          onDragEnd={onDragEnd}
+          onDragCancel={endDrag}
+        >
+          {list}
+          <DragOverlay dropAnimation={null}>{dragging ? <DragPreview data={dragging} /> : null}</DragOverlay>
+        </DndContext>
         {channels.length === 0 ? (
           <p className="px-4 pt-6 text-sm text-muted">No channels you can see yet.</p>
         ) : null}

@@ -30,7 +30,7 @@ export function SpacesEmpty() {
         description={
           spaces.length
             ? 'Choose a Space on the left to see its channels.'
-            : 'A Space is your place for a community: text and voice channels, roles and members, like a Discord server.'
+            : 'A Space is your place for a community: text and voice channels, roles and members, all in one place.'
         }
         action={
           <div className="flex flex-wrap justify-center gap-2">

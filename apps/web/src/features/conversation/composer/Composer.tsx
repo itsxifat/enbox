@@ -1,10 +1,15 @@
 /**
  * Message composer: auto-growing text field, emoji picker (lazy), Enter-to-send (device
  * preference; touch keyboards insert newlines), typing/recording indicators, @mention
- * suggestions in groups, reply/edit banners, drafts, attachments (photos & videos with
- * preview + captions, camera, documents, audio, location, contact, poll), paste/drop of
- * files and voice notes (tap to record locked, or hold: release sends, slide left cancels,
+ * suggestions in groups, reply/edit banners, drafts, attachments (location, contact, poll,
+ * camera) and voice notes (tap to record locked, or hold: release sends, slide left cancels,
  * slide up locks).
+ *
+ * Files (paste, drop anywhere over the conversation — see dropzone/ — and "+" picks) wait
+ * in the attachment tray and go with the next send: the text becomes the first file's
+ * caption, each file its own message, up to MAX_ATTACHMENTS at a time. A Shift-drop uploads
+ * right away. Phones keep the full-screen preview with captions for photo/video picks and
+ * the camera. Space channels need ATTACH_FILES for any of it.
  */
 import {
   Suspense,
@@ -20,6 +25,7 @@ import {
 } from 'react';
 import { Check, Mic, Pencil, PlusCircle, Smile, X, Camera, Keyboard } from 'lucide-react';
 import {
+  MAX_CAPTION_LENGTH,
   MAX_MESSAGE_LENGTH,
   chatTitle,
   MAX_UPLOAD_BYTES,
@@ -29,13 +35,14 @@ import {
 } from '@enbox/shared';
 import { SendIcon } from '@/components/icons';
 import { IconButton, Spinner } from '@/components/ui';
+import { useBus } from '@/hooks/useBus';
 import { useIsDesktop, useIsTouch } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
 import { readAudioDuration } from '@/lib/media';
 import { playSound } from '@/lib/notify';
 import { useAuth } from '@/stores/auth';
 import { useMessages, type ClientMessage } from '@/stores/messages';
-import { confirm, toast, useUi } from '@/stores/ui';
+import { toast, useUi } from '@/stores/ui';
 import { mentionName } from '@/features/chats/preview';
 import { getDraft, useDrafts } from '@/features/chats/drafts';
 import { useSpaceMentionCandidates, type MentionCandidate } from '@/features/spaces/mentions';
@@ -53,14 +60,16 @@ import {
   type MentionQuery,
   type MentionRef,
 } from '../lib/composerMentions';
-import { isVisualMedia, prepareEach } from '../lib/mediaProcessing';
+import { MAX_ATTACHMENTS, NO_UPLOAD_PERMISSION, canAttachFiles } from '../dropzone/files';
+import { prepareEach, prepareVisualMedia } from '../lib/mediaProcessing';
 import { VoiceRecording, recordingSupported } from '../lib/recorder';
-import { enqueueMedia, sendMedia } from '../lib/sendMedia';
+import { enqueueMedia, sendMedia, type MediaSendInput } from '../lib/sendMedia';
 import { sendQueued } from '../lib/outbox';
 import { createTypingEmitter } from '../lib/typing';
 import { useChatMembers } from '../members';
 import { useConversationUi } from '../state';
 import { AttachMenu, type AttachKind } from './AttachMenu';
+import { AttachmentTray, trayFile, trayItem, type TrayItem } from './AttachmentTray';
 import { CameraDialog, ContactPickerDialog, LocationDialog, PollDialog } from './AttachDialogs';
 import { MediaPreviewDialog } from './MediaPreviewDialog';
 import { MentionSuggestions } from './MentionSuggestions';
@@ -70,6 +79,9 @@ const MAX_ROWS = 6;
 const HOLD_MS = 220;
 
 type Dialog = 'location' | 'contact' | 'poll' | 'camera' | null;
+
+/** What goes on the first message of a batch of uploads (the rest carry neither). */
+type Lead = Pick<MediaSendInput, 'caption' | 'replyToId' | 'replyTo'>;
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -96,11 +108,14 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const isSpace = chat.type === 'space_text';
   const mentionable = chat.type === 'group' || isSpace;
   const roleName = (id: string) =>
-    useSpaces.getState().byId[chat.space?.spaceId ?? '']?.roles.find((r) => r.id === id)?.name ?? 'role';
+    useSpaces.getState().byId[chat.space?.spaceId ?? '']?.roles.find((r) => r.id === id)?.name ??
+    'role';
 
   const initial = useMemo(() => {
     const d = getDraft(chat.id);
-    return d ? decodeMentions(d.text, mentionName, roleName) : { text: '', refs: [] as MentionRef[] };
+    return d
+      ? decodeMentions(d.text, mentionName, roleName)
+      : { text: '', refs: [] as MentionRef[] };
     // Only on mount for this chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -114,7 +129,14 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const [preview, setPreview] = useState<File[] | null>(null);
   const [voice, setVoice] = useState<{ rec: VoiceRecording; locked: boolean } | null>(null);
   const [starting, setStarting] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
+  // The ref is the source of truth (several adds can land before a render); state renders it.
+  const [tray, setTrayState] = useState<TrayItem[]>([]);
+  const trayRef = useRef(tray);
+  const setTray = (next: TrayItem[]) => {
+    trayRef.current = next;
+    setTrayState(next);
+  };
+  const canAttach = canAttachFiles(chat);
   const ta = useRef<HTMLTextAreaElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
   const docInput = useRef<HTMLInputElement>(null);
@@ -197,7 +219,11 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     if (desktop) ta.current?.focus({ preventScroll: true });
   }, [desktop]);
 
-  const spaceSuggestions = useSpaceMentionCandidates(chat, isSpace && mention ? mention.query : null, meId);
+  const spaceSuggestions = useSpaceMentionCandidates(
+    chat,
+    isSpace && mention ? mention.query : null,
+    meId,
+  );
   const groupSuggestions = useMemo<MentionCandidate[]>(() => {
     if (!mention || chat.type !== 'group' || !members) return [];
     return members
@@ -207,7 +233,13 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           u.id !== meId && !u.isDeleted && matchesMentionQuery(userDisplayName(u), mention.query),
       )
       .slice(0, 8)
-      .map((u) => ({ key: u.id, token: u.id, name: userDisplayName(u), sub: `@${u.username}`, user: u }));
+      .map((u) => ({
+        key: u.id,
+        token: u.id,
+        name: userDisplayName(u),
+        sub: `@${u.username}`,
+        user: u,
+      }));
   }, [mention, chat.type, members, meId]);
   const suggestions = isSpace ? spaceSuggestions : groupSuggestions;
 
@@ -299,6 +331,10 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           useConversationUi.getState().setEditing(chat.id, null);
         }
       });
+      return;
+    }
+    if (trayRef.current.length) {
+      sendWithAttachments(encoded);
       return;
     }
     if (!encoded) return;
@@ -397,51 +433,130 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     await uploads;
   };
 
-  const sendFiles = async (files: File[], kind: 'file' | 'audio') => {
-    const list = tooBig(files);
-    if (!list.length) return;
-    if (
-      list.length > 1 &&
-      !(await confirm({ title: `Send ${list.length} files?`, confirmLabel: 'Send' }))
-    )
-      return;
-    const r = replyFields(reply);
-    clearAfterAttachmentSend();
-    const jobs: (() => Promise<void>)[] = [];
-    for (const [i, f] of list.entries()) {
-      const durationMs =
-        kind === 'audio' ? await readAudioDuration(f).catch(() => undefined) : undefined;
-      jobs.push(
-        enqueueMedia(chat.id, {
-          kind,
-          blob: f,
-          fileName: f.name,
-          mimeType: f.type || 'application/octet-stream',
-          durationMs,
-          ...(i === 0 ? r : {}),
-        }),
-      );
-    }
-    for (const job of jobs) await job();
+  /** Space channels without ATTACH_FILES: say so and refuse. */
+  const attachDenied = () => {
+    if (canAttach) return false;
+    toast.error(NO_UPLOAD_PERMISSION, { id: 'attach-denied' });
+    return true;
   };
 
-  const handleFiles = (files: File[]) => {
-    const list = tooBig(files);
-    if (!list.length) return;
-    const visual = list.filter(isVisualMedia);
-    const other = list.filter((f) => !isVisualMedia(f));
-    if (visual.length) setPreview(visual);
-    if (other.length) void sendFiles(other, 'file');
+  /** At most `room` of the files; the rest is refused with a toast. */
+  const capped = (files: File[], room: number) => {
+    if (files.length <= room) return files;
+    toast.error(`You can upload up to ${MAX_ATTACHMENTS} files at a time`, {
+      id: 'attach-limit',
+    });
+    return files.slice(0, Math.max(0, room));
   };
+
+  const addToTray = (files: File[]) => {
+    if (!files.length || attachDenied()) return;
+    const list = capped(tooBig(files), MAX_ATTACHMENTS - trayRef.current.length);
+    if (!list.length) return;
+    setTray([...trayRef.current, ...list.map(trayItem)]);
+    if (!touch) requestAnimationFrame(() => ta.current?.focus({ preventScroll: true }));
+  };
+
+  const removeFromTray = (id: string) => setTray(trayRef.current.filter((i) => i.id !== id));
+
+  const editTrayItem = (id: string, patch: Partial<Pick<TrayItem, 'name' | 'spoiler'>>) =>
+    setTray(trayRef.current.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+
+  /**
+   * Upload files in order, one message each, `lead` (caption, reply) on the first. Photos and
+   * videos are processed one at a time (decoding several at once runs phones out of memory):
+   * each bubble appears when its file is ready, while the uploads before it run in order.
+   */
+  const uploadItems = async (items: TrayItem[], lead: Lead) => {
+    let uploads = Promise.resolve();
+    let pending: Lead | null = lead;
+    for (const item of items) {
+      const file = trayFile(item);
+      let input: MediaSendInput;
+      if (item.kind === 'visual') {
+        try {
+          input = await prepareVisualMedia(file);
+        } catch {
+          toast.error(`Couldn’t process “${file.name}”`);
+          continue;
+        }
+      } else {
+        input = {
+          kind: item.kind,
+          blob: file,
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          durationMs:
+            item.kind === 'audio'
+              ? await readAudioDuration(file).catch(() => undefined)
+              : undefined,
+        };
+      }
+      const job = enqueueMedia(chat.id, { ...input, ...pending });
+      pending = null;
+      uploads = uploads.then(job).catch(() => undefined);
+    }
+    // Nothing could be sent: the typed text still goes, on its own.
+    if (pending?.caption)
+      void sendQueued(
+        chat.id,
+        { type: 'text', text: pending.caption, replyToId: pending.replyToId },
+        { optimistic: pending.replyTo ? { replyTo: pending.replyTo } : undefined },
+      );
+    await uploads;
+  };
+
+  /** Enter / Send with files in the tray: the text and every file. */
+  const sendWithAttachments = (encoded: string) => {
+    if (attachDenied()) return;
+    if (encoded.length > MAX_MESSAGE_LENGTH) {
+      toast.error(`Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters`);
+      return;
+    }
+    const items = trayRef.current;
+    const r = replyFields(reply);
+    setTray([]);
+    clearAfterSend();
+    if (sounds) playSound('sent');
+    let lead: Lead = { ...r, caption: encoded || undefined };
+    if (encoded.length > MAX_CAPTION_LENGTH) {
+      // Too long for a caption: the text goes first as its own message, the files follow.
+      void sendQueued(
+        chat.id,
+        { type: 'text', text: encoded, replyToId: r.replyToId },
+        { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
+      );
+      lead = {};
+    }
+    void uploadItems(items, lead);
+  };
+
+  /** Shift-drop: upload right away; the typed text stays. */
+  const uploadNow = (files: File[]) => {
+    if (!files.length || attachDenied()) return;
+    const list = capped(tooBig(files), MAX_ATTACHMENTS);
+    if (!list.length) return;
+    const r = replyFields(reply);
+    clearAfterAttachmentSend();
+    void uploadItems(list.map(trayItem), r);
+  };
+
+  useBus('composer:files', ({ chatId, files, direct }) => {
+    if (chatId !== chat.id) return;
+    if (direct) uploadNow(files);
+    else addToTray(files);
+  });
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files);
     if (!files.length) return;
     e.preventDefault();
-    handleFiles(files);
+    addToTray(files);
   };
 
   const onAttach = (kind: AttachKind) => {
+    const upload = kind === 'media' || kind === 'document' || kind === 'audio' || kind === 'camera';
+    if (upload && attachDenied()) return;
     if (kind === 'media') mediaInput.current?.click();
     else if (kind === 'document') docInput.current?.click();
     else if (kind === 'audio') audioInput.current?.click();
@@ -451,6 +566,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   // ---- voice notes -------------------------------------------------------
 
   const startRecording = async (locked: boolean) => {
+    if (attachDenied()) return;
     if (!recordingSupported()) {
       toast.error('Voice messages aren’t supported in this browser');
       return;
@@ -553,8 +669,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
 
   const hasText = text.trim().length > 0;
   // Discord: Enter sends on desktop (no send button); touch keyboards and "Enter = new line"
-  // keep the button.
-  const showSend = (hasText && (touch || !enterToSend)) || !!editing || (voice?.locked ?? false);
+  // keep the button. Files waiting in the tray always show it.
+  const showSend =
+    (hasText && (touch || !enterToSend)) ||
+    tray.length > 0 ||
+    !!editing ||
+    (voice?.locked ?? false);
   const showMic = !showSend && (!hasText || !!voice);
   const placeholder = chat.space
     ? `Message #${chat.name ?? 'channel'}`
@@ -566,27 +686,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     <div
       className="card-inset relative mx-2 mt-2 mb-[max(8px,env(safe-area-inset-bottom))] shrink-0 px-2 py-2 shadow-bubble sm:mx-3 sm:mb-[max(12px,env(safe-area-inset-bottom))] sm:px-3"
       data-testid="composer"
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault();
-          setDragOver(true);
-        }
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        setDragOver(false);
-        const files = Array.from(e.dataTransfer.files);
-        if (!files.length) return;
-        e.preventDefault();
-        handleFiles(files);
-      }}
     >
-      {dragOver ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-t-2xl border-2 border-dashed border-brand bg-brand-soft/90 text-sm font-semibold text-brand-ink">
-          Drop files to send
-        </div>
-      ) : null}
-
       {suggestions.length ? (
         <MentionSuggestions
           id={listId}
@@ -624,55 +724,70 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         {voice ? (
           <VoiceRecorderBar rec={voice.rec} locked={voice.locked} onCancel={cancelRecording} />
         ) : (
-          <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-lg bg-surface-2">
-            {/* Discord: "+" opens uploads and the other attachment kinds. */}
-            <IconButton
-              icon={PlusCircle}
-              label="Attach"
-              aria-haspopup="menu"
-              active={!!attachAnchor}
-              onClick={(e) => setAttachAnchor(attachAnchor ? null : e.currentTarget)}
-              className="m-1 shrink-0"
+          <div className="min-w-0 flex-1 rounded-lg bg-surface-2">
+            <AttachmentTray
+              items={tray}
+              touch={touch}
+              onRemove={removeFromTray}
+              onChange={editTrayItem}
+              className="border-b border-line px-2.5"
             />
-            <textarea
-              ref={ta}
-              value={text}
-              rows={1}
-              onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
-              onKeyDown={onKeyDown}
-              onKeyUp={(e) => updateMention(e.currentTarget.value, e.currentTarget.selectionStart)}
-              onClick={(e) => updateMention(e.currentTarget.value, e.currentTarget.selectionStart)}
-              onBlur={() => {
-                typing.stop();
-                setTimeout(() => setMention(null), 150);
-              }}
-              onPaste={onPaste}
-              placeholder={editing ? 'Edit message' : placeholder}
-              aria-label="Message"
-              aria-autocomplete={mentionable ? 'list' : undefined}
-              aria-controls={suggestions.length ? listId : undefined}
-              aria-activedescendant={suggestions.length ? `${listId}-${mentionIdx}` : undefined}
-              enterKeyHint={enterToSend && !touch ? 'send' : 'enter'}
-              className="max-h-[50vh] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-[11px] text-chat leading-[1.375] text-fg outline-none placeholder:text-subtle"
-            />
-            {!hasText && !editing ? (
+            <div className="flex min-h-11 items-end">
+              {/* Discord: "+" opens uploads and the other attachment kinds. */}
               <IconButton
-                icon={Camera}
-                label="Camera"
-                onClick={() => setDialog('camera')}
-                className="m-1 mr-0 shrink-0 sm:hidden"
+                icon={PlusCircle}
+                label="Attach"
+                aria-haspopup="menu"
+                active={!!attachAnchor}
+                onClick={(e) => setAttachAnchor(attachAnchor ? null : e.currentTarget)}
+                className="m-1 shrink-0"
               />
-            ) : null}
-            <IconButton
-              icon={emojiOpen ? Keyboard : Smile}
-              label={emojiOpen ? 'Hide emoji' : 'Emoji'}
-              active={emojiOpen}
-              onClick={() => {
-                setEmojiOpen((o) => !o);
-                if (emojiOpen) ta.current?.focus();
-              }}
-              className="m-1 shrink-0"
-            />
+              <textarea
+                ref={ta}
+                value={text}
+                rows={1}
+                onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
+                onKeyDown={onKeyDown}
+                onKeyUp={(e) =>
+                  updateMention(e.currentTarget.value, e.currentTarget.selectionStart)
+                }
+                onClick={(e) =>
+                  updateMention(e.currentTarget.value, e.currentTarget.selectionStart)
+                }
+                onBlur={() => {
+                  typing.stop();
+                  setTimeout(() => setMention(null), 150);
+                }}
+                onPaste={onPaste}
+                placeholder={editing ? 'Edit message' : placeholder}
+                aria-label="Message"
+                aria-autocomplete={mentionable ? 'list' : undefined}
+                aria-controls={suggestions.length ? listId : undefined}
+                aria-activedescendant={suggestions.length ? `${listId}-${mentionIdx}` : undefined}
+                enterKeyHint={enterToSend && !touch ? 'send' : 'enter'}
+                className="max-h-[50vh] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-[11px] text-chat leading-[1.375] text-fg outline-none placeholder:text-subtle"
+              />
+              {!hasText && !editing ? (
+                <IconButton
+                  icon={Camera}
+                  label="Camera"
+                  onClick={() => {
+                    if (!attachDenied()) setDialog('camera');
+                  }}
+                  className="m-1 mr-0 shrink-0 sm:hidden"
+                />
+              ) : null}
+              <IconButton
+                icon={emojiOpen ? Keyboard : Smile}
+                label={emojiOpen ? 'Hide emoji' : 'Emoji'}
+                active={emojiOpen}
+                onClick={() => {
+                  setEmojiOpen((o) => !o);
+                  if (emojiOpen) ta.current?.focus();
+                }}
+                className="m-1 shrink-0"
+              />
+            </div>
           </div>
         )}
 
@@ -718,11 +833,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
               voice && !voice.locked && 'scale-110',
             )}
           >
-            {starting ? (
-              <Spinner size={20} label={null} />
-            ) : (
-              <Mic size={22} aria-hidden />
-            )}
+            {starting ? <Spinner size={20} label={null} /> : <Mic size={22} aria-hidden />}
           </button>
         ) : null}
       </div>
@@ -749,9 +860,15 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         multiple
         hidden
         onChange={(e) => {
-          const files = tooBig(Array.from(e.target.files ?? []));
+          const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          if (files.length) setPreview(files);
+          if (!touch) {
+            addToTray(files);
+            return;
+          }
+          // Phones: the full-screen preview with captions.
+          const ok = tooBig(files);
+          if (ok.length) setPreview(ok);
         }}
       />
       <input
@@ -762,7 +879,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          void sendFiles(files, 'file');
+          addToTray(files);
         }}
       />
       <input
@@ -774,7 +891,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           e.target.value = '';
-          void sendFiles(files, 'audio');
+          addToTray(files);
         }}
       />
 
@@ -844,7 +961,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         onClose={() => setDialog(null)}
         onCapture={(file) => {
           setDialog(null);
-          setPreview([file]);
+          if (touch) setPreview([file]);
+          else addToTray([file]);
         }}
       />
     </div>
