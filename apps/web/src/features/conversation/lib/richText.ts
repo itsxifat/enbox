@@ -1,19 +1,38 @@
 /**
- * Message text → inline segments for rendering: mention tokens (`@{uuid}`), links
- * (http(s)://, www., e-mail addresses) and WhatsApp-style formatting (*bold*, _italic_,
- * ~strike~, ```mono```). Pure (unit-tested); the React renderer lives in bubbles/RichText.tsx.
+ * Message text → Discord markdown for rendering. Pure (unit-tested); the React renderer
+ * lives in bubbles/RichText.tsx.
+ *
+ * Blocks (line based): ```lang code blocks```, `> ` quotes and `>>> ` (quote the rest),
+ * `# ` / `## ` / `### ` headers, `-# ` subtext, `- ` / `* ` / `1. ` lists (indent to nest).
+ * Inline: `code`, ||spoiler||, **bold**, __underline__, *italic* / _italic_, ~~strike~~,
+ * [masked](https://links), <https://links>, <t:unix:style> timestamps, auto links
+ * (http(s)://, www., e-mail), `\` escapes, and mention tokens (`@{uuid}`, `@{everyone}`,
+ * `@{here}`, `@{role:uuid}`) anywhere — also inside formatting.
  */
 import { parseRichMentions, type ID } from '@enbox/shared';
 
 export type Inline =
   | { t: 'text'; text: string }
-  | { t: 'link'; text: string; href: string }
+  | { t: 'link'; text: string; href: string; children?: Inline[] }
   | { t: 'mention'; userId: ID }
   /** Space channels: `@{everyone}` / `@{here}`. */
   | { t: 'everyone'; here: boolean }
   /** Space channels: `@{role:<uuid>}`. */
   | { t: 'role'; roleId: ID }
-  | { t: 'bold' | 'italic' | 'strike' | 'code'; children: Inline[] };
+  | { t: 'bold' | 'italic' | 'underline' | 'strike' | 'spoiler'; children: Inline[] }
+  | { t: 'code'; children: [{ t: 'text'; text: string }] }
+  /** `<t:unix:style>`; style one of t T d D f F R (default f). */
+  | { t: 'timestamp'; unix: number; style: TimestampStyle };
+
+export type TimestampStyle = 't' | 'T' | 'd' | 'D' | 'f' | 'F' | 'R';
+
+export type Block =
+  | { b: 'p'; children: Inline[] }
+  | { b: 'h'; level: 1 | 2 | 3; children: Inline[] }
+  | { b: 'sub'; children: Inline[] }
+  | { b: 'quote'; children: Block[] }
+  | { b: 'code'; lang: string | null; code: string }
+  | { b: 'list'; ordered: boolean; start: number; items: Block[][] };
 
 // URL: scheme or www. prefix; trailing punctuation that usually ends a sentence is excluded.
 const URL_RE =
@@ -36,82 +55,337 @@ export function linkify(text: string): Inline[] {
   return out;
 }
 
-const MARKERS: Record<string, 'bold' | 'italic' | 'strike'> = {
-  '*': 'bold',
-  _: 'italic',
-  '~': 'strike',
-};
+// ---------------------------------------------------------------------------
+// Mention placeholders: tokens become private-use markers so formatting can wrap them.
+// ---------------------------------------------------------------------------
 
-// A formatting span: marker, non-space start, …, non-space end, same marker; must not cross lines.
-const FORMAT_RE = /([*_~])(\S(?:[^\n]*?\S)?)\1/g;
-const CODE_RE = /```([\s\S]+?)```/g;
+const PH_OPEN = '';
+const PH_CLOSE = '';
+type Special = Extract<Inline, { t: 'mention' | 'everyone' | 'role' }>;
 
-function isBoundary(ch: string | undefined): boolean {
-  return ch === undefined || !/[\p{L}\p{N}]/u.test(ch);
-}
-
-function formatText(text: string): Inline[] {
-  const out: Inline[] = [];
-  let last = 0;
-  // A fresh regex per call: the recursion below would otherwise clobber `lastIndex`.
-  const re = new RegExp(FORMAT_RE.source, 'g');
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (!isBoundary(text[start - 1]) || !isBoundary(text[end])) {
-      re.lastIndex = start + 1;
+function protectMentions(text: string): { text: string; specials: Special[] } {
+  const specials: Special[] = [];
+  let out = '';
+  for (const seg of parseRichMentions(text)) {
+    if (seg.type === 'text') {
+      out += seg.text;
       continue;
     }
+    specials.push(
+      seg.type === 'mention'
+        ? { t: 'mention', userId: seg.userId }
+        : seg.type === 'everyone'
+          ? { t: 'everyone', here: seg.here }
+          : { t: 'role', roleId: seg.roleId },
+    );
+    out += `${PH_OPEN}${specials.length - 1}${PH_CLOSE}`;
+  }
+  return { text: out, specials };
+}
+
+/** Plain text (may contain placeholders) → text/link/mention segments. */
+function textNodes(text: string, specials: Special[]): Inline[] {
+  const out: Inline[] = [];
+  const re = new RegExp(`${PH_OPEN}(\\d+)${PH_CLOSE}`, 'g');
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const start = m.index ?? 0;
     if (start > last) out.push(...linkify(text.slice(last, start)));
-    out.push({ t: MARKERS[m[1]!]!, children: formatText(m[2]!) });
-    last = end;
+    const sp = specials[Number(m[1])];
+    if (sp) out.push(sp);
+    last = start + m[0].length;
   }
   if (last < text.length) out.push(...linkify(text.slice(last)));
   return out;
 }
 
-function formatWithCode(text: string): Inline[] {
+/** Placeholders back to readable text (code spans and code blocks show the raw token). */
+function restoreRaw(text: string, specials: Special[]): string {
+  return text.replace(new RegExp(`${PH_OPEN}(\\d+)${PH_CLOSE}`, 'g'), (_, i: string) => {
+    const s = specials[Number(i)];
+    if (!s) return '';
+    return s.t === 'mention' ? `@{${s.userId}}` : s.t === 'everyone' ? (s.here ? '@{here}' : '@{everyone}') : `@{role:${s.roleId}}`;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Inline
+// ---------------------------------------------------------------------------
+
+const isWordChar = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
+
+interface Rule {
+  /** Sticky (`y`): matched at the current position. */
+  re: RegExp;
+  /** Return the node, or null to treat the match as text. `prev` is the char before. */
+  node: (m: RegExpExecArray, prev: string | undefined, specials: Special[]) => Inline | null;
+}
+
+const wrap = (t: 'bold' | 'italic' | 'underline' | 'strike' | 'spoiler') =>
+  (m: RegExpExecArray, _prev: string | undefined, specials: Special[]): Inline => ({
+    t,
+    children: parseInline(m[1]!, specials),
+  });
+
+const RULES: Rule[] = [
+  // Escapes: \* \_ \~ \` \| \> \# \- \\ …
+  { re: /\\([^\p{L}\p{N}\s])/uy, node: (m) => ({ t: 'text', text: m[1]! }) },
+  // Inline code: any number of backticks, same count closes; no formatting inside.
+  {
+    re: /(`+)([\s\S]*?[^`])\1(?!`)/y,
+    node: (m, _p, specials) => {
+      let code = restoreRaw(m[2]!, specials);
+      if (/^ .* $/s.test(code) && code.trim()) code = code.slice(1, -1);
+      return { t: 'code', children: [{ t: 'text', text: code }] };
+    },
+  },
+  { re: /\|\|([\s\S]+?)\|\|/y, node: wrap('spoiler') },
+  // ***x*** is bold + italic: bold first, its content then matches italic.
+  { re: /\*\*([\s\S]+?\**)\*\*(?!\*)/y, node: wrap('bold') },
+  { re: /__([\s\S]+?_*)__(?!_)/y, node: wrap('underline') },
+  { re: /~~([\s\S]+?)~~/y, node: wrap('strike') },
+  {
+    re: /\*(?=\S)((?:\*\*|\\[\s\S]|\s+(?:\\[\s\S]|[^\s*\\]|\*\*)|[^\s*\\])+?)\*(?!\*)/y,
+    node: wrap('italic'),
+  },
+  {
+    // _italic_ only at word boundaries (snake_case stays as is).
+    re: /_((?:__|\\[\s\S]|[^\\_])+?)_(?![\p{L}\p{N}])/uy,
+    node: (m, prev, specials) => (isWordChar(prev) ? null : { t: 'italic', children: parseInline(m[1]!, specials) }),
+  },
+  // [masked](https://link): http(s) only.
+  {
+    re: /\[([^\]\n]+)\]\(<?(https?:\/\/[^\s)>]+)>?\)/y,
+    node: (m, _p, specials) => ({ t: 'link', text: m[1]!, href: m[2]!, children: parseInline(m[1]!, specials) }),
+  },
+  // <https://link> (no embed in Discord; here simply a link).
+  { re: /<(https?:\/\/[^\s>]+)>/y, node: (m) => ({ t: 'link', text: m[1]!, href: m[1]! }) },
+  {
+    re: /<t:(-?\d{1,13})(?::([tTdDfFR]))?>/y,
+    node: (m) => ({ t: 'timestamp', unix: Number(m[1]), style: (m[2] as TimestampStyle | undefined) ?? 'f' }),
+  },
+  // Bare URLs are consumed whole so markdown characters inside them stay literal.
+  {
+    re: /(?:https?:\/\/|www\.)[^\s<>"'`]+[^\s<>"'`.,;:!?)\]}]/iy,
+    node: (m, prev) => {
+      if (isWordChar(prev)) return null;
+      const raw = m[0];
+      return { t: 'link', text: raw, href: /^www\./i.test(raw) ? `https://${raw}` : raw };
+    },
+  },
+];
+
+// Characters that can start a rule; anything else is copied straight into the text buffer.
+const TRIGGERS = new Set(['\\', '`', '|', '*', '_', '~', '[', '<', 'h', 'H', 'w', 'W']);
+
+function parseInline(text: string, specials: Special[]): Inline[] {
   const out: Inline[] = [];
-  let last = 0;
-  for (const m of text.matchAll(CODE_RE)) {
-    const start = m.index ?? 0;
-    if (start > last) out.push(...formatText(text.slice(last, start)));
-    out.push({ t: 'code', children: [{ t: 'text', text: m[1]! }] });
-    last = start + m[0].length;
+  let buf = '';
+  const flush = () => {
+    if (buf) out.push(...textNodes(buf, specials));
+    buf = '';
+  };
+  let i = 0;
+  outer: while (i < text.length) {
+    const ch = text[i]!;
+    if (TRIGGERS.has(ch)) {
+      for (const rule of RULES) {
+        // Sticky regexes match at `i` without slicing the rest of the text.
+        rule.re.lastIndex = i;
+        const m = rule.re.exec(text);
+        if (!m) continue;
+        const node = rule.node(m, i > 0 ? text[i - 1] : undefined, specials);
+        if (!node) continue;
+        if (node.t === 'text') buf += node.text;
+        else {
+          flush();
+          out.push(node);
+        }
+        i += m[0].length;
+        continue outer;
+      }
+    }
+    buf += ch;
+    i++;
   }
-  if (last < text.length) out.push(...formatText(text.slice(last)));
+  flush();
+  return mergeText(out);
+}
+
+function mergeText(nodes: Inline[]): Inline[] {
+  const out: Inline[] = [];
+  for (const n of nodes) {
+    const prev = out[out.length - 1];
+    if (n.t === 'text' && prev?.t === 'text') out[out.length - 1] = { t: 'text', text: prev.text + n.text };
+    else if (n.t !== 'text' || n.text) out.push(n);
+  }
   return out;
 }
 
-/** Full parse: mentions first (tokens are never formatted), then code, formatting and links. */
+/** Inline-only parse (descriptions, one-line previews): no headers, lists, quotes or blocks. */
 export function parseRichText(text: string): Inline[] {
-  const out: Inline[] = [];
-  for (const seg of parseRichMentions(text)) {
-    if (seg.type === 'mention') out.push({ t: 'mention', userId: seg.userId });
-    else if (seg.type === 'everyone') out.push({ t: 'everyone', here: seg.here });
-    else if (seg.type === 'role') out.push({ t: 'role', roleId: seg.roleId });
-    else out.push(...formatWithCode(seg.text));
+  const { text: safe, specials } = protectMentions(text);
+  return parseInline(safe, specials);
+}
+
+// ---------------------------------------------------------------------------
+// Blocks
+// ---------------------------------------------------------------------------
+
+const LIST_RE = /^(\s*)([-*]|\d{1,9}\.)\s+(.*)$/;
+
+function parseBlocks(text: string, specials: Special[], inQuote = false): Block[] {
+  const lines = text.split('\n');
+  const out: Block[] = [];
+  let para: string[] = [];
+  const flushPara = () => {
+    if (!para.length) return;
+    // Blank lines around blocks are spacing only; keep inner blank lines.
+    while (para.length && para[0]!.trim() === '') para.shift();
+    while (para.length && para[para.length - 1]!.trim() === '') para.pop();
+    if (para.length) out.push({ b: 'p', children: parseInline(para.join('\n'), specials) });
+    para = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+
+    // ```lang\ncode\n``` (also on one line: ```code```).
+    if (line.trimStart().startsWith('```')) {
+      const start = line.indexOf('```');
+      const restOfText = [line.slice(start + 3), ...lines.slice(i + 1)].join('\n');
+      const close = restOfText.indexOf('```');
+      if (close !== -1) {
+        flushPara();
+        let body = restOfText.slice(0, close);
+        let lang: string | null = null;
+        const firstNl = body.indexOf('\n');
+        if (firstNl > 0 && /^[\w+#.-]{1,20}$/.test(body.slice(0, firstNl).trim())) {
+          lang = body.slice(0, firstNl).trim().toLowerCase();
+          body = body.slice(firstNl + 1);
+        } else if (firstNl === 0) body = body.slice(1);
+        out.push({ b: 'code', lang, code: restoreRaw(body.replace(/\n$/, ''), specials) });
+        // Continue after the closing fence (text after it on the same line becomes a paragraph).
+        const consumed = restOfText.slice(0, close + 3);
+        const consumedLines = consumed.split('\n').length - 1;
+        const tail = restOfText.slice(close + 3).split('\n')[0]!;
+        i += consumedLines;
+        if (tail.trim()) para.push(tail);
+        continue;
+      }
+    }
+
+    if (!inQuote && line.startsWith('>>> ')) {
+      flushPara();
+      const rest = [line.slice(4), ...lines.slice(i + 1)].join('\n');
+      out.push({ b: 'quote', children: parseBlocks(rest, specials, true) });
+      break;
+    }
+    if (!inQuote && (line.startsWith('> ') || line === '>')) {
+      flushPara();
+      const quoted: string[] = [];
+      while (i < lines.length && (lines[i]!.startsWith('> ') || lines[i] === '>')) {
+        quoted.push(lines[i]!.slice(2));
+        i++;
+      }
+      i--;
+      out.push({ b: 'quote', children: parseBlocks(quoted.join('\n'), specials, true) });
+      continue;
+    }
+
+    const h = /^(#{1,3}) (.+)$/.exec(line);
+    if (h) {
+      flushPara();
+      out.push({ b: 'h', level: h[1]!.length as 1 | 2 | 3, children: parseInline(h[2]!, specials) });
+      continue;
+    }
+    const sub = /^-# (.+)$/.exec(line);
+    if (sub) {
+      flushPara();
+      out.push({ b: 'sub', children: parseInline(sub[1]!, specials) });
+      continue;
+    }
+
+    const li = LIST_RE.exec(line);
+    if (li) {
+      flushPara();
+      const listLines: string[] = [];
+      const baseIndent = li[1]!.length;
+      const ordered = /\d/.test(li[2]!);
+      while (i < lines.length) {
+        const m = LIST_RE.exec(lines[i]!);
+        const nested = /^\s{2,}\S/.test(lines[i]!) && listLines.length > 0;
+        if (!m && !nested) break;
+        // A top-level item of the other kind (bullets ↔ numbers) starts a new list.
+        if (m && m[1]!.length <= baseIndent && /\d/.test(m[2]!) !== ordered) break;
+        listLines.push(lines[i]!);
+        i++;
+      }
+      i--;
+      out.push(parseList(listLines, specials));
+      continue;
+    }
+
+    para.push(line);
   }
+  flushPara();
   return out;
 }
+
+function parseList(lines: string[], specials: Special[]): Block {
+  const first = LIST_RE.exec(lines[0]!)!;
+  const baseIndent = first[1]!.length;
+  const ordered = /\d/.test(first[2]!);
+  const start = ordered ? Number.parseInt(first[2]!, 10) || 1 : 1;
+  const items: string[][] = [];
+  for (const line of lines) {
+    const m = LIST_RE.exec(line);
+    if (m && m[1]!.length <= baseIndent) items.push([m[3]!]);
+    else if (items.length) items[items.length - 1]!.push(line.slice(Math.min(baseIndent + 2, line.length - line.trimStart().length)));
+  }
+  return {
+    b: 'list',
+    ordered,
+    start,
+    items: items.map(([head, ...rest]) => {
+      const blocks: Block[] = [{ b: 'p', children: parseInline(head!, specials) }];
+      if (rest.length) blocks.push(...parseBlocks(rest.join('\n'), specials, true));
+      return blocks;
+    }),
+  };
+}
+
+/** Full Discord markdown parse of a message. */
+export function parseMarkdown(text: string): Block[] {
+  const { text: safe, specials } = protectMentions(text);
+  return parseBlocks(safe, specials);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /** Plain-text rendering of segments (tests, copy). */
 export function inlineToPlain(segments: Inline[], nameOf: (id: ID) => string): string {
   return segments
-    .map((s) =>
-      s.t === 'text' || s.t === 'link'
-        ? s.text
-        : s.t === 'mention'
-          ? `@${nameOf(s.userId)}`
-          : s.t === 'everyone'
-            ? s.here
-              ? '@here'
-              : '@everyone'
-            : s.t === 'role'
-              ? '@role'
-              : inlineToPlain(s.children, nameOf),
-    )
+    .map((s) => {
+      switch (s.t) {
+        case 'text':
+          return s.text;
+        case 'link':
+          return s.children ? inlineToPlain(s.children, nameOf) : s.text;
+        case 'mention':
+          return `@${nameOf(s.userId)}`;
+        case 'everyone':
+          return s.here ? '@here' : '@everyone';
+        case 'role':
+          return '@role';
+        case 'timestamp':
+          return new Date(s.unix * 1000).toISOString();
+        default:
+          return inlineToPlain(s.children, nameOf);
+      }
+    })
     .join('');
 }
 
@@ -131,6 +405,41 @@ export function splitHighlight(text: string, query: string | null | undefined): 
   }
   parts.push(text.slice(from));
   return parts;
+}
+
+/** Discord's `<t:…>` formats. */
+export function formatTimestamp(unix: number, style: TimestampStyle, now = Date.now()): string {
+  const d = new Date(unix * 1000);
+  if (Number.isNaN(d.getTime())) return 'Invalid Date';
+  switch (style) {
+    case 't':
+      return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    case 'T':
+      return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    case 'd':
+      return d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    case 'D':
+      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+    case 'F':
+      return d.toLocaleString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    case 'R': {
+      const diff = (unix * 1000 - now) / 1000;
+      const abs = Math.abs(diff);
+      const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+      const units: [Intl.RelativeTimeFormatUnit, number][] = [
+        ['year', 31536000],
+        ['month', 2592000],
+        ['day', 86400],
+        ['hour', 3600],
+        ['minute', 60],
+        ['second', 1],
+      ];
+      for (const [unit, secs] of units) if (abs >= secs || unit === 'second') return rtf.format(Math.round(diff / secs), unit);
+      return '';
+    }
+    default:
+      return d.toLocaleString(undefined, { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
 }
 
 // ---------------------------------------------------------------------------

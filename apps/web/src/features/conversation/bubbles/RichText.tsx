@@ -1,26 +1,38 @@
 /**
- * Renders message text: highlighted, tappable @mentions, links (open in a new tab),
- * *bold* _italic_ ~strike~ ```mono``` and in-chat search highlights.
+ * Renders message text as Discord markdown (lib/richText.ts): headers, subtext, quotes,
+ * lists, code blocks, and inline **bold** *italic* __underline__ ~~strike~~ `code`
+ * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions and in-chat search
+ * highlights. `inline` (descriptions inside a paragraph) skips the block syntax.
  */
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { ID } from '@enbox/shared';
+import { cn } from '@/lib/cn';
 import { openProfile } from '@/features/profile/open';
 import { useAuth } from '@/stores/auth';
 import { useUserName } from '@/stores/users';
 import { useSpaces } from '@/stores/spaces';
-import { parseRichText, splitHighlight, type Inline } from '../lib/richText';
+import {
+  formatTimestamp,
+  parseMarkdown,
+  parseRichText,
+  splitHighlight,
+  type Block,
+  type Inline,
+  type TimestampStyle,
+} from '../lib/richText';
 
 /** A tappable @mention: opens the profile card (Message lives inside it). */
 function Mention({ userId }: { userId: ID }) {
   const me = useAuth((s) => s.user?.id);
   const name = useUserName(userId, { you: useAuth.getState().user?.displayName ?? 'You' });
-  if (userId === me) return <span className="font-medium text-brand-ink">@{name}</span>;
+  const cls = 'rounded-[3px] bg-brand/20 px-0.5 font-medium text-brand-ink';
+  if (userId === me) return <span className={cls}>@{name}</span>;
   return (
     <button
       type="button"
       title={`Profile of ${name}`}
       aria-haspopup="dialog"
-      className="rounded font-medium text-brand-ink hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+      className={cn(cls, 'hover:bg-brand hover:text-on-brand focus-visible:outline-2 focus-visible:outline-brand')}
       onClick={(e) => {
         e.stopPropagation();
         openProfile(userId, e.currentTarget);
@@ -33,7 +45,7 @@ function Mention({ userId }: { userId: ID }) {
 
 /** `@everyone` / `@here` in a space channel. */
 function EveryonePill({ here }: { here: boolean }) {
-  return <span className="rounded bg-brand/15 px-0.5 font-medium text-brand-ink">{here ? '@here' : '@everyone'}</span>;
+  return <span className="rounded-[3px] bg-brand/20 px-0.5 font-medium text-brand-ink">{here ? '@here' : '@everyone'}</span>;
 }
 
 /** `@Role` in a space channel, in the role's colour. */
@@ -48,11 +60,49 @@ function RolePill({ roleId }: { roleId: ID }) {
   const color = role?.color ?? undefined;
   return (
     <span
-      className="rounded px-0.5 font-medium"
+      className="rounded-[3px] bg-brand/20 px-0.5 font-medium text-brand-ink"
       style={color ? { color, background: `${color}26` } : undefined}
     >
       @{role?.name ?? 'role'}
     </span>
+  );
+}
+
+/** ||spoiler||: hidden behind a dark pill until clicked. */
+function Spoiler({ children }: { children: React.ReactNode }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <span
+      role={shown ? undefined : 'button'}
+      tabIndex={shown ? undefined : 0}
+      aria-label={shown ? undefined : 'Spoiler, click to reveal'}
+      onClick={(e) => {
+        if (shown) return;
+        e.stopPropagation();
+        setShown(true);
+      }}
+      onKeyDown={(e) => {
+        if (!shown && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          setShown(true);
+        }
+      }}
+      className={cn(
+        'rounded-[3px] px-0.5 transition-colors',
+        shown ? 'bg-fg/10' : 'cursor-pointer bg-fg/85 text-transparent select-none [&_*]:invisible hover:bg-fg/75',
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Timestamp({ unix, style }: { unix: number; style: TimestampStyle }) {
+  const full = formatTimestamp(unix, 'F');
+  return (
+    <time dateTime={new Date(unix * 1000).toISOString()} title={full} className="rounded-[3px] bg-fg/10 px-0.5">
+      {formatTimestamp(unix, style)}
+    </time>
   );
 }
 
@@ -88,10 +138,11 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
                 href={s.href}
                 target="_blank"
                 rel="noopener noreferrer"
+                title={s.children ? s.href : undefined}
                 onClick={(e) => e.stopPropagation()}
-                className="break-all text-brand-ink underline decoration-brand-ink/40 underline-offset-2 hover:decoration-brand-ink"
+                className="break-words text-link hover:underline"
               >
-                <Text text={s.text} highlight={highlight} />
+                {s.children ? <Segments segments={s.children} highlight={highlight} /> : <Text text={s.text} highlight={highlight} />}
               </a>
             );
           case 'mention':
@@ -100,9 +151,11 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
             return <EveryonePill key={i} here={s.here} />;
           case 'role':
             return <RolePill key={i} roleId={s.roleId} />;
+          case 'timestamp':
+            return <Timestamp key={i} unix={s.unix} style={s.style} />;
           case 'bold':
             return (
-              <strong key={i} className="font-semibold">
+              <strong key={i} className="font-bold">
                 <Segments segments={s.children} highlight={highlight} />
               </strong>
             );
@@ -112,18 +165,27 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
                 <Segments segments={s.children} highlight={highlight} />
               </em>
             );
+          case 'underline':
+            return (
+              <u key={i}>
+                <Segments segments={s.children} highlight={highlight} />
+              </u>
+            );
           case 'strike':
             return (
               <s key={i}>
                 <Segments segments={s.children} highlight={highlight} />
               </s>
             );
+          case 'spoiler':
+            return (
+              <Spoiler key={i}>
+                <Segments segments={s.children} highlight={highlight} />
+              </Spoiler>
+            );
           case 'code':
             return (
-              <code
-                key={i}
-                className="rounded bg-black/5 px-1 font-mono text-[0.92em] dark:bg-white/10"
-              >
+              <code key={i} className="rounded-[4px] bg-surface-2 px-1 py-px font-mono text-[0.85em] [overflow-wrap:anywhere]">
                 <Segments segments={s.children} highlight={highlight} />
               </code>
             );
@@ -133,13 +195,79 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
   );
 }
 
+function Blocks({ blocks, highlight }: { blocks: Block[]; highlight?: string | null }) {
+  return (
+    <>
+      {blocks.map((b, i) => {
+        switch (b.b) {
+          case 'p':
+            return (
+              <div key={i}>
+                <Segments segments={b.children} highlight={highlight} />
+              </div>
+            );
+          case 'h': {
+            const size = b.level === 1 ? 'text-[1.5em]' : b.level === 2 ? 'text-[1.25em]' : 'text-[1em]';
+            return (
+              <div key={i} role="heading" aria-level={b.level} className={cn('mt-2 mb-1 leading-[1.375] font-bold first:mt-0', size)}>
+                <Segments segments={b.children} highlight={highlight} />
+              </div>
+            );
+          }
+          case 'sub':
+            return (
+              <div key={i} className="text-[0.8125em] text-subtle">
+                <Segments segments={b.children} highlight={highlight} />
+              </div>
+            );
+          case 'quote':
+            return (
+              <blockquote key={i} className="relative pl-4 before:absolute before:inset-y-0 before:left-0 before:w-1 before:rounded before:bg-line-strong">
+                <Blocks blocks={b.children} highlight={highlight} />
+              </blockquote>
+            );
+          case 'code':
+            return (
+              <pre
+                key={i}
+                data-lang={b.lang ?? undefined}
+                className="my-1 max-w-full overflow-x-auto rounded-md border border-line bg-surface-2 p-2 font-mono text-[0.875em] leading-[1.125rem] whitespace-pre scrollbar-thin"
+              >
+                <code>{b.code}</code>
+              </pre>
+            );
+          case 'list': {
+            const Tag = b.ordered ? 'ol' : 'ul';
+            return (
+              <Tag key={i} start={b.ordered ? b.start : undefined} className={cn('my-0.5 pl-6', b.ordered ? 'list-decimal' : 'list-disc')}>
+                {b.items.map((item, j) => (
+                  <li key={j}>
+                    <Blocks blocks={item} highlight={highlight} />
+                  </li>
+                ))}
+              </Tag>
+            );
+          }
+        }
+      })}
+    </>
+  );
+}
+
 export const RichText = memo(function RichText({
   text,
   highlight,
+  inline = false,
 }: {
   text: string;
   highlight?: string | null;
+  /** Inline syntax only (inside a paragraph or a one-line preview). */
+  inline?: boolean;
 }) {
-  const segments = useMemo(() => parseRichText(text), [text]);
-  return <Segments segments={segments} highlight={highlight} />;
+  const blocks = useMemo(() => (inline ? null : parseMarkdown(text)), [text, inline]);
+  const segments = useMemo(() => (inline ? parseRichText(text) : null), [text, inline]);
+  if (segments) return <Segments segments={segments} highlight={highlight} />;
+  // A single paragraph renders inline so the text keeps flowing next to "(edited)".
+  if (blocks!.length === 1 && blocks![0]!.b === 'p') return <Segments segments={blocks![0]!.children} highlight={highlight} />;
+  return <Blocks blocks={blocks!} highlight={highlight} />;
 });
