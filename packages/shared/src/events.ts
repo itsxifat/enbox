@@ -257,6 +257,8 @@ export interface ServerToClientEvents {
   'voice:state': (payload: { spaceId: ID; channelId: ID; userId: ID; state: VoiceState | null }) => void;
   /** My voice connection was ended by the server: disconnect from the media server. */
   'voice:disconnected': (payload: { channelId: ID; reason: VoiceDisconnectReason }) => void;
+  /** A moderator moved me to another voice channel: reconnect with this token. */
+  'voice:moved': (payload: { from: ID; result: VoiceJoinResult }) => void;
 
   // --- Status (user:<id> of the audience / author) ---
   'status:new': (payload: { status: Status; user: UserPublic }) => void;

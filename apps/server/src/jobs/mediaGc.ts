@@ -39,6 +39,9 @@ export async function runMediaGc(
               and not exists (select 1 from communities x where x.avatar_media_id = m.id)
               and not exists (select 1 from spaces x where x.icon_media_id = m.id)
               and not exists (select 1 from spaces x where x.banner_media_id = m.id)
+              and not exists (select 1 from space_members x where x.avatar_media_id = m.id)
+              and not exists (select 1 from space_members x where x.banner_media_id = m.id)
+              and not exists (select 1 from space_roles x where x.icon_media_id = m.id)
             order by m.created_at
             limit ${batch}
             for update skip locked

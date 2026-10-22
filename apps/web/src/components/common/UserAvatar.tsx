@@ -9,6 +9,7 @@ export interface UserAvatarProps {
         isDeleted?: boolean;
         /** The animated original when the avatar is a GIF / WebP / APNG (poster in `avatarUrl`). */
         avatarAnimatedUrl?: string | null;
+        avatarDecoration?: string | null;
       })
     | null;
   userId?: ID | null;
@@ -18,6 +19,8 @@ export interface UserAvatarProps {
   ring?: 'unseen' | 'seen' | null;
   /** When the animated avatar plays (default 'hover'; see `Avatar`). */
   animate?: AvatarAnimate;
+  /** Draw the user's avatar decoration (default true). */
+  decorated?: boolean;
   className?: string;
 }
 
@@ -36,6 +39,7 @@ export function UserAvatar({
   showPresence = false,
   ring,
   animate,
+  decorated = true,
   className,
 }: UserAvatarProps) {
   const cached = useUser(user ? null : userId);
@@ -51,6 +55,7 @@ export function UserAvatar({
       size={size}
       presence={showPresence ? presenceBadge(presence) : null}
       ring={ring}
+      decoration={decorated && !u?.isDeleted ? u?.avatarDecoration : null}
       className={className}
     />
   );

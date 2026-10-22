@@ -50,7 +50,10 @@ import type {
   MediaKind,
   MemberRole,
   MessageType,
+  NameStyle,
   NotifyLevel,
+  RailEntry,
+  RoleColorStyle,
   SharedChatTheme,
   StatusType,
   UserSettings,
@@ -88,6 +91,13 @@ export const users = pgTable(
     /** Lowercase `#rrggbb` or null (checked). */
     profileColor: text('profile_color'),
     accentColor: text('accent_color'),
+    /** Cosmetics: catalogue ids from `@enbox/shared` cosmetics (validated on write), null = none. */
+    avatarDecoration: text('avatar_decoration'),
+    profileEffect: text('profile_effect'),
+    nameplate: text('nameplate'),
+    nameStyle: jsonb('name_style').$type<NameStyle>(),
+    /** My Space rail order and folders (`RailEntry[]`), synced across devices. */
+    railLayout: jsonb('rail_layout').$type<RailEntry[]>().notNull().default([]),
     /** Chosen availability; `effectiveAvailability()` reverts it to 'online' once `availability_until` passes. */
     availability: text('availability').$type<Availability>().notNull().default('online'),
     availabilityUntil: ts('availability_until'),
@@ -191,6 +201,25 @@ export const blocks = pgTable(
   (t) => [
     primaryKey({ columns: [t.blockerId, t.blockedId] }),
     index('blocks_blocked_idx').on(t.blockedId),
+  ],
+);
+
+/** My private note about another user (shown only to me on their profile). */
+export const userNotes = pgTable(
+  'user_notes',
+  {
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    subjectId: uuid('subject_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    note: text('note').notNull(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.subjectId] }),
+    index('user_notes_subject_idx').on(t.subjectId),
   ],
 );
 
@@ -381,10 +410,30 @@ export const spaceMembers = pgTable(
     suppressRoles: boolean('suppress_roles').notNull().default(false),
     /** Hide channels I muted from my sidebar. */
     hideMutedChannels: boolean('hide_muted_channels').notNull().default(false),
+    /** Per-Space profile: each null field falls back to the main profile. */
+    avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
+    bannerMediaId: uuid('banner_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
+    bio: text('bio'),
+    pronouns: text('pronouns'),
+    profileColor: text('profile_color'),
+    accentColor: text('accent_color'),
+    avatarDecoration: text('avatar_decoration'),
+    profileEffect: text('profile_effect'),
+    nameplate: text('nameplate'),
   },
   (t) => [
     primaryKey({ columns: [t.spaceId, t.userId] }),
     index('space_members_user_idx').on(t.userId),
+    index('space_members_avatar_idx')
+      .on(t.avatarMediaId)
+      .where(sql`${t.avatarMediaId} is not null`),
+    index('space_members_banner_idx')
+      .on(t.bannerMediaId)
+      .where(sql`${t.bannerMediaId} is not null`),
     index('space_members_sort_idx').on(t.spaceId, t.sortName, t.userId),
     index('space_members_sort_prefix_idx').on(t.spaceId, t.sortName.op('text_pattern_ops')),
     check(
@@ -409,10 +458,29 @@ export const spaceRoles = pgTable(
     hoist: boolean('hoist').notNull().default(false),
     mentionable: boolean('mentionable').notNull().default(false),
     isDefault: boolean('is_default').notNull().default(false),
+    /** Role name style: `color` alone, a `color`→`color_secondary` gradient, or holographic. */
+    colorStyle: text('color_style').$type<RoleColorStyle>().notNull().default('solid'),
+    colorSecondary: text('color_secondary'),
+    /** Role icon: a unicode emoji or an uploaded image (the image wins). */
+    iconEmoji: text('icon_emoji'),
+    iconMediaId: uuid('icon_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
   },
   (t) => [
     index('space_roles_space_idx').on(t.spaceId, t.position),
+    index('space_roles_icon_idx')
+      .on(t.iconMediaId)
+      .where(sql`${t.iconMediaId} is not null`),
+    check(
+      'space_roles_color2_ck',
+      sql`${t.colorSecondary} is null or ${t.colorSecondary} ~ '^#[0-9a-f]{6}$'`,
+    ),
+    check(
+      'space_roles_style_ck',
+      sql`${t.colorStyle} in ('solid', 'gradient', 'holographic')`,
+    ),
     uniqueIndex('space_roles_default_uq')
       .on(t.spaceId)
       .where(sql`${t.isDefault}`),

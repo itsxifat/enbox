@@ -29,8 +29,10 @@ import {
   type SpaceDetail,
   type SpaceInfoChanges,
   type SpaceMember,
+  type SpaceProfile,
   type SpaceRole,
 } from '@enbox/shared';
+import type { RoleNameStyle } from '@/components/cosmetics/StyledName';
 import { ApiError, api } from '@/lib/api';
 import { registerSessionReset, sessionEpoch } from '@/lib/session';
 import { useAuth } from './auth';
@@ -459,19 +461,45 @@ export function useSpacesTabBadge(): { count?: number; dot?: boolean } | undefin
   }, [byId, loadedIds, chats]);
 }
 
-/**
- * How an author shows in a space channel: their nickname there and their top role colour
- * (members are batch-loaded on first sight).
- */
+/** The highest role of the member with an icon (shown next to their name). */
+export function topIconRole(space: Space | undefined, roleIds: readonly ID[] | undefined): SpaceRole | null {
+  if (!space || !roleIds?.length) return null;
+  let best: SpaceRole | null = null;
+  for (const r of space.roles)
+    if (roleIds.includes(r.id) && (r.iconUrl || r.iconEmoji) && (!best || r.position > best.position)) best = r;
+  return best;
+}
+
+/** How an author shows in a Space: nickname, top role colour/style and icon, per-Space profile. */
+export interface SpaceAuthor {
+  nickname: string | null;
+  /** The top coloured role's colour (kept for older callers; `role` has the full style). */
+  color: string | null;
+  role: RoleNameStyle | null;
+  iconRole: SpaceRole | null;
+  /** Per-Space profile overrides (null fields = the main profile). */
+  profile: SpaceProfile | null;
+}
+
+/** How an author shows in a space channel (members are batch-loaded on first sight). */
 export function useSpaceAuthor(
   spaceId: ID | null | undefined,
   userId: ID | null | undefined,
-): { nickname: string | null; color: string | null } | null {
+): SpaceAuthor | null {
   const member = useSpaceMember(spaceId, userId);
   const space = useSpace(spaceId);
   useEffect(() => {
     if (spaceId && userId && !member) useSpaces.getState().fetchMembers(spaceId, [userId]);
   }, [spaceId, userId, member]);
-  if (!spaceId || !userId) return null;
-  return { nickname: member?.nickname ?? null, color: topColoredRole(space, member?.roleIds)?.color ?? null };
+  return useMemo(() => {
+    if (!spaceId || !userId) return null;
+    const top = topColoredRole(space, member?.roleIds);
+    return {
+      nickname: member?.nickname ?? null,
+      color: top?.color ?? null,
+      role: top ? { color: top.color, colorSecondary: top.colorSecondary ?? null, colorStyle: top.colorStyle ?? 'solid' } : null,
+      iconRole: topIconRole(space, member?.roleIds),
+      profile: member ?? null,
+    };
+  }, [spaceId, userId, space, member]);
 }

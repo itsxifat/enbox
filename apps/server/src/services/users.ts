@@ -39,6 +39,7 @@ import {
   pushSubscriptions,
   sessions,
   statuses,
+  userNotes,
   users,
   type UserRow,
 } from '../db/schema.js';
@@ -486,6 +487,10 @@ export function buildUserPublic(
       bio: null,
       profileColor: null,
       accentColor: null,
+      avatarDecoration: null,
+      profileEffect: null,
+      nameplate: null,
+      nameStyle: null,
       phone: null,
       online: null,
       presenceState: null,
@@ -524,6 +529,10 @@ export function buildUserPublic(
     bio: showAbout && subject.bio ? subject.bio : null,
     profileColor: showAbout ? subject.profileColor : null,
     accentColor: showAbout ? subject.accentColor : null,
+    avatarDecoration: hiddenByBlock ? null : subject.avatarDecoration,
+    profileEffect: hiddenByBlock ? null : subject.profileEffect,
+    nameplate: hiddenByBlock ? null : subject.nameplate,
+    nameStyle: hiddenByBlock ? null : subject.nameStyle,
     phone,
     online: presence.online,
     presenceState: presence.state,
@@ -638,6 +647,11 @@ export function toUserSelf(row: UserWithAvatar): UserSelf {
     bio: row.bio,
     profileColor: row.profileColor,
     accentColor: row.accentColor,
+    avatarDecoration: row.avatarDecoration,
+    profileEffect: row.profileEffect,
+    nameplate: row.nameplate,
+    nameStyle: row.nameStyle,
+    railLayout: row.railLayout,
     phone: row.phone,
     createdAt: row.createdAt.toISOString(),
     availability: row.availability,
@@ -676,6 +690,9 @@ export async function scrubDeletedUser(
   await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await tx.delete(contacts).where(or(eq(contacts.ownerId, userId), eq(contacts.contactId, userId)));
   await tx.delete(blocks).where(or(eq(blocks.blockerId, userId), eq(blocks.blockedId, userId)));
+  await tx
+    .delete(userNotes)
+    .where(or(eq(userNotes.ownerId, userId), eq(userNotes.subjectId, userId)));
   if (!opts.keepStatuses) await tx.delete(statuses).where(eq(statuses.userId, userId));
   await tx
     .update(users)
@@ -690,6 +707,11 @@ export async function scrubDeletedUser(
       bio: '',
       profileColor: null,
       accentColor: null,
+      avatarDecoration: null,
+      profileEffect: null,
+      nameplate: null,
+      nameStyle: null,
+      railLayout: [],
       availability: 'online',
       availabilityUntil: null,
       presenceNoteText: null,

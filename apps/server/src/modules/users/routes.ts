@@ -7,6 +7,7 @@ import {
   directChatKey,
   effectiveAvailability,
   idParamSchema,
+  railLayoutSchema,
   updateAvailabilitySchema,
   updateContactSchema,
   updatePresenceNoteSchema,
@@ -16,6 +17,8 @@ import {
   usernameParamsSchema,
   usersBatchSchema,
   type Contact,
+  type NameStyle,
+  type RailEntry,
   type UserSelf,
   type UserSettings,
 } from '@enbox/shared';
@@ -164,6 +167,17 @@ router.patch('/me', async (req, res) => {
       patch.profileColor = body.profileColor;
     if (body.accentColor !== undefined && body.accentColor !== row.accentColor)
       patch.accentColor = body.accentColor;
+    if (body.avatarDecoration !== undefined && body.avatarDecoration !== row.avatarDecoration)
+      patch.avatarDecoration = body.avatarDecoration;
+    if (body.profileEffect !== undefined && body.profileEffect !== row.profileEffect)
+      patch.profileEffect = body.profileEffect;
+    if (body.nameplate !== undefined && body.nameplate !== row.nameplate)
+      patch.nameplate = body.nameplate;
+    if (
+      body.nameStyle !== undefined &&
+      JSON.stringify(body.nameStyle) !== JSON.stringify(row.nameStyle)
+    )
+      patch.nameStyle = body.nameStyle as NameStyle | null;
     if (body.username !== undefined && body.username !== row.username) {
       const [taken] = await tx
         .select({ id: users.id })
@@ -208,6 +222,45 @@ router.patch('/me', async (req, res) => {
     throw err;
   });
   res.json(user);
+});
+
+/**
+ * PUT /me/rail-layout — my whole Space rail (order and folders). Ids of Spaces I am not in
+ * are dropped (and so are folders left empty). Events: `me:updated` → me (other devices).
+ */
+router.put('/me/rail-layout', async (req, res) => {
+  const me = authUserId(req);
+  const body = parse(railLayoutSchema, req.body ?? {});
+  assertUserLimit(me, 'profileUpdate', USER_RATE_LIMITS.profileUpdate);
+  const layout = await transact(async (tx, fx) => {
+    const mine = new Set(
+      (
+        await tx
+          .select({ id: spaceMembers.spaceId })
+          .from(spaceMembers)
+          .where(eq(spaceMembers.userId, me))
+      ).map((r) => r.id),
+    );
+    const seen = new Set<string>();
+    const keep = (id: string) => mine.has(id) && !seen.has(id) && !!seen.add(id);
+    const items: RailEntry[] = [];
+    for (const item of body.items) {
+      if (item.kind === 'space') {
+        if (keep(item.id)) items.push({ kind: 'space', id: item.id });
+      } else {
+        const spaceIds = item.folder.spaceIds.filter(keep);
+        if (spaceIds.length)
+          items.push({ kind: 'folder', folder: { ...item.folder, spaceIds } });
+      }
+    }
+    await tx
+      .update(users)
+      .set({ railLayout: items, updatedAt: new Date() })
+      .where(eq(users.id, me));
+    meUpdatedEffect(fx, me);
+    return items;
+  });
+  res.json(layout);
 });
 
 /**

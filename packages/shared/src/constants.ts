@@ -513,3 +513,8 @@ export const SPACE_MUTE_DURATIONS = [
   { label: 'For 24 hours', ms: 24 * 3_600_000 },
   { label: 'Until I turn it back on', ms: 0 },
 ] as const;
+
+/** Cap on each mutuals list of a full profile. */
+export const MUTUALS_LIMIT = 100;
+/** Private note about a user, in characters. */
+export const USER_NOTE_MAX_LENGTH = 256;

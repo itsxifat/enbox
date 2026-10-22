@@ -53,6 +53,8 @@ import type {
   SpaceMember,
   SpaceMemberPage,
   SpaceRole,
+  RailEntry,
+  UserProfile,
 } from './models.js';
 import type {
   AuditLogQuery,
@@ -76,6 +78,9 @@ import type {
   UpdateRoleRequest,
   UpdateSpaceChannelRequest,
   UpdateSpaceRequest,
+  RailLayoutRequest,
+  VoiceMoveRequest,
+  UserNoteRequest,
   AddContactRequest,
   AddMembersRequest,
   CallLogQuery,
@@ -315,6 +320,7 @@ export interface ApiRoutes {
   'GET /api/me': { R: UserSelf };
   'PATCH /api/me': { B: UpdateProfileRequest; R: UserSelf };
   'PATCH /api/me/settings': { B: UpdateSettingsRequest; R: UserSettings };
+  'PUT /api/me/rail-layout': { B: RailLayoutRequest; R: RailEntry[] } /* me:updated → my devices */;
   'PUT /api/me/presence': {
     B: UpdateAvailabilityRequest;
     R: UserSelf;
@@ -344,6 +350,8 @@ export interface ApiRoutes {
     R: Presence[];
   } /* one entry per known id; hidden = online null */;
   'GET /api/users/:userId': { R: UserPublic };
+  'GET /api/users/:userId/profile': { R: UserProfile } /* full profile: mutuals, my note */;
+  'PUT /api/users/:userId/note': { B: UserNoteRequest; R: { note: string | null } };
   'GET /api/users/:userId/common-groups': {
     R: ChatSummary[];
   } /* active groups shared with that user (no channels) */;
@@ -563,6 +571,10 @@ export interface ApiRoutes {
   'GET /api/spaces/:spaceId/bans': { R: SpaceBan[] } /* BAN_MEMBERS */;
   'GET /api/spaces/:spaceId/voice-states': { R: VoiceState[] } /* the voice channels I can see */;
   'POST /api/spaces/:spaceId/voice-states/:userId/disconnect': { R: void } /* MOVE_MEMBERS */;
+  'POST /api/spaces/:spaceId/voice-states/:userId/move': {
+    B: VoiceMoveRequest;
+    R: void;
+  } /* MOVE_MEMBERS + CONNECT on the target; voice:moved → the member's voice socket */;
   'PUT /api/spaces/:spaceId/bans/:userId': { B: BanRequest; R: void } /* BAN_MEMBERS */;
   'DELETE /api/spaces/:spaceId/bans/:userId': { R: void };
   'GET /api/spaces/:spaceId/invites': {

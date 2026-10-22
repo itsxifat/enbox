@@ -50,6 +50,13 @@
       "when": 1792686628971,
       "tag": "0006_voice_space_options",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792700959354,
+      "tag": "0007_profiles_dnd",
+      "breakpoints": true
     }
   ]
 }

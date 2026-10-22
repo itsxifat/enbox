@@ -6,3 +6,4 @@ export * from './events.js';
 export * from './utils.js';
 export * from './imageInfo.js';
 export * from './permissions.js';
+export * from './cosmetics.js';

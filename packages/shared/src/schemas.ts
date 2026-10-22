@@ -12,6 +12,14 @@
  */
 import { z } from 'zod';
 import {
+  isAvatarDecorationId,
+  isNameEffectId,
+  isNameFontId,
+  isNameplateId,
+  isProfileEffectId,
+  ROLE_COLOR_STYLES,
+} from './cosmetics.js';
+import {
   ABOUT_MAX_LENGTH,
   BIO_MAX_LENGTH,
   BUBBLE_STYLES,
@@ -43,6 +51,7 @@ import {
   POLL_QUESTION_MAX_LENGTH,
   PRESENCE_NOTE_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
+  USER_NOTE_MAX_LENGTH,
   PUSH_SERVICE_HOST_SUFFIXES,
   PUSH_SERVICE_HOSTS,
   SEARCH_RESULTS_LIMIT,
@@ -190,6 +199,45 @@ export const hexColorSchema = z
   .toLowerCase()
   .regex(/^#[0-9a-f]{6}$/, 'Use a #rrggbb colour');
 
+/** A catalogue id of the given kind, or null for none. */
+const cosmeticId = (check: (id: string) => boolean, what: string) =>
+  z
+    .string()
+    .trim()
+    .max(64)
+    .refine(check, `Unknown ${what}`)
+    .nullable();
+export const avatarDecorationSchema = cosmeticId(isAvatarDecorationId, 'avatar decoration');
+export const profileEffectSchema = cosmeticId(isProfileEffectId, 'profile effect');
+export const nameplateSchema = cosmeticId(isNameplateId, 'nameplate');
+export const nameStyleSchema = z
+  .object({
+    font: z.string().refine(isNameFontId, 'Unknown font'),
+    effect: z.string().refine(isNameEffectId, 'Unknown effect'),
+    colors: z.array(hexColorSchema).min(1).max(2),
+  })
+  .nullable();
+
+/** `PUT /api/me/rail-layout`: my whole Space rail (order and folders). */
+export const railLayoutSchema = z.object({
+  items: z
+    .array(
+      z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('space'), id: idSchema }),
+        z.object({
+          kind: z.literal('folder'),
+          folder: z.object({
+            id: z.string().trim().min(1).max(40),
+            name: z.string().trim().max(32).nullable(),
+            color: hexColorSchema.nullable(),
+            spaceIds: z.array(idSchema).min(1).max(100),
+          }),
+        }),
+      ]),
+    )
+    .max(300),
+});
+
 const privacyLevel = z.enum(['everyone', 'contacts', 'nobody']);
 const disappearingSeconds = z
   .number()
@@ -265,6 +313,11 @@ export const updateProfileSchema = z.object({
   /** Lowercase `#rrggbb` (uppercase accepted); null = default. */
   profileColor: hexColorSchema.nullable().optional(),
   accentColor: hexColorSchema.nullable().optional(),
+  /** Cosmetic catalogue ids (null = none). */
+  avatarDecoration: avatarDecorationSchema.optional(),
+  profileEffect: profileEffectSchema.optional(),
+  nameplate: nameplateSchema.optional(),
+  nameStyle: nameStyleSchema.optional(),
 });
 
 /** `PUT /api/me/presence`: my availability choice, optionally until a time (then back to `online`). */
@@ -868,6 +921,11 @@ export const categoryPositionsSchema = z.object({
 export const createRoleSchema = z.object({
   name: z.string().trim().min(1).max(ROLE_NAME_MAX_LENGTH),
   color: hexColorSchema.nullable().optional(),
+  colorStyle: z.enum(ROLE_COLOR_STYLES as [string, ...string[]]).optional(),
+  colorSecondary: hexColorSchema.nullable().optional(),
+  iconEmoji: nullableText(16).optional(),
+  /** Media id of an image uploaded by the caller, null = no image icon. */
+  iconMediaId: idSchema.nullable().optional(),
   permissions: permissionsSchema.optional(),
   hoist: z.boolean().optional(),
   mentionable: z.boolean().optional(),
@@ -877,6 +935,10 @@ export const updateRoleSchema = z
   .object({
     name: z.string().trim().min(1).max(ROLE_NAME_MAX_LENGTH),
     color: hexColorSchema.nullable(),
+    colorStyle: z.enum(ROLE_COLOR_STYLES as [string, ...string[]]),
+    colorSecondary: hexColorSchema.nullable(),
+    iconEmoji: nullableText(16),
+    iconMediaId: idSchema.nullable(),
     permissions: permissionsSchema,
     hoist: z.boolean(),
     mentionable: z.boolean(),
@@ -898,6 +960,16 @@ export const updateMyMemberSchema = z
     suppressRoles: z.boolean(),
     /** Hide the channels I muted from my sidebar. */
     hideMutedChannels: z.boolean(),
+    /** Per-Space profile; null = use the main profile's value. */
+    avatarMediaId: idSchema.nullable(),
+    bannerMediaId: idSchema.nullable(),
+    bio: nullableText(BIO_MAX_LENGTH),
+    pronouns: nullableText(PRONOUNS_MAX_LENGTH),
+    profileColor: hexColorSchema.nullable(),
+    accentColor: hexColorSchema.nullable(),
+    avatarDecoration: avatarDecorationSchema,
+    profileEffect: profileEffectSchema,
+    nameplate: nameplateSchema,
   })
   .partial();
 
@@ -965,6 +1037,12 @@ export const spaceFocusSchema = z.object({
 });
 
 /** `voice:join` (C→S): connect to a voice channel (moves me if I am in another). */
+/** Move a member to another voice channel of the same Space. */
+/** `PUT /api/users/:userId/note`: '' clears it. */
+export const userNoteSchema = z.object({ note: z.string().trim().max(USER_NOTE_MAX_LENGTH) });
+
+export const voiceMoveSchema = z.object({ channelId: idSchema });
+
 export const voiceJoinSchema = z.object({
   channelId: idSchema,
   selfMute: z.boolean().optional(),
@@ -1150,6 +1228,9 @@ export type UsernameAvailabilityQuery = z.input<typeof usernameAvailabilityQuery
 export type ChangePasswordRequest = z.input<typeof changePasswordSchema>;
 export type DeleteAccountRequest = z.input<typeof deleteAccountSchema>;
 export type UpdateProfileRequest = z.input<typeof updateProfileSchema>;
+export type RailLayoutRequest = z.input<typeof railLayoutSchema>;
+export type VoiceMoveRequest = z.input<typeof voiceMoveSchema>;
+export type UserNoteRequest = z.input<typeof userNoteSchema>;
 export type UpdateAvailabilityRequest = z.input<typeof updateAvailabilitySchema>;
 export type UpdatePresenceNoteRequest = z.input<typeof updatePresenceNoteSchema>;
 export type UpdateSettingsRequest = z.input<typeof updateSettingsSchema>;

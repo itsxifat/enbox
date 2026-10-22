@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Megaphone, UserRound, UsersRound } from 'lucide-react';
 import type { PresenceState } from '@enbox/shared';
+import { AvatarDecoration } from '@/components/cosmetics/AvatarDecoration';
 import { useAppVisible } from '@/hooks/useAppVisible';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { mediaUrl } from '@/lib/api';
@@ -79,6 +80,8 @@ export interface AvatarProps {
   animate?: AvatarAnimate;
   /** Presence badge: online dot, idle moon, dnd minus; 'offline' / null = none. */
   presence?: PresenceState | null;
+  /** Avatar decoration (AVATAR_DECORATIONS id) drawn around the avatar; follows `animate`. */
+  decoration?: string | null;
 }
 
 /**
@@ -172,6 +175,8 @@ function AvatarShell({
   onPlayingError,
   rootRef,
   animatedState,
+  decoration,
+  animate,
 }: AvatarShellProps) {
   const px = typeof size === 'number' ? size : AVATAR_PX[size];
   const url = mediaUrl(src);
@@ -242,6 +247,7 @@ function AvatarShell({
           />
         )}
       </span>
+      {decoration ? <AvatarDecoration id={decoration} size={px} animate={animate} /> : null}
       {badge ? (
         <PresenceBadge
           state={badge}

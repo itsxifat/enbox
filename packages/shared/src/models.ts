@@ -15,6 +15,7 @@
  *   Everything else from the incoming payload replaces the cached value.
  * - Full objects in `chat:upsert`, `community:upsert` and `me:updated` replace the cached copy.
  */
+import type { NameStyle, RoleColorStyle } from './cosmetics.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -94,6 +95,19 @@ export interface PresenceNote {
   expiresAt: ISODate | null;
 }
 
+/** A folder of Spaces on the rail. */
+export interface RailFolder {
+  /** Client-made id (unique within my layout). */
+  id: string;
+  name: string | null;
+  /** Lowercase `#rrggbb`, null = brand colour. */
+  color: string | null;
+  spaceIds: ID[];
+}
+
+/** One rail item: a Space, or a folder of Spaces. */
+export type RailEntry = { kind: 'space'; id: ID } | { kind: 'folder'; folder: RailFolder };
+
 /**
  * Another user's profile as seen by the viewer. Viewer-specific: fields hidden by the
  * subject's privacy settings (or because a block exists in either direction) are `null`.
@@ -123,6 +137,15 @@ export interface UserPublic {
   /** Lowercase `#rrggbb`, or null = default/hidden. */
   profileColor: string | null;
   accentColor: string | null;
+  /**
+   * Cosmetics (catalogue ids, see cosmetics.ts); null = none. Hidden (null) only for deleted
+   * accounts or when the subject blocked the viewer. Optional because cached profiles from
+   * older builds lack them; the server always sends them.
+   */
+  avatarDecoration?: string | null;
+  profileEffect?: string | null;
+  nameplate?: string | null;
+  nameStyle?: NameStyle | null;
   /** Visible only if the subject saved the viewer as a contact (and no block exists). */
   phone: string | null;
   /** `null` = the viewer may not see online status (or the account is deleted). */
@@ -145,6 +168,29 @@ export interface UserPublic {
   isDeleted: boolean;
 }
 
+/** A Space both of us are in (profile "Mutual Servers"). */
+export interface MutualSpace {
+  id: ID;
+  name: string;
+  iconUrl: string | null;
+  /** Their nickname there. */
+  nickname: string | null;
+}
+
+/**
+ * `GET /api/users/:userId/profile`: everything the full profile shows, in a fixed number of
+ * queries. Mutual lists are capped (MUTUALS_LIMIT); `note` is my private note about them.
+ */
+export interface UserProfile {
+  user: UserPublic;
+  mutualSpaces: MutualSpace[];
+  /** People we both saved as contacts / friends. */
+  mutualFriends: UserPublic[];
+  /** Direct/group chats we share (count only). */
+  mutualGroupCount: number;
+  note: string | null;
+}
+
 /** The signed-in user's own profile (raw values, no privacy gating). */
 export interface UserSelf {
   id: ID;
@@ -161,6 +207,12 @@ export interface UserSelf {
   bio: string;
   profileColor: string | null;
   accentColor: string | null;
+  avatarDecoration?: string | null;
+  profileEffect?: string | null;
+  nameplate?: string | null;
+  nameStyle?: NameStyle | null;
+  /** My Space rail order and folders (Spaces missing from it show on top, newest first). */
+  railLayout?: RailEntry[];
   phone: string | null;
   createdAt: ISODate;
   /** My availability choice (raw: `invisible` included). */
@@ -749,6 +801,12 @@ export interface SpaceRole {
   mentionable: boolean;
   /** The @everyone role (one per Space). */
   isDefault: boolean;
+  /** Name style: solid `color`, `color`→`colorSecondary` gradient, or holographic. */
+  colorStyle?: RoleColorStyle;
+  colorSecondary?: string | null;
+  /** Role icon next to member names: an uploaded image (wins) or a unicode emoji. */
+  iconUrl?: string | null;
+  iconEmoji?: string | null;
 }
 
 export interface SpaceCategory {
@@ -759,8 +817,26 @@ export interface SpaceCategory {
   overwrites: PermissionOverwrite[];
 }
 
+/**
+ * Per-Space profile overrides (null/absent = use the main profile). URLs follow the same
+ * static/animated split as `UserPublic`.
+ */
+export interface SpaceProfile {
+  avatarUrl?: string | null;
+  avatarAnimatedUrl?: string | null;
+  bannerUrl?: string | null;
+  bannerAnimatedUrl?: string | null;
+  bio?: string | null;
+  pronouns?: string | null;
+  profileColor?: string | null;
+  accentColor?: string | null;
+  avatarDecoration?: string | null;
+  profileEffect?: string | null;
+  nameplate?: string | null;
+}
+
 /** My membership of a Space (viewer-specific). */
-export interface SpaceMemberSelf {
+export interface SpaceMemberSelf extends SpaceProfile {
   roleIds: ID[];
   nickname: string | null;
   joinedAt: ISODate;
@@ -825,7 +901,7 @@ export interface Space {
 }
 
 /** A member as listed to other members (viewer-neutral; resolve the user with `POST /users/batch`). */
-export interface SpaceMember {
+export interface SpaceMember extends SpaceProfile {
   userId: ID;
   nickname: string | null;
   roleIds: ID[];
