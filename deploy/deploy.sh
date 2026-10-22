@@ -24,11 +24,13 @@ KEEP=3
 HEALTH_WAIT="${HEALTH_WAIT:-120}"
 
 if [ -z "${INSTANCES:-}" ]; then
-  if [ -f /etc/enbox/instances ]; then
-    INSTANCES="$(grep -Eo '^[0-9]+' /etc/enbox/instances | tr '\n' ' ')"
-  else
-    INSTANCES=4000
+  # /etc/enbox is not readable by the deploy user: read it through sudo, else take the
+  # enbox@<port> units systemd knows. Never fall back to one port while others run.
+  INSTANCES="$( (cat /etc/enbox/instances 2>/dev/null || sudo -n cat /etc/enbox/instances 2>/dev/null || true) | grep -Eo '^[0-9]+' | tr '\n' ' ' || true)"
+  if [ -z "${INSTANCES// /}" ]; then
+    INSTANCES="$(systemctl list-units --all --plain --no-legend 'enbox@*.service' 2>/dev/null | grep -Eo 'enbox@[0-9]+' | cut -d@ -f2 | sort -un | tr '\n' ' ' || true)"
   fi
+  INSTANCES="${INSTANCES:-4000}"
 fi
 
 export PATH="$BASE/node/bin:$PATH"
