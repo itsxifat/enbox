@@ -27,6 +27,8 @@ import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { DropdownMenu, IconButton, choose, toast, type MenuEntry } from '@/components/ui';
+import { InboxButton } from '@/features/inbox/InboxButton';
+import { HeaderSearch } from '@/features/search/HeaderSearch';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { api } from '@/lib/api';
 import { formatCount, formatLastSeen } from '@/lib/format';
@@ -231,18 +233,13 @@ export function ConversationHeader({
               />
             </>
           ) : null}
-          {desktop ? (
-            <IconButton
-              icon={Search}
-              label="Search in chat"
-              onClick={() => useConversationUi.getState().setSearch(chat.id, '')}
-            />
-          ) : null}
+          {desktop ? <HeaderSearch scope={{ kind: 'chat', chatId: chat.id }} chatId={chat.id} /> : null}
           <DropdownMenu
             aria-label="Chat menu"
             trigger={(p) => <IconButton {...p} icon={EllipsisVertical} label="Chat menu" />}
             items={items}
           />
+          {desktop ? <InboxButton /> : null}
         </>
       }
     />

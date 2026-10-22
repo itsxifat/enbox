@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Bell, Hash, Search, Settings, Users } from 'lucide-react';
+import { ArrowLeft, Bell, Hash, Settings, Users } from 'lucide-react';
 import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
 import { EmptyState, IconButton, PageSpinner, Sheet } from '@/components/ui';
 import { Conversation } from '@/features/conversation/ConversationPane';
-import { useConversationUi } from '@/features/conversation/state';
+import { InboxButton } from '@/features/inbox/InboxButton';
+import { HeaderSearch } from '@/features/search/HeaderSearch';
+import { ThreadsButton } from '@/features/threads/ThreadsButton';
 import { VoiceChannelView } from '@/features/voice/VoiceChannelView';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { focusSpaceChannel } from '@/realtime/spaces';
@@ -47,12 +49,7 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
         <div className="flex-1" />
       )}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        <IconButton
-          icon={Search}
-          label="Search this channel"
-          variant="ghost"
-          onClick={() => useConversationUi.getState().setSearch(chat.id, '')}
-        />
+        <ThreadsButton chat={chat} />
         <IconButton icon={Bell} label="Notification settings" variant="ghost" onClick={() => setDialog('notifications')} />
         {canManage ? (
           <IconButton icon={Settings} label="Edit channel" variant="ghost" onClick={() => setDialog('settings')} />
@@ -64,6 +61,8 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
           active={ui.membersOpen}
           onClick={() => (ui.canShowMembers ? ui.toggleMembers() : setDialog('members'))}
         />
+        <HeaderSearch scope={{ kind: 'space', spaceId: space.id, channelId: chat.id }} chatId={chat.id} />
+        <InboxButton />
       </div>
       {topicOpen && topic ? (
         <div role="dialog" aria-label="Channel topic" className="absolute top-14 right-3 left-3 z-20 rounded-xl bg-elevated p-4 text-[14px] text-fg shadow-elevated">

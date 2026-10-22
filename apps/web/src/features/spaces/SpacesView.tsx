@@ -4,7 +4,10 @@ import { useRouteHandle } from '@/app/routeHandle';
 import { PageSpinner } from '@/components/ui';
 import { useIsDesktop, useMediaQuery } from '@/hooks/useMediaQuery';
 import { storage } from '@/lib/storage';
+import { useSidePanel } from '@/stores/sidePanel';
 import { useSpaces } from '@/stores/spaces';
+import { SearchResultsPanel } from '@/features/search/SearchResultsPanel';
+import { ThreadPanel } from '@/features/threads/ThreadPanel';
 import { ChannelSidebar } from './ChannelSidebar';
 import { MemberList } from './MemberList';
 import { SpaceRail } from './SpaceRail';
@@ -27,6 +30,7 @@ export function SpacesView() {
   const { detail } = useRouteHandle();
   const loaded = useSpaces((s) => s.loaded);
   const [membersOpen, setMembersOpen] = useState(() => storage.get(MEMBERS_KEY) !== 'off');
+  const panel = useSidePanel((s) => s.panel);
 
   useEffect(() => {
     if (!loaded)
@@ -60,7 +64,13 @@ export function SpacesView() {
           <main className="card-pane relative flex min-w-0 flex-1 flex-col">
             <Suspense fallback={<PageSpinner />}>{outlet ?? <SpacesEmpty />}</Suspense>
           </main>
-          {spaceId && ui.membersOpen ? <MemberList spaceId={spaceId} /> : null}
+          {spaceId && panel?.kind === 'thread' ? (
+            <ThreadPanel key={panel.threadId} threadId={panel.threadId} parentId={panel.parentId} />
+          ) : spaceId && panel?.kind === 'search' ? (
+            <SearchResultsPanel scope={panel.scope} query={panel.query} />
+          ) : spaceId && ui.membersOpen ? (
+            <MemberList spaceId={spaceId} />
+          ) : null}
         </div>
       </SpacesUiContext.Provider>
     );
