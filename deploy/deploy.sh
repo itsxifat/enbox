@@ -4,7 +4,8 @@
 # processes, rolling back if one is unhealthy. Installed on the host as /opt/enbox/deploy.sh.
 #
 # From a checkout of the repo:
-#   git archive --format=tar HEAD | ssh enfinito@<host> /opt/enbox/deploy.sh "$(git rev-parse --short HEAD)"
+#   git -c core.autocrlf=false archive --format=tar HEAD | ssh enfinito@<host> /opt/enbox/deploy.sh "$(git rev-parse --short HEAD)"
+#   (core.autocrlf=false: a Windows checkout would otherwise ship CRLF line endings)
 #   ... deploy.sh <rev> --full-stop   # stop every process before the first one starts again
 #                                     # (releases whose boot migration old code can't run next to)
 #

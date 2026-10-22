@@ -121,7 +121,10 @@ function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
     apply: 'build',
     transformIndexHtml: {
       order: 'post',
-      handler(html) {
+      handler(source) {
+        // Hash exactly the bytes we serve: a checkout or `git archive` with CRLF line endings
+        // (Windows, core.autocrlf) would otherwise hash a different script body.
+        const html = source.replace(/\r\n?/g, '\n');
         const hashes: string[] = [];
         for (const m of html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
           const body = m[1] ?? '';
