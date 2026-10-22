@@ -30,7 +30,7 @@ import { emitWithAck, isSocketConnected, sendEvent, useConnection } from '@/lib/
 import { getMyId } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
 import { getChat } from '@/stores/chats';
-import { toast } from '@/stores/ui';
+import { toast, useUi } from '@/stores/ui';
 import { CallEngine } from './engine/CallEngine';
 import { getIceServers } from './engine/iceServers';
 import {
@@ -40,6 +40,8 @@ import {
   getMicrophoneStream,
   getScreenTrack,
   listDevices,
+  micConstraints,
+  VOICE_PREF_KEYS,
 } from './engine/media';
 import {
   derivePhase,
@@ -238,7 +240,7 @@ function createEngine(iceServers) {
 
 /** Microphone (required) + camera (optional: failures fall back to audio only). */
 async function acquireMedia(video, compact) {
-  const micStream = await getMicrophoneStream();
+  const micStream = await getMicrophoneStream(micConstraints(useUi.getState().prefs));
   const mic = micStream.getAudioTracks()[0];
   let camera = null;
   let cameraError = null;
@@ -1007,6 +1009,31 @@ export async function toggleScreenShare() {
     toast.error(err);
   }
 }
+
+let micOp = 0;
+
+/** Re-open the microphone with the current voice settings and send that instead. */
+async function refreshMicrophone() {
+  const e = engine;
+  if (!e || !active() || active()?.phase === 'ended') return;
+  const op = ++micOp;
+  try {
+    const stream = await getMicrophoneStream(micConstraints(useUi.getState().prefs));
+    const mic = stream.getAudioTracks()[0];
+    if (op !== micOp || engine !== e || active()?.phase === 'ended') {
+      mic?.stop();
+      return;
+    }
+    e.setMicrophone(mic);
+  } catch (err) {
+    if (op === micOp && engine === e) toast.error(err);
+  }
+}
+
+// Voice settings changed (Settings → Voice and video): apply them to a live call.
+useUi.subscribe((s, prev) => {
+  if (VOICE_PREF_KEYS.some((k) => s.prefs[k] !== prev.prefs[k])) void refreshMicrophone();
+});
 
 export async function setOutputDevice(deviceId) {
   const e = engine;

@@ -7,6 +7,7 @@ import {
   Laptop,
   Lock,
   MessageSquareText,
+  Mic,
 } from 'lucide-react-native';
 
 /** Settings sections (routes /settings/:id). Agent 1 owns this list. */
@@ -45,6 +46,13 @@ export const SETTINGS_SECTIONS = [
     description: 'Messages, groups and calls',
     icon: Bell,
     tint: '#e5484d',
+  },
+  {
+    id: 'voice',
+    title: 'Voice and video',
+    description: 'Noise cancellation, echo, volume',
+    icon: Mic,
+    tint: '#0d9488',
   },
   {
     id: 'devices',

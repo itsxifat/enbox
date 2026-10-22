@@ -19,6 +19,7 @@ import {
 } from './pages/PrivacyPages';
 import { AboutPage, BioPage, ColoursPage, ProfilePage, PronounsPage } from './pages/ProfilePages';
 import { DevicesPage, HelpPage, NotificationsPage, StoragePage } from './pages/SystemPages';
+import { VoiceSettingsPage } from './pages/VoicePages';
 
 export const SETTINGS_PAGES = {
   profile: { title: 'Profile', render: () => <ProfilePage /> },
@@ -56,6 +57,7 @@ export const SETTINGS_PAGES = {
   'chats/wallpaper': { title: 'Wallpaper', render: () => <ChatWallpaperPage /> },
   'chats/animations': { title: 'Animations', render: () => <ChatAnimationsPage /> },
   notifications: { title: 'Notifications', render: () => <NotificationsPage /> },
+  voice: { title: 'Voice and video', render: () => <VoiceSettingsPage /> },
   devices: { title: 'Linked devices', render: () => <DevicesPage /> },
   storage: { title: 'Storage and data', render: () => <StoragePage /> },
   help: { title: 'Help', render: () => <HelpPage /> },

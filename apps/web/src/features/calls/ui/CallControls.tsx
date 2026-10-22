@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Mic, MicOff, MonitorUp, SwitchCamera, Volume2 } from 'lucide-react';
+import { AudioLines, Mic, MicOff, MonitorUp, SwitchCamera, Volume2 } from 'lucide-react';
 import { PhoneOffIcon, VideoIcon, VideoOffIcon } from '@/components/icons';
 import { DropdownMenu } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useCalls, type ActiveCall } from '@/stores/calls';
+import { useUi } from '@/stores/ui';
 import { listDevices, outputSelectionSupported, screenShareSupported } from '../engine/media';
+import { voiceIsolationAvailable } from '../voice';
 import { CallButton } from './CallButton';
 
 function useOutputDevices(enabled: boolean): MediaDeviceInfo[] {
@@ -34,6 +36,9 @@ export function CallControls({ active }: { active: ActiveCall }) {
   const canShare = desktop && screenShareSupported();
   const connectedish = active.phase !== 'starting' && !!active.call.id;
   const camOn = !active.videoOff;
+  const voiceIsolation = useUi((s) => s.prefs.voiceIsolation);
+  const noiseCancellation = useUi((s) => s.prefs.noiseCancellation);
+  const setPref = useUi.getState().setPref;
 
   return (
     <div className="absolute inset-x-0 bottom-0 z-10 flex justify-center bg-gradient-to-t from-black/60 via-black/25 to-transparent px-3 pt-10 pb-[max(20px,env(safe-area-inset-bottom))]">
@@ -88,6 +93,33 @@ export function CallControls({ active }: { active: ActiveCall }) {
             }))}
           />
         ) : null}
+        <DropdownMenu
+          align="start"
+          aria-label="Voice settings"
+          trigger={(t) => (
+            <CallButton
+              ref={t.ref}
+              onClick={t.onClick}
+              aria-haspopup="menu"
+              aria-expanded={t.active}
+              icon={AudioLines}
+              label="Voice settings"
+              size={desktop ? 'md' : 'lg'}
+            />
+          )}
+          items={[
+            voiceIsolationAvailable() && {
+              label: 'Voice isolation',
+              hint: voiceIsolation ? 'On' : 'Off',
+              onSelect: () => setPref('voiceIsolation', !voiceIsolation),
+            },
+            {
+              label: 'Noise cancellation',
+              hint: noiseCancellation ? 'On' : 'Off',
+              onSelect: () => setPref('noiseCancellation', !noiseCancellation),
+            },
+          ]}
+        />
         {canShare ? (
           <CallButton
             icon={MonitorUp}

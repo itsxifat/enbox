@@ -30,6 +30,7 @@ import { BioPage } from './profile/BioPage';
 import { ColoursPage } from './profile/ColoursPage';
 import { ProfilePage } from './profile/ProfilePage';
 import { PronounsPage } from './profile/PronounsPage';
+import { VoiceSettingsPage } from './VoiceSettingsPage';
 
 interface PageDef {
   title: string;
@@ -76,6 +77,7 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   'chats/wallpaper': { title: 'Wallpaper', render: () => <ChatWallpaperPage /> },
   'chats/animations': { title: 'Animations', render: () => <ChatAnimationsPage /> },
   notifications: { title: 'Notifications', render: () => <NotificationsPage /> },
+  voice: { title: 'Voice and video', render: () => <VoiceSettingsPage /> },
   devices: { title: 'Linked devices', render: () => <DevicesPage /> },
   storage: { title: 'Storage and data', render: () => <StoragePage /> },
   help: { title: 'Help', render: () => <HelpPage /> },

@@ -7,6 +7,7 @@ import {
   Laptop,
   Lock,
   MessageSquareText,
+  Mic,
 } from 'lucide-react';
 import type { IconType } from '@/components/ui';
 
@@ -55,6 +56,13 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     description: 'Messages, groups and calls',
     icon: Bell,
     tint: '#e5484d',
+  },
+  {
+    id: 'voice',
+    title: 'Voice and video',
+    description: 'Voice isolation, noise cancellation',
+    icon: Mic,
+    tint: '#0d9488',
   },
   {
     id: 'devices',

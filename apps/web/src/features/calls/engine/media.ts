@@ -146,11 +146,13 @@ export function videoConstraints(opts: CameraOptions = {}): MediaTrackConstraint
   };
 }
 
-/** Microphone stream (required for every call). */
-export async function getMicrophoneStream(): Promise<MediaStream> {
+/** Microphone stream (required for every call); calls pass the voice settings (voice.ts). */
+export async function getMicrophoneStream(
+  constraints: MediaTrackConstraints = AUDIO_CONSTRAINTS,
+): Promise<MediaStream> {
   const md = assertCapture('microphone');
   try {
-    return await md.getUserMedia({ audio: AUDIO_CONSTRAINTS, video: false });
+    return await md.getUserMedia({ audio: constraints, video: false });
   } catch (e) {
     throw toMediaAccessError(e, 'microphone');
   }

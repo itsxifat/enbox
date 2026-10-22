@@ -4,7 +4,8 @@
  *
  * State
  * - `theme`: 'light' | 'dark' | 'system'; `resolvedTheme`: 'light' | 'dark'
- * - `prefs`: { enterToSend, linkPreviews, fontSize, wallpaperPattern, sounds, desktopNotifications,
+ * - `prefs`: { enterToSend, linkPreviews, voiceIsolation, noiseCancellation, echoCancellation,
+ *   autoGainControl, fontSize, wallpaperPattern, sounds, desktopNotifications,
  *   reduceMotion, autoplayAnimatedMedia, chatTheme, bubbleStyle, messageAnimation,
  *   wallpaperPreset, wallpaperDim, wallpaperBlur }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
@@ -49,6 +50,15 @@ export interface DevicePrefs {
   enterToSend: boolean;
   /** Preview cards (title, description, image) under messages with a link. */
   linkPreviews: boolean;
+  /**
+   * Calls (features/calls/voice.ts): an AI filter on the microphone that keeps speech and
+   * removes background sounds.
+   */
+  voiceIsolation: boolean;
+  /** Calls: the browser's noise suppression, echo cancellation and automatic gain. */
+  noiseCancellation: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
   /** Chat text size (sets `--chat-font-size`; use the `text-chat` utility). */
   fontSize: FontSize;
   /** Faint dot pattern over the wallpaper. */
@@ -78,6 +88,10 @@ export interface DevicePrefs {
 export const DEFAULT_PREFS: DevicePrefs = {
   enterToSend: true,
   linkPreviews: true,
+  voiceIsolation: false,
+  noiseCancellation: true,
+  echoCancellation: true,
+  autoGainControl: true,
   fontSize: 'medium',
   wallpaperPattern: true,
   sounds: true,

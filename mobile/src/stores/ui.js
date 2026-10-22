@@ -33,6 +33,10 @@ export const DEFAULT_PREFS = {
   enterToSend: true,
   /** Preview cards (title, description, image) under messages with a link. */
   linkPreviews: true,
+  /** Calls (features/calls/engine/media.js `micConstraints`): WebRTC audio processing. */
+  noiseCancellation: true,
+  echoCancellation: true,
+  autoGainControl: true,
   fontSize: 'medium',
   wallpaperPattern: true,
   sounds: true,

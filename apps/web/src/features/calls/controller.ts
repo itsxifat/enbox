@@ -40,17 +40,17 @@ import {
 import { getMyId } from '@/stores/auth';
 import { type ActiveCall, useCalls } from '@/stores/calls';
 import { getChat } from '@/stores/chats';
-import { toast } from '@/stores/ui';
+import { toast, useUi } from '@/stores/ui';
 import { CallEngine } from './engine/CallEngine';
 import { getIceServers } from './engine/iceServers';
 import {
   MediaAccessError,
   callsSupported,
   getCameraTrack,
-  getMicrophoneStream,
   getScreenTrack,
   listDevices,
 } from './engine/media';
+import { getCallMicrophone, VOICE_PREF_KEYS } from './voice';
 import {
   derivePhase,
   endReasonText,
@@ -260,8 +260,7 @@ interface LocalMedia {
 
 /** Microphone (required) + camera (optional: failures fall back to audio only). */
 async function acquireMedia(video: boolean, compact: boolean): Promise<LocalMedia> {
-  const micStream = await getMicrophoneStream();
-  const mic = micStream.getAudioTracks()[0]!;
+  const mic = await getCallMicrophone();
   let camera: MediaStreamTrack | null = null;
   let cameraError: string | null = null;
   if (video) {
@@ -1046,6 +1045,30 @@ export async function toggleScreenShare(): Promise<void> {
     toast.error(err);
   }
 }
+
+let micOp = 0;
+
+/** Re-open the microphone with the current voice settings and send that instead. */
+async function refreshMicrophone(): Promise<void> {
+  const e = engine;
+  if (!e || !active() || active()?.phase === 'ended') return;
+  const op = ++micOp;
+  try {
+    const mic = await getCallMicrophone();
+    if (op !== micOp || engine !== e || active()?.phase === 'ended') {
+      mic.stop();
+      return;
+    }
+    e.setMicrophone(mic);
+  } catch (err) {
+    if (op === micOp && engine === e) toast.error(err);
+  }
+}
+
+// Voice settings changed (settings page or the call's voice menu): apply them to a live call.
+useUi.subscribe((s, prev) => {
+  if (VOICE_PREF_KEYS.some((k) => s.prefs[k] !== prev.prefs[k])) void refreshMicrophone();
+});
 
 export async function setOutputDevice(deviceId: string): Promise<void> {
   const e = engine;

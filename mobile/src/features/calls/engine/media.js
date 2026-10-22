@@ -134,11 +134,31 @@ export function videoConstraints(opts = {}) {
   };
 }
 
-/** Microphone stream (required for every call). */
-export async function getMicrophoneStream() {
+/** The voice settings among the device prefs (Settings → Voice and video). */
+export const VOICE_PREF_KEYS = ['noiseCancellation', 'echoCancellation', 'autoGainControl'];
+
+/**
+ * Microphone constraints for the voice settings. react-native-webrtc hands audio constraints
+ * to libwebrtc as they are, and libwebrtc only reads the legacy `goog*` keys (the standard
+ * names are what browsers read, for the web build).
+ */
+export function micConstraints(prefs) {
+  return {
+    echoCancellation: prefs.echoCancellation,
+    noiseSuppression: prefs.noiseCancellation,
+    autoGainControl: prefs.autoGainControl,
+    googEchoCancellation: prefs.echoCancellation,
+    googNoiseSuppression: prefs.noiseCancellation,
+    googHighpassFilter: prefs.noiseCancellation,
+    googAutoGainControl: prefs.autoGainControl,
+  };
+}
+
+/** Microphone stream (required for every call); calls pass `micConstraints(prefs)`. */
+export async function getMicrophoneStream(constraints = AUDIO_CONSTRAINTS) {
   const md = assertCapture('microphone');
   try {
-    return await md.getUserMedia({ audio: AUDIO_CONSTRAINTS, video: false });
+    return await md.getUserMedia({ audio: constraints, video: false });
   } catch (e) {
     throw toMediaAccessError(e, 'microphone');
   }
