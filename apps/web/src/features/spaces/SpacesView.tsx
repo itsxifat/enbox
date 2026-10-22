@@ -55,7 +55,7 @@ export function SpacesView() {
     return (
       <SpacesUiContext.Provider value={ui}>
         <div className="flex min-h-0 min-w-0 flex-1 gap-[var(--pane-gap)]">
-          <SpaceRail />
+          {/* The rail is app-wide on desktop (AppShell). */}
           {spaceId ? <ChannelSidebar spaceId={spaceId} /> : null}
           <main className="card-pane relative flex min-w-0 flex-1 flex-col">
             <Suspense fallback={<PageSpinner />}>{outlet ?? <SpacesEmpty />}</Suspense>

@@ -50,16 +50,16 @@ describe('device prefs', () => {
   it('mirrors the chat appearance prefs on <html> as attributes and preset variables', () => {
     initTheme();
     const root = document.documentElement;
-    expect(root.dataset.bubbleStyle).toBe('classic');
+    expect(root.dataset.bubbleStyle).toBe('cozy');
     expect(root.dataset.msgAnim).toBe('fade');
     expect(root.dataset.wallpaperPreset).toBe('default');
     expect(root.style.getPropertyValue('--bubble-out')).toBe('');
 
-    useUi.getState().setPref('bubbleStyle', 'cozy');
+    useUi.getState().setPref('bubbleStyle', 'rounded');
     useUi.getState().setPref('messageAnimation', 'pop');
     useUi.getState().setPref('wallpaperPreset', 'sky');
     useUi.getState().setPref('chatTheme', 'ocean');
-    expect(root.dataset.bubbleStyle).toBe('cozy');
+    expect(root.dataset.bubbleStyle).toBe('rounded');
     expect(root.dataset.msgAnim).toBe('pop');
     expect(root.dataset.wallpaperPreset).toBe('sky');
     expect(root.style.getPropertyValue('--wallpaper')).toBe('#d9eaf7');
@@ -69,6 +69,10 @@ describe('device prefs', () => {
     useUi.getState().setPref('wallpaperPreset', 'default');
     expect(root.style.getPropertyValue('--bubble-out')).toBe('');
     expect(root.style.getPropertyValue('--wallpaper')).toBe('');
+
+    useUi.getState().setTheme('onyx');
+    expect(root.dataset.theme).toBe('onyx');
+    expect(root.classList.contains('dark')).toBe(true);
   });
 
   it('keeps the other prefs when one changes', () => {

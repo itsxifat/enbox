@@ -14,32 +14,50 @@ import {
 import { CHAT_THEME_PRESET_DEFS, WALLPAPER_PRESET_DEFS } from '@/features/appearance/presets';
 import { useDeviceAppearance } from '@/features/appearance/useChatAppearance';
 import { cn } from '@/lib/cn';
-import { FONT_SIZES, useUi, type FontSize, type ThemePref } from '@/stores/ui';
+import { FONT_SIZES, useUi, type FontSize, type ThemePref, type ThemeVariant } from '@/stores/ui';
 import { WALLPAPER_DIM_MAX } from '@enbox/shared';
 import { SettingsGroup, SettingsRow, SettingsScroller, SwitchRow } from './ui';
 
 const THEMES: { value: ThemePref; label: string }[] = [
-  { value: 'system', label: 'System' },
+  { value: 'system', label: 'Sync with OS' },
   { value: 'light', label: 'Light' },
+  { value: 'ash', label: 'Ash' },
   { value: 'dark', label: 'Dark' },
+  { value: 'onyx', label: 'Onyx' },
 ];
 
-/** Miniature app window used by the theme cards. */
-function ThemeThumb({ tone }: { tone: 'light' | 'dark' }) {
-  const dark = tone === 'dark';
+/** Thumbnail colours per palette: [rail, sidebar, chat, message, accent row]. */
+const THUMB: Record<ThemeVariant, [string, string, string, string, string]> = {
+  light: ['#e3e5e8', '#f2f3f5', '#ffffff', '#e3e5e8', '#5865f2'],
+  ash: ['#1e1f22', '#2b2d31', '#313338', '#404249', '#5865f2'],
+  dark: ['#111113', '#16161a', '#1a1a1e', '#2c2c32', '#5865f2'],
+  onyx: ['#000000', '#08080a', '#0b0b0d', '#1f1f23', '#5865f2'],
+};
+
+/** Miniature Discord window used by the theme cards: rail, sidebar, chat with two rows. */
+function ThemeThumb({ tone }: { tone: ThemeVariant }) {
+  const [rail, side, chat, row, accent] = THUMB[tone];
   return (
-    <span
-      className={cn('flex h-full w-full flex-col gap-1.5 p-2', dark ? 'bg-[#111117]' : 'bg-white')}
-      aria-hidden
-    >
-      <span className={cn('h-2 w-10 rounded-full', dark ? 'bg-[#2a2935]' : 'bg-[#e7e5ef]')} />
-      <span className="flex flex-1 flex-col justify-end gap-1">
-        <span
-          className={cn('h-3 w-3/5 self-start rounded-md', dark ? 'bg-[#1f1f29]' : 'bg-[#f1f0f6]')}
-        />
-        <span
-          className={cn('h-3 w-1/2 self-end rounded-md', dark ? 'bg-[#3b3192]' : 'bg-[#e7e2ff]')}
-        />
+    <span className="flex h-full w-full" style={{ background: chat }} aria-hidden>
+      <span className="flex w-[18%] flex-col items-center gap-1 pt-1.5" style={{ background: rail }}>
+        <span className="size-2.5 rounded-full" style={{ background: accent }} />
+        <span className="size-2.5 rounded-full" style={{ background: row }} />
+        <span className="size-2.5 rounded-full" style={{ background: row }} />
+      </span>
+      <span className="flex w-[30%] flex-col gap-1 p-1.5" style={{ background: side }}>
+        <span className="h-1.5 w-4/5 rounded-full" style={{ background: row }} />
+        <span className="h-1.5 w-3/5 rounded-full" style={{ background: row }} />
+        <span className="h-1.5 w-2/3 rounded-full" style={{ background: row }} />
+      </span>
+      <span className="flex flex-1 flex-col justify-end gap-1.5 p-1.5">
+        <span className="flex items-center gap-1">
+          <span className="size-2.5 shrink-0 rounded-full" style={{ background: accent }} />
+          <span className="h-1.5 w-3/4 rounded-full" style={{ background: row }} />
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2.5 shrink-0 rounded-full" style={{ background: row }} />
+          <span className="h-1.5 w-1/2 rounded-full" style={{ background: row }} />
+        </span>
       </span>
     </span>
   );
@@ -48,7 +66,7 @@ function ThemeThumb({ tone }: { tone: 'light' | 'dark' }) {
 function ThemePicker() {
   const theme = useUi((s) => s.theme);
   return (
-    <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-3 px-4 py-4 lg:px-5">
+    <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-3 px-4 py-4 sm:grid-cols-5 lg:px-5">
       {THEMES.map((t) => {
         const selected = theme === t.value;
         return (

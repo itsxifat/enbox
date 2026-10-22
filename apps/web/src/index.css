@@ -3,7 +3,8 @@
 /*
  * Enbox design tokens
  * -------------------
- * Semantic colors are CSS variables (light on :root, dark on .dark) exposed as Tailwind
+ * Semantic colors are CSS variables (Discord's Light on :root, Dark on .dark, Ash / Onyx via
+ * `.dark[data-theme]`) exposed as Tailwind
  * colors via `@theme inline`, so `bg-surface`, `text-muted`, `border-line`,
  * `bg-bubble-out`, `bg-brand/10` ... all follow the active theme automatically.
  * Prefer these tokens over raw palette colors (`bg-white`, `text-gray-500`) in feature code.
@@ -26,49 +27,55 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --app: #f4f3f8;
+  /* Discord "Light". */
+  --app: #e3e5e8;
   --surface: #ffffff;
-  --surface-2: #f1f0f6;
+  --surface-2: #f2f3f5;
   --elevated: #ffffff;
-  --hover: rgb(20 18 40 / 0.045);
-  --selected: #efedf8;
-  --line: #e7e5ef;
-  --line-strong: #d6d3e3;
+  --hover: rgb(116 127 141 / 0.08);
+  --selected: #e3e5ea;
+  --line: #e3e5e8;
+  --line-strong: #d4d7dc;
 
-  --fg: #15141c;
-  --muted: #676577;
-  --subtle: #6b6979;
+  --fg: #2e3035;
+  --muted: #5c5e66;
+  --subtle: #6d6f78;
 
-  --brand: #6d5dfc;
-  --brand-strong: #5a48e8;
-  --brand-ink: #5646e6;
-  --brand-soft: #eeebff;
+  --brand: #5865f2;
+  --brand-strong: #4752c4;
+  --brand-ink: #4752c4;
+  --brand-soft: #e6e8fd;
   --on-brand: #ffffff;
 
-  --bubble-out: #e7e2ff;
-  --bubble-out-meta: #5f5a7c;
-  --bubble-in: #ffffff;
-  --bubble-in-meta: #6e6c7d;
-  --wallpaper: #efedf5;
-  --wallpaper-ink: rgb(109 93 252 / 0.07);
+  --bubble-out: #e6e8fd;
+  --bubble-out-meta: #5c5e66;
+  --bubble-in: #f2f3f5;
+  --bubble-in-meta: #6d6f78;
+  --wallpaper: #ffffff;
+  --wallpaper-ink: transparent;
 
-  --danger: #e0393e;
-  --danger-soft: #fdecec;
-  --success: #16a34a;
-  --success-soft: #e7f7ed;
-  --warning: #d97706;
-  --warning-soft: #fdf3e2;
-  /* Warning-colored TEXT on warning-soft (the offline banner): 6.4:1. */
-  --warning-ink: #92400e;
+  --danger: #da373c;
+  --danger-soft: #fbe5e6;
+  --success: #248046;
+  --success-soft: #e0f3e7;
+  --warning: #c27c0e;
+  --warning-soft: #fcf1dc;
+  /* Warning-colored TEXT on warning-soft (the offline banner). */
+  --warning-ink: #8a5a08;
   /* Filled danger surfaces under white text (Delete / Log out buttons, danger badges). */
-  --danger-fill: #d93a40;
-  --unread: #6d5dfc;
-  --unread-muted: #737184;
-  --tick-read: #1a73c8;
-  --online: #22c55e;
-  --overlay: rgb(12 10 28 / 0.45);
+  --danger-fill: #da373c;
+  --unread: #5865f2;
+  --unread-muted: #6d6f78;
+  --tick-read: #00a8fc;
+  --online: #23a55a;
+  --idle: #f0b232;
+  --dnd: #f23f43;
+  --link: #006ce7;
+  --mention-bg: rgb(250 168 26 / 0.1);
+  --mention-bar: #f0b232;
+  --overlay: rgb(0 0 0 / 0.6);
 
-  --shadow-color: 250 30% 20%;
+  --shadow-color: 220 8% 20%;
   --chat-font-size: 15px;
 
   /* Layout cards (see "Layout cards" at the end of this file). */
@@ -80,52 +87,93 @@
   color-scheme: light;
 }
 
+/* Discord "Dark" (the default). `data-theme` on <html> picks Ash or Onyx below. */
 .dark {
-  --app: #0b0b10;
-  --surface: #111117;
-  --surface-2: #1c1c25;
-  --elevated: #1d1d26;
-  --hover: rgb(255 255 255 / 0.05);
-  --selected: #22212e;
-  --line: #24232e;
-  --line-strong: #34333f;
+  --app: #111113;
+  --surface: #1a1a1e;
+  --surface-2: #242429;
+  --elevated: #222226;
+  --hover: rgb(255 255 255 / 0.04);
+  --selected: #2c2c32;
+  --line: #29292f;
+  --line-strong: #393940;
 
-  --fg: #ececf2;
-  --muted: #a09fb0;
-  --subtle: #88879a;
+  --fg: #dfe0e2;
+  --muted: #abadb3;
+  --subtle: #8d8f97;
 
-  --brand: #6d5dfc;
-  --brand-strong: #7f71ff;
-  --brand-ink: #a89eff;
-  --brand-soft: #25214a;
+  --brand: #5865f2;
+  --brand-strong: #6b77f4;
+  --brand-ink: #949cf7;
+  --brand-soft: #262a52;
   --on-brand: #ffffff;
 
-  --bubble-out: #3b3192;
-  --bubble-out-meta: #c3bdf0;
-  --bubble-in: #1f1f29;
-  --bubble-in-meta: #9594a6;
-  --wallpaper: #0d0d13;
-  --wallpaper-ink: rgb(168 158 255 / 0.05);
+  --bubble-out: #333a8f;
+  --bubble-out-meta: #c9ccf5;
+  --bubble-in: #242429;
+  --bubble-in-meta: #9a9ca3;
+  --wallpaper: #1a1a1e;
+  --wallpaper-ink: transparent;
 
   --danger: #f2555a;
-  --danger-soft: #3a1a1e;
-  --success: #22c55e;
+  --danger-soft: #3b1d20;
+  --success: #23a55a;
   --success-soft: #16301f;
-  --warning: #f59e0b;
-  --warning-soft: #33260d;
-  --warning-ink: #f59e0b;
-  --danger-fill: #d93a40;
-  --unread: #6d5dfc;
-  --unread-muted: #5b5a6a;
-  --tick-read: #53bdeb;
-  --online: #22c55e;
-  --overlay: rgb(0 0 0 / 0.6);
+  --warning: #f0b232;
+  --warning-soft: #33280f;
+  --warning-ink: #f0b232;
+  --danger-fill: #da373c;
+  --unread: #ffffff;
+  --unread-muted: #5f6169;
+  --tick-read: #00a8fc;
+  --online: #23a55a;
+  --idle: #f0b232;
+  --dnd: #f23f43;
+  --link: #00a8fc;
+  --mention-bg: rgb(250 168 26 / 0.08);
+  --mention-bar: #f0b232;
+  --overlay: rgb(0 0 0 / 0.7);
 
-  --shadow-color: 240 30% 2%;
+  --shadow-color: 240 10% 2%;
   --card-shadow:
     0 1px 2px hsl(var(--shadow-color) / 0.5), 0 6px 20px -6px hsl(var(--shadow-color) / 0.6);
 
   color-scheme: dark;
+}
+
+/* Discord "Ash": the classic grey dark theme. */
+.dark[data-theme='ash'] {
+  --app: #1e1f22;
+  --surface: #313338;
+  --surface-2: #383a40;
+  --elevated: #2b2d31;
+  --hover: rgb(78 80 88 / 0.3);
+  --selected: #404249;
+  --line: #3f4147;
+  --line-strong: #4e5058;
+  --fg: #dbdee1;
+  --muted: #b5bac1;
+  --subtle: #949ba4;
+  --brand-soft: #343b6b;
+  --bubble-in: #383a40;
+  --wallpaper: #313338;
+  --unread-muted: #6d6f78;
+}
+
+/* Discord "Onyx": near-black for OLED screens. */
+.dark[data-theme='onyx'] {
+  --app: #000000;
+  --surface: #0b0b0d;
+  --surface-2: #17171a;
+  --elevated: #141417;
+  --hover: rgb(255 255 255 / 0.035);
+  --selected: #1f1f23;
+  --line: #1c1c20;
+  --line-strong: #2b2b30;
+  --fg: #e3e4e6;
+  --brand-soft: #1c1f40;
+  --bubble-in: #17171a;
+  --wallpaper: #0b0b0d;
 }
 
 @theme inline {
@@ -166,6 +214,11 @@
   --color-unread-muted: var(--unread-muted);
   --color-tick-read: var(--tick-read);
   --color-online: var(--online);
+  --color-idle: var(--idle);
+  --color-dnd: var(--dnd);
+  --color-link: var(--link);
+  --color-mention-bg: var(--mention-bg);
+  --color-mention-bar: var(--mention-bar);
   --color-overlay: var(--overlay);
 
   --text-chat: var(--chat-font-size);
@@ -408,6 +461,15 @@
   }
   [data-bubble-style='cozy'] .msg-bubble:hover {
     background: color-mix(in srgb, var(--fg) 5%, transparent);
+  }
+  /* Discord rows: the time sits next to the name (or in the gutter on hover), no ticks. */
+  [data-cozy] .msg-meta {
+    /* Beats the utility classes on the element (utilities layer > components layer). */
+    display: none !important;
+  }
+  [data-cozy] .msg-bubble,
+  [data-cozy] .msg-bubble:hover {
+    background: transparent;
   }
 }
 

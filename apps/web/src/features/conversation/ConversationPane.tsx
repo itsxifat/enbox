@@ -205,11 +205,11 @@ export function Conversation({
   const isSpace = !!chat.space;
   const rowAppearance = useMemo(
     () => ({
-      // Space channels read like Discord: avatar + name rows, no bubbles.
-      bubbleStyle: isSpace ? ('cozy' as const) : appearance.bubbleStyle,
+      // Every chat reads like Discord: avatar + name rows, no bubbles.
+      bubbleStyle: 'cozy' as const,
       messageAnimation: appearance.messageAnimation,
     }),
-    [appearance.bubbleStyle, appearance.messageAnimation, isSpace],
+    [appearance.messageAnimation],
   );
   // Sending a message dismisses the "N unread messages" divider (WhatsApp behaviour).
   const bottomToken = useConversationUi((s) => s.bottomToken);
@@ -286,7 +286,7 @@ export function Conversation({
         )}
         {isSpace ? null : <PinnedBar chat={chat} />}
         {isSpace ? null : <OngoingCallBanner chatId={chat.id} />}
-        <div className="chat-wallpaper relative mx-2 min-h-0 flex-1 rounded-xl sm:mx-3">
+        <div className="chat-wallpaper relative min-h-0 flex-1">
           <ChatBackground appearance={appearance} />
           {!hasWindow ? (
             <PageSpinner />

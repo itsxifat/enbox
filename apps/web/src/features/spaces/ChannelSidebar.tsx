@@ -30,6 +30,7 @@ import {
   type SpaceCategory,
 } from '@enbox/shared';
 import { Badge, DropdownMenu, Menu, confirm, toast, type MenuAnchor, type MenuEntry } from '@/components/ui';
+import { UserPanel } from '@/components/layout/UserPanel';
 import { cn } from '@/lib/cn';
 import { patchPrefs } from '@/features/chats/chatActions';
 import { markChatRead } from '@/realtime';
@@ -314,6 +315,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
           <p className="px-4 pt-6 text-sm text-muted">No channels you can see yet.</p>
         ) : null}
       </nav>
+      <UserPanel className="hidden lg:flex" />
 
       <Menu open={!!menu} onClose={() => setMenu(null)} anchor={menu?.anchor ?? null} items={menu ? channelItems(menu.chat) : []} aria-label="Channel menu" />
       {dialog?.kind === 'channel' ? (

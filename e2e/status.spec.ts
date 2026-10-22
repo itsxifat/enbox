@@ -65,9 +65,10 @@ test('text status: realtime unseen ring, view count, reply as a direct message, 
   await A.page.getByTestId('status-views').click();
   await expect(A.page.getByTestId('status-viewers')).toContainText('Ben Viewer');
   await expect(A.page.getByLabel('Reacted 😂')).toBeVisible();
-  // …and the reply in the chat list, in realtime.
+  // …and the reply as a direct message from B (Home's DM sidebar on desktop).
   await A.page.goto('/chats');
-  await expect(A.page.getByText('Nice status!')).toBeVisible();
+  await A.page.getByTestId('dm-row').filter({ hasText: 'Ben Viewer' }).click();
+  await expect(A.page.getByTestId('message').filter({ hasText: 'Nice status!' })).toBeVisible();
 
   // After viewing, B's row moves to "Viewed updates" (no unseen ring).
   await B.page.keyboard.press('Escape');

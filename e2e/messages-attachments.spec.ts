@@ -3,7 +3,7 @@
  * manual location, contact card, and a document.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { directChat, makeContacts, openAs, registerUser, sendAs } from './helpers';
+import { PHONE, directChat, makeContacts, openAs, registerUser, sendAs } from './helpers';
 
 async function attach(page: Page, item: string): Promise<void> {
   await page.getByRole('button', { name: 'Attach' }).click();
@@ -18,7 +18,8 @@ test('record and send a voice note (fake microphone)', async ({ browser }) => {
   await sendAs(alice, chatId, { type: 'text', text: 'Listen to this' });
 
   const a = await openAs(browser, alice, `/chats/${chatId}`);
-  const b = await openAs(browser, bob, '/chats');
+  // Bob watches the chat list (the phone layout: desktop's DM sidebar shows no activity).
+  const b = await openAs(browser, bob, '/chats', { viewport: PHONE });
   await expect(b.page.getByTestId('chat-row').filter({ hasText: 'Alice Mic' })).toBeVisible();
   await a.page.getByRole('button', { name: 'Record voice message' }).click();
   await expect(a.page.getByTestId('voice-recorder')).toBeVisible();
@@ -56,7 +57,7 @@ test('create a poll and see votes live', async ({ browser }) => {
   const poll = a.page.getByRole('group', { name: 'Poll: Movie night?' });
   await expect(poll).toBeVisible();
 
-  await b.page.getByTestId('chat-row').filter({ hasText: 'Alice Poll' }).click();
+  await b.page.getByTestId('dm-row').filter({ hasText: 'Alice Poll' }).click();
   const bobPoll = b.page.getByRole('group', { name: 'Poll: Movie night?' });
   await bobPoll.getByRole('radio', { name: /Saturday/ }).click();
   await expect(bobPoll.getByRole('radio', { name: /Saturday/ })).toHaveAttribute(

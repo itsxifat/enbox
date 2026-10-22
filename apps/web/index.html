@@ -12,7 +12,7 @@
       content="Enbox — chats, groups, communities, channels, status and calls."
     />
     <meta name="application-name" content="Enbox" />
-    <meta id="theme-color" name="theme-color" content="#ffffff" />
+    <meta id="theme-color" name="theme-color" content="#1a1a1e" />
     <meta name="color-scheme" content="light dark" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -27,14 +27,13 @@
       (function () {
         try {
           var raw = localStorage.getItem('enbox.ui');
-          var theme = (raw && JSON.parse(raw).state.theme) || 'system';
-          var dark =
-            theme === 'dark' ||
-            (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-          if (dark) document.documentElement.classList.add('dark');
-          document
-            .getElementById('theme-color')
-            .setAttribute('content', dark ? '#111117' : '#ffffff');
+          var theme = (raw && JSON.parse(raw).state.theme) || 'dark';
+          if (theme === 'system')
+            theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          var colors = { light: '#ffffff', ash: '#313338', dark: '#1a1a1e', onyx: '#0b0b0d' };
+          if (theme !== 'light') document.documentElement.classList.add('dark');
+          document.documentElement.dataset.theme = theme;
+          document.getElementById('theme-color').setAttribute('content', colors[theme] || colors.dark);
         } catch (e) {}
       })();
     </script>

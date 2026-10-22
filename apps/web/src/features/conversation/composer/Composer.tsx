@@ -18,15 +18,16 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
-import { Check, Mic, Paperclip, Pencil, Smile, X, Camera, Keyboard } from 'lucide-react';
+import { Check, Mic, Pencil, PlusCircle, Smile, X, Camera, Keyboard } from 'lucide-react';
 import {
   MAX_MESSAGE_LENGTH,
+  chatTitle,
   MAX_UPLOAD_BYTES,
   formatBytes,
   userDisplayName,
   type ChatSummary,
 } from '@enbox/shared';
-import { ICON_STROKE_ON_FILL, SendIcon } from '@/components/icons';
+import { SendIcon } from '@/components/icons';
 import { IconButton, Spinner } from '@/components/ui';
 import { useIsDesktop, useIsTouch } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
@@ -551,7 +552,15 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   };
 
   const hasText = text.trim().length > 0;
-  const showSend = hasText || !!editing || (voice?.locked ?? false);
+  // Discord: Enter sends on desktop (no send button); touch keyboards and "Enter = new line"
+  // keep the button.
+  const showSend = (hasText && (touch || !enterToSend)) || !!editing || (voice?.locked ?? false);
+  const showMic = !showSend && (!hasText || !!voice);
+  const placeholder = chat.space
+    ? `Message #${chat.name ?? 'channel'}`
+    : chat.type === 'direct'
+      ? `Message @${chatTitle(chat)}`
+      : `Message ${chatTitle(chat)}`;
 
   return (
     <div
@@ -615,15 +624,14 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         {voice ? (
           <VoiceRecorderBar rec={voice.rec} locked={voice.locked} onCancel={cancelRecording} />
         ) : (
-          <div className="flex min-h-12 min-w-0 flex-1 items-end rounded-3xl bg-surface-2 transition-shadow focus-within:ring-2 focus-within:ring-brand/25">
+          <div className="flex min-h-11 min-w-0 flex-1 items-end rounded-lg bg-surface-2">
+            {/* Discord: "+" opens uploads and the other attachment kinds. */}
             <IconButton
-              icon={emojiOpen ? Keyboard : Smile}
-              label={emojiOpen ? 'Hide emoji' : 'Emoji'}
-              active={emojiOpen}
-              onClick={() => {
-                setEmojiOpen((o) => !o);
-                if (emojiOpen) ta.current?.focus();
-              }}
+              icon={PlusCircle}
+              label="Attach"
+              aria-haspopup="menu"
+              active={!!attachAnchor}
+              onClick={(e) => setAttachAnchor(attachAnchor ? null : e.currentTarget)}
               className="m-1 shrink-0"
             />
             <textarea
@@ -639,30 +647,32 @@ export function Composer({ chat }: { chat: ChatSummary }) {
                 setTimeout(() => setMention(null), 150);
               }}
               onPaste={onPaste}
-              placeholder={editing ? 'Edit message' : 'Message'}
+              placeholder={editing ? 'Edit message' : placeholder}
               aria-label="Message"
               aria-autocomplete={mentionable ? 'list' : undefined}
               aria-controls={suggestions.length ? listId : undefined}
               aria-activedescendant={suggestions.length ? `${listId}-${mentionIdx}` : undefined}
               enterKeyHint={enterToSend && !touch ? 'send' : 'enter'}
-              className="max-h-40 min-h-12 min-w-0 flex-1 resize-none bg-transparent py-3 text-chat leading-[1.35] text-fg outline-none placeholder:text-subtle"
-            />
-            <IconButton
-              icon={Paperclip}
-              label="Attach"
-              aria-haspopup="menu"
-              active={!!attachAnchor}
-              onClick={(e) => setAttachAnchor(attachAnchor ? null : e.currentTarget)}
-              className="m-1 shrink-0"
+              className="max-h-[50vh] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-[11px] text-chat leading-[1.375] text-fg outline-none placeholder:text-subtle"
             />
             {!hasText && !editing ? (
               <IconButton
                 icon={Camera}
                 label="Camera"
                 onClick={() => setDialog('camera')}
-                className="m-1 ml-0 shrink-0 sm:hidden"
+                className="m-1 mr-0 shrink-0 sm:hidden"
               />
             ) : null}
+            <IconButton
+              icon={emojiOpen ? Keyboard : Smile}
+              label={emojiOpen ? 'Hide emoji' : 'Emoji'}
+              active={emojiOpen}
+              onClick={() => {
+                setEmojiOpen((o) => !o);
+                if (emojiOpen) ta.current?.focus();
+              }}
+              className="m-1 shrink-0"
+            />
           </div>
         )}
 
@@ -680,7 +690,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
             }}
             className="mb-0 shrink-0 animate-pop"
           />
-        ) : (
+        ) : showMic ? (
           <button
             type="button"
             aria-label={voice ? 'Recording… release to send' : 'Record voice message'}
@@ -702,18 +712,19 @@ export function Composer({ chat }: { chat: ChatSummary }) {
               }
             }}
             className={cn(
-              'flex size-12 shrink-0 touch-none items-center justify-center rounded-full bg-brand text-on-brand shadow-sm transition-transform select-none hover:bg-brand-strong',
+              'flex size-11 shrink-0 touch-none items-center justify-center rounded-lg bg-surface-2 text-muted transition-transform select-none hover:text-fg',
               'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-              voice && !voice.locked && 'scale-125 bg-danger',
+              voice && 'bg-danger text-white',
+              voice && !voice.locked && 'scale-110',
             )}
           >
             {starting ? (
               <Spinner size={20} label={null} />
             ) : (
-              <Mic size={24} strokeWidth={ICON_STROKE_ON_FILL} aria-hidden />
+              <Mic size={22} aria-hidden />
             )}
           </button>
-        )}
+        ) : null}
       </div>
 
       {emojiOpen && !voice ? (

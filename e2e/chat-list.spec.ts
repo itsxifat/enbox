@@ -1,9 +1,11 @@
 /**
  * Chat list journeys: previews/badges, filters, message search → jump, chat menu actions
  * (pin, mute, archive, mark unread), group @mention badge, typing indicator and drafts.
+ * The chat list is the phone layout (desktop shows Home's DM sidebar), so its viewer runs at
+ * a phone viewport.
  */
 import { expect, test } from '@playwright/test';
-import { apiAs, directChat, makeContacts, openAs, registerUser, sendAs } from './helpers';
+import { PHONE, apiAs, directChat, makeContacts, openAs, registerUser, sendAs } from './helpers';
 
 test('unread badge, filters, and message search jump to the message', async ({ browser }) => {
   const alice = await registerUser({ displayName: 'Alice List' });
@@ -18,7 +20,7 @@ test('unread badge, filters, and message search jump to the message', async ({ b
   await sendAs(carol, withCarol, { type: 'text', text: 'Lunch?' });
   await apiAs(alice, 'POST', `/api/chats/${withCarol}/read`, { seq: 999 });
 
-  const { page, context } = await openAs(browser, alice, '/chats');
+  const { page, context } = await openAs(browser, alice, '/chats', { viewport: PHONE });
   const bobRow = page.getByTestId('chat-row').filter({ hasText: 'Bob List' });
   const carolRow = page.getByTestId('chat-row').filter({ hasText: 'Carol List' });
   await expect(bobRow).toContainText('update 60');
@@ -48,7 +50,7 @@ test('chat menu: pin, mute, mark unread and archive', async ({ browser }) => {
   await sendAs(bob, chatId, { type: 'text', text: 'Ping' });
   await apiAs(alice, 'POST', `/api/chats/${chatId}/read`, { seq: 999 });
 
-  const { page, context } = await openAs(browser, alice, '/chats');
+  const { page, context } = await openAs(browser, alice, '/chats', { viewport: PHONE });
   const row = page.getByTestId('chat-row').filter({ hasText: 'Bob Menu' });
   await expect(row).toBeVisible();
 
@@ -104,7 +106,7 @@ test('group @mention shows the mention badge and a live typing indicator', async
     memberIds: [alice.user.id],
   });
 
-  const a = await openAs(browser, alice, '/chats');
+  const a = await openAs(browser, alice, '/chats', { viewport: PHONE });
   const row = a.page.getByTestId('chat-row').filter({ hasText: 'Mention Squad' });
   await expect(row).toBeVisible();
   await sendAs(bob, chat.id, { type: 'text', text: `@{${alice.user.id}} can you review?` });
@@ -143,7 +145,7 @@ test('drafts are kept per chat and shown in the list', async ({ browser }) => {
   const chatId = await directChat(bob, alice);
   await sendAs(bob, chatId, { type: 'text', text: 'Hey' });
 
-  const { page, context } = await openAs(browser, alice, `/chats/${chatId}`);
+  const { page, context } = await openAs(browser, alice, `/chats/${chatId}`, { viewport: PHONE });
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('half-written thought');
   await page.goto('/chats');
   const row = page.getByTestId('chat-row').filter({ hasText: 'Bob Draft' });

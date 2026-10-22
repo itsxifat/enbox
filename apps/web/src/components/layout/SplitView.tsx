@@ -10,6 +10,8 @@ export interface SplitViewProps {
   list: ReactNode;
   /** Main pane when no child route matches (desktop). Defaults to the branded <MainEmpty/>. */
   empty?: ReactNode;
+  /** Desktop: hide the list pane (Home's DM sidebar already lists these chats). */
+  desktopList?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface SplitViewProps {
  * - Phone:   the list pane, or — when the matched child route has `handle.detail` — the
  *            child full screen. The list stays mounted (hidden) to keep its scroll position.
  */
-export function SplitView({ list, empty }: SplitViewProps) {
+export function SplitView({ list, empty, desktopList = true }: SplitViewProps) {
   const outlet = useOutlet();
   const desktop = useIsDesktop();
   const { detail } = useRouteHandle();
@@ -28,9 +30,11 @@ export function SplitView({ list, empty }: SplitViewProps) {
   if (desktop) {
     return (
       <div className="flex min-h-0 min-w-0 flex-1 gap-[var(--pane-gap)]">
-        <section className="card-pane relative flex w-[clamp(320px,30vw,440px)] shrink-0 flex-col">
-          <Suspense fallback={<PageSpinner />}>{list}</Suspense>
-        </section>
+        {desktopList ? (
+          <section className="card-pane relative flex w-[clamp(300px,26vw,400px)] shrink-0 flex-col">
+            <Suspense fallback={<PageSpinner />}>{list}</Suspense>
+          </section>
+        ) : null}
         <main className="card-pane relative flex min-w-0 flex-1 flex-col">
           <Suspense fallback={<PageSpinner />}>{outlet ?? empty ?? <MainEmpty />}</Suspense>
         </main>

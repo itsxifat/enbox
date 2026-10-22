@@ -61,7 +61,7 @@ export function Meta({
   return (
     <span
       className={cn(
-        'pointer-events-none inline-flex items-center gap-1 text-[11px] leading-none whitespace-nowrap select-none',
+        'msg-meta pointer-events-none inline-flex items-center gap-1 text-[11px] leading-none whitespace-nowrap select-none',
         variant === 'inline' && (mine ? 'text-bubble-out-meta' : 'text-bubble-in-meta'),
         variant === 'overlay' &&
           'rounded-full bg-black/35 px-1.5 py-1 text-white [&_[data-status=read]]:text-sky-300',
@@ -94,7 +94,7 @@ export function InlineMeta({
     <>
       <span
         aria-hidden
-        className="invisible ml-2 inline-flex items-center gap-1 text-[11px] leading-none"
+        className="msg-meta invisible ml-2 inline-flex items-center gap-1 text-[11px] leading-none"
       >
         <MetaContent m={m} mine={mine} chat={chat} spacer />
       </span>

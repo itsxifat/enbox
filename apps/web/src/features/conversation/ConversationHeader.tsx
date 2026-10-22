@@ -197,7 +197,7 @@ export function ConversationHeader({
         >
           <ChatAvatar
             chat={chat}
-            size="md"
+            size="sm"
             showPresence={chat.type === 'direct' && chat.peer?.id !== me}
           />
         </button>
@@ -218,15 +218,16 @@ export function ConversationHeader({
         <>
           {canCall ? (
             <>
-              <IconButton
-                icon={VideoIcon}
-                label="Video call"
-                onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
-              />
+              {/* Discord's order: voice call, then video. */}
               <IconButton
                 icon={PhoneIcon}
                 label="Voice call"
                 onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
+              />
+              <IconButton
+                icon={VideoIcon}
+                label="Video call"
+                onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
               />
             </>
           ) : null}

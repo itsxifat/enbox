@@ -21,29 +21,33 @@ export function Pill({ children, className }: { children: ReactNode; className?:
   );
 }
 
+/** Discord's date divider: a hairline with the date in the middle. */
 export function DaySeparator({ date }: { date: string }) {
   return (
     <div
-      className="flex justify-center py-2"
+      className="mx-3 mt-4 mb-1 flex items-center gap-2 lg:mx-5"
       role="separator"
       aria-label={formatDaySeparator(date)}
     >
-      <span className="rounded-lg bg-surface/95 px-3 py-1 text-[12.5px] font-medium text-muted shadow-bubble backdrop-blur-sm">
-        {formatDaySeparator(date)}
-      </span>
+      <span className="h-px flex-1 bg-line-strong" aria-hidden />
+      <span className="text-[12px] font-semibold text-subtle">{formatDaySeparator(date)}</span>
+      <span className="h-px flex-1 bg-line-strong" aria-hidden />
     </div>
   );
 }
 
+/** Discord's "new messages" line: red hairline with a NEW tag on the right. */
 export function UnreadDivider({ count }: { count: number }) {
   return (
     <div
-      className="my-2 flex justify-center bg-surface/60 py-1 backdrop-blur-sm"
+      className="relative mx-3 my-2 flex items-center lg:mx-5"
       role="separator"
+      aria-label={`${count} unread message${count === 1 ? '' : 's'}`}
       data-testid="unread-divider"
     >
-      <span className="rounded-full bg-surface px-3 py-0.5 text-[12.5px] font-semibold text-brand-ink shadow-bubble">
-        {count} unread message{count === 1 ? '' : 's'}
+      <span className="h-px flex-1 bg-danger" aria-hidden />
+      <span className="rounded-r-[4px] rounded-l-none bg-danger px-1 text-[10px] leading-[13px] font-bold text-white uppercase" aria-hidden>
+        New
       </span>
     </div>
   );

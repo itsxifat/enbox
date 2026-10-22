@@ -2,9 +2,12 @@
  * Conversation journeys with two (or three) real users against the real server:
  * realtime delivery + ticks, reply/react, edit/delete-for-everyone, image upload, voice
  * notes, forward and pins.
+ * Conversations render Discord rows, which keep the tick status in the DOM but do not show it
+ * (`.msg-meta` is hidden), so tick checks assert the status is attached, not visible.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
+  PHONE,
   apiAs,
   directChat,
   makeContacts,
@@ -20,10 +23,11 @@ function bubble(page: Page, text: string | RegExp): Locator {
   return page.getByTestId('message').filter({ hasText: text });
 }
 
+/** Enter sends on desktop (Discord: no Send button while Enter-to-send is on). */
 async function send(page: Page, text: string): Promise<void> {
   const box = page.getByRole('textbox', { name: 'Message', exact: true });
   await box.fill(text);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await box.press('Enter');
 }
 
 async function openMenu(page: Page, text: string | RegExp): Promise<void> {
@@ -40,24 +44,23 @@ test('text arrives in realtime and ticks go sent → delivered → read', async 
   const a = await openAs(browser, alice, `/chats/${chatId}`);
   await send(a.page, 'Hello Bob 👋 are you there?');
   const mine = bubble(a.page, 'Hello Bob');
-  await expect(mine.locator('[data-status="sent"]')).toBeVisible();
+  await expect(mine.locator('[data-status="sent"]')).toBeAttached();
 
   // Bob comes online (not in the chat): server-driven delivered receipt.
   const b = await openAs(browser, bob, '/chats');
-  const row = b.page.getByTestId('chat-row').filter({ hasText: 'Alice Tick' });
-  await expect(row).toContainText('Hello Bob');
+  const row = b.page.getByTestId('dm-row').filter({ hasText: 'Alice Tick' });
   await expect(row.getByLabel('1 unread message')).toBeVisible();
-  await expect(mine.locator('[data-status="delivered"]')).toBeVisible();
+  await expect(mine.locator('[data-status="delivered"]')).toBeAttached();
 
   // Bob opens the chat: read receipt → blue ticks for Alice.
   await row.click();
   await expect(bubble(b.page, 'Hello Bob')).toBeVisible();
-  await expect(mine.locator('[data-status="read"]')).toBeVisible();
+  await expect(mine.locator('[data-status="read"]')).toBeAttached();
 
   // Live message the other way while both are in the chat.
   await send(b.page, 'Yes, here! 🙂');
   await expect(bubble(a.page, 'Yes, here!')).toBeVisible();
-  await expect(bubble(b.page, 'Yes, here!').locator('[data-status="read"]')).toBeVisible();
+  await expect(bubble(b.page, 'Yes, here!').locator('[data-status="read"]')).toBeAttached();
 
   await a.context.close();
   await b.context.close();
@@ -160,9 +163,9 @@ test('image upload shows in both chats', async ({ browser }) => {
 
   const photo = bubble(a.page, 'Look at this sunset');
   await expect(photo.getByRole('button', { name: 'Open photo' })).toBeVisible();
-  await expect(photo.locator('[data-status="delivered"], [data-status="read"]')).toBeVisible();
+  await expect(photo.locator('[data-status="delivered"], [data-status="read"]')).toBeAttached();
 
-  await b.page.getByTestId('chat-row').filter({ hasText: 'Alice Photo' }).click();
+  await b.page.getByTestId('dm-row').filter({ hasText: 'Alice Photo' }).click();
   const received = bubble(b.page, 'Look at this sunset');
   await expect(received.getByRole('img', { name: 'Look at this sunset' })).toBeVisible();
   // Opens the lightbox.
@@ -197,7 +200,9 @@ test('voice notes render and play', async ({ browser }) => {
   await note.getByRole('button', { name: /Playback speed/ }).click();
   await expect(note.getByRole('button', { name: /Playback speed 1.5×/ })).toBeVisible();
 
-  // The chat list preview reads "0:02" with a mic icon.
+  // The chat list preview (phone layout) reads "0:02" with a mic icon.
+  await a.page.setViewportSize(PHONE);
+  await a.page.goto('/chats');
   await expect(a.page.getByTestId('chat-row').filter({ hasText: 'Bob Voice' })).toContainText(
     '0:02',
   );
@@ -307,12 +312,12 @@ test('messages written offline stay pending and send on reconnect', async ({ bro
   await expect(a.page.getByText("You're offline")).toBeVisible();
   await send(a.page, 'Written in the tunnel 🚇');
   const queued = bubble(a.page, 'Written in the tunnel');
-  await expect(queued.locator('[data-status="pending"]')).toBeVisible();
+  await expect(queued.locator('[data-status="pending"]')).toBeAttached();
   await expect(a.page.getByText('Not sent. Tap to retry')).toHaveCount(0);
 
   await a.context.setOffline(false);
   await expect(bubble(b.page, 'Written in the tunnel')).toBeVisible({ timeout: 20_000 });
-  await expect(queued.locator('[data-status="read"]')).toBeVisible();
+  await expect(queued.locator('[data-status="read"]')).toBeAttached();
   await a.context.close();
   await b.context.close();
 });

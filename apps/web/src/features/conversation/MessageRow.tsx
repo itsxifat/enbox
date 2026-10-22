@@ -82,6 +82,7 @@ export function SenderName({
   you,
   className,
   spaceId,
+  coloured = false,
 }: {
   userId: string;
   selecting: boolean;
@@ -90,6 +91,8 @@ export function SenderName({
   className?: string;
   /** Space channels: show the nickname there, in the top role's colour. */
   spaceId?: string | null;
+  /** Per-sender colour (bubbles); Discord rows use the text colour. */
+  coloured?: boolean;
 }) {
   const userName = useUserName(userId, { you });
   const author = useSpaceAuthor(spaceId, userId);
@@ -109,8 +112,9 @@ export function SenderName({
         'block max-w-full truncate rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand',
         className,
       )}
-      // Spaces colour names by role (no role: the default text colour), like Discord.
-      style={{ color: author ? (author.color ?? undefined) : senderColor(userId, dark) }}
+      // Discord: role colour in Spaces, otherwise the default text colour; bubbles keep
+      // the per-sender colours that tell group members apart.
+      style={{ color: author ? (author.color ?? undefined) : coloured ? senderColor(userId, dark) : undefined }}
     >
       {name}
     </button>
@@ -673,7 +677,7 @@ export const MessageRow = memo(function MessageRow({
             )}
           >
             {!bare && tail && row.firstInGroup ? <Tail mine={mine} /> : null}
-            {showSender ? <SenderName userId={m.senderId!} selecting={selecting} /> : null}
+            {showSender ? <SenderName userId={m.senderId!} selecting={selecting} coloured /> : null}
             <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
             <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />
           </div>

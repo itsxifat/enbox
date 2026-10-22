@@ -1,7 +1,7 @@
 /**
  * My availability: Online / Idle / Do not disturb / Invisible, the last three for a duration
  * (30 min / 1 h / 8 h / until I change it) → PUT /api/me/presence. Lives on my own profile
- * card (NavRail avatar, the SettingsPane profile card on phones).
+ * card (user panel avatar, the SettingsPane profile card on phones).
  */
 import { useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';

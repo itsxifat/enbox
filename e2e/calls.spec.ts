@@ -47,8 +47,8 @@ test.describe('1:1 calls', () => {
     // Let the timer run so the call has a duration.
     await expect(A.page.getByTestId('call-timer')).toHaveText(/^0:0[2-9]$/, { timeout: 10_000 });
 
-    // Mute is mirrored to the peer.
-    await B.page.getByRole('button', { name: 'Mute' }).click();
+    // Mute is mirrored to the peer (the call's own button; the user panel has one too).
+    await callScreen(B.page).getByRole('button', { name: 'Mute' }).click();
     await expect(A.page.getByText('Muted', { exact: true })).toBeVisible();
 
     await A.page.getByRole('button', { name: 'End call' }).click();
@@ -84,10 +84,10 @@ test.describe('1:1 calls', () => {
 
     await startFromNewCall(A.page, 'Ben Decline', 'Voice');
     await expect(incoming(B.page)).toBeVisible();
-    await B.page.getByRole('button', { name: 'Decline' }).click();
+    await incoming(B.page).getByRole('button', { name: 'Decline' }).click();
     await expect(incoming(B.page)).toBeHidden();
     await expect(A.page.getByTestId('call-end-reason')).toHaveText('Declined');
-    await A.page.getByRole('button', { name: 'Close' }).click();
+    await callScreen(A.page).getByRole('button', { name: 'Close', exact: true }).click();
     await expect(callScreen(A.page)).toBeHidden();
 
     // Second call: A cancels while it rings → B's ringing stops, B has a missed call.
@@ -214,12 +214,13 @@ test('group call: three participants in a mesh, join from the Calls tab, leave',
   await expect(incoming(B.page)).toContainText('Mesh Test Group');
   await expect(incoming(C.page)).toBeVisible();
   await B.page.getByRole('button', { name: 'Accept' }).click();
-  await C.page.getByRole('button', { name: 'Decline' }).click();
+  await incoming(C.page).getByRole('button', { name: 'Decline' }).click();
   await expect(callScreen(A.page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
 
   // C joins the ongoing call from the Calls tab.
-  await expect(C.page.getByRole('button', { name: 'Join' })).toBeVisible();
-  await C.page.getByRole('button', { name: 'Join' }).click();
+  const join = C.page.getByTestId('calls-list').getByRole('button', { name: 'Join' });
+  await expect(join).toBeVisible();
+  await join.click();
   await expect(callScreen(C.page)).toHaveAttribute('data-phase', 'connected', { timeout: 20_000 });
 
   // Everyone has a connected peer connection to both others.
@@ -335,7 +336,7 @@ test('two calls at once: the second one rings once the first is declined', async
   await expect(incoming(B.page)).toHaveCount(1);
   await expect(incoming(B.page)).toContainText('Ava First');
 
-  await B.page.getByRole('button', { name: 'Decline' }).click();
+  await incoming(B.page).getByRole('button', { name: 'Decline' }).click();
   await expect(A.page.getByTestId('call-end-reason')).toHaveText('Declined');
   await expect(incoming(B.page)).toContainText('Cleo Second');
   await expect(C.page.getByTestId('call-status')).toHaveText('Ringing…');

@@ -65,13 +65,20 @@ export async function apiAs<T = unknown>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/**
+ * A phone-sized viewport (< the `lg` breakpoint). Desktop shows Home's DM sidebar; the
+ * WhatsApp-style chat list (previews, drafts, filters, chat menu, typing) is phone-only.
+ */
+export const PHONE = { width: 390, height: 844 } as const;
+
 /** Open a new browser context signed in as `user` and navigate to `path`. */
 export async function openAs(
   browser: Browser,
   user: Pick<AuthResponse, 'token'>,
   path = '/chats',
+  opts: { viewport?: { width: number; height: number } } = {},
 ): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext();
+  const context = await browser.newContext(opts.viewport ? { viewport: opts.viewport } : {});
   await context.addInitScript((token) => {
     try {
       window.localStorage.setItem('enbox.token', token);

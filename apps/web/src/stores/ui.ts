@@ -3,7 +3,7 @@
  * and the confirm-dialog queue. Nothing here is account data, so it survives logout.
  *
  * State
- * - `theme`: 'light' | 'dark' | 'system'; `resolvedTheme`: 'light' | 'dark'
+ * - `theme`: 'light' | 'ash' | 'dark' | 'onyx' | 'system'; `resolvedTheme`: 'light' | 'dark'
  * - `prefs`: { enterToSend, linkPreviews, voiceIsolation, noiseCancellation, echoCancellation,
  *   autoGainControl, fontSize, wallpaperPattern, sounds, desktopNotifications,
  *   reduceMotion, autoplayAnimatedMedia, chatTheme, bubbleStyle, messageAnimation,
@@ -37,8 +37,11 @@ import { errorMessage, isSessionChangedError } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
 import { StorageKeys } from '@/lib/storage';
 
-export type ThemePref = 'light' | 'dark' | 'system';
+/** Discord's themes: Light, Ash (classic grey), Dark (default), Onyx (near-black), or follow the OS. */
+export type ThemePref = 'light' | 'ash' | 'dark' | 'onyx' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
+/** The palette in use (`data-theme` on <html>); Ash / Onyx are dark variants. */
+export type ThemeVariant = Exclude<ThemePref, 'system'>;
 export type FontSize = 'small' | 'medium' | 'large';
 /** 'system' follows `prefers-reduced-motion`; 'on' forces it; 'off' ignores the OS setting. */
 export type ReduceMotionPref = 'system' | 'on' | 'off';
@@ -99,7 +102,7 @@ export const DEFAULT_PREFS: DevicePrefs = {
   reduceMotion: 'system',
   autoplayAnimatedMedia: 'hover',
   chatTheme: 'default',
-  bubbleStyle: 'classic',
+  bubbleStyle: 'cozy',
   messageAnimation: 'fade',
   wallpaperPreset: 'default',
   wallpaperDim: 0,
@@ -112,8 +115,13 @@ export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {
   large: { label: 'Large', px: 17 },
 };
 
-/** Browser chrome color per theme (keep in sync with --surface and index.html). */
-export const THEME_COLORS: Record<ResolvedTheme, string> = { light: '#ffffff', dark: '#111117' };
+/** Browser chrome color per palette (keep in sync with --surface and index.html). */
+export const THEME_COLORS: Record<ThemeVariant, string> = {
+  light: '#ffffff',
+  ash: '#313338',
+  dark: '#1a1a1e',
+  onyx: '#0b0b0d',
+};
 
 export type ToastKind = 'success' | 'error' | 'info';
 
@@ -179,15 +187,20 @@ function systemPrefersDark(): boolean {
   );
 }
 
+export function themeVariant(theme: ThemePref): ThemeVariant {
+  if (theme === 'system') return systemPrefersDark() ? 'dark' : 'light';
+  return theme;
+}
+
 function resolveTheme(theme: ThemePref): ResolvedTheme {
-  return theme === 'dark' || (theme === 'system' && systemPrefersDark()) ? 'dark' : 'light';
+  return themeVariant(theme) === 'light' ? 'light' : 'dark';
 }
 
 export const useUi = create<UiState>()(
   persist(
     (set, get) => ({
-      theme: 'system',
-      resolvedTheme: resolveTheme('system'),
+      theme: 'dark',
+      resolvedTheme: resolveTheme('dark'),
       prefs: DEFAULT_PREFS,
       toasts: [],
       dialogs: [],
@@ -342,12 +355,14 @@ const DEVICE_PRESET_VAR_NAMES = [
   '--tick-read',
 ] as const;
 
-function applyAppearance(s: Pick<UiState, 'resolvedTheme' | 'prefs'>): void {
+function applyAppearance(s: Pick<UiState, 'theme' | 'resolvedTheme' | 'prefs'>): void {
   const root = document.documentElement;
   const dark = s.resolvedTheme === 'dark';
+  const variant = themeVariant(s.theme);
   root.classList.toggle('dark', dark);
+  root.dataset.theme = variant;
   root.style.colorScheme = dark ? 'dark' : 'light';
-  document.getElementById('theme-color')?.setAttribute('content', THEME_COLORS[s.resolvedTheme]);
+  document.getElementById('theme-color')?.setAttribute('content', THEME_COLORS[variant]);
   root.style.setProperty('--chat-font-size', `${FONT_SIZES[s.prefs.fontSize]?.px ?? 15}px`);
   // Device-level chat appearance: the preset variables on <html> (a conversation root
   // overrides them with its own resolved theme) and the data attributes the CSS keys on.
@@ -373,7 +388,7 @@ export function initTheme(): void {
   themeInitialized = true;
   applyAppearance(useUi.getState());
   useUi.subscribe((s, prev) => {
-    if (s.resolvedTheme !== prev.resolvedTheme || s.prefs !== prev.prefs) applyAppearance(s);
+    if (s.theme !== prev.theme || s.resolvedTheme !== prev.resolvedTheme || s.prefs !== prev.prefs) applyAppearance(s);
   });
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => {
     const { theme } = useUi.getState();

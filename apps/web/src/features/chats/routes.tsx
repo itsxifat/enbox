@@ -6,7 +6,7 @@
  * `handle.detail` makes the conversation full screen and hides the bottom tabs.
  * `?m=<seq>&mid=<id>` opens the chat at a message (see links.ts `messageLink`).
  */
-import type { RouteObject } from 'react-router';
+import { Navigate, type RouteObject } from 'react-router';
 import { SplitView } from '@/components/layout/SplitView';
 import type { RouteHandle } from '@/app/routeHandle';
 import { lazyNamed } from '@/lib/lazy';
@@ -20,6 +20,7 @@ const ConversationPane = lazyNamed(
   'ConversationPane',
 );
 const StarredPane = lazyNamed(() => import('./StarredPane'), 'StarredPane');
+const FriendsPage = lazyNamed(() => import('@/features/home/FriendsPage'), 'FriendsPage');
 
 const detail: RouteHandle = { detail: true };
 
@@ -28,7 +29,13 @@ export const conversationChildren: RouteObject[] = [
 ];
 
 export const chatsRoutes: RouteObject[] = [
-  { path: 'chats', element: <SplitView list={<ChatListPane />} />, children: conversationChildren },
+  // Desktop: Home's DM sidebar lists the chats; the main pane is Friends until one opens.
+  {
+    path: 'chats',
+    element: <SplitView list={<ChatListPane />} desktopList={false} empty={<FriendsPage />} />,
+    children: conversationChildren,
+  },
+  { path: 'friends', element: <Navigate to="/chats" replace /> },
   {
     path: 'archived',
     element: <SplitView list={<ArchivedPane />} />,

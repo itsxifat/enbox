@@ -464,7 +464,7 @@ export function resolveAppearance(input: ResolveAppearanceInput): ResolvedAppear
     if (wp) style['--wallpaper'] = wp[input.resolvedTheme];
   } else if (wallpaper.kind === 'preset' && preset === 'default') {
     // Back to the token even when <html> carries a device wallpaper.
-    style['--wallpaper'] = input.resolvedTheme === 'dark' ? '#0d0d13' : '#efedf5';
+    style['--wallpaper'] = 'var(--surface)';
   }
   if (accent) {
     // Accent-only: the bubble takes the hex, its meta/ticks are mixes of `--fg` and the hex.

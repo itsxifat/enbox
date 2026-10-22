@@ -4,7 +4,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { apiAs, openAs, registerUser, uniqueName } from './helpers';
+import { PHONE, apiAs, openAs, registerUser, uniqueName } from './helpers';
 
 test('create a channel; a follower discovers it, reads posts and reacts but cannot post', async ({
   browser,
@@ -159,7 +159,9 @@ test('followers star posts from the feed; search results open the channel feed',
   await info.getByRole('button', { name: /Starred messages/ }).click();
   await expect(info.getByText(`Launch notes ${word}`)).toBeVisible();
 
-  // Global message search: a channel post opens the channel feed at that post.
+  // Global message search (the chat list's search box, phone layout): a channel post opens
+  // the channel feed at that post.
+  await b.page.setViewportSize(PHONE);
   await b.page.goto('/chats');
   await b.page.getByRole('searchbox', { name: 'Search chats and messages' }).fill(word);
   await b.page.getByRole('button', { name: new RegExp(word) }).click();

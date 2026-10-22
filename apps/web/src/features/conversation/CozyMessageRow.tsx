@@ -125,8 +125,13 @@ export const CozyMessageRow = memo(function CozyMessageRow({
               </div>
             ) : null}
             <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
-            <div className={cn(!bare && (visual ? 'max-w-[min(100%,480px)]' : 'max-w-[720px]'))}>
+            <div className={cn(!bare && (visual ? 'max-w-[min(100%,480px)]' : 'max-w-[720px]'), m.pending && 'opacity-60')}>
               <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />
+              {m.editedAt && !m.deletedAt ? (
+                <span className="ml-1 text-[11px] text-subtle" title={new Date(m.editedAt).toLocaleString()}>
+                  (edited)
+                </span>
+              ) : null}
             </div>
           </div>
 
