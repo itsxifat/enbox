@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { MessageCircleOff } from 'lucide-react';
@@ -102,8 +103,9 @@ export function ConversationPane() {
   }, [chatId, chatsLoaded, chat]);
 
   if (!chat) return <MissingChat loaded={chatsLoaded} />;
-  // Channels have their own feed (ChannelPane); search/starred/forward links land here too.
-  if (chat.type === 'channel')
+  // Channels have their own feed (ChannelPane), space channels live in their Space;
+  // search/starred/forward links land here too.
+  if (chat.type === 'channel' || chat.space)
     return (
       <Navigate
         to={chatPath(chat, { seq: paramTarget?.seq, messageId: paramTarget?.messageId })}
@@ -169,12 +171,18 @@ function MissingChat({ loaded }: { loaded: boolean }) {
   );
 }
 
-function Conversation({
+/**
+ * The conversation body (header, pins, list, composer, dialogs). Space channels pass their
+ * own `header` (channel name, topic, member list toggle) and always use the cozy layout.
+ */
+export function Conversation({
   chat,
   initialTarget,
+  header,
 }: {
   chat: ChatSummary;
   initialTarget: JumpTarget | null;
+  header?: ReactNode;
 }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -194,9 +202,14 @@ function Conversation({
   const openTheme = useCallback(() => setThemeOpen(true), []);
   // Private override > shared theme > device prefs > tokens, as CSS variables on the root.
   const appearance = useChatAppearance(chat);
+  const isSpace = !!chat.space;
   const rowAppearance = useMemo(
-    () => ({ bubbleStyle: appearance.bubbleStyle, messageAnimation: appearance.messageAnimation }),
-    [appearance.bubbleStyle, appearance.messageAnimation],
+    () => ({
+      // Space channels read like Discord: avatar + name rows, no bubbles.
+      bubbleStyle: isSpace ? ('cozy' as const) : appearance.bubbleStyle,
+      messageAnimation: appearance.messageAnimation,
+    }),
+    [appearance.bubbleStyle, appearance.messageAnimation, isSpace],
   );
   // Sending a message dismisses the "N unread messages" divider (WhatsApp behaviour).
   const bottomToken = useConversationUi((s) => s.bottomToken);
@@ -269,10 +282,10 @@ function Conversation({
         ) : searching ? (
           <ChatSearchBar chat={chat} />
         ) : (
-          <ConversationHeader chat={chat} onOpenInfo={openInfo} onOpenTheme={openTheme} />
+          (header ?? <ConversationHeader chat={chat} onOpenInfo={openInfo} onOpenTheme={openTheme} />)
         )}
-        <PinnedBar chat={chat} />
-        <OngoingCallBanner chatId={chat.id} />
+        {isSpace ? null : <PinnedBar chat={chat} />}
+        {isSpace ? null : <OngoingCallBanner chatId={chat.id} />}
         <div className="chat-wallpaper relative mx-2 min-h-0 flex-1 rounded-xl sm:mx-3">
           <ChatBackground appearance={appearance} />
           {!hasWindow ? (
@@ -298,9 +311,11 @@ function Conversation({
             <LazyLightbox />
           </Suspense>
         ) : null}
-        <Sheet open={infoOpen} onClose={() => setInfoOpen(false)} aria-label="Chat info">
-          <InfoPanel chat={chat} onClose={() => setInfoOpen(false)} />
-        </Sheet>
+        {isSpace ? null : (
+          <Sheet open={infoOpen} onClose={() => setInfoOpen(false)} aria-label="Chat info">
+            <InfoPanel chat={chat} onClose={() => setInfoOpen(false)} />
+          </Sheet>
+        )}
         {themeOpen ? <ChatThemeSheet chat={chat} onClose={() => setThemeOpen(false)} /> : null}
       </RowAppearanceContext.Provider>
     </div>

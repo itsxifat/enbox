@@ -21,6 +21,7 @@ import { getMyId } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
 import { mergeWatermarks, useChats } from '@/stores/chats';
 import { useMessages, windowGeneration, windowRequestMark } from '@/stores/messages';
+import { useSpaces } from '@/stores/spaces';
 
 export { mergeWatermarks };
 
@@ -65,6 +66,9 @@ export function registerChatHandlers(socket: AppSocket): void {
 
   socket.on('chat:updated', ({ chatId, changes }) => {
     chats().applyChatUpdate(chatId, changes);
+    // Space channels: new overwrites change my bits (recomputed from the Space's roles).
+    const spaceId = changes.space?.spaceId ?? chats().byId[chatId]?.space?.spaceId;
+    if (spaceId) useSpaces.getState().recompute(spaceId);
   });
 
   socket.on('chat:removed', ({ chatId }) => {

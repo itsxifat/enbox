@@ -77,3 +77,14 @@ describe('mention query & insertion', () => {
     expect(pruneRefs('only @Maya here', refs)).toEqual([refs[0]]);
   });
 });
+
+describe('space mention tokens', () => {
+  const ROLE = '33333333-3333-4333-8333-333333333333';
+  it('round-trips @everyone, @here and roles', () => {
+    const text = `@{everyone} @{here} ping @{role:${ROLE}} and @{${MAYA}}`;
+    const decoded = decodeMentions(text, (id) => names[id] ?? '?', () => 'mods');
+    expect(decoded.text).toBe('@everyone @here ping @mods and @Maya');
+    expect(decoded.refs.map((r) => r.userId)).toEqual(['everyone', 'here', `role:${ROLE}`, MAYA]);
+    expect(encodeMentions(decoded.text, decoded.refs)).toBe(text);
+  });
+});

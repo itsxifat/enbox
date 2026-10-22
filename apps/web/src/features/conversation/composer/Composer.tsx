@@ -25,7 +25,6 @@ import {
   formatBytes,
   userDisplayName,
   type ChatSummary,
-  type UserPublic,
 } from '@enbox/shared';
 import { ICON_STROKE_ON_FILL, SendIcon } from '@/components/icons';
 import { IconButton, Spinner } from '@/components/ui';
@@ -38,6 +37,8 @@ import { useMessages, type ClientMessage } from '@/stores/messages';
 import { confirm, toast, useUi } from '@/stores/ui';
 import { mentionName } from '@/features/chats/preview';
 import { getDraft, useDrafts } from '@/features/chats/drafts';
+import { useSpaceMentionCandidates, type MentionCandidate } from '@/features/spaces/mentions';
+import { useSpaces } from '@/stores/spaces';
 import { canEdit, previewOf, saveEdit } from '../actions';
 import { ReplyQuote } from '../bubbles/Quote';
 import { LazyEmojiPicker } from '../lazy';
@@ -91,10 +92,14 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const focusToken = useConversationUi((s) => s.focusToken);
   const members = useChatMembers(chat);
   const listId = useId();
+  const isSpace = chat.type === 'space_text';
+  const mentionable = chat.type === 'group' || isSpace;
+  const roleName = (id: string) =>
+    useSpaces.getState().byId[chat.space?.spaceId ?? '']?.roles.find((r) => r.id === id)?.name ?? 'role';
 
   const initial = useMemo(() => {
     const d = getDraft(chat.id);
-    return d ? decodeMentions(d.text, mentionName) : { text: '', refs: [] as MentionRef[] };
+    return d ? decodeMentions(d.text, mentionName, roleName) : { text: '', refs: [] as MentionRef[] };
     // Only on mount for this chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -167,7 +172,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     const m = useConversationUi.getState().editing[chat.id];
     if (!m) return;
     if (!stash.current) stash.current = { text, refs: refs.current };
-    const decoded = decodeMentions(m.text ?? '', mentionName);
+    const decoded = decodeMentions(m.text ?? '', mentionName, roleName);
     setText(decoded.text);
     refs.current = decoded.refs;
     requestAnimationFrame(() => {
@@ -191,7 +196,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     if (desktop) ta.current?.focus({ preventScroll: true });
   }, [desktop]);
 
-  const suggestions = useMemo<UserPublic[]>(() => {
+  const spaceSuggestions = useSpaceMentionCandidates(chat, isSpace && mention ? mention.query : null, meId);
+  const groupSuggestions = useMemo<MentionCandidate[]>(() => {
     if (!mention || chat.type !== 'group' || !members) return [];
     return members
       .map((mm) => mm.user)
@@ -199,11 +205,13 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         (u) =>
           u.id !== meId && !u.isDeleted && matchesMentionQuery(userDisplayName(u), mention.query),
       )
-      .slice(0, 8);
+      .slice(0, 8)
+      .map((u) => ({ key: u.id, token: u.id, name: userDisplayName(u), sub: `@${u.username}`, user: u }));
   }, [mention, chat.type, members, meId]);
+  const suggestions = isSpace ? spaceSuggestions : groupSuggestions;
 
   const updateMention = (value: string, caret: number) => {
-    if (chat.type !== 'group') return;
+    if (!mentionable) return;
     const q = activeMentionQuery(value, caret);
     setMention(q);
     setMentionIdx(0);
@@ -217,12 +225,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     updateMention(value, caret);
   };
 
-  const pickMention = (u: UserPublic) => {
+  const pickMention = (c: MentionCandidate) => {
     const el = ta.current;
     if (!mention || !el) return;
-    const name = userDisplayName(u);
+    const name = c.name;
     const res = insertMention(text, mention, el.selectionStart, name);
-    refs.current = [...refs.current.filter((r) => r.userId !== u.id), { userId: u.id, name }];
+    refs.current = [...refs.current.filter((r) => r.userId !== c.token), { userId: c.token, name }];
     setText(res.text);
     setMention(null);
     requestAnimationFrame(() => {
@@ -573,7 +581,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       {suggestions.length ? (
         <MentionSuggestions
           id={listId}
-          users={suggestions}
+          items={suggestions}
           active={mentionIdx}
           onPick={pickMention}
           onHover={setMentionIdx}
@@ -586,7 +594,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-brand-ink">Edit message</p>
             <p className="truncate text-[13px] text-muted">
-              {decodeMentions(editing.text ?? '', mentionName).text}
+              {decodeMentions(editing.text ?? '', mentionName, roleName).text}
             </p>
           </div>
           <IconButton icon={X} label="Cancel editing" size="sm" onClick={cancelEdit} />
@@ -633,7 +641,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
               onPaste={onPaste}
               placeholder={editing ? 'Edit message' : 'Message'}
               aria-label="Message"
-              aria-autocomplete={chat.type === 'group' ? 'list' : undefined}
+              aria-autocomplete={mentionable ? 'list' : undefined}
               aria-controls={suggestions.length ? listId : undefined}
               aria-activedescendant={suggestions.length ? `${listId}-${mentionIdx}` : undefined}
               enterKeyHint={enterToSend && !touch ? 'send' : 'enter'}

@@ -22,10 +22,12 @@ function jumpQuery(seq: number | undefined, messageId?: ID): string {
  * view under `base` (`/chats`, `/starred`, `/archived`).
  */
 export function chatPath(
-  chat: Pick<ChatSummary, 'id' | 'type'>,
+  chat: Pick<ChatSummary, 'id' | 'type'> & { space?: ChatSummary['space'] },
   opts: { seq?: number; messageId?: ID; base?: string } = {},
 ): string {
   if (chat.type === 'channel')
     return `/updates/channels/${chat.id}${jumpQuery(opts.seq, opts.messageId)}`;
+  if (chat.space)
+    return `/spaces/${chat.space.spaceId}/${chat.id}${jumpQuery(opts.seq, opts.messageId)}`;
   return `${opts.base ?? '/chats'}/${chat.id}${jumpQuery(opts.seq, opts.messageId)}`;
 }

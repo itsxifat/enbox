@@ -277,9 +277,9 @@ export function NewChatPane() {
             />
             <ActionRow
               icon={Users}
-              title="New community"
-              subtitle="Bring related groups together"
-              onClick={() => void navigate('/communities/new')}
+              title="New Space"
+              subtitle="Text and voice channels, roles and permissions"
+              onClick={() => void navigate('/spaces?create=1')}
             />
           </div>
         ) : null}

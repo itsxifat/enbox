@@ -644,7 +644,35 @@ visibility; 404 unless the caller has a non-hidden row, like `GET /search/messag
   `canInvite`; reset by admins. `GET /invites/:code` checks chats, then communities;
   `InvitePreview` shows community context and `canJoin`/`reason`.
 
+## Spaces
+
+Discord-style servers; the full design is `docs/design/spaces-at-scale.md`. Essentials:
+
+- A Space has roles (`space_roles`, `@everyone` is the default role), categories and channels.
+  Channels are chats (`space_text`, `space_voice`) with `space_id`. Category overwrites are
+  templates copied to a channel on create and on sync (`permissions_synced`); only channel
+  overwrites are evaluated.
+- **Computed permissions** (`packages/shared/src/permissions.ts`, Discord's algorithm):
+  base bits = owner → all, else OR of the member's roles (ADMINISTRATOR → all); per channel,
+  apply @everyone, then role, then member overwrites. The server caches roles per process
+  and invalidates on `spaces.perm_version`.
+- No per-member channel rows: `space_members` is authoritative; a `chat_members` row for a
+  space channel is only lazy read state (watermarks, prefs), created on first read.
+- Fan-out: `chat:<id>` for a space channel is a virtual room. Each process resolves it to
+  `space:<spaceId>` when @everyone can view it, else to the local sockets whose computed
+  bits include VIEW_CHANNEL. Typing goes to `chat-focus:<id>` and member-list events in
+  Spaces over `LARGE_SPACE_THRESHOLD` go to `space-members:<id>` (subscribers only).
+- Unread and mention counts are capped (`SPACE_UNREAD_CAP`); mentions: `@{uuid}`,
+  `@{everyone}`, `@{here}`, `@{role:uuid}` (MENTION_EVERYONE or a mentionable role).
+- Web: `/spaces/:spaceId/:chatId` (`features/spaces`). The Android app shows "Open Spaces on
+  the web" until it gets Spaces.
+
 ## Communities
+
+Legacy. At boot every community is converted into a Space under the migration lock
+(`SPACES_MIGRATE` = `on` | `dry` | `off`, idempotent via `spaces.legacy_community_id`): the
+announcement group and the linked groups become text channels with their history. The
+routes below stay for older app builds; the web redirects `/communities/*` to `/spaces`.
 
 - A community owns an **announcement group** (`type = 'group'`, `is_announcement`,
   `community_id` set, ANNOUNCEMENT_GROUP_SETTINGS, no invite code, name/description/avatar

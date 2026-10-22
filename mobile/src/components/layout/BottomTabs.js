@@ -30,7 +30,7 @@ export const TABS = [
   { id: 'updates', label: 'Updates', icon: UpdatesIcon, activeIcon: UpdatesFilledIcon },
   {
     id: 'communities',
-    label: 'Communities',
+    label: 'Spaces',
     icon: CommunitiesIcon,
     activeIcon: CommunitiesFilledIcon,
   },

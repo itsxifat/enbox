@@ -8,6 +8,7 @@ import {
   chatTitle,
   isDnd,
   isMuted,
+  isSpaceChatType,
   messagePreviewText,
   referencedUserIds,
   truncate,
@@ -25,6 +26,7 @@ import { useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
 import { nameOf, useUsers } from '@/stores/users';
+import { mentionsMe, notifyLevelOf, useSpaces } from '@/stores/spaces';
 import { markChatRead } from './chats';
 
 /**
@@ -62,8 +64,12 @@ export function messageChatPatch(
     message.type !== 'system'
   ) {
     patch.unreadCount = chat.unreadCount + 1;
-    if (opts.me && message.mentions.includes(opts.me))
-      patch.unreadMentionCount = chat.unreadMentionCount + 1;
+    const mentioned = opts.me
+      ? isSpaceChatType(chat.type)
+        ? mentionsMe(message, chat, opts.me)
+        : message.mentions.includes(opts.me)
+      : false;
+    if (mentioned) patch.unreadMentionCount = chat.unreadMentionCount + 1;
   }
   return Object.keys(patch).length ? patch : null;
 }
@@ -79,7 +85,8 @@ export function withViewerFields(
   chat: Pick<ChatSummary, 'type'> | undefined,
   me: ID | null | undefined,
 ): Message {
-  if (!chat || chat.type === 'channel' || !me) return message;
+  // Channels and space channels list no reactors/voters (counts only): keep cached values.
+  if (!chat || chat.type === 'channel' || isSpaceChatType(chat.type) || !me) return message;
   let out = message;
   if (message.myReaction === undefined) {
     const mine = message.reactions.find((r) => r.userIds.includes(me));
@@ -131,6 +138,13 @@ function notifyIncoming(message: Message, chat: ChatSummary): void {
   if (chat.type === 'channel' || isMuted(chat.mutedUntil)) return;
   const me = useAuth.getState().user;
   if (!me) return;
+  if (isSpaceChatType(chat.type)) {
+    // Notification level chain: channel → my Space default → the Space's default.
+    const space = chat.space ? useSpaces.getState().byId[chat.space.spaceId] : undefined;
+    if (space && isMuted(space.me.mutedUntil)) return;
+    const level = notifyLevelOf(chat);
+    if (level === 'none' || (level === 'mentions' && !mentionsMe(message, chat, me.id))) return;
+  }
   const s = me.settings;
   if (chat.type === 'direct' ? !s.messageNotifications : !s.groupNotifications) return;
   // Do not disturb: no sound and no system notification (the unread badge still counts it).
@@ -153,9 +167,19 @@ function notifyIncoming(message: Message, chat: ChatSummary): void {
       140,
     );
     const sender = message.senderId ? useUsers.getState().byId[message.senderId] : undefined;
-    body = chat.type === 'group' && sender ? `${userDisplayName(sender)}: ${preview}` : preview;
+    body =
+      (chat.type === 'group' || isSpaceChatType(chat.type)) && sender
+        ? `${userDisplayName(sender)}: ${preview}`
+        : preview;
   }
-  void showNotification({ title, body, tag: `chat:${chat.id}`, url: `/chats/${chat.id}` }).then(
+  const space = chat.space ? useSpaces.getState().byId[chat.space.spaceId] : undefined;
+  const url = chat.space ? `/spaces/${chat.space.spaceId}/${chat.id}` : `/chats/${chat.id}`;
+  void showNotification({
+    title: space ? `#${chat.name ?? ''} · ${space.name}` : title,
+    body,
+    tag: `chat:${chat.id}`,
+    url,
+  }).then(
     (shown) => {
       if (!shown && prefs.sounds) playSound('message');
     },

@@ -5,7 +5,7 @@
  * wrong mention). Drafts and edits store the tokenized text and restore it with
  * `decodeMentions`. Pure (unit-tested).
  */
-import { mentionToken, parseMentions, type ID } from '@enbox/shared';
+import { mentionToken, parseRichMentions, type ID } from '@enbox/shared';
 
 export interface MentionRef {
   userId: ID;
@@ -32,21 +32,32 @@ export function encodeMentions(text: string, refs: MentionRef[]): string {
   });
 }
 
-/** Tokens → "@Name" text plus the refs needed to re-encode it. */
+/**
+ * Tokens → "@Name" text plus the refs needed to re-encode it. Space tokens decode to
+ * refs whose `userId` is `everyone`, `here` or `role:<uuid>` (`mentionToken` re-encodes them).
+ */
 export function decodeMentions(
   text: string,
   nameOf: (id: ID) => string,
+  roleName: (id: ID) => string = () => 'role',
 ): { text: string; refs: MentionRef[] } {
   const refs: MentionRef[] = [];
   let out = '';
-  for (const seg of parseMentions(text)) {
+  for (const seg of parseRichMentions(text)) {
     if (seg.type === 'text') {
       out += seg.text;
       continue;
     }
-    const name = nameOf(seg.userId);
+    const [key, name] =
+      seg.type === 'mention'
+        ? [seg.userId, nameOf(seg.userId)]
+        : seg.type === 'role'
+          ? [`role:${seg.roleId}`, roleName(seg.roleId)]
+          : seg.here
+            ? ['here', 'here']
+            : ['everyone', 'everyone'];
     out += `@${name}`;
-    if (!refs.some((r) => r.userId === seg.userId)) refs.push({ userId: seg.userId, name });
+    if (!refs.some((r) => r.userId === key)) refs.push({ userId: key, name });
   }
   return { text: out, refs };
 }

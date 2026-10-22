@@ -3,12 +3,16 @@
  * (http(s)://, www., e-mail addresses) and WhatsApp-style formatting (*bold*, _italic_,
  * ~strike~, ```mono```). Pure (unit-tested); the React renderer lives in bubbles/RichText.tsx.
  */
-import { parseMentions, type ID } from '@enbox/shared';
+import { parseRichMentions, type ID } from '@enbox/shared';
 
 export type Inline =
   | { t: 'text'; text: string }
   | { t: 'link'; text: string; href: string }
   | { t: 'mention'; userId: ID }
+  /** Space channels: `@{everyone}` / `@{here}`. */
+  | { t: 'everyone'; here: boolean }
+  /** Space channels: `@{role:<uuid>}`. */
+  | { t: 'role'; roleId: ID }
   | { t: 'bold' | 'italic' | 'strike' | 'code'; children: Inline[] };
 
 // URL: scheme or www. prefix; trailing punctuation that usually ends a sentence is excluded.
@@ -83,8 +87,10 @@ function formatWithCode(text: string): Inline[] {
 /** Full parse: mentions first (tokens are never formatted), then code, formatting and links. */
 export function parseRichText(text: string): Inline[] {
   const out: Inline[] = [];
-  for (const seg of parseMentions(text)) {
+  for (const seg of parseRichMentions(text)) {
     if (seg.type === 'mention') out.push({ t: 'mention', userId: seg.userId });
+    else if (seg.type === 'everyone') out.push({ t: 'everyone', here: seg.here });
+    else if (seg.type === 'role') out.push({ t: 'role', roleId: seg.roleId });
     else out.push(...formatWithCode(seg.text));
   }
   return out;
@@ -98,7 +104,13 @@ export function inlineToPlain(segments: Inline[], nameOf: (id: ID) => string): s
         ? s.text
         : s.t === 'mention'
           ? `@${nameOf(s.userId)}`
-          : inlineToPlain(s.children, nameOf),
+          : s.t === 'everyone'
+            ? s.here
+              ? '@here'
+              : '@everyone'
+            : s.t === 'role'
+              ? '@role'
+              : inlineToPlain(s.children, nameOf),
     )
     .join('');
 }

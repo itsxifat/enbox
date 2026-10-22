@@ -1,22 +1,23 @@
-/** @mention suggestions above the composer (group members). */
-import { userDisplayName, type UserPublic } from '@enbox/shared';
+/** @mention suggestions above the composer (group members; Space members, roles, @everyone/@here). */
+import { AtSign, Shield } from 'lucide-react';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import type { MentionCandidate } from '@/features/spaces/mentions';
 import { cn } from '@/lib/cn';
 
 export function MentionSuggestions({
-  users,
+  items,
   active,
   onPick,
   onHover,
   id,
 }: {
-  users: UserPublic[];
+  items: MentionCandidate[];
   active: number;
-  onPick: (u: UserPublic) => void;
+  onPick: (c: MentionCandidate) => void;
   onHover: (i: number) => void;
   id: string;
 }) {
-  if (!users.length) return null;
+  if (!items.length) return null;
   return (
     <div className="absolute inset-x-2 bottom-full z-10 mb-1 overflow-hidden rounded-2xl border border-line bg-elevated shadow-elevated sm:inset-x-3">
       <ul
@@ -25,15 +26,15 @@ export function MentionSuggestions({
         aria-label="Mention someone"
         className="max-h-64 overflow-y-auto py-1 scrollbar-thin"
       >
-        {users.map((u, i) => (
+        {items.map((c, i) => (
           <li
-            key={u.id}
+            key={c.key}
             id={`${id}-${i}`}
             role="option"
             aria-selected={i === active}
             onMouseDown={(e) => {
               e.preventDefault();
-              onPick(u);
+              onPick(c);
             }}
             onMouseEnter={() => onHover(i)}
             className={cn(
@@ -41,11 +42,24 @@ export function MentionSuggestions({
               i === active && 'bg-hover',
             )}
           >
-            <UserAvatar user={u} size="sm" />
-            <span className="min-w-0 flex-1 truncate text-[15px] text-fg">
-              {userDisplayName(u)}
+            {c.user ? (
+              <UserAvatar user={c.user} size="sm" />
+            ) : (
+              <span
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2"
+                style={c.color ? { color: c.color } : undefined}
+                aria-hidden
+              >
+                {c.sub === 'Role' ? <Shield size={16} /> : <AtSign size={16} />}
+              </span>
+            )}
+            <span
+              className="min-w-0 flex-1 truncate text-[15px] text-fg"
+              style={c.color ? { color: c.color } : undefined}
+            >
+              {c.user ? c.name : `@${c.name}`}
             </span>
-            <span className="shrink-0 text-[13px] text-subtle">@{u.username}</span>
+            {c.sub ? <span className="shrink-0 truncate text-[13px] text-subtle">{c.sub}</span> : null}
           </li>
         ))}
       </ul>

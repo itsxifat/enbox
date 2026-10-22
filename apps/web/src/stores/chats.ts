@@ -51,7 +51,9 @@ import {
   TYPING_TIMEOUT_MS,
   chatTitle,
   computeChatPermissions,
+  inChatList,
   isMuted,
+  isSpaceChatType,
   type ChatInfoChanges,
   type ChatSummary,
   type ID,
@@ -215,6 +217,8 @@ export const useChats = create<ChatsState>((set, get) => {
         if (flightOps === ops) flightOps = null;
         useUsers.getState().upsertUsers(peersOf(chats));
         const byId: Record<ID, ChatSummary> = {};
+        // Space channels are not in GET /api/chats: the Spaces store owns them.
+        for (const c of Object.values(get().byId)) if (isSpaceChatType(c.type)) byId[c.id] = c;
         for (const c of chats) byId[c.id] = c;
         set({ byId: replay(byId, ops), loaded: true, loading: false });
       })
@@ -461,6 +465,7 @@ export function selectSortedChats(
   // Decorate once (Date.parse per chat, not per comparison), sort, undecorate.
   const rows: { c: ChatSummary; t: number }[] = [];
   for (const chat of Object.values(byId)) {
+    if (!inChatList(chat.type)) continue;
     if (kind === 'chats' && chat.type === 'channel') continue;
     if (kind === 'channels' && chat.type !== 'channel') continue;
     if (kind !== 'channels' && chat.isArchived !== archived) continue;
@@ -520,7 +525,8 @@ export function useUnreadChatsCount(): number {
   return useChats((s) => {
     let n = 0;
     for (const c of Object.values(s.byId)) {
-      if (c.type === 'channel' || c.isArchived || isMuted(c.mutedUntil)) continue;
+      if (c.type === 'channel' || !inChatList(c.type) || c.isArchived || isMuted(c.mutedUntil))
+        continue;
       if (isChatUnread(c)) n++;
     }
     return n;
@@ -531,13 +537,14 @@ export function useUnreadChatsCount(): number {
 export function useArchivedCounts(): { count: number; unread: number } {
   const count = useChats((s) => {
     let n = 0;
-    for (const c of Object.values(s.byId)) if (c.type !== 'channel' && c.isArchived) n++;
+    for (const c of Object.values(s.byId))
+      if (c.type !== 'channel' && inChatList(c.type) && c.isArchived) n++;
     return n;
   });
   const unread = useChats((s) => {
     let n = 0;
     for (const c of Object.values(s.byId))
-      if (c.type !== 'channel' && c.isArchived && isChatUnread(c)) n++;
+      if (c.type !== 'channel' && inChatList(c.type) && c.isArchived && isChatUnread(c)) n++;
     return n;
   });
   return { count, unread };

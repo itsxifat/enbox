@@ -1,6 +1,6 @@
 /**
  * "New chat" at /new (web features/contacts/NewChatPane.tsx): quick actions (new group /
- * contact / community), message yourself, my contacts (alphabetical, sticky letters) and user
+ * contact / Space), message yourself, my contacts (alphabetical, sticky letters) and user
  * search (GET /api/users/search). Tapping someone opens (or creates) the direct chat.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -41,6 +41,7 @@ import { ApiError, api, errorMessage } from '@/lib/api';
 import { useMe } from '@/stores/auth';
 import { groupByInitial, matchesUser, useContactList } from '@/stores/contacts';
 import { useUsers } from '@/stores/users';
+import { openSpacesOnWeb } from '@/lib/links';
 import { useTheme } from '@/theme';
 import { AddContactDialog, EditContactDialog } from './ContactDialogs';
 import {
@@ -225,9 +226,9 @@ export function NewChat() {
           />
           <ActionRow
             icon={Users}
-            title="New community"
-            subtitle="Bring related groups together"
-            onPress={() => router.push('/communities/new')}
+            title="New Space"
+            subtitle="Opens Spaces on the web"
+            onPress={() => void openSpacesOnWeb('/spaces?create=1')}
           />
         </View>
       ) : null}

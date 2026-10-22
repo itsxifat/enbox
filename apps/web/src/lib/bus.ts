@@ -65,7 +65,12 @@ export interface BusEvents {
    * sheet on phones; `anchor: null` always opens the dialog form. My own id opens the self
    * card (availability, custom status, edit profile).
    */
-  'profile:open': { userId: ID; anchor: HTMLElement | { x: number; y: number } | null };
+  'profile:open': {
+    userId: ID;
+    anchor: HTMLElement | { x: number; y: number } | null;
+    /** Opened inside a Space: the card shows the member's nickname and roles there. */
+    spaceId?: ID;
+  };
 }
 
 export type BusEventName = keyof BusEvents;

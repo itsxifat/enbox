@@ -119,6 +119,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
                   selecting={selecting}
                   you={myName}
                   className="text-[14.5px]"
+                  spaceId={chat.space?.spaceId}
                 />
                 <span className="shrink-0 text-[11.5px] text-muted">{formatTime(m.createdAt)}</span>
               </div>

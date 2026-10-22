@@ -27,6 +27,7 @@ import { cn } from '@/lib/cn';
 import type { ClientMessage } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
+import { useSpaceAuthor } from '@/stores/spaces';
 import { useLongPress } from '@/features/chats/useLongPress';
 import { canReact, canReply, retry, startReply } from './actions';
 import { useEnterAnimation, useRowAppearance } from './bubbles/appearance';
@@ -80,14 +81,19 @@ export function SenderName({
   selecting,
   you,
   className,
+  spaceId,
 }: {
   userId: string;
   selecting: boolean;
   /** What to call the viewer (default "You"). */
   you?: string;
   className?: string;
+  /** Space channels: show the nickname there, in the top role's colour. */
+  spaceId?: string | null;
 }) {
-  const name = useUserName(userId, { you });
+  const userName = useUserName(userId, { you });
+  const author = useSpaceAuthor(spaceId, userId);
+  const name = author?.nickname || userName;
   const dark = useUi((s) => s.resolvedTheme === 'dark');
   return (
     <button
@@ -97,13 +103,14 @@ export function SenderName({
       onClick={(e) => {
         if (selecting) return;
         e.stopPropagation();
-        openProfile(userId, e.currentTarget);
+        openProfile(userId, e.currentTarget, { spaceId: spaceId ?? undefined });
       }}
       className={cn(
         'block max-w-full truncate rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand',
         className,
       )}
-      style={{ color: senderColor(userId, dark) }}
+      // Spaces colour names by role (no role: the default text colour), like Discord.
+      style={{ color: author ? (author.color ?? undefined) : senderColor(userId, dark) }}
     >
       {name}
     </button>

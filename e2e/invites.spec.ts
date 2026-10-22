@@ -1,5 +1,5 @@
 /**
- * Invite links (agent 3): community and channel invites, invalid/reset codes, removed
+ * Invite links (agent 3): Space and channel invites, invalid/reset codes, removed
  * members, and the signed-out redirect through the login page.
  */
 import { expect, test } from '@playwright/test';
@@ -16,16 +16,18 @@ test('invalid and malformed invite codes are explained', async ({ browser }) => 
   await context.close();
 });
 
-test('join a community and follow a private channel with invite links', async ({ browser }) => {
+test('join a Space and follow a private channel with invite links', async ({ browser }) => {
   const [alice, frank] = await Promise.all([registerUser(), registerUser()]);
-  const community = await apiAs<{ id: string; name: string; inviteCode: string }>(
+  const detail = await apiAs<{ space: { id: string; name: string } }>(alice, 'POST', '/api/spaces', {
+    name: `Neighbours ${uniqueName('s')}`,
+    description: 'Our street',
+  });
+  const space = detail.space;
+  const { code: spaceCode } = await apiAs<{ code: string }>(
     alice,
     'POST',
-    '/api/communities',
-    {
-      name: `Neighbours ${uniqueName('c')}`,
-      description: 'Our street',
-    },
+    `/api/spaces/${space.id}/invites`,
+    {},
   );
   const channel = await apiAs<{ id: string; name: string }>(alice, 'POST', '/api/channels', {
     name: `Secret ${uniqueName('ch')}`,
@@ -37,13 +39,13 @@ test('join a community and follow a private channel with invite links', async ({
     `/api/channels/${channel.id}/invite`,
   );
 
-  const f = await openAs(browser, frank, `/join/${community.inviteCode}`);
+  const f = await openAs(browser, frank, `/join/${spaceCode}`);
   const card = f.page.getByTestId('invite-preview');
-  await expect(card.getByText(community.name)).toBeVisible();
-  await expect(card.getByText('Community · 1 member')).toBeVisible();
-  await card.getByRole('button', { name: 'Join community' }).click();
-  await expect(f.page).toHaveURL(new RegExp(`/communities/${community.id}$`));
-  await expect(f.page.getByRole('heading', { name: community.name, level: 2 })).toBeVisible();
+  await expect(card.getByText(space.name)).toBeVisible();
+  await expect(card.getByText('Space · 1 member')).toBeVisible();
+  await card.getByRole('button', { name: 'Join space' }).click();
+  await expect(f.page).toHaveURL(new RegExp(`/spaces/${space.id}/[0-9a-f-]{36}$`));
+  await expect(f.page.getByTestId('space-header')).toContainText(space.name);
 
   // Private channel: not previewable without the link, followable with it.
   await f.page.goto(`/updates/channels/${channel.id}`);

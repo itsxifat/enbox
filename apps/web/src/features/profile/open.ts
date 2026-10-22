@@ -9,6 +9,7 @@ import { bus } from '@/lib/bus';
 export function openProfile(
   userId: ID,
   anchor: HTMLElement | { x: number; y: number } | null = null,
+  opts: { spaceId?: ID } = {},
 ): void {
-  bus.emit('profile:open', { userId, anchor });
+  bus.emit('profile:open', { userId, anchor, spaceId: opts.spaceId });
 }

@@ -18,6 +18,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
+import { useSpaces } from '@/stores/spaces';
 import { toast } from '@/stores/ui';
 import { deleteChat } from '@/features/chats/chatActions';
 import {
@@ -179,6 +180,11 @@ export function SelectionBar({ chat }: { chat: ChatSummary }) {
   );
 }
 
+function isSpaceTimedOut(spaceId: string): boolean {
+  const until = useSpaces.getState().byId[spaceId]?.me.timedOutUntil;
+  return !!until && Date.parse(until) > Date.now();
+}
+
 export function ReadOnlyFooter({ chat, onDeleted }: { chat: ChatSummary; onDeleted: () => void }) {
   const [busy, setBusy] = useState(false);
   let text: string;
@@ -210,6 +216,11 @@ export function ReadOnlyFooter({ chat, onDeleted }: { chat: ChatSummary; onDelet
         }
       },
     };
+  } else if (chat.space) {
+    const timedOut = chat.space && isSpaceTimedOut(chat.space.spaceId);
+    text = timedOut
+      ? 'You are timed out in this Space. You can read, but not send messages.'
+      : 'You do not have permission to send messages in this channel.';
   } else if (chat.type === 'channel') {
     text = 'Only channel admins can post.';
   } else if (chat.isAnnouncement) {

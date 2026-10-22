@@ -1,6 +1,7 @@
 import { useChats, useUnreadChatsCount, useUnreadChannelsCount } from '@/stores/chats';
 import { useMissedCallsCount } from '@/features/calls';
 import { useHasUnseenStatus } from '@/stores/status';
+import { useSpacesTabBadge } from '@/stores/spaces';
 import type { TabId } from './tabs';
 
 export interface TabBadge {
@@ -14,11 +15,13 @@ export function useTabBadges(): Partial<Record<TabId, TabBadge>> {
   const unseenStatus = useHasUnseenStatus();
   const unreadChannels = useUnreadChannelsCount();
   const missedCalls = useMissedCallsCount();
+  const spaces = useSpacesTabBadge();
   const loaded = useChats((s) => s.loaded);
   return {
     chats: loaded && unread ? { count: unread } : undefined,
     updates: unseenStatus || unreadChannels ? { dot: true } : undefined,
     calls: missedCalls ? { count: missedCalls } : undefined,
+    spaces,
   };
 }
 
@@ -28,7 +31,9 @@ export function tabBadgeText(id: TabId, badge: TabBadge | undefined): string | n
     const n = badge.count;
     return id === 'calls'
       ? `${n} missed call${n === 1 ? '' : 's'}`
-      : `${n} unread chat${n === 1 ? '' : 's'}`;
+      : id === 'spaces'
+        ? `${n} mention${n === 1 ? '' : 's'}`
+        : `${n} unread chat${n === 1 ? '' : 's'}`;
   }
   return badge?.dot ? 'new updates' : null;
 }

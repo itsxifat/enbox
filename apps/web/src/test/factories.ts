@@ -86,6 +86,8 @@ export function makeMessage(p: Partial<Message> = {}): Message {
     replyTo: null,
     forwardCount: 0,
     mentions: [],
+    mentionEveryone: false,
+    mentionRoleIds: [],
     reactions: [],
     editedAt: null,
     deletedAt: null,
@@ -130,6 +132,9 @@ export function makeChat(p: Partial<ChatSummary> = {}): ChatSummary {
     createdAt: '2025-01-01T00:00:00.000Z',
     createdBy: null,
     lastActivityAt: '2025-01-01T00:00:00.000Z',
+    space: null,
+    spacePermissions: null,
+    notifyLevel: null,
     ...p,
   };
   return { ...chat, permissions: chat.permissions ?? computeChatPermissions(chat, 'me') };

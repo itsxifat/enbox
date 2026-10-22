@@ -6,7 +6,7 @@
 import { Linking } from 'react-native';
 import { router } from 'expo-router';
 import { getApiOrigin } from './env';
-import { publicOrigin } from './serverConfig';
+import { publicOrigin, publicUrl } from './serverConfig';
 
 const IN_APP =
   /^\/(?:join\/[A-Za-z0-9]+|u\/[\w.-]+|chats\/[\w-]+|updates\/channels\/[\w-]+|communities\/[\w-]+)\/?$/;
@@ -36,4 +36,9 @@ export function openUrl(href) {
   const path = inAppPath(href);
   if (path) router.push(path);
   else void Linking.openURL(href).catch(() => undefined);
+}
+
+/** Spaces aren't in the app yet: open them on the web (canonical origin). */
+export async function openSpacesOnWeb(path = '/spaces') {
+  void Linking.openURL(await publicUrl(path)).catch(() => undefined);
 }

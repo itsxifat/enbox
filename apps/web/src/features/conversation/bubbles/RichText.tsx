@@ -7,6 +7,7 @@ import type { ID } from '@enbox/shared';
 import { openProfile } from '@/features/profile/open';
 import { useAuth } from '@/stores/auth';
 import { useUserName } from '@/stores/users';
+import { useSpaces } from '@/stores/spaces';
 import { parseRichText, splitHighlight, type Inline } from '../lib/richText';
 
 /** A tappable @mention: opens the profile card (Message lives inside it). */
@@ -27,6 +28,31 @@ function Mention({ userId }: { userId: ID }) {
     >
       @{name}
     </button>
+  );
+}
+
+/** `@everyone` / `@here` in a space channel. */
+function EveryonePill({ here }: { here: boolean }) {
+  return <span className="rounded bg-brand/15 px-0.5 font-medium text-brand-ink">{here ? '@here' : '@everyone'}</span>;
+}
+
+/** `@Role` in a space channel, in the role's colour. */
+function RolePill({ roleId }: { roleId: ID }) {
+  const role = useSpaces((s) => {
+    for (const sp of Object.values(s.byId)) {
+      const r = sp.roles.find((x) => x.id === roleId);
+      if (r) return r;
+    }
+    return undefined;
+  });
+  const color = role?.color ?? undefined;
+  return (
+    <span
+      className="rounded px-0.5 font-medium"
+      style={color ? { color, background: `${color}26` } : undefined}
+    >
+      @{role?.name ?? 'role'}
+    </span>
   );
 }
 
@@ -70,6 +96,10 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
             );
           case 'mention':
             return <Mention key={i} userId={s.userId} />;
+          case 'everyone':
+            return <EveryonePill key={i} here={s.here} />;
+          case 'role':
+            return <RolePill key={i} roleId={s.roleId} />;
           case 'bold':
             return (
               <strong key={i} className="font-semibold">

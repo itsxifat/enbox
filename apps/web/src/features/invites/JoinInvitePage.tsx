@@ -20,6 +20,7 @@ import { ApiError, api, errorMessage } from '@/lib/api';
 import { formatCount } from '@/lib/format';
 import { useChats } from '@/stores/chats';
 import { useCommunities } from '@/stores/communities';
+import { useSpaces } from '@/stores/spaces';
 
 const CODE_RE = new RegExp(`^[${INVITE_CODE_ALPHABET}]{${INVITE_CODE_LENGTH}}$`);
 
@@ -27,6 +28,7 @@ const CODE_RE = new RegExp(`^[${INVITE_CODE_ALPHABET}]{${INVITE_CODE_LENGTH}}$`)
 export function invitePath(kind: InvitePreview['kind'], id: string): string {
   if (kind === 'channel') return `/updates/channels/${id}`;
   if (kind === 'community') return `/communities/${id}`;
+  if (kind === 'space') return `/spaces/${id}`;
   return `/chats/${id}`;
 }
 
@@ -34,6 +36,7 @@ const NOUN: Record<InvitePreview['kind'], string> = {
   group: 'Group',
   community: 'Community',
   channel: 'Channel',
+  space: 'Space',
 };
 
 type LoadState =
@@ -74,12 +77,18 @@ export function JoinInvitePage() {
       const r = await api.post<InviteJoinResult>(`/api/invites/${code}/join`);
       if (r.chat) useChats.getState().upsertChat(r.chat);
       if (r.community) useCommunities.getState().upsertCommunity(r.community);
+      if (r.space) {
+        useSpaces.getState().upsertSpace(r.space);
+        void useSpaces.getState().loadSpace(r.space.id);
+      }
       toast.success(
         preview.kind === 'channel'
           ? `You're following ${preview.name}`
           : `You joined “${preview.name}”`,
       );
-      void navigate(invitePath(r.kind, r.id), { replace: true });
+      void navigate(r.kind === 'space' && r.channelId ? `/spaces/${r.id}/${r.channelId}` : invitePath(r.kind, r.id), {
+        replace: true,
+      });
     } catch (e) {
       if (e instanceof ApiError && e.code === 'conflict') {
         // Already a member/follower (e.g. joined on another device): just open it.

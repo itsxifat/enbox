@@ -7,6 +7,7 @@
  *   messages.ts     message:new/updated/removed, notifications  (foundation / agent 2)
  *   users.ts        presence, profiles, me, contacts, sessions  (foundation / agent 1)
  *   communities.ts  community:*                                 (agent 3)
+ *   spaces.ts       space:*, space channel focus / member-list subscriptions
  *   calls.ts        call:*                                      (agent 4)
  *   status.ts       status:*                                    (agent 4)
  *
@@ -23,6 +24,7 @@ import { installReadTracking, registerChatHandlers, resyncChats } from './chats'
 import { registerCallHandlers, resyncCalls } from './calls';
 import { registerCommunityHandlers, resyncCommunities } from './communities';
 import { registerMessageHandlers } from './messages';
+import { registerSpaceHandlers, resyncSpaces } from './spaces';
 import { registerStatusHandlers, resyncStatus } from './status';
 import { registerUserHandlers, resyncUsers } from './users';
 
@@ -40,7 +42,12 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
   await Promise.allSettled([
     resyncCalls(info),
     resyncChats(info).then(() =>
-      Promise.allSettled([resyncUsers(info), resyncCommunities(info), resyncStatus(info)]),
+      Promise.allSettled([
+        resyncUsers(info),
+        resyncCommunities(info),
+        resyncStatus(info),
+        resyncSpaces(info),
+      ]),
     ),
   ]);
 }
@@ -56,6 +63,7 @@ export function startRealtime(): void {
     registerMessageHandlers(socket);
     registerUserHandlers(socket);
     registerCommunityHandlers(socket);
+    registerSpaceHandlers(socket);
     registerCallHandlers(socket);
     registerStatusHandlers(socket);
   });

@@ -807,6 +807,8 @@ export const useMessages = create<MessagesState>((set, get) => {
         replyTo: null,
         forwardCount: 0,
         mentions: [],
+        mentionEveryone: false,
+        mentionRoleIds: [],
         reactions: [],
         editedAt: null,
         deletedAt: null,

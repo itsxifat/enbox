@@ -12,7 +12,7 @@ import {
 } from '@/components/icons';
 import type { IconType } from '@/components/ui';
 
-export type TabId = 'chats' | 'updates' | 'communities' | 'calls' | 'settings';
+export type TabId = 'chats' | 'updates' | 'spaces' | 'calls' | 'settings';
 
 export interface TabDef {
   id: TabId;
@@ -44,12 +44,12 @@ export const TABS: TabDef[] = [
     match: ['/updates'],
   },
   {
-    id: 'communities',
-    label: 'Communities',
-    path: '/communities',
+    id: 'spaces',
+    label: 'Spaces',
+    path: '/spaces',
     icon: CommunitiesIcon,
     activeIcon: CommunitiesFilledIcon,
-    match: ['/communities'],
+    match: ['/spaces', '/communities'],
   },
   {
     id: 'calls',

@@ -5,7 +5,7 @@
  *   /login, /register                       features/auth        (agent 1)
  *   /chats[/:chatId], /archived, /starred   features/chats       (agent 2)
  *   /updates[/channels/:chatId]             features/updates → channels (agent 3), status (agent 4)
- *   /communities[/:communityId]             features/communities (agent 3)
+ *   /spaces[/:spaceId[/:chatId]]            features/spaces (communities became Spaces)
  *   /calls                                  features/calls       (agent 4)
  *   /settings[/:section]                    features/settings    (agent 1)
  *   /new                                    features/contacts    (agent 1)
@@ -17,11 +17,11 @@ import { AppShell } from '@/components/layout/AppShell';
 import { authRoutes } from '@/features/auth/routes';
 import { callsRoutes } from '@/features/calls/routes';
 import { chatsRoutes } from '@/features/chats/routes';
-import { communitiesRoutes } from '@/features/communities/routes';
 import { contactsRoutes } from '@/features/contacts/routes';
 import { groupsRoutes } from '@/features/groups/routes';
 import { invitesRoutes } from '@/features/invites/routes';
 import { settingsRoutes } from '@/features/settings/routes';
+import { spacesRoutes } from '@/features/spaces/routes';
 import { updatesRoutes } from '@/features/updates/routes';
 import { PublicOnly, RequireAuth } from './guards';
 import { RootLayout } from './RootLayout';
@@ -43,7 +43,7 @@ export const routes: RouteObject[] = [
               { index: true, element: <Navigate to="/chats" replace /> },
               ...chatsRoutes,
               ...updatesRoutes,
-              ...communitiesRoutes,
+              ...spacesRoutes,
               ...callsRoutes,
               ...settingsRoutes,
               ...contactsRoutes,
