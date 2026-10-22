@@ -15,8 +15,10 @@
  *   (`/users/search` before `/users/:userId`, `/messages/starred` before
  *   `/messages/:messageId`, `/channels/discover` before `/channels/:chatId`,
  *   `/calls/active`, `/calls/ice-servers` before `/calls/:callId`,
- *   `/chats/:chatId/media/counts` before `/chats/:chatId/media`). The catalogue lists them
- *   in that order.
+ *   `/chats/:chatId/media/counts` before `/chats/:chatId/media`, and in Spaces
+ *   `/channels/positions` before `/channels/:chatId`, `/categories/positions` before
+ *   `/categories/:categoryId`, `/roles/positions` before `/roles/:roleId`, `/members/me` and
+ *   `/members/batch` before `/members/:userId`). The catalogue lists them in that order.
  */
 import type {
   Call,
@@ -42,8 +44,35 @@ import type {
   UserPublic,
   UserSelf,
   UserSettings,
+  Space,
+  SpaceAuditEntry,
+  SpaceBan,
+  SpaceCategory,
+  SpaceInvite,
+  SpaceMember,
+  SpaceMemberPage,
+  SpaceRole,
 } from './models.js';
 import type {
+  AuditLogQuery,
+  BanRequest,
+  CategoryPositionsRequest,
+  ChannelPositionsRequest,
+  CreateCategoryRequest,
+  CreateRoleRequest,
+  CreateSpaceChannelRequest,
+  CreateSpaceInviteRequest,
+  CreateSpaceRequest,
+  MembersQuery,
+  OverwriteRequest,
+  RolePositionsRequest,
+  SpaceMembersBatchRequest,
+  UpdateCategoryRequest,
+  UpdateMemberRequest,
+  UpdateMyMemberRequest,
+  UpdateRoleRequest,
+  UpdateSpaceChannelRequest,
+  UpdateSpaceRequest,
   AddContactRequest,
   AddMembersRequest,
   CallLogQuery,
@@ -223,6 +252,16 @@ export interface InviteJoinResult {
   chat: ChatSummary | null;
   /** Set for communities, and for groups linked to a community. */
   community: Community | null;
+  /** Set for Spaces. */
+  space?: Space | null;
+  /** Spaces: the channel to open (the invite's channel, or the first one I can see). */
+  channelId?: string | null;
+}
+
+/** `GET /api/spaces/:spaceId` with the channels I can see (ChatSummary per channel). */
+export interface SpaceDetail {
+  space: Space;
+  channels: ChatSummary[];
 }
 
 /** `GET /api/channels/:chatId`: a public channel (or one you follow) with its latest posts. */
@@ -433,6 +472,97 @@ export interface ApiRoutes {
   } /* leaves the community and all its groups */;
   'GET /api/communities/:communityId/invite': { R: { code: string } } /* owner/admins */;
   'POST /api/communities/:communityId/invite/reset': { R: { code: string } } /* owner/admins */;
+
+  // Spaces (docs/design/spaces-at-scale.md; 404 for non-members, 403 for missing bits)
+  'GET /api/spaces': { R: Space[] } /* my Spaces with unread/mention aggregates */;
+  'POST /api/spaces': { B: CreateSpaceRequest; R: SpaceDetail } /* #general + General voice */;
+  'GET /api/spaces/:spaceId': { R: SpaceDetail };
+  'PATCH /api/spaces/:spaceId': { B: UpdateSpaceRequest; R: Space } /* MANAGE_SPACE */;
+  'DELETE /api/spaces/:spaceId': { R: void } /* owner */;
+  'POST /api/spaces/:spaceId/leave': { R: void } /* not the owner */;
+  'POST /api/spaces/:spaceId/transfer-ownership': { B: TransferOwnershipRequest; R: Space };
+  'GET /api/spaces/:spaceId/channels': { R: ChatSummary[] } /* those I can see */;
+  'POST /api/spaces/:spaceId/channels': {
+    B: CreateSpaceChannelRequest;
+    R: ChatSummary;
+  } /* MANAGE_CHANNELS */;
+  'PATCH /api/spaces/:spaceId/channels/positions': {
+    B: ChannelPositionsRequest;
+    R: void;
+  } /* MANAGE_CHANNELS */;
+  'PATCH /api/spaces/:spaceId/channels/:chatId': {
+    B: UpdateSpaceChannelRequest;
+    R: ChatSummary;
+  } /* MANAGE_CHANNELS in the channel */;
+  'DELETE /api/spaces/:spaceId/channels/:chatId': { R: void } /* MANAGE_CHANNELS */;
+  'PUT /api/spaces/:spaceId/channels/:chatId/overwrites/:targetType/:targetId': {
+    B: OverwriteRequest;
+    R: ChatSummary;
+  } /* MANAGE_ROLES in the channel */;
+  'DELETE /api/spaces/:spaceId/channels/:chatId/overwrites/:targetType/:targetId': {
+    R: ChatSummary;
+  };
+  'POST /api/spaces/:spaceId/channels/:chatId/sync': {
+    R: ChatSummary;
+  } /* copy the category's overwrites */;
+  'POST /api/spaces/:spaceId/categories': {
+    B: CreateCategoryRequest;
+    R: SpaceCategory;
+  } /* MANAGE_CHANNELS */;
+  'PATCH /api/spaces/:spaceId/categories/positions': { B: CategoryPositionsRequest; R: void };
+  'PATCH /api/spaces/:spaceId/categories/:categoryId': {
+    B: UpdateCategoryRequest;
+    R: SpaceCategory;
+  };
+  'DELETE /api/spaces/:spaceId/categories/:categoryId': {
+    R: void;
+  } /* its channels become uncategorised */;
+  'PUT /api/spaces/:spaceId/categories/:categoryId/overwrites/:targetType/:targetId': {
+    B: OverwriteRequest;
+    R: SpaceCategory;
+  } /* also updates its synced channels */;
+  'DELETE /api/spaces/:spaceId/categories/:categoryId/overwrites/:targetType/:targetId': {
+    R: SpaceCategory;
+  };
+  'GET /api/spaces/:spaceId/roles': { R: SpaceRole[] };
+  'POST /api/spaces/:spaceId/roles': { B: CreateRoleRequest; R: SpaceRole } /* MANAGE_ROLES */;
+  'PATCH /api/spaces/:spaceId/roles/positions': { B: RolePositionsRequest; R: SpaceRole[] };
+  'PATCH /api/spaces/:spaceId/roles/:roleId': { B: UpdateRoleRequest; R: SpaceRole };
+  'DELETE /api/spaces/:spaceId/roles/:roleId': { R: void } /* not @everyone */;
+  'GET /api/spaces/:spaceId/members': {
+    Q: MembersQuery;
+    R: SpaceMemberPage;
+  } /* sorted by display name */;
+  'GET /api/spaces/:spaceId/members/me': { R: Space };
+  'PATCH /api/spaces/:spaceId/members/me': {
+    B: UpdateMyMemberRequest;
+    R: Space;
+  } /* nickname needs CHANGE_NICKNAME */;
+  'POST /api/spaces/:spaceId/members/batch': {
+    B: SpaceMembersBatchRequest;
+    R: SpaceMember[];
+  } /* members among the ids */;
+  'GET /api/spaces/:spaceId/members/:userId': { R: SpaceMember };
+  'PATCH /api/spaces/:spaceId/members/:userId': {
+    B: UpdateMemberRequest;
+    R: SpaceMember;
+  } /* nickname: MANAGE_NICKNAMES, roles: MANAGE_ROLES, timeout: MODERATE_MEMBERS, mute/deaf: MUTE/DEAFEN_MEMBERS */;
+  'DELETE /api/spaces/:spaceId/members/:userId': { R: void } /* kick: KICK_MEMBERS */;
+  'PUT /api/spaces/:spaceId/members/:userId/roles/:roleId': { R: SpaceMember };
+  'DELETE /api/spaces/:spaceId/members/:userId/roles/:roleId': { R: SpaceMember };
+  'GET /api/spaces/:spaceId/bans': { R: SpaceBan[] } /* BAN_MEMBERS */;
+  'PUT /api/spaces/:spaceId/bans/:userId': { B: BanRequest; R: void } /* BAN_MEMBERS */;
+  'DELETE /api/spaces/:spaceId/bans/:userId': { R: void };
+  'GET /api/spaces/:spaceId/invites': { R: SpaceInvite[] } /* MANAGE_SPACE: all; else mine */;
+  'POST /api/spaces/:spaceId/invites': {
+    B: CreateSpaceInviteRequest;
+    R: SpaceInvite;
+  } /* CREATE_INVITE */;
+  'DELETE /api/spaces/:spaceId/invites/:code': { R: void } /* mine, or MANAGE_SPACE */;
+  'GET /api/spaces/:spaceId/audit-log': {
+    Q: AuditLogQuery;
+    R: SpaceAuditEntry[];
+  } /* VIEW_AUDIT_LOG, newest first */;
 
   // Channels (type 'channel')
   'POST /api/channels': { B: CreateChannelRequest; R: ChatSummary };

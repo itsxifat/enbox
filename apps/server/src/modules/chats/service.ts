@@ -10,6 +10,7 @@ import type { z } from 'zod';
 import {
   MAX_PINNED_CHATS,
   MAX_PINNED_MESSAGES,
+  MAX_PINNED_MESSAGES_SPACE,
   USER_RATE_LIMITS,
   directChatKey,
   type ChatMediaCounts,
@@ -50,6 +51,8 @@ import {
 import { transact } from '../../services/effects.js';
 import { mediaUrl, requireWallpaperMedia, staticMediaKey } from '../../services/media.js';
 import { loadVisibleMessage, toMessages } from '../../services/messages.js';
+import { ensureSpaceReadRow } from '../../services/spaceAccess.js';
+import { assertNotSpaceChannel } from '../../services/spaceRules.js';
 import { uniq } from '../../services/sql.js';
 import { toChatSummaries, toChatSummary } from '../../services/summaries.js';
 import { postSystemMessage, systemMessageAllowed } from '../../services/system.js';
@@ -191,6 +194,16 @@ export async function updatePrefs(
   await transact(async (tx, fx) => {
     const access = await getChatAccess(tx, me, chatId, { lock: true });
     const set: Partial<typeof chatMembers.$inferInsert> = {};
+    if (access.space) {
+      // Space channels: no pinning/archiving in a chat list they are not in; prefs live on
+      // the lazy read-state row.
+      if (patch.isPinned || patch.isArchived)
+        throw badRequest('Space channels cannot be pinned or archived');
+      await ensureSpaceReadRow(tx, access.chat, me, access.space.me.member.joinedAt);
+      if (patch.notifyLevel !== undefined) set.notifyLevel = patch.notifyLevel;
+    } else if (patch.notifyLevel !== undefined) {
+      throw badRequest('notifyLevel: only Space channels have notification levels');
+    }
     if (patch.isPinned !== undefined && patch.isPinned !== access.member.isPinned) {
       if (patch.isPinned) {
         await lockPinnedChats(tx, me);
@@ -283,6 +296,7 @@ async function clearHistory(
 export async function clearChat(me: string, chatId: string): Promise<void> {
   await transact(async (tx, fx) => {
     const access = await getChatAccess(tx, me, chatId, { lock: true });
+    assertNotSpaceChannel(access, 'Clearing history');
     const clearedSeq = await clearHistory(tx, access);
     fx.toUser(me, 'chat:cleared', { chatId, clearedSeq });
   });
@@ -297,6 +311,7 @@ export async function clearChat(me: string, chatId: string): Promise<void> {
 export async function deleteChatForMe(me: string, chatId: string): Promise<void> {
   await transact(async (tx, fx) => {
     const access = await getChatAccess(tx, me, chatId, { lock: true });
+    assertNotSpaceChannel(access, 'Deleting the chat');
     if (access.chat.type === 'channel') throw conflict('Unfollow the channel instead');
     if (access.chat.type === 'group' && access.membership === 'active') {
       throw conflict(
@@ -333,6 +348,7 @@ export async function setDisappearing(
 ): Promise<ChatSummary> {
   await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
+    assertNotSpaceChannel(access, 'Disappearing messages are');
     if (access.chat.type === 'direct') assertCanSend(access);
     else
       requirePermission(
@@ -408,6 +424,8 @@ const ROLE_RANK = { owner: 0, admin: 1, member: 2 } as const;
  */
 export async function listMembers(me: string, chatId: string): Promise<ChatMember[]> {
   const access = await requireActiveMember(db, me, chatId);
+  // Space channels have no member rows: `GET /spaces/:spaceId/members` lists the Space.
+  if (access.space) throw badRequest('Use the Space member list for Space channels');
   requirePermission(access, 'canViewMembers', 'Only admins can see the member list');
   const rows = await activeMemberRows(db, chatId);
   const users = await toUserPublicMap(
@@ -567,7 +585,10 @@ export async function pinMessage(
       .where(eq(chatPins.chatId, chatId))
       .orderBy(asc(chatPins.createdAt), asc(chatPins.messageId));
     if (pins.some((p) => p.messageId === messageId)) return;
-    const excess = pins.length - MAX_PINNED_MESSAGES + 1;
+    // Space channels keep up to MAX_PINNED_MESSAGES_SPACE and never drop the oldest.
+    if (access.space && pins.length >= MAX_PINNED_MESSAGES_SPACE)
+      throw limitReached(`A channel can have at most ${MAX_PINNED_MESSAGES_SPACE} pinned messages`);
+    const excess = access.space ? 0 : pins.length - MAX_PINNED_MESSAGES + 1;
     if (excess > 0) {
       await tx.delete(chatPins).where(
         and(

@@ -26,6 +26,7 @@ import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -48,6 +49,7 @@ import type {
   MediaKind,
   MemberRole,
   MessageType,
+  NotifyLevel,
   SharedChatTheme,
   StatusType,
   UserSettings,
@@ -287,6 +289,266 @@ export const linkPreviews = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Spaces (docs/design/spaces-at-scale.md "Data model")
+// ---------------------------------------------------------------------------
+
+/**
+ * A Space (Discord "server"). Its channels are `chats` rows of type space_text/space_voice.
+ * Access is COMPUTED from space_members + roles + channel overwrites (permissions.ts); a
+ * channel's chat_members rows are only lazy per-viewer read state.
+ */
+export const spaces = pgTable(
+  'spaces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    description: text('description'),
+    iconMediaId: uuid('icon_media_id').references(() => media.id, { onDelete: 'set null' }),
+    bannerMediaId: uuid('banner_media_id').references(() => media.id, { onDelete: 'set null' }),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    systemChannelId: uuid('system_channel_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'set null',
+    }),
+    rulesChannelId: uuid('rules_channel_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'set null',
+    }),
+    afkChannelId: uuid('afk_channel_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'set null',
+    }),
+    afkTimeoutSec: integer('afk_timeout_sec').notNull().default(300),
+    defaultNotifyLevel: text('default_notify_level')
+      .$type<'all' | 'mentions'>()
+      .notNull()
+      .default('mentions'),
+    isDiscoverable: boolean('is_discoverable').notNull().default(false),
+    /** Vanity invite code (shares the invite code space with chats and space_invites). */
+    vanityCode: text('vanity_code'),
+    /** Maintained in the join/leave transactions (under the Space row lock). */
+    memberCount: integer('member_count').notNull().default(0),
+    /** Bumped by every change that can alter permissions (roles, overwrites, member roles). */
+    permVersion: integer('perm_version').notNull().default(0),
+    /** The community this Space was converted from (conversion idempotency). */
+    legacyCommunityId: uuid('legacy_community_id'),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('spaces_vanity_code_uq').on(t.vanityCode),
+    uniqueIndex('spaces_legacy_community_uq').on(t.legacyCommunityId),
+    index('spaces_owner_idx').on(t.ownerId),
+    index('spaces_icon_idx')
+      .on(t.iconMediaId)
+      .where(sql`${t.iconMediaId} is not null`),
+    index('spaces_banner_idx')
+      .on(t.bannerMediaId)
+      .where(sql`${t.bannerMediaId} is not null`),
+    index('spaces_discoverable_idx')
+      .on(t.memberCount)
+      .where(sql`${t.isDiscoverable}`),
+    check('spaces_notify_ck', sql`${t.defaultNotifyLevel} in ('all', 'mentions')`),
+  ],
+);
+
+export const spaceMembers = pgTable(
+  'space_members',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    nickname: text('nickname'),
+    /** lower(nickname or display name): the member list order (keyset paging). */
+    sortName: text('sort_name').notNull(),
+    joinedAt: ts('joined_at').notNull().defaultNow(),
+    timedOutUntil: ts('timed_out_until'),
+    serverMute: boolean('server_mute').notNull().default(false),
+    serverDeaf: boolean('server_deaf').notNull().default(false),
+    notifyLevel: text('notify_level').$type<NotifyLevel>(),
+    mutedUntil: ts('muted_until'),
+    suppressEveryone: boolean('suppress_everyone').notNull().default(false),
+  },
+  (t) => [
+    primaryKey({ columns: [t.spaceId, t.userId] }),
+    index('space_members_user_idx').on(t.userId),
+    index('space_members_sort_idx').on(t.spaceId, t.sortName, t.userId),
+    index('space_members_sort_prefix_idx').on(t.spaceId, t.sortName.op('text_pattern_ops')),
+    check(
+      'space_members_notify_ck',
+      sql`${t.notifyLevel} is null or ${t.notifyLevel} in ('all', 'mentions', 'none')`,
+    ),
+  ],
+);
+
+export const spaceRoles = pgTable(
+  'space_roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color'),
+    /** 0 = @everyone; unique per Space (reorders rewrite positions in one statement). */
+    position: integer('position').notNull(),
+    permissions: integer('permissions').notNull().default(0),
+    hoist: boolean('hoist').notNull().default(false),
+    mentionable: boolean('mentionable').notNull().default(false),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('space_roles_space_idx').on(t.spaceId, t.position),
+    uniqueIndex('space_roles_default_uq')
+      .on(t.spaceId)
+      .where(sql`${t.isDefault}`),
+    check('space_roles_color_ck', sql`${t.color} is null or ${t.color} ~ '^#[0-9a-f]{6}$'`),
+    check('space_roles_perm_ck', sql`${t.permissions} >= 0`),
+    check('space_roles_default_ck', sql`${t.isDefault} = (${t.position} = 0)`),
+  ],
+);
+
+export const spaceMemberRoles = pgTable(
+  'space_member_roles',
+  {
+    spaceId: uuid('space_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => spaceRoles.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.spaceId, t.userId, t.roleId] }),
+    index('space_member_roles_role_idx').on(t.roleId),
+    foreignKey({
+      columns: [t.spaceId, t.userId],
+      foreignColumns: [spaceMembers.spaceId, spaceMembers.userId],
+      name: 'space_member_roles_member_fk',
+    }).onDelete('cascade'),
+  ],
+);
+
+export const spaceCategories = pgTable(
+  'space_categories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    position: integer('position').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index('space_categories_space_idx').on(t.spaceId, t.position)],
+);
+
+/** Evaluated channel overwrites (permissions.ts). */
+export const spaceChannelOverwrites = pgTable(
+  'space_channel_overwrites',
+  {
+    chatId: uuid('chat_id')
+      .notNull()
+      .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    targetType: text('target_type').$type<'role' | 'member'>().notNull(),
+    targetId: uuid('target_id').notNull(),
+    allow: integer('allow').notNull().default(0),
+    deny: integer('deny').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.chatId, t.targetType, t.targetId] }),
+    index('space_channel_overwrites_target_idx').on(t.targetId),
+    check('space_channel_overwrites_type_ck', sql`${t.targetType} in ('role', 'member')`),
+    check('space_channel_overwrites_bits_ck', sql`(${t.allow} & ${t.deny}) = 0`),
+  ],
+);
+
+/** Category overwrites: templates copied to channels on create and sync, never evaluated. */
+export const spaceCategoryOverwrites = pgTable(
+  'space_category_overwrites',
+  {
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => spaceCategories.id, { onDelete: 'cascade' }),
+    targetType: text('target_type').$type<'role' | 'member'>().notNull(),
+    targetId: uuid('target_id').notNull(),
+    allow: integer('allow').notNull().default(0),
+    deny: integer('deny').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.categoryId, t.targetType, t.targetId] }),
+    check('space_category_overwrites_type_ck', sql`${t.targetType} in ('role', 'member')`),
+    check('space_category_overwrites_bits_ck', sql`(${t.allow} & ${t.deny}) = 0`),
+  ],
+);
+
+export const spaceBans = pgTable(
+  'space_bans',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bannedBy: uuid('banned_by').references(() => users.id, { onDelete: 'set null' }),
+    reason: text('reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
+);
+
+export const spaceInvites = pgTable(
+  'space_invites',
+  {
+    /** Unique across chats.invite_code, communities.invite_code and spaces.vanity_code. */
+    code: text('code').primaryKey(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'set null',
+    }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    /** 0 = unlimited. */
+    maxUses: integer('max_uses').notNull().default(0),
+    uses: integer('uses').notNull().default(0),
+    expiresAt: ts('expires_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('space_invites_space_idx').on(t.spaceId),
+    index('space_invites_expires_idx')
+      .on(t.expiresAt)
+      .where(sql`${t.expiresAt} is not null`),
+  ],
+);
+
+export const spaceAuditLog = pgTable(
+  'space_audit_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    targetType: text('target_type'),
+    targetId: uuid('target_id'),
+    changes: jsonb('changes').$type<Record<string, unknown>>(),
+    reason: text('reason'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('space_audit_log_space_idx').on(t.spaceId, t.createdAt),
+    index('space_audit_log_created_idx').on(t.createdAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Communities
 // ---------------------------------------------------------------------------
 
@@ -373,6 +635,19 @@ export const chats = pgTable(
      * hex only, zod-validated, preset wallpapers only. Null = none.
      */
     theme: jsonb('theme').$type<SharedChatTheme>(),
+    /** Space channels (space_text/space_voice) only. */
+    spaceId: uuid('space_id').references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    categoryId: uuid('category_id').references((): AnyPgColumn => spaceCategories.id, {
+      onDelete: 'set null',
+    }),
+    position: integer('position'),
+    topic: text('topic'),
+    slowmodeSeconds: integer('slowmode_seconds').notNull().default(0),
+    nsfw: boolean('nsfw').notNull().default(false),
+    /** Voice channels: max participants (null = none). */
+    userLimit: integer('user_limit'),
+    /** The channel's overwrites equal its category's. */
+    permissionsSynced: boolean('permissions_synced').notNull().default(true),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),
     lastMessageAt: ts('last_message_at'),
     createdAt: createdAt(),
@@ -393,7 +668,27 @@ export const chats = pgTable(
     index('chats_avatar_idx')
       .on(t.avatarMediaId)
       .where(sql`${t.avatarMediaId} is not null`),
-    check('chats_type_ck', sql`${t.type} in ('direct', 'group', 'channel')`),
+    /** A Space's channels in order. */
+    index('chats_space_idx')
+      .on(t.spaceId, t.position)
+      .where(sql`${t.spaceId} is not null`),
+    check(
+      'chats_type_ck',
+      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice')`,
+    ),
+    check(
+      'chats_space_ck',
+      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice'))`,
+    ),
+    check(
+      'chats_space_cols_ck',
+      sql`${t.type} in ('space_text', 'space_voice') or (${t.categoryId} is null and ${t.position} is null and ${t.topic} is null and ${t.userLimit} is null)`,
+    ),
+    check(
+      'chats_space_invite_ck',
+      sql`${t.type} not in ('space_text', 'space_voice') or ${t.inviteCode} is null`,
+    ),
+    check('chats_slowmode_ck', sql`${t.slowmodeSeconds} between 0 and 21600`),
     check('chats_direct_key_ck', sql`(${t.type} = 'direct') = (${t.directKey} is not null)`),
     check('chats_group_settings_ck', sql`(${t.type} = 'group') = (${t.groupSettings} is not null)`),
     check(
@@ -454,6 +749,10 @@ export const chatMembers = pgTable(
     wallpaperMediaId: uuid('wallpaper_media_id').references(() => media.id, {
       onDelete: 'set null',
     }),
+    /** Space channels: my notification level here (null = my Space default). */
+    notifyLevel: text('notify_level').$type<NotifyLevel>(),
+    /** Space channels: my last message here (slowmode). */
+    lastSentAt: ts('last_sent_at'),
   },
   (t) => [
     primaryKey({ columns: [t.chatId, t.userId] }),
@@ -467,6 +766,10 @@ export const chatMembers = pgTable(
     index('chat_members_chat_active_idx')
       .on(t.chatId)
       .where(sql`${t.leftAt} is null`),
+    /** Space channels: rows that start after some history (converted channels; message:updated). */
+    index('chat_members_joined_seq_idx')
+      .on(t.chatId, t.joinedSeq)
+      .where(sql`${t.joinedSeq} > 0`),
     /** Exactly one active owner per group/channel. */
     uniqueIndex('chat_members_owner_uq')
       .on(t.chatId)
@@ -504,6 +807,13 @@ export const messages = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    /** Space channels: @everyone/@here (allowed for the sender). */
+    mentionEveryone: boolean('mention_everyone').notNull().default(false),
+    /** Space channels: mentioned roles. */
+    mentionRoleIds: uuid('mention_role_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     editedAt: ts('edited_at'),
     deletedAt: ts('deleted_at'),
     expiresAt: ts('expires_at'),
@@ -515,6 +825,12 @@ export const messages = pgTable(
       .on(t.chatId, t.senderId, t.clientId)
       .where(sql`${t.clientId} is not null`),
     index('messages_sender_idx').on(t.senderId),
+    /** Unread mention counts of space channels scan only messages that mention someone. */
+    index('messages_mentions_idx')
+      .on(t.chatId, t.seq)
+      .where(
+        sql`${t.mentionEveryone} or ${t.mentions} <> '{}'::uuid[] or ${t.mentionRoleIds} <> '{}'::uuid[]`,
+      ),
     index('messages_expires_idx')
       .on(t.expiresAt)
       .where(sql`${t.expiresAt} is not null`),
@@ -852,3 +1168,9 @@ export type CallRow = typeof calls.$inferSelect;
 export type CallParticipantRow = typeof callParticipants.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type LinkPreviewRow = typeof linkPreviews.$inferSelect;
+export type SpaceRow = typeof spaces.$inferSelect;
+export type SpaceMemberRow = typeof spaceMembers.$inferSelect;
+export type SpaceRoleRow = typeof spaceRoles.$inferSelect;
+export type SpaceCategoryRow = typeof spaceCategories.$inferSelect;
+export type SpaceInviteRow = typeof spaceInvites.$inferSelect;
+export type SpaceOverwriteRow = typeof spaceChannelOverwrites.$inferSelect;

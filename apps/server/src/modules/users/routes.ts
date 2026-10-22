@@ -20,7 +20,7 @@ import {
   type UserSettings,
 } from '@enbox/shared';
 import { db, type DbOrTx } from '../../db/index.js';
-import { blocks, chats, contacts, users, type UserRow } from '../../db/schema.js';
+import { blocks, chats, contacts, spaceMembers, users, type UserRow } from '../../db/schema.js';
 import { authCtx, authUserId } from '../../http/auth.js';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { authLimiter } from '../../lib/rateLimit.js';
@@ -189,6 +189,14 @@ router.patch('/me', async (req, res) => {
         .update(users)
         .set({ ...patch, updatedAt: new Date() })
         .where(eq(users.id, me));
+      // Space member lists sort by nickname, else display name.
+      if (patch.displayName)
+        await tx
+          .update(spaceMembers)
+          .set({
+            sortName: sql`lower(left(coalesce(nullif(trim(${spaceMembers.nickname}), ''), ${patch.displayName}), 100))`,
+          })
+          .where(eq(spaceMembers.userId, me));
       meUpdatedEffect(fx, me);
       userChangedEffect(fx, me);
     }

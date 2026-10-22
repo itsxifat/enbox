@@ -27,6 +27,14 @@ import { mediaUrl, staticMediaKey } from '../../services/media.js';
 import { wasRemovedByAdmin, wasRemovedFromCommunity } from '../../services/membership.js';
 import { toChatSummary } from '../../services/summaries.js';
 import { followChannelTx } from '../channels/service.js';
+import {
+  findSpaceInvite,
+  joinSpaceViaInvite,
+  landingChannel,
+  spaceInvitePreview,
+  type SpaceInviteTarget,
+} from '../spaces/invites.js';
+import { toSpace } from '../../services/spaces.js';
 import { joinGroupTx } from '../groups/service.js';
 
 /**
@@ -41,7 +49,8 @@ const REMOVED = 'You were removed by an admin';
 
 type Target =
   | { kind: 'chat'; chat: ChatRow; avatarKey: string | null }
-  | { kind: 'community'; community: CommunityRow; avatarKey: string | null };
+  | { kind: 'community'; community: CommunityRow; avatarKey: string | null }
+  | { kind: 'space'; target: SpaceInviteTarget };
 
 async function findInvite(dbx: DbOrTx, code: string): Promise<Target> {
   const [c] = await dbx
@@ -62,11 +71,14 @@ async function findInvite(dbx: DbOrTx, code: string): Promise<Target> {
     .where(eq(communities.inviteCode, code))
     .limit(1);
   if (k) return { kind: 'community', community: k.community, avatarKey: k.avatarKey };
+  const space = await findSpaceInvite(dbx, code);
+  if (space) return { kind: 'space', target: space };
   throw notFound('Invite');
 }
 
 async function preview(dbx: DbOrTx, me: string, code: string): Promise<InvitePreview> {
   const target = await findInvite(dbx, code);
+  if (target.kind === 'space') return spaceInvitePreview(dbx, me, code, target.target);
   const avatarUrl = target.avatarKey ? mediaUrl(target.avatarKey) : null;
 
   if (target.kind === 'community') {
@@ -158,8 +170,17 @@ router.post('/invites/:code/join', inviteLimiter, async (req, res) => {
     async (
       tx,
       fx,
-    ): Promise<{ kind: InviteJoinResult['kind']; id: string; communityId: string | null }> => {
+    ): Promise<{
+      kind: InviteJoinResult['kind'];
+      id: string;
+      communityId: string | null;
+      channelId?: string | null;
+    }> => {
       const target = await findInvite(tx, code);
+      if (target.kind === 'space') {
+        const r = await joinSpaceViaInvite(tx, fx, me, code, target.target);
+        return { kind: 'space', id: r.spaceId, communityId: null, channelId: r.channelId };
+      }
       if (target.kind === 'chat' && target.chat.type === 'group') {
         const { chat, scope } = await lockGroupScope(tx, target.chat.id);
         if (chat.inviteCode !== code) throw notFound('Invite');
@@ -181,6 +202,18 @@ router.post('/invites/:code/join', inviteLimiter, async (req, res) => {
       return { kind: 'community', id: scope.community.id, communityId: scope.community.id };
     },
   );
+  if (joined.kind === 'space') {
+    const out: InviteJoinResult = {
+      kind: 'space',
+      id: joined.id,
+      chat: null,
+      community: null,
+      space: await toSpace(db, me, joined.id),
+      channelId: await landingChannel(db, me, joined.id, joined.channelId ?? null),
+    };
+    res.json(out);
+    return;
+  }
   const out: InviteJoinResult = {
     kind: joined.kind,
     id: joined.id,

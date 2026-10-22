@@ -34,7 +34,13 @@ const ANNOUNCEMENT = new Set<SystemEventKind>([
   'theme_changed',
   'message_pinned',
 ]);
-const GROUP_EXCLUDED = new Set<SystemEventKind>(['channel_created', 'community_created']);
+const GROUP_EXCLUDED = new Set<SystemEventKind>([
+  'channel_created',
+  'community_created',
+  'member_joined_space',
+]);
+/** Space channels: pins and the join notices of the system channel (plus converted history). */
+const SPACE = new Set<SystemEventKind>(['message_pinned', 'member_joined_space']);
 
 /** Whether a chat may carry a system message of this kind. */
 export function systemMessageAllowed(
@@ -50,6 +56,8 @@ export function systemMessageAllowed(
       return ANNOUNCEMENT.has(kind);
     case 'group':
       return !GROUP_EXCLUDED.has(kind);
+    case 'space':
+      return SPACE.has(kind);
   }
 }
 

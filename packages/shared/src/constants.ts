@@ -211,6 +211,53 @@ export const WALLPAPER_BLUR_MAX = 20;
 // ---------------------------------------------------------------------------
 
 /** Alphabet of invite codes (URL-safe, no look-alike characters). */
+// ---------------------------------------------------------------------------
+// Spaces (docs/design/spaces-at-scale.md)
+// ---------------------------------------------------------------------------
+
+export const MAX_SPACES_PER_USER = 200;
+export const MAX_SPACE_MEMBERS = 250_000;
+/** Text + voice channels per Space. */
+export const MAX_SPACE_CHANNELS = 500;
+export const MAX_SPACE_CATEGORIES = 50;
+/** Roles per Space, including @everyone. */
+export const MAX_SPACE_ROLES = 250;
+export const MAX_OVERWRITES_PER_CHANNEL = 100;
+export const MAX_SPACE_INVITES = 1_000;
+/**
+ * Above this many members a Space is "large": member events only reach sockets with the member
+ * list open, and the member list is alphabetical (paged) instead of grouped by presence.
+ */
+export const LARGE_SPACE_THRESHOLD = 1_000;
+export const SPACE_NAME_MAX_LENGTH = 100;
+export const SPACE_DESCRIPTION_MAX_LENGTH = 1_000;
+export const CHANNEL_NAME_MAX_LENGTH = 100;
+export const CHANNEL_TOPIC_MAX_LENGTH = 1_024;
+export const ROLE_NAME_MAX_LENGTH = 100;
+export const NICKNAME_MAX_LENGTH = 32;
+export const BAN_REASON_MAX_LENGTH = 512;
+export const MAX_VOICE_CHANNEL_PARTICIPANTS = 99;
+/** Seconds between messages per member (0 = off). */
+export const SLOWMODE_OPTIONS = [
+  0, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600,
+] as const;
+/** Longest timeout (Discord: 28 days). */
+export const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60_000;
+/** Invite lifetimes offered (seconds, 0 = never expires). */
+export const INVITE_MAX_AGE_OPTIONS = [0, 1800, 3600, 21600, 43200, 86400, 604800] as const;
+/** Invite use caps offered (0 = unlimited). */
+export const INVITE_MAX_USES_OPTIONS = [0, 1, 5, 10, 25, 50, 100] as const;
+/** Ban: delete the banned member's messages of the last N seconds (bounded purge). */
+export const BAN_DELETE_MESSAGE_OPTIONS = [0, 3600, 86400, 604800] as const;
+export const MAX_PINNED_MESSAGES_SPACE = 50;
+export const MAX_SPACE_MEMBERS_PAGE = 200;
+/** Unread and mention counts of space channels are capped (badges show "99+"). */
+export const SPACE_UNREAD_CAP = 100;
+/** @everyone/@here pushes per message are capped (the rest still see the mention badge). */
+export const PUSH_SPACE_ALL_CAP = 5_000;
+export const AUDIT_LOG_RETENTION_DAYS = 90;
+export const MAX_AUDIT_LOG_PAGE = 100;
+
 export const INVITE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 /** Invite codes are this many characters (≈ 128 bits). */
 export const INVITE_CODE_LENGTH = 22;
@@ -408,4 +455,18 @@ export const USER_RATE_LIMITS = {
   userSearch: { limit: 60, windowMs: 60_000 },
   /** `PUT /api/chats/:chatId/theme` (shared theme changes, each a system message), per user. */
   chatTheme: { limit: 20, windowMs: 60_000 },
+  /** `POST /api/spaces`, per user. */
+  spaceCreate: { limit: 10, windowMs: 60 * 60_000 },
+  /** Joining Spaces through invites, per user. */
+  spaceJoin: { limit: 30, windowMs: 60 * 60_000 },
+  /** Channel and category create/edit/delete/reorder, per user. */
+  spaceChannelUpdate: { limit: 120, windowMs: 60 * 60_000 },
+  /** Role and overwrite create/edit/delete/reorder, per user. */
+  spaceRoleUpdate: { limit: 120, windowMs: 60 * 60_000 },
+  /** Member edits (nickname, roles, timeout), kicks and bans, per user. */
+  spaceMemberUpdate: { limit: 300, windowMs: 60 * 60_000 },
+  /** Invite links created, per user. */
+  spaceInviteCreate: { limit: 30, windowMs: 60 * 60_000 },
+  /** Messages mentioning @everyone / @here, per user. */
+  mentionEveryone: { limit: 5, windowMs: 60_000 },
 } as const;

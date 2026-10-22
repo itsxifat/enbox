@@ -22,6 +22,9 @@
  * 3. Re-send `presence:subscribe` for displayed users (subscriptions are per socket) and
  *    `presence:activity` with this device's current idle state (tracked per socket too).
  * 4. Refetch `GET /api/calls/active` (a joined call → `call:rejoin`), clear typing indicators.
+ * 5. Refetch `GET /api/spaces`, then the open Space (`GET /api/spaces/:id`); re-send
+ *    `space:focus` for the open space channel and `space:members-subscribe` when the member
+ *    list is open.
  *
  * Client rules
  * - `message:new` for an unknown chatId → `GET /api/chats/:chatId`, then apply the message.
@@ -49,6 +52,8 @@ import type {
   ID,
   Message,
   Presence,
+  Space,
+  SpaceMember,
   Status,
   StatusViewer,
   UserPublic,
@@ -64,6 +69,8 @@ import type {
   PresenceActivityPayload,
   PresenceSubscribePayload,
   ReceiptPayload,
+  SpaceFocusPayload,
+  SpaceMembersSubscribePayload,
   TypingPayload,
 } from './schemas.js';
 
@@ -89,8 +96,34 @@ export type ChatInfoChanges = Partial<
     | 'memberCount'
     | 'communityId'
     | 'isAnnouncement'
+    | 'space'
   >
 >;
+
+/** Viewer-neutral Space fields carried by `space:updated` (shallow-merged into `Space`). */
+export type SpaceInfoChanges = Partial<
+  Pick<
+    Space,
+    | 'name'
+    | 'description'
+    | 'iconUrl'
+    | 'iconAnimatedUrl'
+    | 'bannerUrl'
+    | 'ownerId'
+    | 'memberCount'
+    | 'large'
+    | 'systemChannelId'
+    | 'rulesChannelId'
+    | 'afkChannelId'
+    | 'afkTimeoutSec'
+    | 'defaultNotifyLevel'
+    | 'isDiscoverable'
+    | 'roles'
+    | 'categories'
+  >
+>;
+
+export type SpaceRemovedReason = 'left' | 'kicked' | 'banned' | 'deleted';
 
 export interface IncomingCallPayload {
   call: Call;
@@ -188,6 +221,27 @@ export interface ServerToClientEvents {
   'community:upsert': (payload: { community: Community }) => void;
   'community:removed': (payload: { communityId: ID }) => void;
 
+  // --- Spaces (docs/design/spaces-at-scale.md "Realtime fan-out") ---
+  /** My view of a Space changed (joined, my roles/nickname/timeout/notification settings) → user:<me>. */
+  'space:upsert': (payload: { space: Space }) => void;
+  /** I am no longer a member → user:<me>; drop the Space and its channels. */
+  'space:removed': (payload: { spaceId: ID; reason: SpaceRemovedReason }) => void;
+  /**
+   * Structure changed (name, icon, roles, categories…) → space:<id>. Shallow-merge, then
+   * recompute `myPermissions` and every channel's `spacePermissions`/`permissions`; a channel
+   * whose VIEW_CHANNEL bit appeared means: refetch the channels.
+   */
+  'space:updated': (payload: { spaceId: ID; changes: SpaceInfoChanges }) => void;
+  /** Channels were created, deleted or reordered → space:<id>: refetch `GET /spaces/:id/channels` (with jitter). */
+  'space:channels-changed': (payload: { spaceId: ID }) => void;
+  /**
+   * Member list events: to space:<id> in small Spaces, to the sockets that subscribed with
+   * `space:members-subscribe` in large ones (Space.large).
+   */
+  'space:member-joined': (payload: { spaceId: ID; member: SpaceMember }) => void;
+  'space:member-left': (payload: { spaceId: ID; userId: ID }) => void;
+  'space:member-updated': (payload: { spaceId: ID; member: SpaceMember }) => void;
+
   // --- Status (user:<id> of the audience / author) ---
   'status:new': (payload: { status: Status; user: UserPublic }) => void;
   'status:deleted': (payload: { statusId: ID; userId: ID }) => void;
@@ -260,6 +314,14 @@ export interface ClientToServerEvents {
   'presence:activity': (payload: PresenceActivityPayload) => void;
 
   /**
+   * The space channel this device has open (null = none): typing in a space channel only
+   * reaches the devices that have it open. Re-send after every `ready`.
+   */
+  'space:focus': (payload: SpaceFocusPayload) => void;
+  /** Receive member list events of a large Space (member list open), or stop (null). */
+  'space:members-subscribe': (payload: SpaceMembersSubscribePayload) => void;
+
+  /**
    * Start a call; this socket becomes my call socket. If the chat already has a live call →
    * ack `{ ok: false, error: { code: 'conflict', details: { callId } } }` (then accept/join it).
    */
@@ -312,4 +374,13 @@ export const rooms = {
   call: (callId: ID) => `call:${callId}`,
   /** The call socket of one participant (signal relay target). */
   callMember: (callId: ID, userId: ID) => `call:${callId}:${userId}`,
+  /**
+   * Every connected member of a Space. A space channel's `chat:<id>` is VIRTUAL: it resolves,
+   * on every process, to the sockets in this room whose member can see the channel.
+   */
+  space: (spaceId: ID) => `space:${spaceId}`,
+  /** Sockets with a large Space's member list open (`space:members-subscribe`). */
+  spaceMembers: (spaceId: ID) => `space-members:${spaceId}`,
+  /** Sockets that have a space channel open (`space:focus`): typing goes here. */
+  chatFocus: (chatId: ID) => `chat-focus:${chatId}`,
 } as const;

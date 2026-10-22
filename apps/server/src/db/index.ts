@@ -128,6 +128,15 @@ export async function withSessionLock<T>(
   }
 }
 
+/**
+ * Run boot-time data work (e.g. the communities → Spaces conversion) under the migration
+ * lock, so processes booting together run it once. PGlite: just runs it.
+ */
+export async function withMigrationLock<T>(fn: () => Promise<T>): Promise<T> {
+  const pool = handle?.pool;
+  return pool ? withSessionLock(pool, ADVISORY_MIGRATE, fn) : fn();
+}
+
 /** The node-postgres pool, or undefined on PGlite. */
 export function pgPool(): Pool | undefined {
   return handle?.pool;

@@ -7,7 +7,7 @@
  * smallest watermarks per chat, direct-chat peers (+ users, contacts, blocks), last visible
  * message per pair (lateral), unread/mention counts, and `toMessages` for the last messages.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { ChatInfoChanges, ChatSummary, Message, UserPublic } from '@enbox/shared';
 import { db, type DbOrTx } from '../db/index.js';
 import {
@@ -23,6 +23,7 @@ import { emitToChat, emitToUser } from '../realtime/emit.js';
 import { computePermissions, memberVisibleSql, membershipOf, type PeerInfo } from './chats.js';
 import { loadMediaMap, mediaUrl, staticMediaKey, toChatWallpaper } from './media.js';
 import { toMessages } from './messages.js';
+import { spaceChannelSummariesForPairs } from './spaceSummaries.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
 import { getUserRows, settingsOf, toUserPublicsForPairs, type UserWithAvatar } from './users.js';
 import { loadMarkAggregates, unreadCounts, viewerWatermarks } from './watermarks.js';
@@ -33,9 +34,22 @@ interface Entry {
   avatarKey: string | null;
 }
 
+const SPACE_TYPES = ['space_text', 'space_voice'] as const;
+
+/** The space channels among these chat ids (one query). */
+async function spaceChatIds(dbx: DbOrTx, chatIds: readonly string[]): Promise<Set<string>> {
+  if (chatIds.length === 0) return new Set();
+  const rows = await dbx
+    .select({ id: chats.id })
+    .from(chats)
+    .where(and(inArray(chats.id, uniq(chatIds)), inArray(chats.type, [...SPACE_TYPES])));
+  return new Set(rows.map((r) => r.id));
+}
+
 /**
  * Summaries for (chat, user) pairs, keyed by `pairKey(chatId, userId)`. Pairs without a
- * membership row — or with a hidden row unless `includeHidden` — are absent.
+ * membership row — or with a hidden row unless `includeHidden` — are absent. Space channels
+ * need no row (spaceSummaries.ts): pairs whose viewer cannot see the channel are absent.
  */
 export async function chatSummariesForPairs(
   dbx: DbOrTx,
@@ -43,6 +57,18 @@ export async function chatSummariesForPairs(
   opts: { includeHidden?: boolean } = {},
 ): Promise<Map<string, ChatSummary>> {
   if (pairs.length === 0) return new Map();
+  const spaceIds = await spaceChatIds(
+    dbx,
+    pairs.map((p) => p.chatId),
+  );
+  const out = spaceIds.size
+    ? await spaceChannelSummariesForPairs(
+        dbx,
+        pairs.filter((p) => spaceIds.has(p.chatId)),
+      )
+    : new Map<string, ChatSummary>();
+  pairs = pairs.filter((p) => !spaceIds.has(p.chatId));
+  if (pairs.length === 0) return out;
   const wanted = new Set(pairs.map((p) => pairKey(p.chatId, p.userId)));
   const rows = await dbx
     .select({ member: chatMembers, chat: chats, avatarKey: staticMediaKey })
@@ -58,13 +84,15 @@ export async function chatSummariesForPairs(
     );
   const entries = rows.filter((r) => wanted.has(pairKey(r.member.chatId, r.member.userId)));
   const list = await buildSummaries(dbx, entries);
-  return new Map(list.map((s, i) => [pairKey(s.id, entries[i]!.member.userId), s]));
+  for (const [i, s] of list.entries()) out.set(pairKey(s.id, entries[i]!.member.userId), s);
+  return out;
 }
 
 /**
  * `toChatSummaries(dbx, viewerId, chatIds?)` (docs): the viewer's chat list. Without
  * `chatIds`: every non-hidden membership (active and former, archived included), newest
- * activity first. With `chatIds`: those chats in input order (unknown/hidden omitted).
+ * activity first — space channels excluded (they live in their Space). With `chatIds`: those
+ * chats in input order (unknown/hidden/invisible omitted), space channels included.
  */
 export async function toChatSummaries(
   dbx: DbOrTx,
@@ -73,6 +101,22 @@ export async function toChatSummaries(
   opts: { includeHidden?: boolean } = {},
 ): Promise<ChatSummary[]> {
   if (chatIds && chatIds.length === 0) return [];
+  if (chatIds) {
+    const spaceIds = await spaceChatIds(dbx, chatIds);
+    if (spaceIds.size) {
+      const spaceMap = await spaceChannelSummariesForPairs(
+        dbx,
+        [...spaceIds].map((chatId) => ({ chatId, userId: viewerId })),
+      );
+      const rest = chatIds.filter((id) => !spaceIds.has(id));
+      const others = new Map(
+        (await toChatSummaries(dbx, viewerId, rest, opts)).map((s) => [s.id, s]),
+      );
+      return chatIds
+        .map((id) => (spaceIds.has(id) ? spaceMap.get(pairKey(id, viewerId)) : others.get(id)))
+        .filter((s): s is ChatSummary => !!s);
+    }
+  }
   const rows = await dbx
     .select({ member: chatMembers, chat: chats, avatarKey: staticMediaKey })
     .from(chatMembers)
@@ -81,7 +125,9 @@ export async function toChatSummaries(
     .where(
       and(
         eq(chatMembers.userId, viewerId),
-        chatIds ? inArray(chatMembers.chatId, [...chatIds]) : undefined,
+        chatIds
+          ? inArray(chatMembers.chatId, [...chatIds])
+          : notInArray(chats.type, [...SPACE_TYPES]),
         opts.includeHidden ? undefined : eq(chatMembers.hidden, false),
       ),
     );
@@ -266,6 +312,9 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       lastActivityAt:
         lastMessage?.createdAt ??
         (active ? member.joinedAt : (member.leftAt ?? member.joinedAt)).toISOString(),
+      space: null,
+      spacePermissions: null,
+      notifyLevel: null,
     };
     return summary;
   });

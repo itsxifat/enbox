@@ -1,0 +1,160 @@
+/**
+ * Pushes for messages in space channels (docs/design/spaces-at-scale.md "Push and mentions").
+ *
+ * Targets, from one bounded query (≤ PUSH_SPACE_ALL_CAP, only users with a push
+ * subscription): mentioned users, members of mentioned roles, everyone for @everyone/@here
+ * (unless they suppress it), and members whose notification level is 'all'. The level chain
+ * is channel row → member → Space default ('mentions' by default); 'none' never pushes,
+ * 'mentions' only for mentions. Then: not muted (Space or channel), not in DND, group
+ * notifications on, and VIEW_CHANNEL (computed like everywhere else).
+ */
+import { sql } from 'drizzle-orm';
+import {
+  PERM,
+  PUSH_MESSAGE_TTL_SEC,
+  PUSH_SPACE_ALL_CAP,
+  hasPerm,
+  isDnd,
+  isMuted,
+  messagePreviewText,
+  truncate,
+  userDisplayName,
+  type NotifyLevel,
+  type PushPayload,
+} from '@enbox/shared';
+import { db } from '../../db/index.js';
+import type { ChatRow, MessageRow } from '../../db/schema.js';
+import { toMessages } from '../../services/messages.js';
+import {
+  channelBits,
+  loadChannelOverwrites,
+  loadSpaceMembers,
+  loadSpacePermCtx,
+} from '../../services/spaceAccess.js';
+import { pairKey, rawRows, uniq, uuidArray } from '../../services/sql.js';
+import { getUserRows, settingsOf, toUserPublicsForPairs } from '../../services/users.js';
+import { deliverPush, type PushEntry } from './sender.js';
+
+const PREVIEW_MAX = 120;
+
+interface Candidate {
+  user_id: string;
+  s_level: NotifyLevel | null;
+  s_muted: string | null;
+  c_level: NotifyLevel | null;
+  c_muted: string | null;
+  mentioned: boolean;
+}
+
+export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow): Promise<void> {
+  if (!chat.spaceId || !message.senderId || message.type === 'system' || message.type === 'call')
+    return;
+  const [space] = await rawRows<{ name: string; default_notify_level: 'all' | 'mentions' }>(
+    db,
+    sql`select name, default_notify_level from spaces where id = ${chat.spaceId}`,
+  );
+  if (!space) return;
+  const mentions = message.mentions ?? [];
+  const roleIds = message.mentionRoleIds ?? [];
+  const everyone = message.mentionEveryone;
+  const candidates = await rawRows<Candidate>(
+    db,
+    sql`select sm.user_id, sm.notify_level as s_level, sm.muted_until as s_muted,
+               cm.notify_level as c_level, cm.muted_until as c_muted,
+               (sm.user_id = any(${uuidArray(mentions)})
+                or exists (select 1 from space_member_roles r where r.space_id = sm.space_id
+                           and r.user_id = sm.user_id and r.role_id = any(${uuidArray(roleIds)}))
+                or (${everyone} and not sm.suppress_everyone)) as mentioned
+        from space_members sm
+        left join chat_members cm on cm.chat_id = ${chat.id} and cm.user_id = sm.user_id
+        where sm.space_id = ${chat.spaceId} and sm.user_id <> ${message.senderId}
+          and exists (select 1 from push_subscriptions ps where ps.user_id = sm.user_id)
+          and (sm.user_id = any(${uuidArray(mentions)})
+               or exists (select 1 from space_member_roles r where r.space_id = sm.space_id
+                          and r.user_id = sm.user_id and r.role_id = any(${uuidArray(roleIds)}))
+               or (${everyone} and not sm.suppress_everyone)
+               or coalesce(cm.notify_level, sm.notify_level, ${space.default_notify_level}) = 'all')
+        limit ${PUSH_SPACE_ALL_CAP}`,
+  );
+  if (candidates.length === 0) return;
+
+  const now = new Date();
+  const wanted = candidates.filter((c) => {
+    const level = c.c_level ?? c.s_level ?? space.default_notify_level;
+    if (level === 'none' || (level === 'mentions' && !c.mentioned)) return false;
+    const muted = (v: string | null) => v && isMuted(new Date(v).toISOString(), now);
+    return !muted(c.s_muted) && !muted(c.c_muted);
+  });
+  if (wanted.length === 0) return;
+
+  // Who can see the channel.
+  const ctx = await loadSpacePermCtx(db, chat.spaceId);
+  if (!ctx) return;
+  const overwrites = (await loadChannelOverwrites(db, [chat.id])).get(chat.id) ?? [];
+  const members = await loadSpaceMembers(
+    db,
+    chat.spaceId,
+    wanted.map((c) => c.user_id),
+  );
+  const rows = await getUserRows(
+    db,
+    wanted.map((c) => c.user_id),
+  );
+  const eligible = wanted
+    .map((c) => c.user_id)
+    .filter((id) => {
+      const m = members.get(id);
+      const row = rows.get(id);
+      if (!m || !row || row.deletedAt || isDnd(row, now.getTime())) return false;
+      if (!settingsOf(row).groupNotifications) return false;
+      return hasPerm(
+        channelBits(ctx, id, m, chat.type as 'space_text', overwrites),
+        PERM.VIEW_CHANNEL,
+      );
+    });
+  if (eligible.length === 0) return;
+
+  const [msg] = await toMessages(db, null, [message]);
+  if (!msg) return;
+  const senderId = message.senderId;
+  const refIds = uniq([senderId, ...msg.mentions]);
+  const publics = await toUserPublicsForPairs(
+    db,
+    eligible.flatMap((viewerId) => refIds.map((subjectId) => ({ viewerId, subjectId }))),
+  );
+  const senderMember = (await loadSpaceMembers(db, chat.spaceId, [senderId])).get(senderId);
+  const roleName = (id: string) => ctx.roles.find((r) => r.id === id)?.name ?? 'role';
+
+  const entries: PushEntry[] = eligible.map((viewerId) => {
+    const s = settingsOf(rows.get(viewerId)!);
+    const nameOf = (id: string) => userDisplayName(publics.get(pairKey(viewerId, id)));
+    const senderName = senderMember?.member.nickname || nameOf(senderId);
+    const preview = s.notificationPreviews
+      ? truncate(
+          messagePreviewText(
+            {
+              ...msg,
+              text:
+                msg.text?.replace(
+                  /@\{role:([0-9a-f-]{36})\}/g,
+                  (_, id: string) => `@${roleName(id)}`,
+                ) ?? null,
+            },
+            nameOf,
+            { viewerId, chatKind: 'space' },
+          ),
+          PREVIEW_MAX,
+        )
+      : 'New message';
+    const payload: PushPayload = {
+      type: 'message',
+      title: `#${chat.name ?? 'channel'} · ${space.name}`,
+      body: s.notificationPreviews ? `${senderName}: ${preview}` : preview,
+      tag: `chat:${chat.id}`,
+      url: `/spaces/${chat.spaceId}/${chat.id}`,
+      chatId: chat.id,
+    };
+    return { userId: viewerId, payload, opts: { ttl: PUSH_MESSAGE_TTL_SEC } };
+  });
+  await deliverPush(entries);
+}

@@ -62,6 +62,12 @@ import {
   type CreateMessageInput,
 } from '../../services/messages.js';
 import { resolveStatusReply } from '../../services/statuses.js';
+import {
+  allowedSpaceMentions,
+  assertCanReact,
+  spaceSendRules,
+  touchSlowmode,
+} from '../../services/spaceRules.js';
 import { getUserRows, settingsOf, toUserPublicMap } from '../../services/users.js';
 import { toSearchResults } from '../chats/service.js';
 
@@ -152,6 +158,10 @@ export async function sendMessage(
       .limit(1);
     if (existing) return { row: existing, created: false };
     assertCanSend(access);
+    // Space channels: attach/poll bits, slowmode, and which @everyone/@role mentions count.
+    const spaceMentions = access.space
+      ? spaceSendRules(access, me, { type: body.type, text: 'text' in body ? body.text : null })
+      : undefined;
 
     const metadata: MessageMetadata = {};
     const input: CreateMessageInput = {
@@ -160,6 +170,7 @@ export async function sendMessage(
       type: body.type,
       clientId: body.clientId,
       metadata,
+      spaceMentions,
     };
     switch (body.type) {
       case 'text':
@@ -189,6 +200,7 @@ export async function sendMessage(
       });
     }
     const result = await createMessage(tx, fx, input);
+    if (result.created) await touchSlowmode(tx, access, me);
     return { row: result.message, created: result.created };
   });
   return { message: await toMessageFor(me, row), created };
@@ -321,10 +333,19 @@ export async function editMessage(me: string, messageId: string, text: string): 
       next = text || null;
     }
     if (next === message.text) return message;
-    const mentions = await deriveMentions(tx, message.chatId, message.senderId, next);
+    const mentions = await deriveMentions(tx, message.chatId, message.senderId, next, undefined, {
+      spaceId: access.chat.spaceId,
+    });
+    // Space channels: re-derived flags, no new pings (edits never notify again).
+    const space = access.space ? allowedSpaceMentions(access, next) : null;
     const [updated] = await tx
       .update(messages)
-      .set({ text: next, mentions, editedAt: new Date() })
+      .set({
+        text: next,
+        mentions,
+        editedAt: new Date(),
+        ...(space ? { mentionEveryone: space.everyone, mentionRoleIds: space.roleIds } : {}),
+      })
       .where(eq(messages.id, messageId))
       .returning();
     fx.messageUpdated(messageId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
@@ -392,7 +413,7 @@ const QUICK = new Set(QUICK_REACTIONS.map(stripVs16));
 async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) {
   const v = await loadVisibleMessage(tx, me, messageId, { lock: true });
   const access = await requireActiveMember(tx, me, v.chat.id);
-  return { ...v, hideFrom: await peersWhoBlockedMe(tx, access) };
+  return { ...v, access, hideFrom: await peersWhoBlockedMe(tx, access) };
 }
 
 /**
@@ -402,9 +423,10 @@ async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) 
  */
 export async function react(me: string, messageId: string, emoji: string): Promise<Message> {
   const row = await transact(async (tx, fx) => {
-    const { message, chat, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
+    const { message, chat, hideFrom, access } = await lockMessageForInteraction(tx, me, messageId);
     if (message.type === 'system' || message.deletedAt)
       throw badRequest('You cannot react to this message');
+    assertCanReact(access);
     if (chat.type === 'channel') {
       const mode = chat.channelSettings?.reactions ?? 'all';
       if (mode === 'none') throw forbidden('Reactions are turned off in this channel');

@@ -5,10 +5,12 @@
 import { and, asc, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import {
   computeChatPermissions,
+  isSpaceChatType,
   type ChatKind,
   type ChatPermissions,
   type MemberRole,
   type Membership,
+  type PermissionOverwrite,
 } from '@enbox/shared';
 import type { DbOrTx } from '../db/index.js';
 import {
@@ -22,6 +24,8 @@ import {
   type ChatRow,
 } from '../db/schema.js';
 import { blocked as blockedError, forbidden, notFound, notMember } from '../lib/errors.js';
+import type { MemberCtx, SpacePermCtx } from './spaceAccess.js';
+import { spaceChannelAccess } from './spaceAccess.js';
 import { uniq } from './sql.js';
 
 // ---------------------------------------------------------------------------
@@ -155,6 +159,7 @@ export function isAdminRole(role: MemberRole | null | undefined): boolean {
 
 /** Wording kind of a chat row ('announcement' for community announcement groups). */
 export function chatKindOfRow(chat: Pick<ChatRow, 'type' | 'isAnnouncement'>): ChatKind {
+  if (isSpaceChatType(chat.type)) return 'space';
   return chat.type === 'group' && chat.isAnnouncement ? 'announcement' : chat.type;
 }
 
@@ -334,6 +339,16 @@ export interface ChatAccess {
   peer: PeerInfo | null;
   /** The viewer's visibility window. */
   window: VisibilityWindow;
+  /** Space channels: the computed permission context (bits after overwrites). */
+  space?: {
+    ctx: SpacePermCtx;
+    me: MemberCtx;
+    /** My Space-wide bits. */
+    base: number;
+    /** My bits in this channel. */
+    bits: number;
+    overwrites: PermissionOverwrite[];
+  };
 }
 
 /** Load the direct-chat peer facts for a viewer (self chat → the viewer). */
@@ -397,7 +412,14 @@ export async function getChatAccess(
       .limit(1);
     chat = row?.chat;
     member = row?.member;
+    // Space channels need no row: access is computed from the Space (spaceAccess.ts).
+    if (!chat) {
+      const found = await getChat(dbx, chatId);
+      if (found && isSpaceChatType(found.type)) chat = found;
+    }
   }
+  if (chat && isSpaceChatType(chat.type))
+    return spaceChannelAccess(dbx, viewerId, chat, member ?? null);
   if (!chat || !member || (member.hidden && !opts.allowHidden)) throw notFound('Chat');
   const peer = chat.type === 'direct' ? await loadPeerInfo(dbx, chatId, viewerId) : null;
   return {

@@ -18,9 +18,11 @@ import { router as status } from './status/routes.js';
 import { router as calls } from './calls/routes.js';
 import { router as push } from './push/routes.js';
 import { router as linkPreviews } from './linkPreviews/routes.js';
+import { router as spaces } from './spaces/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
+import { registerSpacesSocket } from './spaces/socket.js';
 
 /** Mounted under /api without authentication. */
 export const publicRouters: Router[] = [systemPublic, authPublic];
@@ -40,10 +42,12 @@ export const authedRouters: Router[] = [
   calls,
   push,
   linkPreviews,
+  spaces,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [
   registerUsersSocket,
   registerChatsSocket,
   registerCallsSocket,
+  registerSpacesSocket,
 ];

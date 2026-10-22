@@ -29,6 +29,7 @@ import {
   PUSH_MESSAGE_TTL_SEC,
   isDnd,
   isMuted,
+  isSpaceChatType,
   messagePreviewText,
   truncate,
   userDisplayName,
@@ -51,6 +52,7 @@ import {
   toUserPublicsForPairs,
 } from '../../services/users.js';
 import { deliverPush, getPushSender, trackPush, type PushEntry } from './sender.js';
+import { onSpaceMessageCreated } from './spaceNotifications.js';
 
 const PREVIEW_MAX = 120;
 const GENERIC_BODY = 'New message';
@@ -101,6 +103,10 @@ export async function onMessageCreated({
   chat,
   recipientIds,
 }: DomainEventMap['message.created']): Promise<void> {
+  if (isSpaceChatType(chat.type)) {
+    if (getPushSender()) await onSpaceMessageCreated(message, chat);
+    return;
+  }
   if (
     chat.type === 'channel' ||
     message.type === 'system' ||

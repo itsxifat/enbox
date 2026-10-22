@@ -21,6 +21,7 @@ import {
 import {
   MAX_MENTIONS,
   extractMentionIds,
+  isSpaceChatType,
   referencedUserIds,
   type ChatType,
   type ContactCardPayload,
@@ -41,6 +42,7 @@ import {
   messageReactions,
   messages,
   pollVotes,
+  spaceMembers,
   starredMessages,
   type ChatMemberRow,
   type ChatRow,
@@ -60,6 +62,7 @@ import {
 } from './chats.js';
 import type { Effects } from './effects.js';
 import { loadMediaMap, toMediaAttachment } from './media.js';
+import { ensureSpaceReadRow } from './spaceAccess.js';
 import { rawRows, uniq, uuidArray } from './sql.js';
 import { loadStatusesForReplies, toStatusReplyPayload } from './statuses.js';
 import { blockersOf, getUserRow, toUserPublic, toUserPublics } from './users.js';
@@ -70,9 +73,9 @@ import { bumpMarks, markDeliveredForOnlineRecipients, type Marks } from './water
 // ---------------------------------------------------------------------------
 
 /**
- * `Message.mentions` for a text (send AND edit): `@{uuid}` tokens ∩ active members, sender
- * excluded, ≤ MAX_MENTIONS distinct, in order of appearance. Tokens of non-members stay
- * plain text. Pass `activeIds` when already loaded.
+ * `Message.mentions` for a text (send AND edit): `@{uuid}` tokens ∩ active members (space
+ * channels: members of the Space, `spaceId`), sender excluded, ≤ MAX_MENTIONS distinct, in
+ * order of appearance. Tokens of non-members stay plain text. Pass `activeIds` when loaded.
  */
 export async function deriveMentions(
   dbx: DbOrTx,
@@ -80,12 +83,24 @@ export async function deriveMentions(
   senderId: string | null,
   text: string | null | undefined,
   activeIds?: readonly string[],
+  opts: { spaceId?: string | null } = {},
 ): Promise<string[]> {
   const ids = extractMentionIds(text, Number.MAX_SAFE_INTEGER).filter((id) => id !== senderId);
   if (ids.length === 0) return [];
   let members: Set<string>;
   if (activeIds) {
     members = new Set(activeIds);
+  } else if (opts.spaceId) {
+    const rows = await dbx
+      .select({ userId: spaceMembers.userId })
+      .from(spaceMembers)
+      .where(
+        and(
+          eq(spaceMembers.spaceId, opts.spaceId),
+          inArray(spaceMembers.userId, ids.slice(0, MAX_MENTIONS * 4)),
+        ),
+      );
+    members = new Set(rows.map((r) => r.userId));
   } else {
     const rows = await dbx
       .select({ userId: chatMembers.userId })
@@ -130,6 +145,11 @@ export interface CreateMessageInput {
    * "Blocking": never emitted, never unhides their chat, never counts as delivered/read).
    */
   actorId?: string | null;
+  /**
+   * Space channels: what the text may mention beyond users, already checked by the caller
+   * against the sender's bits (MENTION_EVERYONE, mentionable roles).
+   */
+  spaceMentions?: { everyone: boolean; roleIds: string[] };
 }
 
 export interface CreateMessageResult {
@@ -184,6 +204,10 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
     .returning();
   const seq = Number(chat!.lastSeq);
   const isChannel = chat!.type === 'channel';
+  // Space channels take the broadcast-channel path too: no per-member work on send (no
+  // delivered receipts, no unhide, no watermarks); their readers are computed, not rows.
+  const isSpace = isSpaceChatType(chat!.type);
+  const noMemberWork = isChannel || isSpace;
   const serverMessage = input.type === 'system' || input.type === 'call';
   const expiresAt =
     !serverMessage && chat!.disappearingSeconds
@@ -191,7 +215,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       : null;
 
   // Channels: no per-follower work (no delivered receipts, no unhide, no pushes).
-  const memberIds = isChannel ? [] : await activeMemberIds(tx, input.chatId);
+  const memberIds = noMemberWork ? [] : await activeMemberIds(tx, input.chatId);
   // Direct chats: recipients who blocked the sender — or, for system messages, the acting
   // user (timer changes, pins) — never see it (docs "Blocking").
   const actorId = input.senderId ?? input.actorId ?? null;
@@ -204,7 +228,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
         input.chatId,
         input.senderId,
         input.text,
-        isChannel ? undefined : memberIds,
+        noMemberWork ? undefined : memberIds,
+        { spaceId: isSpace ? chat!.spaceId : null },
       );
 
   const [message] = await tx
@@ -221,6 +246,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       replyToId: input.replyToId ?? null,
       forwardCount: input.forwardCount ?? 0,
       mentions,
+      mentionEveryone: !serverMessage && isSpace && !!input.spaceMentions?.everyone,
+      mentionRoleIds: !serverMessage && isSpace ? (input.spaceMentions?.roleIds ?? []) : [],
       expiresAt,
       createdAt,
     })
@@ -233,7 +260,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
   }
 
   // Rule 2: a new visible message unhides the chat for active members who had hidden it.
-  const unhidden = isChannel
+  const unhidden = noMemberWork
     ? []
     : (
         await tx
@@ -251,6 +278,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       ).map((r) => r.userId);
 
   const changedMarks: { userId: string; prev: Marks }[] = [];
+  // Space channels: the sender's read state is a lazy row (sending reads the channel).
+  if (input.senderId && isSpace) await ensureSpaceReadRow(tx, chat!, input.senderId, createdAt);
   if (input.senderId) {
     const rows = await bumpMarks(tx, input.chatId, [input.senderId], {
       read: seq,
@@ -260,7 +289,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
     changedMarks.push(...rows.map((r) => ({ userId: r.userId, prev: r.prev })));
   }
   const recipientIds = memberIds.filter((id) => id !== input.senderId && !withheld.includes(id));
-  if (!isChannel)
+  if (!noMemberWork)
     changedMarks.push(
       ...(await markDeliveredForOnlineRecipients(tx, { chatId: input.chatId, seq, recipientIds })),
     );
@@ -277,7 +306,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       fx.messageNew(row, { exceptUserIds: [...withheld, ...(input.exceptUserIds ?? [])] });
       if (input.senderId) fx.chatRead(input.senderId, input.chatId);
       // Withheld recipients learn nothing: not even the tick change the hidden seq causes.
-      if (!isChannel)
+      if (!noMemberWork)
         fx.watermarks({
           chatId: input.chatId,
           prevLastSeq,
@@ -544,6 +573,12 @@ export async function toMessages(
       chatTypes.set(c.id, c.type);
   }
   const isChannel = (chatId: string) => chatTypes.get(chatId) === 'channel';
+  // Who reacted/voted is listed in direct chats and groups only: broadcast channels are
+  // anonymous, and space channels can have thousands of reactors (counts + my own choice).
+  const namesLists = (chatId: string) => {
+    const t = chatTypes.get(chatId);
+    return !!t && t !== 'channel' && !isSpaceChatType(t);
+  };
   const chatOf = new Map(rows.map((r) => [r.id, r.chatId]));
 
   const mediaRows = await loadMediaMap(dbx, [
@@ -585,7 +620,7 @@ export async function toMessages(
       });
       reactionGroups.set(g.message_id, list);
     }
-    const named = reactable.filter((id) => !isChannel(chatOf.get(id)!) && reactionGroups.has(id));
+    const named = reactable.filter((id) => namesLists(chatOf.get(id)!) && reactionGroups.has(id));
     if (named.length) {
       const rs = await dbx
         .select({
@@ -631,7 +666,7 @@ export async function toMessages(
       sql`select message_id, count(distinct user_id)::int as n from poll_votes where message_id = any(${uuidArray(pollIds)}) group by message_id`,
     );
     for (const t of totals) totalVoters.set(t.message_id, Number(t.n));
-    const named = pollIds.filter((id) => !isChannel(chatOf.get(id)!) && optionCounts.has(id));
+    const named = pollIds.filter((id) => namesLists(chatOf.get(id)!) && optionCounts.has(id));
     if (named.length) {
       const vs = await dbx
         .select({
@@ -684,6 +719,7 @@ export async function toMessages(
 
   return rows.map((row) => {
     const channel = isChannel(row.chatId);
+    const anonymousLists = !namesLists(row.chatId);
     const deleted = !!row.deletedAt;
     const md: MessageMetadata = deleted ? {} : (row.metadata ?? {});
     const mediaRow = !deleted && row.mediaId ? mediaRows.get(row.mediaId) : undefined;
@@ -701,7 +737,7 @@ export async function toMessages(
           id: o.id,
           text: o.text,
           voteCount: filterBlocked ? shown(o.id).length : (counts?.get(o.id) ?? 0),
-          voterIds: channel ? [] : filterBlocked ? shown(o.id) : (voters?.get(o.id) ?? []),
+          voterIds: anonymousLists ? [] : filterBlocked ? shown(o.id) : (voters?.get(o.id) ?? []),
         })),
         allowMultiple: md.poll.allowMultiple,
         totalVoters: filterBlocked
@@ -724,7 +760,11 @@ export async function toMessages(
           .map((g) => (filterBlocked ? { ...g, count: g.userIds.length } : g))
           .filter((g) => g.count > 0)
           .sort((a, b) => b.count - a.count || a.first - b.first)
-          .map((g) => ({ emoji: g.emoji, count: g.count, userIds: channel ? [] : g.userIds }));
+          .map((g) => ({
+            emoji: g.emoji,
+            count: g.count,
+            userIds: anonymousLists ? [] : g.userIds,
+          }));
 
     const replyTarget = !deleted && row.replyToId ? replyById.get(row.replyToId) : undefined;
     const message: Message = {
@@ -749,6 +789,8 @@ export async function toMessages(
         : null,
       forwardCount: row.forwardCount,
       mentions: deleted ? [] : (row.mentions ?? []),
+      mentionEveryone: !deleted && row.mentionEveryone,
+      mentionRoleIds: deleted ? [] : (row.mentionRoleIds ?? []),
       reactions,
       editedAt: row.editedAt?.toISOString() ?? null,
       deletedAt: row.deletedAt?.toISOString() ?? null,
@@ -908,11 +950,19 @@ export async function messageUpdatedPayloads(
     dbx,
     sql`select m.id as message_id, cm.user_id
         from messages m
-        join chats c on c.id = m.chat_id and c.type <> 'channel'
+        join chats c on c.id = m.chat_id and c.type in ('direct', 'group')
         join chat_members cm on cm.chat_id = m.chat_id and cm.left_at is null
         where m.id = any(${uuidArray(rows.map((r) => r.id))})
           and (cm.joined_seq >= m.seq or cm.cleared_seq >= m.seq
-               or exists (select 1 from message_hidden h where h.user_id = cm.user_id and h.message_id = m.id))`,
+               or exists (select 1 from message_hidden h where h.user_id = cm.user_id and h.message_id = m.id))
+        union all
+        -- Space channels: only future-only read rows (converted history) can hide a message;
+        -- clear/delete-for-me don't exist there. Index range scan, never a member scan.
+        select m.id, cm.user_id
+        from messages m
+        join chats c on c.id = m.chat_id and c.type in ('space_text', 'space_voice')
+        join chat_members cm on cm.chat_id = m.chat_id and cm.joined_seq > 0 and cm.joined_seq >= m.seq
+        where m.id = any(${uuidArray(rows.map((r) => r.id))})`,
   );
   const exceptBy = new Map<string, string[]>();
   for (const e of except)

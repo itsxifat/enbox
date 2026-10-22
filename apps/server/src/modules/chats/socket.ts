@@ -1,14 +1,18 @@
 import {
+  PERM,
   USER_RATE_LIMITS,
+  hasPerm,
   receiptPayloadSchema,
+  rooms,
   typingPayloadSchema,
   type TypingState,
 } from '@enbox/shared';
 import { db } from '../../db/index.js';
 import { SERVER_RATE_LIMITS, assertUserLimit, limitUser } from '../../lib/userLimit.js';
-import { emitToChat } from '../../realtime/emit.js';
+import { emitToChat, emitToRooms } from '../../realtime/emit.js';
 import { socketHandler } from '../../realtime/handler.js';
 import { onBeforeReady } from '../../realtime/hooks.js';
+import { loadedChannelBits, loadedSpaceOf } from '../../realtime/spaceRegistry.js';
 import type { SocketRegistrar } from '../../realtime/types.js';
 import { getChatAccess } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
@@ -26,6 +30,9 @@ onBeforeReady((socket) => markDeliveredOnConnect(socket.data.userId));
  * either direction.
  */
 export async function canRelayTyping(userId: string, chatId: string): Promise<boolean> {
+  // Space channels whose Space this process has loaded: decided from memory (no queries).
+  const loaded = loadedChannelBits(userId, chatId);
+  if (loaded !== null) return hasPerm(loaded, PERM.SEND_MESSAGES);
   const access = await getChatAccess(db, userId, chatId).catch(() => null);
   if (
     !access ||
@@ -63,7 +70,18 @@ export const registerChatsSocket: SocketRegistrar = (_io, socket) => {
     socketHandler(socket, typingPayloadSchema, async ({ chatId, state }, { userId }) => {
       if (!allowTyping(socket.id, chatId, state)) return;
       if (!(await canRelayTyping(userId, chatId))) return;
-      emitToChat(chatId, 'chat:typing', { chatId, userId, state }, { exceptUserIds: [userId] });
+      // Space channels: only the devices that have the channel open (`space:focus`).
+      if (loadedSpaceOf(chatId))
+        emitToRooms(
+          [rooms.chatFocus(chatId)],
+          'chat:typing',
+          { chatId, userId, state },
+          {
+            exceptUserIds: [userId],
+          },
+        );
+      else
+        emitToChat(chatId, 'chat:typing', { chatId, userId, state }, { exceptUserIds: [userId] });
     }),
   );
 

@@ -11,6 +11,7 @@ import {
   EDIT_WINDOW_MS,
   MAX_MENTIONS,
 } from './constants.js';
+import { PERM, hasPerm } from './permissions.js';
 import type {
   Availability,
   CallDirection,
@@ -21,11 +22,13 @@ import type {
   ChatPermissions,
   ChatSummary,
   ChatTheme,
+  ChatType,
   ID,
   ISODate,
   Message,
   PresenceNote,
   SharedChatTheme,
+  SpaceChannelType,
   SystemEvent,
   UserPublic,
   UserSettings,
@@ -104,8 +107,33 @@ export function chatTitle(chat: Pick<ChatSummary, 'type' | 'name' | 'peer'>, meI
 
 /** Wording kind of a chat (announcement groups speak about the "community"). */
 export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): ChatKind {
+  if (isSpaceChatType(chat.type)) return 'space';
   if (chat.type === 'group' && chat.isAnnouncement) return 'announcement';
   return chat.type;
+}
+
+// ---------------------------------------------------------------------------
+// Chat type predicates (use these instead of comparing `type` to string literals)
+// ---------------------------------------------------------------------------
+
+/** A text or voice channel of a Space. */
+export function isSpaceChatType(type: ChatType): type is SpaceChannelType {
+  return type === 'space_text' || type === 'space_voice';
+}
+
+/** Delivered/read ticks and watermarks exist (direct chats and groups only). */
+export function hasReceipts(type: ChatType): boolean {
+  return type === 'direct' || type === 'group';
+}
+
+/** Messages show who sent them (everything but broadcast channels, whose posts are anonymous). */
+export function showsSenders(type: ChatType): boolean {
+  return type !== 'channel';
+}
+
+/** Listed in the chat list (`GET /api/chats`): space channels live in their Space instead. */
+export function inChatList(type: ChatType): boolean {
+  return !isSpaceChatType(type);
 }
 
 /**
@@ -137,7 +165,29 @@ const NO_PERMISSIONS: ChatPermissions = Object.freeze({
 export type ChatPermissionInput = Pick<
   ChatSummary,
   'type' | 'isAnnouncement' | 'myRole' | 'membership' | 'groupSettings' | 'channelSettings'
-> & { peer: Pick<UserPublic, 'id' | 'isBlocked' | 'isDeleted'> | null };
+> & {
+  peer: Pick<UserPublic, 'id' | 'isBlocked' | 'isDeleted'> | null;
+  /** Space channels: the viewer's bits in the channel (permissions.ts). */
+  spacePermissions?: number | null;
+};
+
+/**
+ * `ChatPermissions` of a space channel from the viewer's bits in it. Bits without a boolean
+ * here (attach, react, polls, mention everyone, voice) are checked with `hasPerm`.
+ */
+export function spaceChannelPermissions(bits: number, type: SpaceChannelType): ChatPermissions {
+  if (!hasPerm(bits, PERM.VIEW_CHANNEL)) return { ...NO_PERMISSIONS };
+  const manageMessages = hasPerm(bits, PERM.MANAGE_MESSAGES);
+  return {
+    ...NO_PERMISSIONS,
+    canSend: type === 'space_text' && hasPerm(bits, PERM.SEND_MESSAGES),
+    canEditInfo: hasPerm(bits, PERM.MANAGE_CHANNELS),
+    canPin: manageMessages,
+    canInvite: hasPerm(bits, PERM.CREATE_INVITE),
+    canDeleteForEveryoneAsAdmin: manageMessages,
+    canViewMembers: true,
+  };
+}
 
 /**
  * The viewer's permissions in a chat — the single source of truth for `ChatSummary.permissions`
@@ -148,6 +198,9 @@ export type ChatPermissionInput = Pick<
  * - former members (membership ≠ active) get no permissions.
  */
 export function computeChatPermissions(chat: ChatPermissionInput, viewerId: ID): ChatPermissions {
+  // Space channels first: they must never fall through to the group rules below.
+  if (isSpaceChatType(chat.type))
+    return spaceChannelPermissions(chat.spacePermissions ?? 0, chat.type);
   if (chat.membership !== 'active') return { ...NO_PERMISSIONS };
   const admin = chat.myRole === 'owner' || chat.myRole === 'admin';
 
@@ -256,10 +309,39 @@ export function canDeleteForEveryone(
 }
 
 // ---------------------------------------------------------------------------
-// Mentions: `@{<lowercase uuid>}` tokens inside message text
+// Mentions: `@{<lowercase uuid>}` tokens inside message text; space channels also
+// `@{everyone}`, `@{here}` and `@{role:<uuid>}`
 // ---------------------------------------------------------------------------
 
-const MENTION_PATTERN = '@\\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\}';
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const MENTION_PATTERN = `@\\{(${UUID})\\}`;
+/** Every token kind: 1 = user id, 2 = everyone|here, 3 = role id. */
+const RICH_MENTION_PATTERN = `@\\{(?:(${UUID})|(everyone|here)|role:(${UUID}))\\}`;
+
+export const EVERYONE_TOKEN = '@{everyone}';
+export const HERE_TOKEN = '@{here}';
+
+/** The token to insert into text for mentioning a role. */
+export function roleMentionToken(roleId: ID): string {
+  return `@{role:${roleId.toLowerCase()}}`;
+}
+
+/** What a text mentions beyond users (space channels; the server checks MENTION_EVERYONE). */
+export function extractSpaceMentions(text: string | null | undefined): {
+  everyone: boolean;
+  here: boolean;
+  roleIds: ID[];
+} {
+  const out = { everyone: false, here: false, roleIds: [] as ID[] };
+  if (!text) return out;
+  for (const m of text.matchAll(new RegExp(RICH_MENTION_PATTERN, 'g'))) {
+    if (m[2] === 'everyone') out.everyone = true;
+    else if (m[2] === 'here') out.here = true;
+    else if (m[3] && !out.roleIds.includes(m[3]) && out.roleIds.length < MAX_MENTIONS)
+      out.roleIds.push(m[3]);
+  }
+  return out;
+}
 
 /** The token to insert into text for mentioning a user. */
 export function mentionToken(userId: ID): string {
@@ -281,9 +363,20 @@ export function extractMentionIds(
   return out;
 }
 
-/** Replace mention tokens with `@Name` (for previews, notifications, search snippets). */
-export function renderMentions(text: string, nameOf: (id: ID) => string): string {
-  return text.replace(new RegExp(MENTION_PATTERN, 'g'), (_, id: string) => `@${nameOf(id)}`);
+/**
+ * Replace mention tokens with `@Name` (for previews, notifications, search snippets):
+ * users through `nameOf`, roles through `roleName` (default "role"), `@everyone`, `@here`.
+ */
+export function renderMentions(
+  text: string,
+  nameOf: (id: ID) => string,
+  roleName: (id: ID) => string = () => 'role',
+): string {
+  return text.replace(
+    new RegExp(RICH_MENTION_PATTERN, 'g'),
+    (_, userId: string | undefined, special: string | undefined, roleId: string | undefined) =>
+      userId ? `@${nameOf(userId)}` : special ? `@${special}` : `@${roleName(roleId!)}`,
+  );
 }
 
 export type TextSegment = { type: 'text'; text: string } | { type: 'mention'; userId: ID };
@@ -295,6 +388,24 @@ export function parseMentions(text: string): TextSegment[] {
   for (const m of text.matchAll(new RegExp(MENTION_PATTERN, 'g'))) {
     if (m.index! > last) out.push({ type: 'text', text: text.slice(last, m.index) });
     out.push({ type: 'mention', userId: m[1]! });
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) out.push({ type: 'text', text: text.slice(last) });
+  return out;
+}
+
+export type RichTextSegment =
+  TextSegment | { type: 'everyone'; here: boolean } | { type: 'role'; roleId: ID };
+
+/** Like `parseMentions`, plus `@everyone` / `@here` / role segments (space channels). */
+export function parseRichMentions(text: string): RichTextSegment[] {
+  const out: RichTextSegment[] = [];
+  let last = 0;
+  for (const m of text.matchAll(new RegExp(RICH_MENTION_PATTERN, 'g'))) {
+    if (m.index! > last) out.push({ type: 'text', text: text.slice(last, m.index) });
+    if (m[1]) out.push({ type: 'mention', userId: m[1] });
+    else if (m[2]) out.push({ type: 'everyone', here: m[2] === 'here' });
+    else out.push({ type: 'role', roleId: m[3]! });
     last = m.index! + m[0].length;
   }
   if (last < text.length) out.push({ type: 'text', text: text.slice(last) });
@@ -436,7 +547,11 @@ export function callOutcome(
 // ---------------------------------------------------------------------------
 
 function chatNoun(kind: ChatKind): string {
-  return kind === 'channel' ? 'channel' : kind === 'announcement' ? 'community' : 'group';
+  return kind === 'channel' || kind === 'space'
+    ? 'channel'
+    : kind === 'announcement'
+      ? 'community'
+      : 'group';
 }
 
 /**
@@ -512,6 +627,8 @@ export function systemEventText(
       return `${actor} removed this group from the community "${event.communityName}"`;
     case 'message_pinned':
       return `${actor} pinned a message`;
+    case 'member_joined_space':
+      return `${actor} joined the Space`;
   }
 }
 

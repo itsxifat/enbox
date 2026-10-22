@@ -6,8 +6,9 @@ import { startBus, stopBus } from './cluster/bus.js';
 import { startLeaderElection, stopLeaderElection } from './cluster/leader.js';
 import { NODE_ID } from './cluster/node.js';
 import { startNodeHeartbeat, stopNodeHeartbeat } from './cluster/nodes.js';
-import { closeDb, initDb } from './db/index.js';
+import { closeDb, initDb, withMigrationLock } from './db/index.js';
 import { logger } from './lib/logger.js';
+import { migrateCommunitiesToSpaces } from './services/spacesMigration.js';
 import { createSocketServer } from './realtime/io.js';
 import { startPresenceReplication, stopPresenceReplication } from './realtime/presence.js';
 import { startJobs, stopJobs } from './jobs/index.js';
@@ -17,6 +18,12 @@ async function main() {
   fs.mkdirSync(config.uploadDir, { recursive: true });
   // Migrations run under an advisory lock: N processes booting together migrate once.
   await initDb({ databaseUrl: config.databaseUrl, pgliteDir: config.pgliteDir });
+  // Communities → Spaces, before anything is served (a failure aborts the boot: the deploy
+  // health check then rolls the release back). Once per cluster: same lock as migrations.
+  if (config.spacesMigrate !== 'off')
+    await withMigrationLock(() =>
+      migrateCommunitiesToSpaces({ dry: config.spacesMigrate === 'dry' }),
+    );
   // Cluster membership (docs "Cluster"): heartbeat row first (other processes must see us
   // alive before we bind call sockets), then the bus and presence replication, then the
   // jobs leader election.

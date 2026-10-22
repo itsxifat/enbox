@@ -53,7 +53,23 @@ import {
   WALLPAPER_DIM_MAX,
   WALLPAPER_PRESETS,
   WAVEFORM_MAX_SAMPLES,
+  BAN_DELETE_MESSAGE_OPTIONS,
+  BAN_REASON_MAX_LENGTH,
+  CHANNEL_NAME_MAX_LENGTH,
+  CHANNEL_TOPIC_MAX_LENGTH,
+  INVITE_MAX_AGE_OPTIONS,
+  INVITE_MAX_USES_OPTIONS,
+  MAX_AUDIT_LOG_PAGE,
+  MAX_SPACE_MEMBERS_PAGE,
+  MAX_TIMEOUT_MS,
+  MAX_VOICE_CHANNEL_PARTICIPANTS,
+  NICKNAME_MAX_LENGTH,
+  ROLE_NAME_MAX_LENGTH,
+  SLOWMODE_OPTIONS,
+  SPACE_DESCRIPTION_MAX_LENGTH,
+  SPACE_NAME_MAX_LENGTH,
 } from './constants.js';
+import { ASSIGNABLE_PERMISSIONS } from './permissions.js';
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -371,6 +387,8 @@ export const sharedChatThemeSchema = z.strictObject({
 
 export const updateChatPrefsSchema = z
   .object({
+    /** Space channels only: my notification level for the channel (null = my Space default). */
+    notifyLevel: z.enum(['all', 'mentions', 'none']).nullable(),
     /** At most MAX_PINNED_CHATS pinned chats (409 limit_reached). */
     isPinned: z.boolean(),
     isArchived: z.boolean(),
@@ -687,6 +705,232 @@ export const channelDiscoverQuerySchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Spaces (docs/design/spaces-at-scale.md)
+// ---------------------------------------------------------------------------
+
+const oneOf = <T extends readonly number[]>(values: T, what: string) =>
+  z
+    .number()
+    .int()
+    .refine((v) => (values as readonly number[]).includes(v), `Unsupported ${what}`);
+
+/** A permission bitfield: only assignable bits (permissions.ts). */
+export const permissionsSchema = z
+  .number()
+  .int()
+  .min(0)
+  .refine((v) => (v & ~ASSIGNABLE_PERMISSIONS) === 0, 'Unknown or reserved permission bits');
+
+const spaceNameSchema = z.string().trim().min(1).max(SPACE_NAME_MAX_LENGTH);
+const spaceDescriptionSchema = z.string().trim().max(SPACE_DESCRIPTION_MAX_LENGTH);
+/** Text channel names are lowercase-kebab (Discord style): spaces → '-', other symbols dropped. */
+export function normalizeTextChannelName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}_-]/gu, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+}
+const channelNameSchema = z.string().trim().min(1).max(CHANNEL_NAME_MAX_LENGTH);
+const nullableTrimmed = (max: number) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().trim().max(max).nullable(),
+  );
+
+export const createSpaceSchema = z.object({
+  name: spaceNameSchema,
+  description: spaceDescriptionSchema.optional(),
+  iconMediaId: idSchema.optional(),
+});
+
+export const updateSpaceSchema = z
+  .object({
+    name: spaceNameSchema,
+    description: nullableTrimmed(SPACE_DESCRIPTION_MAX_LENGTH),
+    iconMediaId: idSchema.nullable(),
+    bannerMediaId: idSchema.nullable(),
+    systemChannelId: idSchema.nullable(),
+    rulesChannelId: idSchema.nullable(),
+    afkChannelId: idSchema.nullable(),
+    afkTimeoutSec: oneOf([60, 300, 900, 1800, 3600] as const, 'AFK timeout'),
+    defaultNotifyLevel: z.enum(['all', 'mentions']),
+    isDiscoverable: z.boolean(),
+  })
+  .partial();
+
+export const overwriteInputSchema = z
+  .object({
+    allow: permissionsSchema,
+    deny: permissionsSchema,
+  })
+  .refine((o) => (o.allow & o.deny) === 0, 'A bit cannot be both allowed and denied');
+
+export const overwriteParamsSchema = z.object({
+  spaceId: idSchema,
+  targetType: z.enum(['role', 'member']),
+  targetId: idSchema,
+});
+
+export const createSpaceChannelSchema = z.object({
+  type: z.enum(['space_text', 'space_voice']),
+  name: channelNameSchema,
+  categoryId: idSchema.nullable().optional(),
+  topic: nullableTrimmed(CHANNEL_TOPIC_MAX_LENGTH).optional(),
+  nsfw: z.boolean().optional(),
+  slowmodeSeconds: oneOf(SLOWMODE_OPTIONS, 'slowmode').optional(),
+  userLimit: z.number().int().min(1).max(MAX_VOICE_CHANNEL_PARTICIPANTS).nullable().optional(),
+  /** Private channel: @everyone denied VIEW_CHANNEL, these roles allowed (Discord's "private channel"). */
+  privateRoleIds: z.array(idSchema).max(50).optional(),
+});
+
+export const updateSpaceChannelSchema = z
+  .object({
+    name: channelNameSchema,
+    topic: nullableTrimmed(CHANNEL_TOPIC_MAX_LENGTH),
+    nsfw: z.boolean(),
+    slowmodeSeconds: oneOf(SLOWMODE_OPTIONS, 'slowmode'),
+    userLimit: z.number().int().min(1).max(MAX_VOICE_CHANNEL_PARTICIPANTS).nullable(),
+  })
+  .partial();
+
+/** Reorder/move channels: every listed channel gets its category and position. */
+export const channelPositionsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: idSchema,
+        categoryId: idSchema.nullable(),
+        position: z.number().int().min(0).max(10_000),
+        /** Moving into another category: copy its overwrites (Discord "sync permissions"). */
+        syncPermissions: z.boolean().optional(),
+      }),
+    )
+    .min(1)
+    .max(500)
+    .refine((a) => new Set(a.map((i) => i.id)).size === a.length, 'Duplicate ids'),
+});
+
+export const createCategorySchema = z.object({
+  name: z.string().trim().min(1).max(CHANNEL_NAME_MAX_LENGTH),
+  privateRoleIds: z.array(idSchema).max(50).optional(),
+});
+
+export const updateCategorySchema = z.object({
+  name: z.string().trim().min(1).max(CHANNEL_NAME_MAX_LENGTH),
+});
+
+export const categoryPositionsSchema = z.object({
+  items: z
+    .array(z.object({ id: idSchema, position: z.number().int().min(0).max(10_000) }))
+    .min(1)
+    .max(100)
+    .refine((a) => new Set(a.map((i) => i.id)).size === a.length, 'Duplicate ids'),
+});
+
+export const createRoleSchema = z.object({
+  name: z.string().trim().min(1).max(ROLE_NAME_MAX_LENGTH),
+  color: hexColorSchema.nullable().optional(),
+  permissions: permissionsSchema.optional(),
+  hoist: z.boolean().optional(),
+  mentionable: z.boolean().optional(),
+});
+
+export const updateRoleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(ROLE_NAME_MAX_LENGTH),
+    color: hexColorSchema.nullable(),
+    permissions: permissionsSchema,
+    hoist: z.boolean(),
+    mentionable: z.boolean(),
+  })
+  .partial();
+
+/** Role order, highest first (excluding @everyone, which always stays at position 0). */
+export const rolePositionsSchema = z.object({
+  roleIds: uniqueIds(1, 250),
+});
+
+export const updateMyMemberSchema = z
+  .object({
+    nickname: nullableTrimmed(NICKNAME_MAX_LENGTH),
+    notifyLevel: z.enum(['all', 'mentions', 'none']).nullable(),
+    mutedUntil: z.iso.datetime({ offset: true }).nullable(),
+    suppressEveryone: z.boolean(),
+  })
+  .partial();
+
+export const updateMemberSchema = z
+  .object({
+    nickname: nullableTrimmed(NICKNAME_MAX_LENGTH),
+    /** The member's full role set (without @everyone). */
+    roleIds: z.array(idSchema).max(250),
+    /** Timeout until (≤ MAX_TIMEOUT_MS from now), or null to lift it. */
+    timedOutUntil: z.iso
+      .datetime({ offset: true })
+      .nullable()
+      .refine(
+        (v) => v === null || Date.parse(v) - Date.now() <= MAX_TIMEOUT_MS + 60_000,
+        'Timeouts last at most 28 days',
+      ),
+    serverMute: z.boolean(),
+    serverDeaf: z.boolean(),
+    /** Audit log reason. */
+    reason: z.string().trim().max(BAN_REASON_MAX_LENGTH).optional(),
+  })
+  .partial();
+
+export const kickMemberQuerySchema = z.object({
+  reason: optionalQueryString(BAN_REASON_MAX_LENGTH),
+});
+
+export const banSchema = z.object({
+  reason: z.string().trim().max(BAN_REASON_MAX_LENGTH).optional(),
+  /** Delete the member's messages of the last N seconds. */
+  deleteMessageSeconds: oneOf(BAN_DELETE_MESSAGE_OPTIONS, 'message deletion window').default(0),
+});
+
+export const createSpaceInviteSchema = z.object({
+  channelId: idSchema.nullable().optional(),
+  /** Seconds until it expires (0 = never). */
+  maxAgeSec: oneOf(INVITE_MAX_AGE_OPTIONS, 'invite lifetime').default(604800),
+  /** 0 = unlimited. */
+  maxUses: oneOf(INVITE_MAX_USES_OPTIONS, 'use limit').default(0),
+});
+
+export const membersQuerySchema = z.object({
+  /** Name/nickname/username prefix search. */
+  q: optionalQueryString(64),
+  /** Only members with this role. */
+  roleId: z.preprocess(blankToUndefined, idSchema.optional()),
+  after: optionalQueryString(200),
+  limit: intWithDefault(z.number().int().min(1).max(MAX_SPACE_MEMBERS_PAGE), 100),
+});
+
+export const spaceMembersBatchSchema = z.object({
+  userIds: uniqueIds(1, MAX_USERS_BATCH),
+});
+
+export const auditLogQuerySchema = z.object({
+  before: z.preprocess(blankToUndefined, idSchema.optional()),
+  action: optionalQueryString(64),
+  actorId: z.preprocess(blankToUndefined, idSchema.optional()),
+  limit: intWithDefault(z.number().int().min(1).max(MAX_AUDIT_LOG_PAGE), 50),
+});
+
+/** `space:focus` (C→S): the space channel this device has open (typing reaches it), or null. */
+export const spaceFocusSchema = z.object({
+  chatId: idSchema.nullable(),
+});
+
+/** `space:members-subscribe` (C→S): member events of this Space (member list open), or null. */
+export const spaceMembersSubscribeSchema = z.object({
+  spaceId: idSchema.nullable(),
+});
+
+// ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
 
@@ -893,6 +1137,28 @@ export type StatusReactRequest = z.input<typeof statusReactSchema>;
 export type CallLogQuery = z.input<typeof callLogQuerySchema>;
 export type PushSubscribeRequest = z.input<typeof pushSubscribeSchema>;
 export type PushUnsubscribeRequest = z.input<typeof pushUnsubscribeSchema>;
+
+export type CreateSpaceRequest = z.input<typeof createSpaceSchema>;
+export type UpdateSpaceRequest = z.input<typeof updateSpaceSchema>;
+export type OverwriteRequest = z.input<typeof overwriteInputSchema>;
+export type CreateSpaceChannelRequest = z.input<typeof createSpaceChannelSchema>;
+export type UpdateSpaceChannelRequest = z.input<typeof updateSpaceChannelSchema>;
+export type ChannelPositionsRequest = z.input<typeof channelPositionsSchema>;
+export type CreateCategoryRequest = z.input<typeof createCategorySchema>;
+export type UpdateCategoryRequest = z.input<typeof updateCategorySchema>;
+export type CategoryPositionsRequest = z.input<typeof categoryPositionsSchema>;
+export type CreateRoleRequest = z.input<typeof createRoleSchema>;
+export type UpdateRoleRequest = z.input<typeof updateRoleSchema>;
+export type RolePositionsRequest = z.input<typeof rolePositionsSchema>;
+export type UpdateMyMemberRequest = z.input<typeof updateMyMemberSchema>;
+export type UpdateMemberRequest = z.input<typeof updateMemberSchema>;
+export type BanRequest = z.input<typeof banSchema>;
+export type CreateSpaceInviteRequest = z.input<typeof createSpaceInviteSchema>;
+export type MembersQuery = z.input<typeof membersQuerySchema>;
+export type SpaceMembersBatchRequest = z.input<typeof spaceMembersBatchSchema>;
+export type AuditLogQuery = z.input<typeof auditLogQuerySchema>;
+export type SpaceFocusPayload = z.infer<typeof spaceFocusSchema>;
+export type SpaceMembersSubscribePayload = z.infer<typeof spaceMembersSubscribeSchema>;
 
 export type TypingPayload = z.infer<typeof typingPayloadSchema>;
 export type ReceiptPayload = z.infer<typeof receiptPayloadSchema>;

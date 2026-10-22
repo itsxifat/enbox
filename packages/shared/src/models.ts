@@ -247,11 +247,15 @@ export interface MediaAttachment {
  * - `group`: multi-member chat (optionally linked to a community; one per community is
  *   the announcement group).
  * - `channel`: one-to-many broadcast. Only owner/admins post; followers read and react.
+ * - `space_text` / `space_voice`: a text or voice channel of a Space (`ChatSummary.space`).
+ *   Access is computed from the Space's roles and overwrites, never from membership rows.
  */
-export type ChatType = 'direct' | 'group' | 'channel';
+export type ChatType = 'direct' | 'group' | 'channel' | SpaceChannelType;
+
+export type SpaceChannelType = 'space_text' | 'space_voice';
 
 /** A chat's kind for wording ("group" vs "channel" vs "community" texts). See `chatKindOf()`. */
-export type ChatKind = 'direct' | 'group' | 'channel' | 'announcement';
+export type ChatKind = 'direct' | 'group' | 'channel' | 'announcement' | 'space';
 
 export type MemberRole = 'owner' | 'admin' | 'member';
 
@@ -446,6 +450,16 @@ export interface ChatSummary {
   /** My private wallpaper upload (`chat_members.wallpaper_media_id`); null = none. */
   wallpaper: ChatWallpaperAttachment | null;
 
+  /** Space channels: the channel's viewer-neutral Space data (`chat:updated { space }` replaces it); null otherwise. */
+  space: SpaceChannelInfo | null;
+  /**
+   * Space channels: the viewer's permission bits in this channel (permissions.ts). Clients
+   * recompute it from `Space.roles`, `space.overwrites` and `Space.me` after any change.
+   */
+  spacePermissions: number | null;
+  /** Space channels: my notification level for this channel (null = the Space's / my Space default). */
+  notifyLevel: NotifyLevel | null;
+
   createdAt: ISODate;
   /**
    * Who created the group/channel (announcement groups: the community's creator);
@@ -551,7 +565,9 @@ export type SystemEvent =
   | { kind: 'added_to_community'; actorId: ID; communityId: ID; communityName: string }
   /** Unlinked by an admin, or the community was deactivated. */
   | { kind: 'removed_from_community'; actorId: ID; communityId: ID; communityName: string }
-  | { kind: 'message_pinned'; actorId: ID; messageId: ID };
+  | { kind: 'message_pinned'; actorId: ID; messageId: ID }
+  /** Space system channel: a member joined the Space. */
+  | { kind: 'member_joined_space'; actorId: ID };
 
 export type SystemEventKind = SystemEvent['kind'];
 
@@ -651,6 +667,10 @@ export interface Message {
   forwardCount: number;
   /** Mentioned user ids, derived by the server from the text's tokens (active members only, ≤ MAX_MENTIONS). */
   mentions: ID[];
+  /** Space channels: the text mentions @everyone or @here (and the sender was allowed to). */
+  mentionEveryone: boolean;
+  /** Space channels: mentioned role ids (mentionable roles, or any with MENTION_EVERYONE). */
+  mentionRoleIds: ID[];
   reactions: ReactionSummary[];
   editedAt: ISODate | null;
   /** Deleted for everyone: content fields are nulled and the UI shows a tombstone. */
@@ -680,6 +700,166 @@ export interface MessageInfo {
 export interface MessageSearchResult {
   message: Message;
   chat: Pick<ChatSummary, 'id' | 'type' | 'name' | 'avatarUrl' | 'peer'>;
+}
+
+// ---------------------------------------------------------------------------
+// Spaces (docs/design/spaces-at-scale.md)
+// ---------------------------------------------------------------------------
+
+export type NotifyLevel = 'all' | 'mentions' | 'none';
+
+/** A permission overwrite of a channel or category (allow & deny never overlap). */
+export interface PermissionOverwrite {
+  targetType: 'role' | 'member';
+  targetId: ID;
+  allow: number;
+  deny: number;
+}
+
+/** Viewer-neutral Space data of a space channel (`ChatSummary.space`). */
+export interface SpaceChannelInfo {
+  spaceId: ID;
+  categoryId: ID | null;
+  /** Order within its category (or among uncategorised channels). */
+  position: number;
+  topic: string | null;
+  /** Seconds a member waits between messages (0 = off; MANAGE_MESSAGES/MANAGE_CHANNELS bypass). */
+  slowmodeSeconds: number;
+  nsfw: boolean;
+  /** Voice channels: max participants (null = no limit). */
+  userLimit: number | null;
+  /** The overwrites equal its category's (editing the channel's own overwrites clears this). */
+  permissionsSynced: boolean;
+  overwrites: PermissionOverwrite[];
+}
+
+export interface SpaceRole {
+  id: ID;
+  name: string;
+  /** Lowercase `#rrggbb`, null = default colour. */
+  color: string | null;
+  /** 0 = @everyone; higher = more powerful (hierarchy). Unique within the Space. */
+  position: number;
+  permissions: number;
+  /** Shown as its own group in the member list. */
+  hoist: boolean;
+  /** Anyone may @mention it (else MENTION_EVERYONE is required). */
+  mentionable: boolean;
+  /** The @everyone role (one per Space). */
+  isDefault: boolean;
+}
+
+export interface SpaceCategory {
+  id: ID;
+  name: string;
+  position: number;
+  /** Overwrite templates copied to new channels of the category and on sync. */
+  overwrites: PermissionOverwrite[];
+}
+
+/** My membership of a Space (viewer-specific). */
+export interface SpaceMemberSelf {
+  roleIds: ID[];
+  nickname: string | null;
+  joinedAt: ISODate;
+  /** Timed out until then (cannot send, react or talk); null = not timed out. */
+  timedOutUntil: ISODate | null;
+  serverMute: boolean;
+  serverDeaf: boolean;
+  /** My default level in this Space (null = the Space's `defaultNotifyLevel`). */
+  notifyLevel: NotifyLevel | null;
+  /** The whole Space muted until then (MUTE_FOREVER_ISO = always). */
+  mutedUntil: ISODate | null;
+  /** Ignore @everyone/@here (no badge, no push). */
+  suppressEveryone: boolean;
+}
+
+/**
+ * A Space as one of its members sees it (non-members get 404). The structure (roles,
+ * categories) is viewer-neutral and broadcast to the Space room on change (`space:updated`);
+ * `me`, `myPermissions`, unread fields are mine (`space:upsert` → my user room).
+ */
+export interface Space {
+  id: ID;
+  name: string;
+  description: string | null;
+  /** Static icon (poster of an animated upload). */
+  iconUrl: string | null;
+  iconAnimatedUrl: string | null;
+  bannerUrl: string | null;
+  ownerId: ID;
+  memberCount: number;
+  /** `memberCount > LARGE_SPACE_THRESHOLD`: member events reach the member list only. */
+  large: boolean;
+  /** Where join messages and Space notices go (null = none). */
+  systemChannelId: ID | null;
+  rulesChannelId: ID | null;
+  afkChannelId: ID | null;
+  afkTimeoutSec: number;
+  defaultNotifyLevel: 'all' | 'mentions';
+  isDiscoverable: boolean;
+  /** Only for members with MANAGE_SPACE; null otherwise. */
+  vanityCode: string | null;
+  createdAt: ISODate;
+  roles: SpaceRole[];
+  categories: SpaceCategory[];
+  me: SpaceMemberSelf;
+  /** My Space-wide (base) permission bits. */
+  myPermissions: number;
+  /** Some channel I can see has messages I have not read. */
+  unread: boolean;
+  /** Unread mentions of me (users, my roles, @everyone/@here) over the channels I can see, capped. */
+  unreadMentionCount: number;
+}
+
+/** A member as listed to other members (viewer-neutral; resolve the user with `POST /users/batch`). */
+export interface SpaceMember {
+  userId: ID;
+  nickname: string | null;
+  roleIds: ID[];
+  joinedAt: ISODate;
+  timedOutUntil: ISODate | null;
+  serverMute: boolean;
+  serverDeaf: boolean;
+}
+
+export interface SpaceMemberPage {
+  members: SpaceMember[];
+  /** Cursor for the next page; null at the end. */
+  nextCursor: string | null;
+}
+
+export interface SpaceBan {
+  user: UserPublic;
+  reason: string | null;
+  bannedBy: ID | null;
+  createdAt: ISODate;
+}
+
+export interface SpaceInvite {
+  code: string;
+  spaceId: ID;
+  /** Channel the invite lands on (null = the Space's first visible channel). */
+  channelId: ID | null;
+  createdBy: ID | null;
+  /** 0 = unlimited. */
+  maxUses: number;
+  uses: number;
+  expiresAt: ISODate | null;
+  createdAt: ISODate;
+}
+
+export interface SpaceAuditEntry {
+  id: ID;
+  actorId: ID | null;
+  /** e.g. `channel.create`, `role.update`, `member.kick`, `member.ban`, `member.timeout`. */
+  action: string;
+  targetType: 'space' | 'channel' | 'category' | 'role' | 'member' | 'invite' | null;
+  targetId: ID | null;
+  /** What changed (field → [before, after]), or other details. */
+  changes: Record<string, unknown> | null;
+  reason: string | null;
+  createdAt: ISODate;
 }
 
 // ---------------------------------------------------------------------------
@@ -734,8 +914,8 @@ export interface ChannelDirectoryEntry {
 /** Preview returned for an invite link before joining. */
 export interface InvitePreview {
   code: string;
-  kind: 'group' | 'community' | 'channel';
-  /** Chat id for groups/channels, community id for communities. */
+  kind: 'group' | 'community' | 'channel' | 'space';
+  /** Chat id for groups/channels, community id for communities, Space id for Spaces. */
   id: ID;
   name: string;
   description: string | null;
@@ -750,6 +930,9 @@ export interface InvitePreview {
   canJoin: boolean;
   /** Human-readable reason when `canJoin` is false and the viewer is not a member (e.g. removed by an admin, full). */
   reason: string | null;
+  /** Spaces: banner and members online now (approximate); null otherwise. */
+  bannerUrl?: string | null;
+  onlineCount?: number | null;
 }
 
 // ---------------------------------------------------------------------------

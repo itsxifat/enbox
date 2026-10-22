@@ -40,7 +40,7 @@ import { afterNextResult, delayNextResult } from '../support/db-hooks.js';
 
 /** The connect handler's "load my active non-hidden memberships" query for `userId`. */
 const membershipsQueryOf = (userId: string) => (text: string, params: unknown[]) =>
-  /^select "chat_id" from "chat_members"/.test(text) &&
+  /^select (?:"chat_members"\.)?"chat_id" from "chat_members"/.test(text) &&
   text.includes('"hidden"') &&
   params[0] === userId;
 

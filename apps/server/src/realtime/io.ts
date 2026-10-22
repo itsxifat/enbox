@@ -1,10 +1,10 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
-import { and, eq, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { rooms } from '@enbox/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
-import { chatMembers, users } from '../db/schema.js';
+import { chatMembers, chats, users } from '../db/schema.js';
 import { logger } from '../lib/logger.js';
 import { SERVER_RATE_LIMITS, limitUser } from '../lib/userLimit.js';
 import { resolveToken } from '../services/sessions.js';
@@ -12,6 +12,12 @@ import { socketRegistrars } from '../modules/index.js';
 import { setIo } from './emit.js';
 import { afterReadyHooks, beforeReadyHooks, type ConnectHook } from './hooks.js';
 import { dropPresenceSocket, markConnected, markDisconnected, presenceEvents } from './presence.js';
+import {
+  addSocketToSpaces,
+  installSpaceRooms,
+  memberSpaceIds,
+  removeSocketFromSpaces,
+} from './spaceRegistry.js';
 import type { AppSocket, IO } from './types.js';
 
 /**
@@ -39,16 +45,22 @@ function recordLastSeen(userIds: string[], lastSeenAt: Date): void {
 // disconnect (every process hears this; `greatest` makes the repeats harmless).
 presenceEvents.on('lost', (userIds, lastSeenAt) => recordLastSeen(userIds, lastSeenAt));
 
-/** Chats whose room the user's sockets belong in: active, non-hidden memberships. */
+/**
+ * Chats whose room the user's sockets belong in: active, non-hidden memberships. Space
+ * channels have no rooms of their own (their `chat:<id>` is virtual, see spaceRegistry.ts);
+ * their chat_members rows are only read state.
+ */
 async function visibleChatIds(userId: string): Promise<string[]> {
   const rows = await db
     .select({ chatId: chatMembers.chatId })
     .from(chatMembers)
+    .innerJoin(chats, eq(chats.id, chatMembers.chatId))
     .where(
       and(
         eq(chatMembers.userId, userId),
         isNull(chatMembers.leftAt),
         eq(chatMembers.hidden, false),
+        notInArray(chats.type, ['space_text', 'space_voice']),
       ),
     );
   return rows.map((r) => r.chatId);
@@ -124,6 +136,7 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
 
     socket.on('disconnect', () => {
       dropPresenceSocket(socket.id);
+      removeSocketFromSpaces(socket.id);
       if (!counted) return; // dropped during setup: it never counted towards "online"
       counted = false;
       // The registry fires the cluster-wide transitions ('offline', or 'activity' when the
@@ -148,6 +161,18 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
         for (const chatId of joined)
           if (!current.has(chatId)) await socket.leave(rooms.chat(chatId));
       }
+      // Spaces: one room each (+ this process's registry state). Same double read: a leave
+      // published before this socket was in the room is caught by the re-read.
+      const spaceIds = await memberSpaceIds(userId);
+      if (spaceIds.length) {
+        await addSocketToSpaces(socket, spaceIds);
+        const still = new Set(await memberSpaceIds(userId));
+        const gone = spaceIds.filter((id) => !still.has(id));
+        if (gone.length) {
+          for (const id of gone) await socket.leave(rooms.space(id));
+          removeSocketFromSpaces(socket.id, gone);
+        }
+      }
     } catch (err) {
       logger.error({ err }, 'failed to join rooms');
       socket.disconnect(true);
@@ -167,6 +192,7 @@ export async function createSocketServer(httpServer: HttpServer): Promise<IO> {
     await runHooks('afterReady', afterReadyHooks(), socket);
   });
 
+  installSpaceRooms(io);
   setIo(io);
   return io;
 }

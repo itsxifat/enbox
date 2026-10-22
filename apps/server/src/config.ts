@@ -77,6 +77,8 @@ export interface Config {
     subject: string;
   };
   version: string;
+  /** Communities → Spaces conversion at boot (SPACES_MIGRATE: on | dry | off). */
+  spacesMigrate: 'on' | 'dry' | 'off';
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -115,6 +117,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
       subject: str('VAPID_SUBJECT', 'mailto:admin@enbox.local')!,
     },
     version: str('APP_VERSION', '0.1.0')!,
+    spacesMigrate: (['on', 'dry', 'off'] as const).find((v) => v === str('SPACES_MIGRATE')) ?? 'on',
   };
   return {
     ...base,

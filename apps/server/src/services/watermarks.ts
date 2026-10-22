@@ -12,13 +12,14 @@
  *   `Effects.watermarks(delta)` / `diffWatermarks`).
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { DEFAULT_USER_SETTINGS, type ChatType } from '@enbox/shared';
+import { DEFAULT_USER_SETTINGS, isSpaceChatType, type ChatType } from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../db/index.js';
 import { chatMembers, chats } from '../db/schema.js';
 import { notFound } from '../lib/errors.js';
 import { emitToUser } from '../realtime/emit.js';
 import { isOnline } from '../realtime/presence.js';
 import {
+  getChatAccess,
   getMembership,
   lockChat,
   maxVisibleSeq,
@@ -27,6 +28,7 @@ import {
   windowOf,
 } from './chats.js';
 import { Effects } from './effects.js';
+import { ensureSpaceReadRow } from './spaceAccess.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
 
 export interface Marks {
@@ -523,8 +525,17 @@ export async function advanceRead(
 ): Promise<AdvanceResult> {
   const { chatId, userId } = input;
   // Unlocked pre-check: a non-member can't queue on the chat row lock (e.g. a public channel's).
-  const pre = await getMembership(tx, chatId, userId);
-  if (!pre || pre.hidden) throw notFound('Chat');
+  const [pre] = await tx
+    .select({ type: chats.type, member: chatMembers })
+    .from(chats)
+    .leftJoin(chatMembers, and(eq(chatMembers.chatId, chats.id), eq(chatMembers.userId, userId)))
+    .where(eq(chats.id, chatId))
+    .limit(1);
+  if (pre && isSpaceChatType(pre.type)) {
+    // Space channels: access is computed (404 unless I can see it); the row is read state.
+    const access = await getChatAccess(tx, userId, chatId);
+    await ensureSpaceReadRow(tx, access.chat, userId, access.space!.me.member.joinedAt);
+  } else if (!pre?.member || pre.member.hidden) throw notFound('Chat');
   const chat = await lockChat(tx, chatId);
   const member = await getMembership(tx, chatId, userId);
   if (!member || member.hidden) throw notFound('Chat');

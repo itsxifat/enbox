@@ -70,6 +70,19 @@ export function emitToChat<E extends ServerEvent>(
   emit(op as unknown as Emitter, event, payload);
 }
 
+/** Emit to arbitrary rooms (Space rooms, focus rooms), skipping the sockets of `exceptUserIds`. */
+export function emitToRooms<E extends ServerEvent>(
+  roomNames: string[],
+  event: E,
+  payload: ServerPayload<E>,
+  opts: { exceptUserIds?: string[] } = {},
+) {
+  if (!io || roomNames.length === 0) return;
+  let op = io.to(roomNames);
+  if (opts.exceptUserIds?.length) op = op.except(opts.exceptUserIds.map(rooms.user));
+  emit(op as unknown as Emitter, event, payload);
+}
+
 export function emitToSocket<E extends ServerEvent>(
   socketId: string,
   event: E,

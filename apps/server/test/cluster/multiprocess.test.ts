@@ -259,6 +259,104 @@ describe.skipIf(!PG_ADMIN_URL || !REDIS_URL)('cluster: two processes', () => {
     );
   });
 
+  it('Spaces: channel messages cross processes through the virtual rooms; private channels stay private until a role grants access', async () => {
+    const owner = await register(A, 'sowner');
+    const member = await register(B, 'smember');
+    const so = await connect(A, owner.token);
+    const sm = await connect(B, member.token);
+    const created = await api<{ space: { id: string }; channels: { id: string; name: string }[] }>(
+      A,
+      'POST',
+      '/api/spaces',
+      owner.token,
+      { name: 'Cluster Space' },
+    );
+    expect(created.status).toBe(201);
+    const spaceId = created.body.space.id;
+    const general = created.body.channels.find((c) => c.name === 'general')!.id;
+    const inv = await api<{ code: string }>(
+      A,
+      'POST',
+      `/api/spaces/${spaceId}/invites`,
+      owner.token,
+      {},
+    );
+    const upsert = next(sm, 'space:upsert');
+    expect((await api(B, 'POST', `/api/invites/${inv.body.code}/join`, member.token)).status).toBe(
+      200,
+    );
+    await upsert;
+    await new Promise((r) => setTimeout(r, 300)); // the member's process registers the Space
+
+    const got = next<{ message: { text: string } }>(
+      sm,
+      'message:new',
+      (p) => p.message.text === 'across processes',
+    );
+    expect(
+      (
+        await api(A, 'POST', `/api/chats/${general}/messages`, owner.token, {
+          clientId: 'sp1',
+          type: 'text',
+          text: 'across processes',
+        })
+      ).status,
+    ).toBe(201);
+    expect((await got).message.text).toBe('across processes');
+
+    const role = await api<{ id: string }>(A, 'POST', `/api/spaces/${spaceId}/roles`, owner.token, {
+      name: 'Inner',
+    });
+    const secret = await api<{ id: string }>(
+      A,
+      'POST',
+      `/api/spaces/${spaceId}/channels`,
+      owner.token,
+      {
+        type: 'space_text',
+        name: 'inner',
+        privateRoleIds: [role.body.id],
+      },
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    let leaked = false;
+    const onLeak = (p: { message: { text: string } }) => {
+      if (p.message.text === 'hidden') leaked = true;
+    };
+    (sm as unknown as RawSocket).on('message:new', onLeak);
+    await api(A, 'POST', `/api/chats/${secret.body.id}/messages`, owner.token, {
+      clientId: 'sp2',
+      type: 'text',
+      text: 'hidden',
+    });
+    await new Promise((r) => setTimeout(r, 500));
+    (sm as unknown as RawSocket).off('message:new', onLeak);
+    expect(leaked).toBe(false);
+
+    const changed = next(sm, 'space:channels-changed');
+    await api(
+      A,
+      'PUT',
+      `/api/spaces/${spaceId}/members/${member.user.id}/roles/${role.body.id}`,
+      owner.token,
+    );
+    await changed;
+    await new Promise((r) => setTimeout(r, 300));
+    const visible = next<{ message: { text: string } }>(
+      sm,
+      'message:new',
+      (p) => p.message.text === 'now visible',
+    );
+    await api(A, 'POST', `/api/chats/${secret.body.id}/messages`, owner.token, {
+      clientId: 'sp3',
+      type: 'text',
+      text: 'now visible',
+    });
+    expect((await visible).message.text).toBe('now visible');
+    so.disconnect();
+    sm.disconnect();
+  }, 60_000);
+
   it('a call survives the process carrying one side: the client rejoins through the other', async () => {
     const dave = await register(A, 'dave');
     const erin = await register(B, 'erin');

@@ -33,6 +33,16 @@ export interface BusTopics {
   'presence:reevaluate': { subjectId: string; lastSeenAt: string | null };
   /** Revoked sessions: drop them from every node's token cache. */
   'sessions:invalidate': { sessionIds: string[] };
+  /** A Space's roles/channels/overwrites changed: processes with it loaded reload it. */
+  'space:invalidate': { spaceId: string };
+  /** One member's roles/timeout changed. */
+  'space:member-invalidate': { spaceId: string; userId: string };
+  /** A user joined a Space: their sockets join its room. */
+  'space:member-joined': { spaceId: string; userId: string };
+  /** A user left / was removed from a Space: their sockets leave its rooms. */
+  'space:member-left': { spaceId: string; userId: string };
+  /** A Space was deleted. */
+  'space:deleted': { spaceId: string };
 }
 
 export type BusTopic = keyof BusTopics;

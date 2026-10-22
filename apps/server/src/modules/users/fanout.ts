@@ -6,9 +6,9 @@
  * the event once.
  */
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
-import { rooms } from '@enbox/shared';
+import { LARGE_SPACE_THRESHOLD, rooms } from '@enbox/shared';
 import type { DbOrTx } from '../../db/index.js';
-import { chatMembers, chats } from '../../db/schema.js';
+import { chatMembers, chats, spaceMembers, spaces } from '../../db/schema.js';
 import { getIo } from '../../realtime/emit.js';
 import type { Effects } from '../../services/effects.js';
 import { uniq } from '../../services/sql.js';
@@ -17,6 +17,24 @@ import { usersWhoSaved } from '../../services/users.js';
 export interface UserChangedTargets {
   chatIds: string[];
   userIds: string[];
+  /** Rooms of the user's small Spaces (all members) and member-list rooms of large ones. */
+  spaceRooms?: string[];
+}
+
+/**
+ * Space rooms that hear about a member's profile change: the whole Space when it is small,
+ * only the devices with the member list open when it is large (no Space-wide fan-out of
+ * every profile edit in a 250k-member Space).
+ */
+export async function spaceRoomsOf(dbx: DbOrTx, userId: string): Promise<string[]> {
+  const rows = await dbx
+    .select({ id: spaces.id, n: spaces.memberCount })
+    .from(spaceMembers)
+    .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
+    .where(eq(spaceMembers.userId, userId));
+  return rows.map((r) =>
+    r.n > LARGE_SPACE_THRESHOLD ? rooms.spaceMembers(r.id) : rooms.space(r.id),
+  );
 }
 
 /**
@@ -43,17 +61,22 @@ export async function activeDirectAndGroupChatIds(dbx: DbOrTx, userId: string): 
 
 /** Who must hear about a profile change of `userId`. */
 export async function userChangedTargets(dbx: DbOrTx, userId: string): Promise<UserChangedTargets> {
-  const [chatIds, userIds] = await Promise.all([
+  const [chatIds, userIds, spaceRooms] = await Promise.all([
     activeDirectAndGroupChatIds(dbx, userId),
     usersWhoSaved(dbx, userId),
+    spaceRoomsOf(dbx, userId),
   ]);
-  return { chatIds, userIds };
+  return { chatIds, userIds, spaceRooms };
 }
 
 /** Emit `user:changed { userId }` once per socket in any of the target rooms. */
 export function emitUserChanged(userId: string, targets: UserChangedTargets): void {
   const io = getIo();
-  const list = uniq([...targets.chatIds.map(rooms.chat), ...targets.userIds.map(rooms.user)]);
+  const list = uniq([
+    ...targets.chatIds.map(rooms.chat),
+    ...targets.userIds.map(rooms.user),
+    ...(targets.spaceRooms ?? []),
+  ]);
   if (!io || list.length === 0) return;
   io.to(list).emit('user:changed', { userId });
 }
