@@ -29,7 +29,7 @@ publicRouter.get('/config', (_req, res) => {
     maxUploadBytes: MAX_UPLOAD_BYTES,
     version: config.version,
     publicUrl: config.publicUrl,
-    voice: null,
+    voice: config.voice.apiKey && config.voice.apiSecret ? { url: config.voice.url } : null,
     limits: {
       maxUploadBytes: MAX_UPLOAD_BYTES,
       maxAvatarBytes: MAX_AVATAR_BYTES,

@@ -104,7 +104,7 @@ export function InvitesPage({ space }: { space: Space }) {
   const { data, error, setData } = useLoad(() => api.get<SpaceInvite[]>(`/api/spaces/${space.id}/invites`), [space.id]);
   if (error) return <p className="text-danger">{error}</p>;
   if (!data) return <Spinner />;
-  if (data.length === 0) return <EmptyState title="No active invites" description="Invite people from the Space menu → Invite people." />;
+  if (data.length === 0) return <EmptyState title="No active invites" description="Invite people from the Space menu → Invite People." />;
   return (
     <div className="card-inset flex flex-col p-1">
       {data.map((inv) => (
@@ -173,6 +173,7 @@ const ACTIONS: Record<string, string> = {
   'channel.create': 'created a channel',
   'channel.update': 'updated a channel',
   'channel.delete': 'deleted a channel',
+  'channel.clone': 'cloned a channel',
   'channel.reorder': 'reordered channels',
   'channel.sync': 'synced channel permissions',
   'channel.overwrite.update': 'changed channel permissions',

@@ -54,6 +54,7 @@ export function toSpaceChannelInfo(
     slowmodeSeconds: chat.slowmodeSeconds,
     nsfw: chat.nsfw,
     userLimit: chat.userLimit,
+    bitrate: chat.bitrate,
     permissionsSynced: chat.permissionsSynced,
     overwrites,
   };
@@ -175,9 +176,9 @@ export async function spaceChannelSummariesForPairs(
               and m.sender_id is distinct from p.u and m.deleted_at is null
               and (p.u = any(m.mentions)
                    or (m.mention_everyone and not sm.suppress_everyone)
-                   or m.mention_role_ids && coalesce(
+                   or (not sm.suppress_roles and m.mention_role_ids && coalesce(
                         (select array_agg(r.role_id) from space_member_roles r
-                         where r.space_id = ch.space_id and r.user_id = p.u), '{}'::uuid[]))
+                         where r.space_id = ch.space_id and r.user_id = p.u), '{}'::uuid[])))
             order by m.seq desc limit ${SPACE_UNREAD_CAP}
           ) x
         ) mc`,

@@ -33,3 +33,25 @@ The script builds a new release, switches `/opt/enbox/current`, restarts the ins
 a time (each must answer `GET /api/health` before the next restarts) and rolls back on failure.
 Pass `--full-stop` as the second argument for a release whose boot-time migration must not run
 next to old processes (it stops every instance first).
+
+## Voice channels (LiveKit)
+
+Voice channels use a self-hosted LiveKit server next to the app (files in `deploy/livekit/`):
+
+- `/opt/livekit/livekit-server` (pinned release), run by `livekit.service` as the `livekit` user
+  with `/etc/livekit/livekit.yaml` (root:livekit 0640; the API key and secret live only there and
+  in `/etc/enbox/enbox.env` as `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`).
+- Signalling stays on 127.0.0.1:7880 and is proxied by nginx at `https://<domain>/livekit/`
+  (`/etc/nginx/snippets/enbox-livekit.conf`, included from the app snippet). Clients get
+  `LIVEKIT_URL=/livekit` from `/api/config` and connect on the page's own origin.
+- Media: UDP 7882-7892 and TCP 7881 on the LAN address, advertised as the public IP.
+  - **Relay mode** (now, `VOICE_RELAY_ONLY=true`): the router does not forward those ports, so
+    clients send media through coturn (already reachable on 3478 with relays 50000-50999). The
+    coturn guard (`/etc/enbox/coturn-guard.nft`) lets coturn reach this host only on its own relay
+    ports, its listener, and LiveKit's UDP 7882-7892.
+  - **Direct mode**: forward TCP 7881 and UDP 7882-7892 to 192.168.20.237, `ufw allow 7881/tcp`
+    and `ufw allow 7882:7892/udp`, set `VOICE_RELAY_ONLY=false`, redeploy.
+- The app keeps `voice_states` in Postgres (truth for sidebars); the jobs leader drops states of
+  dead processes and departed members; `voice:join` mints 10-minute LiveKit tokens whose publish
+  grants follow the channel permissions (SPEAK, VIDEO, STREAM) and server mute/deafen.
+- Health: `curl -fsS http://127.0.0.1:7880/` → `OK`; `journalctl -u livekit`.

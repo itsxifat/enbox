@@ -43,6 +43,13 @@
       "when": 1792671147398,
       "tag": "0005_spaces",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792686628971,
+      "tag": "0006_voice_space_options",
+      "breakpoints": true
     }
   ]
 }

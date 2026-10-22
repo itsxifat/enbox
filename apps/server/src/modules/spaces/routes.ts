@@ -20,6 +20,7 @@ import {
   rooms,
   categoryPositionsSchema,
   channelPositionsSchema,
+  cloneSpaceChannelSchema,
   createCategorySchema,
   createRoleSchema,
   createSpaceChannelSchema,
@@ -37,7 +38,6 @@ import {
   type ChatSummary,
   type PermissionOverwrite,
   type SpaceDetail,
-  type SpaceInfoChanges,
 } from '@enbox/shared';
 import { z } from 'zod';
 import { db } from '../../db/index.js';
@@ -51,10 +51,11 @@ import {
   spaces,
 } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
-import { badRequest, forbidden, limitReached, notFound } from '../../lib/errors.js';
+import { HttpError, badRequest, forbidden, limitReached, notFound } from '../../lib/errors.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
 import { parse } from '../../lib/validate.js';
 import { transact } from '../../services/effects.js';
+import { advanceRead } from '../../services/watermarks.js';
 import { runChatDeletionHooks } from '../../services/hooks.js';
 import {
   requireAvatarMedia,
@@ -70,7 +71,7 @@ import {
   requireSpaceMember,
   requireSpacePermission,
 } from '../../services/spaceAccess.js';
-import { emitToRooms } from '../../realtime/emit.js';
+import { emitToRooms, emitToUser } from '../../realtime/emit.js';
 import { spaceDeleted } from '../../realtime/spaceRegistry.js';
 import {
   audit,
@@ -86,6 +87,7 @@ import {
   toSpace,
   toSpaceRole,
   toSpaces,
+  type SpaceSettingsChanges,
 } from '../../services/spaces.js';
 import {
   spaceChannelSummaries,
@@ -198,7 +200,7 @@ router.patch('/spaces/:spaceId', async (req, res) => {
     await lockSpace(tx, spaceId);
     await requireSpacePermission(tx, spaceId, me, PERM.MANAGE_SPACE);
     const patch: Partial<typeof spaces.$inferInsert> = {};
-    const changes: SpaceInfoChanges = {};
+    const changes: SpaceSettingsChanges = {};
     if (body.name !== undefined) patch.name = changes.name = body.name;
     if (body.description !== undefined) patch.description = changes.description = body.description;
     if (body.iconMediaId !== undefined) {
@@ -228,6 +230,11 @@ router.patch('/spaces/:spaceId', async (req, res) => {
       patch.defaultNotifyLevel = changes.defaultNotifyLevel = body.defaultNotifyLevel;
     if (body.isDiscoverable !== undefined)
       patch.isDiscoverable = changes.isDiscoverable = body.isDiscoverable;
+    if (body.systemFlags !== undefined) patch.systemFlags = changes.systemFlags = body.systemFlags;
+    if (body.verificationLevel !== undefined)
+      patch.verificationLevel = changes.verificationLevel = body.verificationLevel;
+    if (body.explicitFilter !== undefined)
+      patch.explicitFilter = changes.explicitFilter = body.explicitFilter;
     if (Object.keys(patch).length === 0) return;
     const [row] = await tx
       .update(spaces)
@@ -288,6 +295,34 @@ router.post('/spaces/:spaceId/leave', async (req, res) => {
       throw forbidden('Transfer ownership to someone else before leaving your Space');
     await removeSpaceMemberTx(tx, fx, spaceId, me, 'left');
   });
+  res.status(204).end();
+});
+
+/** Mark Space read, per user (each call reads ≤ MAX_SPACE_CHANNELS channels). */
+const MARK_SPACE_READ_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
+// POST /spaces/:spaceId/read → 204: every channel I can see is read up to its last message
+// (the read service per channel, one short transaction each: chat:read → my devices), then
+// space:upsert → me so the rail's unread aggregate clears on every device.
+router.post('/spaces/:spaceId/read', async (req, res) => {
+  const me = authUserId(req);
+  const { spaceId } = parse(P.space, req.params);
+  assertUserLimit(me, 'spaceMarkRead', MARK_SPACE_READ_LIMIT);
+  await requireSpaceMember(db, spaceId, me);
+  const unread = (await spaceChannelSummaries(db, me, spaceId))
+    .filter((c) => c.lastSeq > c.lastReadSeq || c.unreadCount > 0 || c.markedUnread)
+    // Chat-first lock order: one channel at a time, in id order.
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  for (const c of unread) {
+    try {
+      await transact((tx, fx) => advanceRead(tx, fx, { chatId: c.id, userId: me, seq: c.lastSeq }));
+    } catch (e) {
+      // A channel deleted or hidden from me meanwhile: nothing to read there.
+      if (!(e instanceof HttpError && e.status === 404)) throw e;
+    }
+  }
+  const space = await toSpace(db, me, spaceId);
+  if (space) emitToUser(me, 'space:upsert', { space });
   res.status(204).end();
 });
 
@@ -398,6 +433,7 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
         nsfw: body.nsfw ?? false,
         slowmodeSeconds: body.type === 'space_text' ? (body.slowmodeSeconds ?? 0) : 0,
         userLimit: body.type === 'space_voice' ? (body.userLimit ?? null) : null,
+        bitrate: body.type === 'space_voice' ? (body.bitrate ?? null) : null,
         permissionsSynced: synced,
         createdBy: me,
       })
@@ -499,6 +535,7 @@ router.patch('/spaces/:spaceId/channels/:chatId', async (req, res) => {
       patch.slowmodeSeconds = body.slowmodeSeconds;
     if (body.userLimit !== undefined && chat.type === 'space_voice')
       patch.userLimit = body.userLimit;
+    if (body.bitrate !== undefined && chat.type === 'space_voice') patch.bitrate = body.bitrate;
     if (Object.keys(patch).length === 0) return;
     const [fresh] = await tx
       .update(chats)
@@ -676,6 +713,57 @@ router.post('/spaces/:spaceId/channels/:chatId/sync', async (req, res) => {
     await overwritesChangedFx(tx, fx, chat, overwrites);
   });
   res.json(await channelSummary(me, chatId).catch(() => null));
+});
+
+// POST /spaces/:spaceId/channels/:chatId/clone (MANAGE_CHANNELS, and in the channel) → ChatSummary (201).
+// Same type, topic, age restriction, slowmode, user limit, bitrate, category and overwrites;
+// added at the end of its category. space:channels-changed → room.
+router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
+  const me = authUserId(req);
+  const { spaceId, chatId } = parse(P.channel, req.params);
+  const body = parse(cloneSpaceChannelSchema, req.body ?? {});
+  assertUserLimit(me, 'spaceChannelUpdate', USER_RATE_LIMITS.spaceChannelUpdate);
+  const newId = await transact(async (tx, fx) => {
+    await lockSpace(tx, spaceId);
+    const access = await requireSpacePermission(tx, spaceId, me, PERM.MANAGE_CHANNELS);
+    const source = await requireSpaceChannel(tx, spaceId, chatId);
+    const { overwrites } = await requireChannelBit(tx, access, me, source, PERM.MANAGE_CHANNELS);
+    const [n] = await tx.select({ n: count() }).from(chats).where(eq(chats.spaceId, spaceId));
+    if (Number(n?.n ?? 0) >= MAX_SPACE_CHANNELS)
+      throw limitReached(`A Space can have at most ${MAX_SPACE_CHANNELS} channels`);
+    const type = source.type as 'space_text' | 'space_voice';
+    const [chat] = await tx
+      .insert(chats)
+      .values({
+        type,
+        name: body.name ? channelName(type, body.name) : source.name,
+        spaceId,
+        categoryId: source.categoryId,
+        position: await nextChannelPosition(tx, spaceId, source.categoryId),
+        topic: source.topic,
+        nsfw: source.nsfw,
+        slowmodeSeconds: source.slowmodeSeconds,
+        userLimit: source.userLimit,
+        bitrate: source.bitrate,
+        permissionsSynced: source.permissionsSynced,
+        createdBy: me,
+      })
+      .returning();
+    await setChannelOverwrites(tx, chat!.id, overwrites);
+    await bumpPermVersion(tx, spaceId);
+    await audit(tx, {
+      spaceId,
+      actorId: me,
+      action: 'channel.clone',
+      targetType: 'channel',
+      targetId: chat!.id,
+      changes: { name: chat!.name, type, clonedFrom: chatId },
+    });
+    fxStructureChanged(fx, spaceId);
+    fxChannelsChanged(fx, spaceId);
+    return chat!.id;
+  });
+  res.status(201).json(await channelSummary(me, newId));
 });
 
 // ---------------------------------------------------------------------------

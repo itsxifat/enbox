@@ -55,6 +55,16 @@ export default defineConfig({
         LOG_LEVEL: 'warn',
         NODE_ENV: 'development',
         PUBLIC_URL: `http://localhost:${webPort}`,
+        // Voice e2e (e2e/voice.spec.ts) runs only against a LiveKit server you start yourself,
+        // e.g. `livekit-server --dev` with LIVEKIT_URL=ws://127.0.0.1:7880, devkey / secret.
+        ...(process.env.LIVEKIT_API_KEY
+          ? {
+              LIVEKIT_URL: process.env.LIVEKIT_URL ?? 'ws://127.0.0.1:7880',
+              LIVEKIT_API_URL: process.env.LIVEKIT_API_URL ?? 'http://127.0.0.1:7880',
+              LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY,
+              LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? '',
+            }
+          : {}),
       },
     },
     {

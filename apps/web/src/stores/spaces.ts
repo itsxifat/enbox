@@ -53,7 +53,11 @@ export interface SpacesState {
   refetchChannels(id: ID, opts?: { jitterMs?: number }): void;
   upsertSpace(space: Space): void;
   removeSpace(id: ID): void;
-  applySpaceUpdate(id: ID, changes: SpaceInfoChanges): void;
+  /** Shallow-merge viewer-neutral changes (also the Space options events.ts does not list yet). */
+  applySpaceUpdate(
+    id: ID,
+    changes: SpaceInfoChanges & Partial<Pick<Space, 'systemFlags' | 'verificationLevel' | 'explicitFilter'>>,
+  ): void;
   /** Recompute my base bits and every loaded channel's bits/permissions of the Space. */
   recompute(id: ID): void;
   upsertMembers(spaceId: ID, members: SpaceMember[]): void;
@@ -384,13 +388,22 @@ export function topColoredRole(space: Space | undefined, roleIds: readonly ID[] 
   return best;
 }
 
-/** Whether a message mentions me in a space channel (user, my roles, @everyone/@here). */
+/**
+ * Whether a message mentions me in a space channel (user, my roles, @everyone/@here), minus
+ * what I suppress in that Space (@everyone/@here, role mentions) — like the server's counts.
+ */
 export function mentionsMe(message: Message, chat: Pick<ChatSummary, 'space'>, me: ID): boolean {
   if (message.mentions.includes(me)) return true;
   const space = chat.space ? useSpaces.getState().byId[chat.space.spaceId] : undefined;
   if (!space) return false;
   if (message.mentionEveryone && !space.me.suppressEveryone) return true;
+  if (space.me.suppressRoles) return false;
   return message.mentionRoleIds.some((r) => space.me.roleIds.includes(r));
+}
+
+/** The whole Space is muted for me (no unread pill, dimmed in the rail). */
+export function isSpaceMuted(space: Pick<Space, 'me'>, now = Date.now()): boolean {
+  return !!space.me.mutedUntil && Date.parse(space.me.mutedUntil) > now;
 }
 
 /** The effective notification level of a space channel for me. */
@@ -399,12 +412,16 @@ export function notifyLevelOf(chat: Pick<ChatSummary, 'space' | 'notifyLevel'>):
   return chat.notifyLevel ?? space?.me.notifyLevel ?? space?.defaultNotifyLevel ?? 'mentions';
 }
 
-/** Rail badges: unread dot / mention count per Space from its loaded channels (else the server aggregate). */
-export function useSpaceBadge(space: Space): { unread: boolean; mentions: number } {
+/**
+ * Rail badges: unread dot / mention count per Space from its loaded channels (else the server
+ * aggregate). A muted Space shows no unread dot (Discord); mentions of me still count.
+ */
+export function useSpaceBadge(space: Space): { unread: boolean; mentions: number; muted: boolean } {
   const byId = useChats((s) => s.byId);
   const loaded = useSpaces((s) => !!s.channelsLoaded[space.id]);
+  const muted = isSpaceMuted(space);
   return useMemo(() => {
-    if (!loaded) return { unread: space.unread, mentions: space.unreadMentionCount };
+    if (!loaded) return { unread: space.unread && !muted, mentions: space.unreadMentionCount, muted };
     let unread = false;
     let mentions = 0;
     for (const c of Object.values(byId)) {
@@ -412,8 +429,8 @@ export function useSpaceBadge(space: Space): { unread: boolean; mentions: number
       if (c.lastSeq > c.lastReadSeq && !(c.mutedUntil && Date.parse(c.mutedUntil) > Date.now())) unread = true;
       mentions += c.unreadMentionCount;
     }
-    return { unread, mentions };
-  }, [byId, loaded, space.id, space.unread, space.unreadMentionCount]);
+    return { unread: unread && !muted, mentions, muted };
+  }, [byId, loaded, muted, space.id, space.unread, space.unreadMentionCount]);
 }
 
 /** Spaces tab badge: total mentions (or a dot for unread messages) across my unmuted Spaces. */

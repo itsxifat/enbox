@@ -39,7 +39,7 @@ export function ActionSheet({ open, onClose, title, header, items, ...aria }: Ac
                 disabled={entry.disabled}
                 onClick={() => {
                   onClose();
-                  entry.onSelect();
+                  entry.onSelect?.();
                 }}
                 className={cn(
                   'flex w-full items-center gap-4 px-6 py-3 text-left text-[15px] outline-none',

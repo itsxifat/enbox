@@ -79,6 +79,17 @@ export interface Config {
   version: string;
   /** Communities → Spaces conversion at boot (SPACES_MIGRATE: on | dry | off). */
   spacesMigrate: 'on' | 'dry' | 'off';
+  /** Voice channels on a LiveKit media server; on when the API key and secret are set. */
+  voice: {
+    apiKey: string | undefined;
+    apiSecret: string | undefined;
+    /** Server → LiveKit HTTP API (removing participants, reconciling rooms). */
+    apiUrl: string;
+    /** What clients connect to: a path on the app origin (proxied by nginx) or a wss:// URL. */
+    url: string;
+    /** Clients send media through TURN only (the media server's ports are not reachable). */
+    relayOnly: boolean;
+  };
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -118,12 +129,20 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     },
     version: str('APP_VERSION', '0.1.0')!,
     spacesMigrate: (['on', 'dry', 'off'] as const).find((v) => v === str('SPACES_MIGRATE')) ?? 'on',
+    voice: {
+      apiKey: str('LIVEKIT_API_KEY'),
+      apiSecret: str('LIVEKIT_API_SECRET'),
+      apiUrl: str('LIVEKIT_API_URL', 'http://127.0.0.1:7880')!,
+      url: str('LIVEKIT_URL', '/livekit')!,
+      relayOnly: str('VOICE_RELAY_ONLY') === 'true',
+    },
   };
   return {
     ...base,
     ...overrides,
     ice: { ...base.ice, ...overrides.ice },
     vapid: { ...base.vapid, ...overrides.vapid },
+    voice: { ...base.voice, ...overrides.voice },
   };
 }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Ban, Clock, LogOut, Shield, User, UserPen } from 'lucide-react';
+import { Ban, Clock, Crown, LogOut, Shield, User, UserPen } from 'lucide-react';
 import {
   PERM,
   canActOn,
@@ -13,7 +13,7 @@ import { Button, Checkbox, Field, Input, Menu, Modal, Textarea, choose, confirm,
 import { openProfile } from '@/features/profile/open';
 import { useMe } from '@/stores/auth';
 import { useUsers } from '@/stores/users';
-import { banMember, kickMember, setMemberRole, updateMember } from './actions';
+import { banMember, kickMember, setMemberRole, transferOwnership, updateMember } from './actions';
 
 const TIMEOUTS = [
   { id: '60', label: '60 seconds', ms: 60_000 },
@@ -57,7 +57,7 @@ export function MemberActionsMenu({
   onClose: () => void;
 }) {
   const me = useMe();
-  const [dialog, setDialog] = useState<'nickname' | 'roles' | 'ban' | null>(null);
+  const [dialog, setDialog] = useState<'nickname' | 'roles' | 'ban' | 'transfer' | null>(null);
   const can = me ? memberAbilities(space, me.id, member) : null;
   const name = nameOf(member);
 
@@ -102,6 +102,10 @@ export function MemberActionsMenu({
             ),
         },
         can.ban && { label: `Ban ${name}`, icon: Ban, danger: true, onSelect: () => setDialog('ban') },
+        // Discord: only the owner, to someone else.
+        space.ownerId === me?.id && member.userId !== me?.id && 'separator',
+        space.ownerId === me?.id &&
+          member.userId !== me?.id && { label: 'Transfer Ownership', icon: Crown, danger: true, onSelect: () => setDialog('transfer') },
       ]
     : [];
 
@@ -111,6 +115,7 @@ export function MemberActionsMenu({
       {dialog === 'nickname' ? <NicknameForMember space={space} member={member} onClose={onClose} /> : null}
       {dialog === 'roles' && can ? <RolesForMember space={space} member={member} myTop={can.myTop} onClose={onClose} /> : null}
       {dialog === 'ban' ? <BanDialog space={space} member={member} onClose={onClose} /> : null}
+      {dialog === 'transfer' ? <TransferDialog space={space} member={member} onClose={onClose} /> : null}
     </>
   );
 }
@@ -207,6 +212,39 @@ function BanDialog({ space, member, onClose }: { space: Space; member: SpaceMemb
       <div className="mt-3">
         <Checkbox checked={purge} onChange={setPurge} label="Delete their messages from the last 24 hours" />
       </div>
+    </Modal>
+  );
+}
+
+/** Discord's Transfer Ownership: the owner acknowledges that the Space becomes theirs. */
+function TransferDialog({ space, member, onClose }: { space: Space; member: SpaceMember; onClose: () => void }) {
+  const [ack, setAck] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const name = nameOf(member);
+  const transfer = async () => {
+    setBusy(true);
+    try {
+      await transferOwnership(space.id, member.userId);
+      toast.success(`${name} now owns ${space.name}`);
+      onClose();
+    } catch (e) {
+      toast.error(e);
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Transfer Ownership"
+      description={`${name} becomes the owner of ${space.name}. Only they can transfer it back or delete the Space.`}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="danger" loading={busy} disabled={!ack} onClick={() => void transfer()}>Transfer Ownership</Button></>}
+    >
+      <Checkbox
+        checked={ack}
+        onChange={setAck}
+        label={`I acknowledge that by transferring ownership of this Space to ${name}, it officially belongs to them.`}
+      />
     </Modal>
   );
 }

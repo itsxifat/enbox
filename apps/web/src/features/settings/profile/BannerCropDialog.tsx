@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { ZoomIn, ZoomOut } from 'lucide-react';
-import type { ImageInfo } from '@enbox/shared';
+import type { ImageInfo, MediaAttachment } from '@enbox/shared';
 import { Button, Modal, Spinner, toast } from '@/components/ui';
 import { errorMessage } from '@/lib/api';
 import { probeImageFile } from '@/lib/media';
@@ -17,7 +17,9 @@ import {
   renderBanner,
   renderBannerPoster,
   uploadAnimatedBanner,
+  uploadAnimatedBannerMedia,
   uploadBanner,
+  uploadBannerMedia,
   zoomCrop,
   type CropState,
   type ImageSize,
@@ -40,6 +42,11 @@ export interface BannerCropDialogProps {
   file: File | null;
   onClose: () => void;
   onDone?: () => void;
+  /**
+   * Save the uploaded banner somewhere other than my profile (a Space banner): called with the
+   * media, and the profile is left alone.
+   */
+  onUploaded?: (media: MediaAttachment) => Promise<void>;
 }
 
 /**
@@ -48,7 +55,7 @@ export interface BannerCropDialogProps {
  * renders (JPEG ≤ MAX_BANNER_BYTES), uploads and saves it; an animated image goes up whole
  * with the cropped still as its poster.
  */
-export function BannerCropDialog({ file, onClose, onDone }: BannerCropDialogProps) {
+export function BannerCropDialog({ file, onClose, onDone, onUploaded }: BannerCropDialogProps) {
   const [viewport, setViewport] = useState<Viewport>(viewportFor);
   const [src, setSrc] = useState<string | null>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -180,10 +187,13 @@ export function BannerCropDialog({ file, onClose, onDone }: BannerCropDialogProp
       const rect = cropRect(crop, size, viewport);
       if (info?.animated) {
         // The crop frames the still only; the animation is uploaded whole (stripped).
-        await uploadAnimatedBanner(file, info, await renderBannerPoster(img, rect), setProgress);
+        const poster = await renderBannerPoster(img, rect);
+        if (onUploaded) await onUploaded(await uploadAnimatedBannerMedia(file, info, poster, setProgress));
+        else await uploadAnimatedBanner(file, info, poster, setProgress);
       } else {
         const { blob, width, height } = await renderBanner(img, rect);
-        await uploadBanner(blob, { width, height }, setProgress);
+        if (onUploaded) await onUploaded(await uploadBannerMedia(blob, { width, height }, setProgress));
+        else await uploadBanner(blob, { width, height }, setProgress);
       }
       toast.success('Banner updated');
       onDone?.();

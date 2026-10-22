@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Bell, Hash, Search, Settings, Users, Volume2 } from 'lucide-react';
+import { ArrowLeft, Bell, Hash, Search, Settings, Users } from 'lucide-react';
 import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
 import { EmptyState, IconButton, PageSpinner, Sheet } from '@/components/ui';
 import { Conversation } from '@/features/conversation/ConversationPane';
 import { useConversationUi } from '@/features/conversation/state';
+import { VoiceChannelView } from '@/features/voice/VoiceChannelView';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { focusSpaceChannel } from '@/realtime/spaces';
 import { useChat, useChats } from '@/stores/chats';
@@ -79,29 +80,6 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
   );
 }
 
-function VoiceChannel({ chat, space }: { chat: ChatSummary; space: Space }) {
-  const desktop = useIsDesktop();
-  const navigate = useNavigate();
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2 px-3">
-        {desktop ? null : (
-          <IconButton icon={ArrowLeft} label="Back" variant="ghost" onClick={() => navigate(`/spaces/${space.id}`)} />
-        )}
-        <Volume2 size={22} className="text-muted" aria-hidden />
-        <h1 className="truncate text-[16px] font-bold">{chat.name}</h1>
-      </header>
-      <div className="flex flex-1 items-center justify-center p-6">
-        <EmptyState
-          icon={Volume2}
-          title={chat.name ?? 'Voice channel'}
-          description="Voice channels are being switched on next: talk, share your screen and video right here."
-        />
-      </div>
-    </div>
-  );
-}
-
 /** /spaces/:spaceId/:chatId — a text channel (the shared conversation view) or a voice channel. */
 export function SpaceChannelPane() {
   const { spaceId, chatId } = useParams<{ spaceId: string; chatId: string }>();
@@ -127,7 +105,7 @@ export function SpaceChannelPane() {
     return <Navigate to={space ? `/spaces/${spaceId}` : '/spaces'} replace />;
   }
   if (chat.space?.spaceId !== space.id) return <Navigate to={`/spaces/${chat.space?.spaceId ?? ''}/${chat.id}`} replace />;
-  if (chat.type === 'space_voice') return <VoiceChannel chat={chat} space={space} />;
+  if (chat.type === 'space_voice') return <VoiceChannelView chat={chat} space={space} />;
   const seq = Number(params.get('m'));
   const target = Number.isInteger(seq) && seq > 0 ? { seq, messageId: params.get('mid') ?? undefined } : null;
   return <Conversation key={chat.id} chat={chat} initialTarget={target} header={<ChannelHeader chat={chat} space={space} />} />;

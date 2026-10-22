@@ -2,8 +2,9 @@
  * Pushes for messages in space channels (docs/design/spaces-at-scale.md "Push and mentions").
  *
  * Targets, from one bounded query (≤ PUSH_SPACE_ALL_CAP, only users with a push
- * subscription): mentioned users, members of mentioned roles, everyone for @everyone/@here
- * (unless they suppress it), and members whose notification level is 'all'. The level chain
+ * subscription): mentioned users, members of mentioned roles and everyone for @everyone/@here
+ * (unless they suppress role or @everyone mentions in that Space), and members whose
+ * notification level is 'all'. The level chain
  * is channel row → member → Space default ('mentions' by default); 'none' never pushes,
  * 'mentions' only for mentions. Then: not muted (Space or channel), not in DND, group
  * notifications on, and VIEW_CHANNEL (computed like everywhere else).
@@ -62,16 +63,18 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
     sql`select sm.user_id, sm.notify_level as s_level, sm.muted_until as s_muted,
                cm.notify_level as c_level, cm.muted_until as c_muted,
                (sm.user_id = any(${uuidArray(mentions)})
-                or exists (select 1 from space_member_roles r where r.space_id = sm.space_id
-                           and r.user_id = sm.user_id and r.role_id = any(${uuidArray(roleIds)}))
+                or (not sm.suppress_roles and exists (select 1 from space_member_roles r
+                    where r.space_id = sm.space_id and r.user_id = sm.user_id
+                      and r.role_id = any(${uuidArray(roleIds)})))
                 or (${everyone} and not sm.suppress_everyone)) as mentioned
         from space_members sm
         left join chat_members cm on cm.chat_id = ${chat.id} and cm.user_id = sm.user_id
         where sm.space_id = ${chat.spaceId} and sm.user_id <> ${message.senderId}
           and exists (select 1 from push_subscriptions ps where ps.user_id = sm.user_id)
           and (sm.user_id = any(${uuidArray(mentions)})
-               or exists (select 1 from space_member_roles r where r.space_id = sm.space_id
-                          and r.user_id = sm.user_id and r.role_id = any(${uuidArray(roleIds)}))
+               or (not sm.suppress_roles and exists (select 1 from space_member_roles r
+                   where r.space_id = sm.space_id and r.user_id = sm.user_id
+                     and r.role_id = any(${uuidArray(roleIds)})))
                or (${everyone} and not sm.suppress_everyone)
                or coalesce(cm.notify_level, sm.notify_level, ${space.default_notify_level}) = 'all')
         limit ${PUSH_SPACE_ALL_CAP}`,

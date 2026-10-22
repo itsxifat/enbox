@@ -32,6 +32,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -332,6 +333,12 @@ export const spaces = pgTable(
     permVersion: integer('perm_version').notNull().default(0),
     /** The community this Space was converted from (conversion idempotency). */
     legacyCommunityId: uuid('legacy_community_id'),
+    /** SPACE_SYSTEM_FLAGS bits: which system messages are suppressed in the system channel. */
+    systemFlags: integer('system_flags').notNull().default(0),
+    /** 0 none, 1 low (verified email), 2 medium (+5 min account), 3 high (+10 min member), 4 highest (phone). */
+    verificationLevel: smallint('verification_level').notNull().default(0),
+    /** 0 off, 1 members without roles, 2 everyone: scan media for explicit content. */
+    explicitFilter: smallint('explicit_filter').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -371,6 +378,9 @@ export const spaceMembers = pgTable(
     notifyLevel: text('notify_level').$type<NotifyLevel>(),
     mutedUntil: ts('muted_until'),
     suppressEveryone: boolean('suppress_everyone').notNull().default(false),
+    suppressRoles: boolean('suppress_roles').notNull().default(false),
+    /** Hide channels I muted from my sidebar. */
+    hideMutedChannels: boolean('hide_muted_channels').notNull().default(false),
   },
   (t) => [
     primaryKey({ columns: [t.spaceId, t.userId] }),
@@ -463,6 +473,40 @@ export const spaceChannelOverwrites = pgTable(
     index('space_channel_overwrites_target_idx').on(t.targetId),
     check('space_channel_overwrites_type_ck', sql`${t.targetType} in ('role', 'member')`),
     check('space_channel_overwrites_bits_ck', sql`(${t.allow} & ${t.deny}) = 0`),
+  ],
+);
+
+/**
+ * Who is in which voice channel (Discord voice states): one row per account, so joining
+ * another channel moves you. Truth for sidebars and permission checks; the media server
+ * (LiveKit) is reconciled against it by the jobs leader.
+ */
+export const voiceStates = pgTable(
+  'voice_states',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    /** Socket that joined (a new join from another device takes over). */
+    socketId: text('socket_id').notNull(),
+    nodeId: text('node_id').notNull(),
+    selfMute: boolean('self_mute').notNull().default(false),
+    selfDeaf: boolean('self_deaf').notNull().default(false),
+    selfVideo: boolean('self_video').notNull().default(false),
+    selfStream: boolean('self_stream').notNull().default(false),
+    joinedAt: ts('joined_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('voice_states_channel_idx').on(t.channelId),
+    index('voice_states_space_idx').on(t.spaceId),
+    index('voice_states_node_idx').on(t.nodeId),
   ],
 );
 
@@ -646,6 +690,8 @@ export const chats = pgTable(
     nsfw: boolean('nsfw').notNull().default(false),
     /** Voice channels: max participants (null = none). */
     userLimit: integer('user_limit'),
+    /** Voice channels: audio bitrate in bit/s (null = VOICE_DEFAULT_BITRATE). */
+    bitrate: integer('bitrate'),
     /** The channel's overwrites equal its category's. */
     permissionsSynced: boolean('permissions_synced').notNull().default(true),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),

@@ -1,0 +1,31 @@
+# LiveKit media server for Enbox voice channels (docs/design/discord-parity.md W8).
+# Installed as /etc/livekit/livekit.yaml (root:livekit 0640); keys must match LIVEKIT_API_KEY /
+# LIVEKIT_API_SECRET in /etc/enbox/enbox.env.
+#
+# Signalling: 127.0.0.1:7880, proxied by nginx at https://<domain>/livekit/ (no public port).
+# Media: UDP 7882-7892 and TCP 7881 on the LAN address, advertised as the public IP.
+#   - relay mode (VOICE_RELAY_ONLY=true, router ports not forwarded): clients send media through
+#     coturn, which reaches these ports on this host (allowed in /etc/enbox/coturn-guard.nft);
+#   - direct mode: forward TCP 7881 and UDP 7882-7892 on the router to this host, allow them
+#     in ufw, and set VOICE_RELAY_ONLY=false.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+  - 192.168.20.237
+rtc:
+  tcp_port: 7881
+  port_range_start: 7882
+  port_range_end: 7892
+  use_external_ip: false
+  node_ip: 103.129.209.29
+keys:
+  REPLACE_WITH_API_KEY: REPLACE_WITH_API_SECRET
+room:
+  empty_timeout: 300
+  departure_timeout: 20
+  max_participants: 100
+turn:
+  enabled: false
+logging:
+  level: info
+  json: true

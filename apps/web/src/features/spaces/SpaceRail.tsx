@@ -4,11 +4,12 @@ import { Compass, Plus } from 'lucide-react';
 import { chatTitle, isMuted, type ChatSummary, type Space } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { LogoMark } from '@/components/common/Logo';
-import { Avatar, Badge } from '@/components/ui';
+import { Avatar, Badge, Menu, contextMenuAnchor, type MenuAnchor } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { isChatUnread, useSortedChats, useUnreadChatsCount } from '@/stores/chats';
 import { useSpaceBadge, useSpaceList } from '@/stores/spaces';
 import { spaceMemory } from './actions';
+import { useSpaceMenu } from './menus';
 import { CreateSpaceDialog } from './dialogs/CreateSpaceDialog';
 import { JoinSpaceDialog } from './dialogs/JoinSpaceDialog';
 
@@ -23,72 +24,97 @@ export function spaceAcronym(name: string): string {
 const TIP =
   'pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-lg bg-fg px-2.5 py-1.5 text-[13px] font-semibold whitespace-nowrap text-surface opacity-0 shadow-elevated transition-opacity duration-100 group-hover/tile:opacity-100 group-focus-visible/tile:opacity-100';
 
+/**
+ * A Space in the rail. Right-click (or Shift+F10 / the Menu key) opens Discord's server
+ * menu; a muted Space is dimmed and shows no unread pill (mentions of me still count).
+ */
 function SpaceTile({ space, active }: { space: Space; active: boolean }) {
   const badge = useSpaceBadge(space);
   const last = spaceMemory.lastChannel(space.id);
-  const label = badge.mentions
-    ? `${space.name}, ${badge.mentions} mention${badge.mentions === 1 ? '' : 's'}`
-    : badge.unread
-      ? `${space.name}, unread messages`
-      : space.name;
+  const menu = useSpaceMenu(space);
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
+  const label = [
+    space.name,
+    badge.mentions ? `${badge.mentions} mention${badge.mentions === 1 ? '' : 's'}` : badge.unread ? 'unread messages' : null,
+    badge.muted ? 'muted' : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
   return (
-    <NavLink
-      to={last ? `/spaces/${space.id}/${last}` : `/spaces/${space.id}`}
-      aria-label={label}
-      aria-current={active ? 'page' : undefined}
-      className="group/tile relative flex size-12 shrink-0 items-center justify-center outline-none"
-      data-testid="space-tile"
-    >
-      {/* Discord pill: tall when current, medium when unread, a nub on hover. */}
-      <span
-        aria-hidden
-        className={cn(
-          'absolute top-1/2 -left-3 w-1 -translate-y-1/2 rounded-r-full bg-fg transition-[height,opacity] duration-200',
-          active ? 'h-9 opacity-100' : badge.unread ? 'h-2 opacity-100 group-hover/tile:h-5' : 'h-2 opacity-0 group-hover/tile:h-5 group-hover/tile:opacity-100',
-        )}
-      />
-      <span
-        className={cn(
-          'overflow-hidden transition-[border-radius] duration-200 group-focus-visible/tile:outline-2 group-focus-visible/tile:outline-offset-2 group-focus-visible/tile:outline-brand',
-          active ? 'rounded-2xl' : 'rounded-[24px] group-hover/tile:rounded-2xl',
-        )}
+    <>
+      <NavLink
+        to={last ? `/spaces/${space.id}/${last}` : `/spaces/${space.id}`}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setAnchor(contextMenuAnchor(e));
+        }}
+        className="group/tile relative flex size-12 shrink-0 items-center justify-center outline-none"
+        data-testid="space-tile"
+        data-muted={badge.muted || undefined}
       >
-        {space.iconUrl ? (
-          <Avatar
-            src={space.iconUrl}
-            animatedSrc={space.iconAnimatedUrl}
-            name={space.name}
-            colorSeed={space.id}
-            size={48}
-            kind="community"
-            decorative
-            className="rounded-none!"
-          />
-        ) : (
-          // Discord: the name's initials on a plain tile that turns brand-coloured on hover.
-          <span
-            className={cn(
-              'flex size-12 items-center justify-center text-[15px] font-semibold transition-colors duration-200',
-              active ? 'bg-brand text-on-brand' : 'bg-surface-2 text-fg group-hover/tile:bg-brand group-hover/tile:text-on-brand',
-            )}
-            aria-hidden
-          >
-            {spaceAcronym(space.name)}
-          </span>
-        )}
-      </span>
-      {badge.mentions ? (
-        <Badge
-          count={badge.mentions}
-          size="sm"
-          tone="danger"
-          className="absolute -right-1 -bottom-1 ring-[3px] ring-surface"
+        {/* Discord pill: tall when current, medium when unread, a nub on hover. */}
+        <span
+          aria-hidden
+          className={cn(
+            'absolute top-1/2 -left-3 w-1 -translate-y-1/2 rounded-r-full bg-fg transition-[height,opacity] duration-200',
+            active ? 'h-9 opacity-100' : badge.unread ? 'h-2 opacity-100 group-hover/tile:h-5' : 'h-2 opacity-0 group-hover/tile:h-5 group-hover/tile:opacity-100',
+          )}
         />
-      ) : null}
-      <span role="tooltip" className={TIP}>
-        {space.name}
-      </span>
-    </NavLink>
+        <span
+          className={cn(
+            'overflow-hidden transition-[border-radius,opacity] duration-200 group-focus-visible/tile:outline-2 group-focus-visible/tile:outline-offset-2 group-focus-visible/tile:outline-brand',
+            active ? 'rounded-2xl' : 'rounded-[24px] group-hover/tile:rounded-2xl',
+            // Discord greys out muted servers until hovered or open.
+            badge.muted && !active && 'opacity-40 group-hover/tile:opacity-100 group-focus-visible/tile:opacity-100',
+          )}
+        >
+          {space.iconUrl ? (
+            <Avatar
+              src={space.iconUrl}
+              animatedSrc={space.iconAnimatedUrl}
+              name={space.name}
+              colorSeed={space.id}
+              size={48}
+              kind="community"
+              decorative
+              className="rounded-none!"
+            />
+          ) : (
+            // Discord: the name's initials on a plain tile that turns brand-coloured on hover.
+            <span
+              className={cn(
+                'flex size-12 items-center justify-center text-[15px] font-semibold transition-colors duration-200',
+                active ? 'bg-brand text-on-brand' : 'bg-surface-2 text-fg group-hover/tile:bg-brand group-hover/tile:text-on-brand',
+              )}
+              aria-hidden
+            >
+              {spaceAcronym(space.name)}
+            </span>
+          )}
+        </span>
+        {badge.mentions ? (
+          <Badge
+            count={badge.mentions}
+            size="sm"
+            tone="danger"
+            className="absolute -right-1 -bottom-1 ring-[3px] ring-surface"
+          />
+        ) : null}
+        <span role="tooltip" className={TIP}>
+          {space.name}
+        </span>
+      </NavLink>
+      <Menu
+        open={!!anchor}
+        onClose={() => setAnchor(null)}
+        anchor={anchor}
+        items={anchor ? menu.railItems() : []}
+        aria-label={`${space.name} menu`}
+      />
+      {menu.dialogs}
+    </>
   );
 }
 

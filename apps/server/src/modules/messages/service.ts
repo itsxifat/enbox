@@ -65,6 +65,7 @@ import { resolveStatusReply } from '../../services/statuses.js';
 import {
   allowedSpaceMentions,
   assertCanReact,
+  assertSpaceVerification,
   spaceSendRules,
   touchSlowmode,
 } from '../../services/spaceRules.js';
@@ -162,6 +163,7 @@ export async function sendMessage(
     const spaceMentions = access.space
       ? spaceSendRules(access, me, { type: body.type, text: 'text' in body ? body.text : null })
       : undefined;
+    if (access.space) await assertSpaceVerification(tx, access, me);
 
     const metadata: MessageMetadata = {};
     const input: CreateMessageInput = {
@@ -254,7 +256,9 @@ export async function forwardMessages(
     for (const chatId of body.chatIds) {
       const chat = locked.get(chatId);
       if (!chat) throw notFound('Chat');
-      assertCanSend(await getChatAccess(tx, me, chatId, { chat }));
+      const access = await getChatAccess(tx, me, chatId, { chat });
+      assertCanSend(access);
+      if (access.space) await assertSpaceVerification(tx, access, me);
     }
     const sources: MessageRow[] = [];
     for (const id of body.messageIds) {

@@ -16,6 +16,7 @@ import {
   MAX_BANNER_BYTES,
   formatBytes,
   type ImageInfo,
+  type MediaAttachment,
   type UserSelf,
 } from '@enbox/shared';
 import { makeThumbnail } from '@/features/conversation/lib/mediaProcessing';
@@ -216,16 +217,38 @@ async function setBanner(bannerMediaId: string | null): Promise<UserSelf> {
   return user;
 }
 
+/** Upload a rendered banner (the media only; Space banners reuse this). */
+export function uploadBannerMedia(
+  blob: Blob,
+  size: ImageSize,
+  onProgress?: (fraction: number) => void,
+): Promise<MediaAttachment> {
+  return api.upload(blob, { kind: 'image', ...size }, onProgress, { fileName: 'banner.jpg' });
+}
+
+/** Upload an animated banner as-is (metadata stripped) with its cropped poster (the media only). */
+export async function uploadAnimatedBannerMedia(
+  file: File,
+  info: ImageInfo,
+  poster: Blob,
+  onProgress?: (fraction: number) => void,
+): Promise<MediaAttachment> {
+  const issue = animatedBannerIssue(file, info);
+  if (issue) throw new Error(issue);
+  const blob = await stripImageBlob(file);
+  return api.upload(blob, { kind: 'image', width: info.width, height: info.height }, onProgress, {
+    fileName: file.name,
+    thumbnail: poster,
+  });
+}
+
 /** Upload a rendered banner and set it as my profile banner. */
 export async function uploadBanner(
   blob: Blob,
   size: ImageSize,
   onProgress?: (fraction: number) => void,
 ): Promise<UserSelf> {
-  const media = await api.upload(blob, { kind: 'image', ...size }, onProgress, {
-    fileName: 'banner.jpg',
-  });
-  return setBanner(media.id);
+  return setBanner((await uploadBannerMedia(blob, size, onProgress)).id);
 }
 
 /** Upload an animated banner as-is (metadata stripped) with its cropped poster. */
@@ -235,16 +258,7 @@ export async function uploadAnimatedBanner(
   poster: Blob,
   onProgress?: (fraction: number) => void,
 ): Promise<UserSelf> {
-  const issue = animatedBannerIssue(file, info);
-  if (issue) throw new Error(issue);
-  const blob = await stripImageBlob(file);
-  const media = await api.upload(
-    blob,
-    { kind: 'image', width: info.width, height: info.height },
-    onProgress,
-    { fileName: file.name, thumbnail: poster },
-  );
-  return setBanner(media.id);
+  return setBanner((await uploadAnimatedBannerMedia(file, info, poster, onProgress)).id);
 }
 
 export function removeBanner(): Promise<UserSelf> {

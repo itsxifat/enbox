@@ -28,10 +28,10 @@ const THEMES: { value: ThemePref; label: string }[] = [
 
 /** Thumbnail colours per palette: [rail, sidebar, chat, message, accent row]. */
 const THUMB: Record<ThemeVariant, [string, string, string, string, string]> = {
-  light: ['#e3e5e8', '#f2f3f5', '#ffffff', '#e3e5e8', '#5865f2'],
-  ash: ['#1e1f22', '#2b2d31', '#313338', '#404249', '#5865f2'],
-  dark: ['#111113', '#16161a', '#1a1a1e', '#2c2c32', '#5865f2'],
-  onyx: ['#000000', '#08080a', '#0b0b0d', '#1f1f23', '#5865f2'],
+  light: ['#e3e5e8', '#f2f3f5', '#ffffff', '#e3e5e8', '#6d5dfc'],
+  ash: ['#1e1f22', '#2b2d31', '#313338', '#404249', '#6d5dfc'],
+  dark: ['#111113', '#16161a', '#1a1a1e', '#2c2c32', '#6d5dfc'],
+  onyx: ['#000000', '#08080a', '#0b0b0d', '#1f1f23', '#6d5dfc'],
 };
 
 /** Miniature Discord window used by the theme cards: rail, sidebar, chat with two rows. */

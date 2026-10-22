@@ -19,6 +19,7 @@ import {
   inviteParamsSchema,
   isSpaceAdmin,
   membersQuerySchema,
+  spaceInvitesQuerySchema,
   spaceMembersBatchSchema,
   updateMemberSchema,
   updateMyMemberSchema,
@@ -55,6 +56,7 @@ import {
   requireSpaceMember,
   requireSpacePermission,
   type MemberCtx,
+  type SpaceAccess,
 } from '../../services/spaceAccess.js';
 import {
   audit,
@@ -69,7 +71,7 @@ import {
   toSpaceMember,
 } from '../../services/spaces.js';
 import { toUserPublicMap } from '../../services/users.js';
-import { myTop, requireChannelBit, requireSpaceChannel, topOf } from './service.js';
+import { myChannelBits, myTop, requireChannelBit, requireSpaceChannel, topOf } from './service.js';
 
 export const router = Router();
 
@@ -180,6 +182,8 @@ router.patch('/spaces/:spaceId/members/me', async (req, res) => {
     if (body.mutedUntil !== undefined)
       patch.mutedUntil = body.mutedUntil ? new Date(body.mutedUntil) : null;
     if (body.suppressEveryone !== undefined) patch.suppressEveryone = body.suppressEveryone;
+    if (body.suppressRoles !== undefined) patch.suppressRoles = body.suppressRoles;
+    if (body.hideMutedChannels !== undefined) patch.hideMutedChannels = body.hideMutedChannels;
     if (Object.keys(patch).length === 0) return;
     const [row] = await tx
       .update(spaceMembers)
@@ -582,18 +586,37 @@ export function toSpaceInvite(r: SpaceInviteRow): SpaceInvite {
   };
 }
 
-// GET /spaces/:spaceId/invites → SpaceInvite[] (MANAGE_SPACE: all live invites; else mine)
+/** MANAGE_CHANNELS in the channel (Discord's channel Invites tab); false when I cannot see it. */
+async function managesChannel(
+  dbx: DbOrTx,
+  access: SpaceAccess,
+  me: string,
+  spaceId: string,
+  channelId: string,
+): Promise<boolean> {
+  const chat = await requireSpaceChannel(dbx, spaceId, channelId).catch(() => null);
+  if (!chat) return false;
+  const { bits } = await myChannelBits(dbx, access, me, chat);
+  return hasPerm(bits, PERM.VIEW_CHANNEL) && hasPerm(bits, PERM.MANAGE_CHANNELS);
+}
+
+// GET /spaces/:spaceId/invites?channelId= → SpaceInvite[] (MANAGE_SPACE, or MANAGE_CHANNELS in
+// the given channel: all live invites; else mine). With channelId: only that channel's.
 router.get('/spaces/:spaceId/invites', async (req, res) => {
   const me = authUserId(req);
   const { spaceId } = parse(P.space, req.params);
+  const { channelId } = parse(spaceInvitesQuerySchema, req.query);
   const access = await requireSpaceMember(db, spaceId, me);
-  const all = hasPerm(access.base, PERM.MANAGE_SPACE);
+  const all =
+    hasPerm(access.base, PERM.MANAGE_SPACE) ||
+    (!!channelId && (await managesChannel(db, access, me, spaceId, channelId)));
   const rows = await db
     .select()
     .from(spaceInvites)
     .where(
       and(
         eq(spaceInvites.spaceId, spaceId),
+        channelId ? eq(spaceInvites.channelId, channelId) : undefined,
         all ? undefined : eq(spaceInvites.createdBy, me),
         or(isNull(spaceInvites.expiresAt), gt(spaceInvites.expiresAt, new Date())),
       ),
@@ -669,7 +692,11 @@ router.delete('/spaces/:spaceId/invites/:code', async (req, res) => {
       .from(spaceInvites)
       .where(and(eq(spaceInvites.code, code), eq(spaceInvites.spaceId, spaceId)));
     if (!inv) throw notFound('Invite');
-    if (inv.createdBy !== me && !hasPerm(access.base, PERM.MANAGE_SPACE))
+    if (
+      inv.createdBy !== me &&
+      !hasPerm(access.base, PERM.MANAGE_SPACE) &&
+      !(inv.channelId && (await managesChannel(tx, access, me, spaceId, inv.channelId)))
+    )
       throw forbidden('You can only revoke your own invites');
     await tx.delete(spaceInvites).where(eq(spaceInvites.code, code));
     await audit(tx, {

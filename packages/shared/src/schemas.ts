@@ -68,6 +68,10 @@ import {
   SLOWMODE_OPTIONS,
   SPACE_DESCRIPTION_MAX_LENGTH,
   SPACE_NAME_MAX_LENGTH,
+  SPACE_SYSTEM_FLAGS,
+  SPACE_VERIFICATION_LEVELS,
+  VOICE_MAX_BITRATE,
+  VOICE_MIN_BITRATE,
 } from './constants.js';
 import { ASSIGNABLE_PERMISSIONS } from './permissions.js';
 
@@ -734,6 +738,8 @@ export function normalizeTextChannelName(name: string): string {
     .replace(/^-|-$/g, '');
 }
 const channelNameSchema = z.string().trim().min(1).max(CHANNEL_NAME_MAX_LENGTH);
+/** Voice channel bitrate, bit/s. */
+const voiceBitrateSchema = z.number().int().min(VOICE_MIN_BITRATE).max(VOICE_MAX_BITRATE);
 const nullableTrimmed = (max: number) =>
   z.preprocess(
     (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
@@ -758,6 +764,22 @@ export const updateSpaceSchema = z
     afkTimeoutSec: oneOf([60, 300, 900, 1800, 3600] as const, 'AFK timeout'),
     defaultNotifyLevel: z.enum(['all', 'mentions']),
     isDiscoverable: z.boolean(),
+    /** SPACE_SYSTEM_FLAGS bits (system messages NOT posted). */
+    systemFlags: z
+      .number()
+      .int()
+      .min(0)
+      .refine(
+        (v) => (v & ~Object.values(SPACE_SYSTEM_FLAGS).reduce((a, b) => a | b, 0)) === 0,
+        'systemFlags: unknown flag',
+      ),
+    verificationLevel: z
+      .number()
+      .int()
+      .min(0)
+      .max(SPACE_VERIFICATION_LEVELS.length - 1),
+    /** 0 off, 1 members without roles, 2 everyone. */
+    explicitFilter: z.number().int().min(0).max(2),
   })
   .partial();
 
@@ -782,6 +804,8 @@ export const createSpaceChannelSchema = z.object({
   nsfw: z.boolean().optional(),
   slowmodeSeconds: oneOf(SLOWMODE_OPTIONS, 'slowmode').optional(),
   userLimit: z.number().int().min(1).max(MAX_VOICE_CHANNEL_PARTICIPANTS).nullable().optional(),
+  /** Voice channels: bit/s (null = VOICE_DEFAULT_BITRATE). */
+  bitrate: voiceBitrateSchema.nullable().optional(),
   /** Private channel: @everyone denied VIEW_CHANNEL, these roles allowed (Discord's "private channel"). */
   privateRoleIds: z.array(idSchema).max(50).optional(),
 });
@@ -793,8 +817,19 @@ export const updateSpaceChannelSchema = z
     nsfw: z.boolean(),
     slowmodeSeconds: oneOf(SLOWMODE_OPTIONS, 'slowmode'),
     userLimit: z.number().int().min(1).max(MAX_VOICE_CHANNEL_PARTICIPANTS).nullable(),
+    bitrate: voiceBitrateSchema.nullable(),
   })
   .partial();
+
+/** Clone a channel (type, topic, settings, category and overwrites); the name defaults to the source's. */
+export const cloneSpaceChannelSchema = z.object({
+  name: channelNameSchema.optional(),
+});
+
+/** `GET /spaces/:id/invites?channelId=`: one channel's invites (MANAGE_CHANNELS in it: everyone's). */
+export const spaceInvitesQuerySchema = z.object({
+  channelId: z.preprocess(blankToUndefined, idSchema.optional()),
+});
 
 /** Reorder/move channels: every listed channel gets its category and position. */
 export const channelPositionsSchema = z.object({
@@ -859,6 +894,10 @@ export const updateMyMemberSchema = z
     notifyLevel: z.enum(['all', 'mentions', 'none']).nullable(),
     mutedUntil: z.iso.datetime({ offset: true }).nullable(),
     suppressEveryone: z.boolean(),
+    /** Role mentions neither badge nor push. */
+    suppressRoles: z.boolean(),
+    /** Hide the channels I muted from my sidebar. */
+    hideMutedChannels: z.boolean(),
   })
   .partial();
 
@@ -924,6 +963,23 @@ export const auditLogQuerySchema = z.object({
 export const spaceFocusSchema = z.object({
   chatId: idSchema.nullable(),
 });
+
+/** `voice:join` (C→S): connect to a voice channel (moves me if I am in another). */
+export const voiceJoinSchema = z.object({
+  channelId: idSchema,
+  selfMute: z.boolean().optional(),
+  selfDeaf: z.boolean().optional(),
+});
+
+/** `voice:update` (C→S): my own mute/deafen/camera/stream flags. */
+export const voiceUpdateSchema = z
+  .object({
+    selfMute: z.boolean(),
+    selfDeaf: z.boolean(),
+    selfVideo: z.boolean(),
+    selfStream: z.boolean(),
+  })
+  .partial();
 
 /** `space:members-subscribe` (C→S): member events of this Space (member list open), or null. */
 export const spaceMembersSubscribeSchema = z.object({
@@ -1143,6 +1199,8 @@ export type UpdateSpaceRequest = z.input<typeof updateSpaceSchema>;
 export type OverwriteRequest = z.input<typeof overwriteInputSchema>;
 export type CreateSpaceChannelRequest = z.input<typeof createSpaceChannelSchema>;
 export type UpdateSpaceChannelRequest = z.input<typeof updateSpaceChannelSchema>;
+export type CloneSpaceChannelRequest = z.input<typeof cloneSpaceChannelSchema>;
+export type SpaceInvitesQuery = z.input<typeof spaceInvitesQuerySchema>;
 export type ChannelPositionsRequest = z.input<typeof channelPositionsSchema>;
 export type CreateCategoryRequest = z.input<typeof createCategorySchema>;
 export type UpdateCategoryRequest = z.input<typeof updateCategorySchema>;
@@ -1159,6 +1217,8 @@ export type SpaceMembersBatchRequest = z.input<typeof spaceMembersBatchSchema>;
 export type AuditLogQuery = z.input<typeof auditLogQuerySchema>;
 export type SpaceFocusPayload = z.infer<typeof spaceFocusSchema>;
 export type SpaceMembersSubscribePayload = z.infer<typeof spaceMembersSubscribeSchema>;
+export type VoiceJoinPayload = z.infer<typeof voiceJoinSchema>;
+export type VoiceUpdatePayload = z.infer<typeof voiceUpdateSchema>;
 
 export type TypingPayload = z.infer<typeof typingPayloadSchema>;
 export type ReceiptPayload = z.infer<typeof receiptPayloadSchema>;

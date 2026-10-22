@@ -728,6 +728,8 @@ export interface SpaceChannelInfo {
   nsfw: boolean;
   /** Voice channels: max participants (null = no limit). */
   userLimit: number | null;
+  /** Voice channels: audio bitrate in bit/s (null = VOICE_DEFAULT_BITRATE). */
+  bitrate: number | null;
   /** The overwrites equal its category's (editing the channel's own overwrites clears this). */
   permissionsSynced: boolean;
   overwrites: PermissionOverwrite[];
@@ -772,6 +774,10 @@ export interface SpaceMemberSelf {
   mutedUntil: ISODate | null;
   /** Ignore @everyone/@here (no badge, no push). */
   suppressEveryone: boolean;
+  /** Ignore role mentions (no badge, no push). */
+  suppressRoles: boolean;
+  /** Hide the channels I muted from my sidebar. */
+  hideMutedChannels: boolean;
 }
 
 /**
@@ -797,6 +803,12 @@ export interface Space {
   afkChannelId: ID | null;
   afkTimeoutSec: number;
   defaultNotifyLevel: 'all' | 'mentions';
+  /** SPACE_SYSTEM_FLAGS bits: system messages suppressed in the system channel. */
+  systemFlags: number;
+  /** 0 none … 4 highest (SPACE_VERIFICATION_LEVELS). */
+  verificationLevel: number;
+  /** 0 off, 1 members without roles, 2 everyone. */
+  explicitFilter: number;
   isDiscoverable: boolean;
   /** Only for members with MANAGE_SPACE; null otherwise. */
   vanityCode: string | null;
@@ -1106,3 +1118,38 @@ export interface LinkPreview {
   themeColor: string | null;
   image: { url: string; width: number; height: number } | null;
 }
+
+/**
+ * Someone in a voice channel (`voice_states`, one per account). `GET /api/spaces/:id/voice-states`
+ * lists a Space's; `voice:state` events keep them current.
+ */
+export interface VoiceState {
+  userId: ID;
+  spaceId: ID;
+  channelId: ID;
+  selfMute: boolean;
+  selfDeaf: boolean;
+  selfVideo: boolean;
+  selfStream: boolean;
+  /** From the member row (moderators). */
+  serverMute: boolean;
+  serverDeaf: boolean;
+  joinedAt: ISODate;
+}
+
+/** `voice:join` ack: connect to the media server with this token. */
+export interface VoiceJoinResult {
+  /** Signalling URL; a path ("/livekit") is relative to the API origin (ws/wss). */
+  url: string;
+  token: string;
+  state: VoiceState;
+  /** Media must go through TURN (the media server's own ports are not reachable yet). */
+  relayOnly: boolean;
+}
+
+export type VoiceDisconnectReason =
+  | 'moved_elsewhere'
+  | 'disconnected_by_moderator'
+  | 'lost_access'
+  | 'channel_deleted'
+  | 'server_restart';

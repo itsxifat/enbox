@@ -41,13 +41,13 @@
   --muted: #5c5e66;
   --subtle: #6d6f78;
 
-  --brand: #5865f2;
-  --brand-strong: #4752c4;
-  --brand-ink: #4752c4;
-  --brand-soft: #e6e8fd;
+  --brand: #6d5dfc;
+  --brand-strong: #5a48e8;
+  --brand-ink: #5646e6;
+  --brand-soft: #eeebff;
   --on-brand: #ffffff;
 
-  --bubble-out: #e6e8fd;
+  --bubble-out: #eeebff;
   --bubble-out-meta: #5c5e66;
   --bubble-in: #f2f3f5;
   --bubble-in-meta: #6d6f78;
@@ -64,7 +64,7 @@
   --warning-ink: #8a5a08;
   /* Filled danger surfaces under white text (Delete / Log out buttons, danger badges). */
   --danger-fill: #da373c;
-  --unread: #5865f2;
+  --unread: #6d5dfc;
   --unread-muted: #6d6f78;
   --tick-read: #00a8fc;
   --online: #23a55a;
@@ -102,14 +102,14 @@
   --muted: #abadb3;
   --subtle: #8d8f97;
 
-  --brand: #5865f2;
-  --brand-strong: #6b77f4;
-  --brand-ink: #949cf7;
-  --brand-soft: #262a52;
+  --brand: #6d5dfc;
+  --brand-strong: #7f71ff;
+  --brand-ink: #a89eff;
+  --brand-soft: #25214a;
   --on-brand: #ffffff;
 
-  --bubble-out: #333a8f;
-  --bubble-out-meta: #c9ccf5;
+  --bubble-out: #3b3192;
+  --bubble-out-meta: #c3bdf0;
   --bubble-in: #242429;
   --bubble-in-meta: #9a9ca3;
   --wallpaper: #1a1a1e;
@@ -154,7 +154,7 @@
   --fg: #dbdee1;
   --muted: #b5bac1;
   --subtle: #949ba4;
-  --brand-soft: #343b6b;
+  --brand-soft: #312a63;
   --bubble-in: #383a40;
   --wallpaper: #313338;
   --unread-muted: #6d6f78;
@@ -171,7 +171,7 @@
   --line: #1c1c20;
   --line-strong: #2b2b30;
   --fg: #e3e4e6;
-  --brand-soft: #1c1f40;
+  --brand-soft: #1d1840;
   --bubble-in: #17171a;
   --wallpaper: #0b0b0d;
 }

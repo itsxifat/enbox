@@ -7,6 +7,7 @@ import {
   MAX_SPACE_MEMBERS,
   MAX_SPACES_PER_USER,
   PERM,
+  SPACE_SYSTEM_FLAGS,
   USER_RATE_LIMITS,
   hasPerm,
   isSpaceChatType,
@@ -153,7 +154,11 @@ export async function joinSpaceViaInvite(
       .update(spaceInvites)
       .set({ uses: sql`${spaceInvites.uses} + 1` })
       .where(eq(spaceInvites.code, code));
-  if (space.systemChannelId) {
+  // Settings → Overview → System messages: "Send a random welcome message when someone joins".
+  if (
+    space.systemChannelId &&
+    !(space.systemFlags & SPACE_SYSTEM_FLAGS.SUPPRESS_JOIN_NOTIFICATIONS)
+  ) {
     const [sys] = await tx.select().from(chats).where(eq(chats.id, space.systemChannelId)).limit(1);
     if (sys && isSpaceChatType(sys.type))
       await postSystemMessage(tx, fx, sys, { kind: 'member_joined_space', actorId: me });

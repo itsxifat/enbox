@@ -664,8 +664,28 @@ Discord-style servers; the full design is `docs/design/spaces-at-scale.md`. Esse
   Spaces over `LARGE_SPACE_THRESHOLD` go to `space-members:<id>` (subscribers only).
 - Unread and mention counts are capped (`SPACE_UNREAD_CAP`); mentions: `@{uuid}`,
   `@{everyone}`, `@{here}`, `@{role:uuid}` (MENTION_EVERYONE or a mentionable role).
+- Member options (`PATCH /spaces/:id/members/me`): notification level, mute, suppress
+  @everyone/@here and suppress role mentions (both honoured by the read-time mention counts
+  and by push), hide muted channels. Channel and category mutes are per-channel prefs (a
+  category mute mutes each of its channels). `POST /spaces/:id/read` reads every channel I can
+  see through the read service (one short transaction per channel, `chat:read` each, then
+  `space:upsert`); `POST /spaces/:id/channels/:chatId/clone` copies a channel with its
+  settings and overwrites.
+- Safety: the verification level is checked on send and forward for members without a role
+  (owner and administrators exempt): Medium = account older than 5 minutes, High = also a
+  member for 10 minutes. Low (verified email) and Highest's phone check are stored only
+  (accounts have no email; phone numbers are not verified), as is the explicit media filter.
+  `systemFlags` bit SUPPRESS_JOIN_NOTIFICATIONS skips the join message in the system channel.
 - Web: `/spaces/:spaceId/:chatId` (`features/spaces`). The Android app shows "Open Spaces on
   the web" until it gets Spaces.
+- Voice channels (`modules/voice`, `features/voice`): `voice_states` (one row per account) is
+  the truth for who is where; `voice:join` checks VIEW_CHANNEL + CONNECT, timeouts and the user
+  limit under the channel row lock (MOVE_MEMBERS bypasses), moves the account's single
+  connection (the old socket gets `voice:disconnected`) and returns a LiveKit token whose
+  publish grants follow SPEAK / VIDEO / STREAM and server mute/deafen. `voice:state` goes to the
+  channel's virtual room, so private channels stay private. Socket disconnects leave at once;
+  leader/node jobs sweep dead processes, lost sockets and departed members. Media runs through
+  LiveKit (deploy/README.md "Voice channels"); TURN-only while `VOICE_RELAY_ONLY` is set.
 
 ## Communities
 

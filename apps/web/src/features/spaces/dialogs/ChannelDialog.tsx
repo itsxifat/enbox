@@ -1,29 +1,53 @@
-import { useMemo, useState } from 'react';
-import { Check, Hash, Minus, Plus, Volume2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { Check, Hash, Minus, Plus, Trash2, Volume2, X } from 'lucide-react';
 import {
   CHANNEL_NAME_MAX_LENGTH,
   CHANNEL_TOPIC_MAX_LENGTH,
+  MAX_VOICE_CHANNEL_PARTICIPANTS,
   SLOWMODE_OPTIONS,
+  VOICE_DEFAULT_BITRATE,
+  VOICE_MAX_BITRATE,
+  VOICE_MIN_BITRATE,
   normalizeTextChannelName,
+  userDisplayName,
   type ChatSummary,
   type ID,
   type PermissionOverwrite,
+  type SpaceInvite,
+  type UpdateSpaceChannelRequest,
 } from '@enbox/shared';
-import { Button, DropdownMenu, Field, Input, Modal, Switch, Tabs, Textarea, toast } from '@/components/ui';
+import { Button, DropdownMenu, EmptyState, Field, Input, Modal, Spinner, Switch, Tabs, Textarea, confirm, toast } from '@/components/ui';
+import { inviteUrl } from '@/features/groups/shared/share';
 import { cn } from '@/lib/cn';
 import { useSpace } from '@/stores/spaces';
-import { useUsers } from '@/stores/users';
-import { createChannel, setChannelOverwrite, syncChannel, updateChannel } from '../actions';
+import { useUser, useUsers } from '@/stores/users';
+import {
+  createChannel,
+  deleteChannel,
+  listInvites,
+  revokeInvite,
+  setChannelOverwrite,
+  syncChannel,
+  updateChannel,
+} from '../actions';
 import { PERMISSION_GROUPS } from '../permissionLabels';
 
-function slowmodeLabel(s: number): string {
+/** Discord's slowmode steps: Off, 5s … 6h. */
+export function slowmodeLabel(s: number): string {
   if (s === 0) return 'Off';
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${s / 60}m`;
   return `${s / 3600}h`;
 }
 
-/** Create (no `chat`) or edit a channel. Editing has a Permissions tab (overwrites). */
+type ChannelTab = 'overview' | 'permissions' | 'invites';
+
+/**
+ * Create (no `chat`) or edit a channel. Editing has Discord's tabs: Overview (name, topic,
+ * slowmode, age restriction; voice: user limit and bitrate; Delete Channel), Permissions
+ * (overwrites) and Invites (this channel's, revocable).
+ */
 export function ChannelDialog({
   spaceId,
   chat,
@@ -35,24 +59,29 @@ export function ChannelDialog({
   categoryId?: ID | null;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<'overview' | 'permissions'>('overview');
+  const [tab, setTab] = useState<ChannelTab>('overview');
+  const title = chat ? `${chat.type === 'space_voice' ? '' : '#'}${chat.name}` : 'Create Channel';
   return (
-    <Modal open onClose={onClose} size="lg" title={chat ? `#${chat.name}` : 'Create channel'}>
+    <Modal open onClose={onClose} size="lg" title={title}>
       {chat ? (
         <Tabs
           value={tab}
-          onChange={(v) => setTab(v as 'overview' | 'permissions')}
+          onChange={setTab}
+          aria-label="Channel settings"
           items={[
             { value: 'overview', label: 'Overview' },
             { value: 'permissions', label: 'Permissions' },
+            { value: 'invites', label: 'Invites' },
           ]}
           className="mb-4"
         />
       ) : null}
       {tab === 'overview' || !chat ? (
         <Overview spaceId={spaceId} chat={chat} categoryId={categoryId ?? null} onClose={onClose} />
-      ) : (
+      ) : tab === 'permissions' ? (
         <Permissions spaceId={spaceId} chat={chat} />
+      ) : (
+        <ChannelInvites spaceId={spaceId} chat={chat} />
       )}
     </Modal>
   );
@@ -60,26 +89,35 @@ export function ChannelDialog({
 
 function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: ChatSummary; categoryId: ID | null; onClose: () => void }) {
   const space = useSpace(spaceId);
+  const navigate = useNavigate();
   const [type, setType] = useState<'space_text' | 'space_voice'>(chat ? (chat.type as 'space_text') : 'space_text');
   const [name, setName] = useState(chat?.name ?? '');
   const [topic, setTopic] = useState(chat?.space?.topic ?? '');
   const [slowmode, setSlowmode] = useState(chat?.space?.slowmodeSeconds ?? 0);
   const [nsfw, setNsfw] = useState(chat?.space?.nsfw ?? false);
   const [userLimit, setUserLimit] = useState(chat?.space?.userLimit ?? 0);
+  const initialBitrate = chat?.space?.bitrate ?? VOICE_DEFAULT_BITRATE;
+  const [bitrate, setBitrate] = useState(initialBitrate);
   const [cat, setCat] = useState<ID | null>(chat?.space?.categoryId ?? categoryId);
   const [isPrivate, setPrivate] = useState(false);
   const [busy, setBusy] = useState(false);
   const shown = type === 'space_text' ? normalizeTextChannelName(name) : name.trim();
+  const voice = type === 'space_voice';
 
   const save = async () => {
     if (!shown) return;
     setBusy(true);
     try {
       if (chat) {
-        await updateChannel(spaceId, chat.id, {
-          name: shown,
-          ...(type === 'space_text' ? { topic: topic.trim() || null, slowmodeSeconds: slowmode as 0, nsfw } : { userLimit: userLimit || null }),
-        });
+        const body: UpdateSpaceChannelRequest = { name: shown, nsfw };
+        if (voice) {
+          body.userLimit = userLimit || null;
+          if (bitrate !== initialBitrate) body.bitrate = bitrate;
+        } else {
+          body.topic = topic.trim() || null;
+          body.slowmodeSeconds = slowmode as 0;
+        }
+        await updateChannel(spaceId, chat.id, body);
       } else {
         await createChannel(spaceId, {
           type,
@@ -94,6 +132,24 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
       toast.error(e);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!chat) return;
+    const ok = await confirm({
+      title: `Delete ${voice ? '' : '#'}${chat.name}?`,
+      message: 'Its messages are deleted for everyone. This cannot be undone.',
+      confirmLabel: 'Delete Channel',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteChannel(spaceId, chat.id);
+      onClose();
+      navigate(`/spaces/${spaceId}`, { replace: true });
+    } catch (e) {
+      toast.error(e);
     }
   };
 
@@ -146,43 +202,143 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
         </Field>
       ) : null}
       {type === 'space_text' ? (
-        <Field label="Topic" htmlFor="ch-topic">
+        <Field label="Channel topic" htmlFor="ch-topic">
           <Textarea id="ch-topic" value={topic} maxLength={CHANNEL_TOPIC_MAX_LENGTH} rows={2} placeholder="Let everyone know how to use this channel" onChange={(e) => setTopic(e.target.value)} />
         </Field>
       ) : null}
       {chat && type === 'space_text' ? (
+        <Field label={`Slowmode: ${slowmodeLabel(slowmode)}`} htmlFor="ch-slow" hint="Members can send one message per interval. Moderators are exempt.">
+          <input
+            id="ch-slow"
+            type="range"
+            min={0}
+            max={SLOWMODE_OPTIONS.length - 1}
+            value={Math.max(0, SLOWMODE_OPTIONS.indexOf(slowmode as (typeof SLOWMODE_OPTIONS)[number]))}
+            aria-valuetext={slowmodeLabel(slowmode)}
+            onChange={(e) => setSlowmode(SLOWMODE_OPTIONS[Number(e.target.value)] ?? 0)}
+            className="w-full accent-[var(--color-brand)]"
+          />
+          <div aria-hidden className="mt-1 hidden justify-between text-[11px] text-subtle sm:flex">
+            {SLOWMODE_OPTIONS.map((s) => (
+              <span key={s}>{slowmodeLabel(s)}</span>
+            ))}
+          </div>
+        </Field>
+      ) : null}
+      {chat ? (
+        <Switch checked={nsfw} onChange={setNsfw} label="Age-Restricted Channel" description="Members confirm they are over 18 before viewing its content." />
+      ) : null}
+      {chat && voice ? (
         <>
-          <Field label={`Slowmode: ${slowmodeLabel(slowmode)}`} htmlFor="ch-slow" hint="Members wait this long between messages. Moderators are exempt.">
+          <Field label={`Bitrate: ${Math.round(bitrate / 1000)}kbps`} htmlFor="ch-bitrate" hint="Higher sounds better but needs more bandwidth. Keep it at 64kbps or lower for people on slow connections.">
             <input
-              id="ch-slow"
+              id="ch-bitrate"
               type="range"
-              min={0}
-              max={SLOWMODE_OPTIONS.length - 1}
-              value={SLOWMODE_OPTIONS.indexOf(slowmode as (typeof SLOWMODE_OPTIONS)[number])}
-              onChange={(e) => setSlowmode(SLOWMODE_OPTIONS[Number(e.target.value)] ?? 0)}
+              min={VOICE_MIN_BITRATE / 1000}
+              max={VOICE_MAX_BITRATE / 1000}
+              step={1}
+              value={Math.round(bitrate / 1000)}
+              aria-valuetext={`${Math.round(bitrate / 1000)} kilobits per second`}
+              onChange={(e) => setBitrate(Number(e.target.value) * 1000)}
               className="w-full accent-[var(--color-brand)]"
             />
+            <div aria-hidden className="mt-1 flex justify-between text-[11px] text-subtle">
+              <span>{VOICE_MIN_BITRATE / 1000}kbps</span>
+              <span>{VOICE_DEFAULT_BITRATE / 1000}kbps</span>
+              <span>{VOICE_MAX_BITRATE / 1000}kbps</span>
+            </div>
           </Field>
-          <Switch checked={nsfw} onChange={setNsfw} label="Age-restricted channel" description="Members confirm they are 18+ before viewing it." />
+          <Field label={`User limit: ${userLimit ? `${userLimit} users` : 'No limit'}`} htmlFor="ch-limit" hint="How many people can join at once. Members who can move members are not limited.">
+            <input
+              id="ch-limit"
+              type="range"
+              min={0}
+              max={MAX_VOICE_CHANNEL_PARTICIPANTS}
+              value={userLimit}
+              aria-valuetext={userLimit ? `${userLimit} users` : 'No limit'}
+              onChange={(e) => setUserLimit(Number(e.target.value))}
+              className="w-full accent-[var(--color-brand)]"
+            />
+            <div aria-hidden className="mt-1 flex justify-between text-[11px] text-subtle">
+              <span>∞</span>
+              <span>{MAX_VOICE_CHANNEL_PARTICIPANTS}</span>
+            </div>
+          </Field>
         </>
-      ) : null}
-      {chat && type === 'space_voice' ? (
-        <Field label={`User limit: ${userLimit ? userLimit : 'none'}`} htmlFor="ch-limit">
-          <input id="ch-limit" type="range" min={0} max={99} value={userLimit} onChange={(e) => setUserLimit(Number(e.target.value))} className="w-full accent-[var(--color-brand)]" />
-        </Field>
       ) : null}
       {!chat ? (
         <Switch checked={isPrivate} onChange={setPrivate} label="Private channel" description="Only you can see it until you add roles or members in its permissions." />
       ) : null}
-      <div className="mt-2 flex justify-end gap-2">
+      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+        {chat ? (
+          <Button variant="ghost" type="button" leftIcon={Trash2} className="mr-auto text-danger" onClick={() => void remove()}>
+            Delete Channel
+          </Button>
+        ) : null}
         <Button variant="ghost" type="button" onClick={onClose}>
           Cancel
         </Button>
         <Button type="submit" loading={busy} disabled={!shown} data-testid="channel-save">
-          {chat ? 'Save changes' : 'Create channel'}
+          {chat ? 'Save Changes' : 'Create Channel'}
         </Button>
       </div>
     </form>
+  );
+}
+
+function InviteRow({ invite, onRevoke }: { invite: SpaceInvite; onRevoke: () => void }) {
+  const inviter = useUser(invite.createdBy);
+  return (
+    <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-mono text-[13px]">{inviteUrl(invite.code)}</p>
+        <p className="text-[13px] text-muted">
+          {inviter ? `${userDisplayName(inviter)} · ` : ''}
+          {invite.uses}
+          {invite.maxUses ? ` / ${invite.maxUses}` : ''} uses · {invite.expiresAt ? `expires ${new Date(invite.expiresAt).toLocaleString()}` : 'never expires'}
+        </p>
+      </div>
+      <Button size="sm" variant="ghost" className="text-danger" onClick={onRevoke}>
+        Revoke
+      </Button>
+    </div>
+  );
+}
+
+/** The channel's live invites (MANAGE_CHANNELS here: everyone's; else mine). */
+function ChannelInvites({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
+  const [list, setList] = useState<SpaceInvite[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    listInvites(spaceId, chat.id)
+      .then((l) => {
+        setList(l);
+        void useUsers
+          .getState()
+          .fetchUsers(l.map((i) => i.createdBy).filter((x): x is string => !!x))
+          .catch(() => undefined);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'));
+  }, [spaceId, chat.id]);
+  useEffect(() => load(), [load]);
+  if (error) return <p className="text-danger">{error}</p>;
+  if (!list) return <Spinner />;
+  if (list.length === 0)
+    return <EmptyState title="No invites yet" description="Invites created from this channel's menu → Invite People land here." />;
+  return (
+    <div className="card-inset flex flex-col p-1">
+      {list.map((inv) => (
+        <InviteRow
+          key={inv.code}
+          invite={inv}
+          onRevoke={() =>
+            void revokeInvite(spaceId, inv.code)
+              .then(() => setList((l) => l?.filter((x) => x.code !== inv.code) ?? null))
+              .catch((e: unknown) => toast.error(e))
+          }
+        />
+      ))}
+    </div>
   );
 }
 

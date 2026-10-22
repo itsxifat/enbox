@@ -228,9 +228,9 @@ export async function toSpaces(
                 and m.sender_id is distinct from ${viewerId} and m.deleted_at is null
                 and (${viewerId} = any(m.mentions)
                      or (m.mention_everyone and not sm.suppress_everyone)
-                     or m.mention_role_ids && coalesce(
+                     or (not sm.suppress_roles and m.mention_role_ids && coalesce(
                           (select array_agg(r.role_id) from space_member_roles r
-                           where r.space_id = ch.space_id and r.user_id = ${viewerId}), '{}'::uuid[]))
+                           where r.space_id = ch.space_id and r.user_id = ${viewerId}), '{}'::uuid[])))
               order by m.seq desc limit ${SPACE_UNREAD_CAP}
             ) x
           ) mc
@@ -268,6 +268,9 @@ export async function toSpaces(
       afkChannelId: s.afkChannelId,
       afkTimeoutSec: s.afkTimeoutSec,
       defaultNotifyLevel: s.defaultNotifyLevel,
+      systemFlags: s.systemFlags,
+      verificationLevel: s.verificationLevel,
+      explicitFilter: s.explicitFilter,
       isDiscoverable: s.isDiscoverable,
       vanityCode: hasPerm(base, PERM.MANAGE_SPACE) ? s.vanityCode : null,
       createdAt: s.createdAt.toISOString(),
@@ -286,6 +289,8 @@ export async function toSpaces(
         notifyLevel: m.notifyLevel,
         mutedUntil: m.mutedUntil?.toISOString() ?? null,
         suppressEveryone: m.suppressEveryone,
+        suppressRoles: m.suppressRoles,
+        hideMutedChannels: m.hideMutedChannels,
       },
       myPermissions: base,
       unread: unreadSpaces.has(s.id),
@@ -334,8 +339,15 @@ export function fxSpaceUpsert(
   );
 }
 
+/**
+ * `space:updated` changes, plus the Space options that `SpaceInfoChanges` (events.ts) does not
+ * list yet; clients shallow-merge whatever arrives into `Space`.
+ */
+export type SpaceSettingsChanges = SpaceInfoChanges &
+  Partial<Pick<Space, 'systemFlags' | 'verificationLevel' | 'explicitFilter'>>;
+
 /** `space:updated` → space:<id> (viewer-neutral changes). */
-export function fxSpaceUpdated(fx: Effects, spaceId: string, changes: SpaceInfoChanges): void {
+export function fxSpaceUpdated(fx: Effects, spaceId: string, changes: SpaceSettingsChanges): void {
   fx.add(() => emitToRooms([rooms.space(spaceId)], 'space:updated', { spaceId, changes }));
 }
 

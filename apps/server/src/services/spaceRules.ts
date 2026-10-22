@@ -1,6 +1,7 @@
 /**
  * Space channel rules that `ChatPermissions` has no boolean for (docs/design/spaces-at-scale.md
- * "Permissions"): attachments, polls, reactions, slowmode and who may @everyone / @role.
+ * "Permissions"): attachments, polls, reactions, slowmode, who may @everyone / @role, and the
+ * Space's verification level.
  */
 import { and, eq } from 'drizzle-orm';
 import {
@@ -9,10 +10,11 @@ import {
   extractSpaceMentions,
   hasAnyPerm,
   hasPerm,
+  isSpaceAdmin,
   type MessageType,
 } from '@enbox/shared';
 import type { DbOrTx } from '../db/index.js';
-import { chatMembers } from '../db/schema.js';
+import { chatMembers, spaces, users } from '../db/schema.js';
 import { forbidden, rateLimited } from '../lib/errors.js';
 import { assertUserLimit } from '../lib/userLimit.js';
 import type { ChatAccess } from './chats.js';
@@ -62,6 +64,51 @@ export function spaceSendRules(
   const mentions = allowedSpaceMentions(access, body.text);
   if (mentions.everyone) assertUserLimit(me, 'mentionEveryone', USER_RATE_LIMITS.mentionEveryone);
   return mentions;
+}
+
+/** Verification level 2 (Medium): the account is older than this. */
+export const VERIFICATION_ACCOUNT_AGE_MS = 5 * 60_000;
+/** Verification level 3 (High): a member of the Space for longer than this. */
+export const VERIFICATION_MEMBER_AGE_MS = 10 * 60_000;
+
+function waitText(ms: number): string {
+  const min = Math.ceil(ms / 60_000);
+  return min <= 1 ? 'a minute' : `${min} minutes`;
+}
+
+/**
+ * The Space's verification level before a send (Discord: members with a role, the owner and
+ * administrators are exempt; levels are cumulative). What Enbox can check: Medium (account
+ * older than 5 minutes) and High (member for longer than 10 minutes). Low (verified email)
+ * and Highest's phone check are stored but not enforced: accounts have no email and phone
+ * numbers are not verified. One indexed lookup, only for members without roles.
+ */
+export async function assertSpaceVerification(
+  dbx: DbOrTx,
+  access: ChatAccess,
+  me: string,
+  now = Date.now(),
+): Promise<void> {
+  const s = access.space;
+  if (!s || s.me.roleIds.length > 0 || s.ctx.ownerId === me || isSpaceAdmin(s.base)) return;
+  const [row] = await dbx
+    .select({ level: spaces.verificationLevel, createdAt: users.createdAt })
+    .from(spaces)
+    .innerJoin(users, eq(users.id, me))
+    .where(eq(spaces.id, s.ctx.spaceId))
+    .limit(1);
+  if (!row || row.level < 2) return;
+  const accountWait = row.createdAt.getTime() + VERIFICATION_ACCOUNT_AGE_MS - now;
+  if (accountWait > 0)
+    throw forbidden(
+      `This Space requires accounts older than 5 minutes. You can talk here in ${waitText(accountWait)}.`,
+    );
+  if (row.level < 3) return;
+  const memberWait = s.me.member.joinedAt.getTime() + VERIFICATION_MEMBER_AGE_MS - now;
+  if (memberWait > 0)
+    throw forbidden(
+      `This Space requires you to be a member for 10 minutes before talking. You can talk here in ${waitText(memberWait)}.`,
+    );
 }
 
 /** After a send: record it for slowmode (the sender's read row exists by then). */

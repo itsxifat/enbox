@@ -49,6 +49,7 @@ export { ListItem, ListSection, type ListItemProps } from './ListItem';
 export {
   Menu,
   DropdownMenu,
+  contextMenuAnchor,
   type MenuItem,
   type MenuEntry,
   type MenuAnchor,

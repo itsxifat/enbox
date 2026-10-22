@@ -36,7 +36,18 @@ function jitterFor(spaceId: ID): number {
 export function registerSpaceHandlers(socket: AppSocket): void {
   const spaces = () => useSpaces.getState();
 
-  socket.on('space:upsert', ({ space }) => spaces().upsertSpace(space));
+  socket.on('space:upsert', ({ space }) => {
+    const prev = spaces().byId[space.id];
+    spaces().upsertSpace(space);
+    // Suppressing @everyone / role mentions changes the loaded channels' mention badges
+    // (counted at read time): refetch them (this device already did when it made the change).
+    if (
+      prev &&
+      spaces().channelsLoaded[space.id] &&
+      (prev.me.suppressEveryone !== space.me.suppressEveryone || prev.me.suppressRoles !== space.me.suppressRoles)
+    )
+      spaces().refetchChannels(space.id, { jitterMs: 500 });
+  });
 
   socket.on('space:removed', ({ spaceId }) => {
     const chatIds = Object.values(useChats.getState().byId)

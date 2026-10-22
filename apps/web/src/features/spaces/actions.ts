@@ -10,6 +10,7 @@ import type {
   CreateSpaceChannelRequest,
   CreateSpaceInviteRequest,
   ID,
+  NotifyLevel,
   OverwriteRequest,
   Space,
   SpaceCategory,
@@ -22,6 +23,7 @@ import type {
   UpdateSpaceChannelRequest,
   UpdateSpaceRequest,
 } from '@enbox/shared';
+import { patchPrefs } from '@/features/chats/chatActions';
 import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 import { useChats } from '@/stores/chats';
@@ -71,6 +73,52 @@ export async function deleteChannel(spaceId: ID, chatId: ID): Promise<void> {
   useChats.getState().removeChat(chatId);
 }
 
+/** Same type, topic, settings, category and permissions (Discord's Clone Channel). */
+export async function cloneChannel(spaceId: ID, chatId: ID, name?: string): Promise<ChatSummary> {
+  const chat = await api.post<ChatSummary>(`${base(spaceId)}/channels/${chatId}/clone`, name ? { name } : {});
+  useChats.getState().upsertChat(chat);
+  return chat;
+}
+
+/**
+ * Mark every channel of the Space read. Optimistic for the loaded channels; the server reads
+ * the rest and echoes `chat:read` per channel plus a `space:upsert` (rail aggregate).
+ */
+export async function markSpaceRead(spaceId: ID): Promise<void> {
+  const chats = useChats.getState();
+  for (const c of Object.values(chats.byId))
+    if (c.space?.spaceId === spaceId && (c.lastSeq > c.lastReadSeq || c.unreadCount || c.unreadMentionCount))
+      chats.mutateChat(c.id, (cur) => ({
+        lastReadSeq: Math.max(cur.lastReadSeq, cur.lastSeq),
+        unreadCount: 0,
+        unreadMentionCount: 0,
+        markedUnread: false,
+      }));
+  const space = useSpaces.getState().byId[spaceId];
+  if (space) useSpaces.getState().upsertSpace({ ...space, unread: false, unreadMentionCount: 0 });
+  await api.post(`${base(spaceId)}/read`);
+}
+
+/**
+ * Mute (or with `until: null` unmute) several channels through their per-channel prefs — a
+ * category mute is the mute of each of its channels. Optimistic; failures toast and revert.
+ */
+export async function setChannelsMuted(chats: ChatSummary[], until: string | null): Promise<boolean> {
+  const results = await Promise.all(chats.map((c) => patchPrefs(c, { mutedUntil: until })));
+  return results.every(Boolean);
+}
+
+/** Notification level of several channels (null = follow the Space setting). */
+export async function setChannelsNotifyLevel(chats: ChatSummary[], level: NotifyLevel | null): Promise<boolean> {
+  const results = await Promise.all(chats.map((c) => patchPrefs(c, { notifyLevel: level })));
+  return results.every(Boolean);
+}
+
+/** Live invites; with `channelId` only that channel's (MANAGE_CHANNELS there: everyone's). */
+export async function listInvites(spaceId: ID, channelId?: ID): Promise<SpaceInvite[]> {
+  return api.get<SpaceInvite[]>(`${base(spaceId)}/invites`, { query: { channelId } });
+}
+
 export async function moveChannels(
   spaceId: ID,
   items: { id: ID; categoryId: ID | null; position: number; syncPermissions?: boolean }[],
@@ -112,11 +160,26 @@ export async function createCategory(spaceId: ID, body: CreateCategoryRequest): 
 }
 
 export async function renameCategory(spaceId: ID, categoryId: ID, name: string): Promise<void> {
-  await api.patch(`${base(spaceId)}/categories/${categoryId}`, { name });
+  const cat = await api.patch<SpaceCategory>(`${base(spaceId)}/categories/${categoryId}`, { name });
+  const space = useSpaces.getState().byId[spaceId];
+  if (space)
+    useSpaces.getState().applySpaceUpdate(spaceId, {
+      categories: space.categories.map((c) => (c.id === cat.id ? cat : c)),
+    });
 }
 
 export async function deleteCategory(spaceId: ID, categoryId: ID): Promise<void> {
   await api.delete(`${base(spaceId)}/categories/${categoryId}`);
+  const space = useSpaces.getState().byId[spaceId];
+  if (space)
+    useSpaces.getState().applySpaceUpdate(spaceId, {
+      categories: space.categories.filter((c) => c.id !== categoryId),
+    });
+  // Its channels become uncategorised (the channel list refetch after the echo confirms it).
+  const chats = useChats.getState();
+  for (const c of Object.values(chats.byId))
+    if (c.space?.spaceId === spaceId && c.space.categoryId === categoryId)
+      chats.mutateChat(c.id, (cur) => (cur.space ? { space: { ...cur.space, categoryId: null } } : null));
 }
 
 export async function createRole(spaceId: ID, body: CreateRoleRequest): Promise<SpaceRole> {
@@ -137,9 +200,36 @@ export async function reorderRoles(spaceId: ID, roleIds: ID[]): Promise<SpaceRol
   return roles;
 }
 
+/**
+ * My settings in a Space (nickname, notifications, mute, suppressions, hide muted channels).
+ * The notification fields apply optimistically (menu checkboxes flip at once) and revert on
+ * failure; the response (and its `space:upsert` echo on my other devices) is the truth.
+ */
 export async function updateMyMember(spaceId: ID, body: UpdateMyMemberRequest): Promise<void> {
-  const space = await api.patch<Space>(`${base(spaceId)}/members/me`, body);
-  useSpaces.getState().upsertSpace(space);
+  const before = useSpaces.getState().byId[spaceId];
+  if (before) {
+    const me = { ...before.me };
+    if (body.notifyLevel !== undefined) me.notifyLevel = body.notifyLevel;
+    if (body.mutedUntil !== undefined) me.mutedUntil = body.mutedUntil;
+    if (body.suppressEveryone !== undefined) me.suppressEveryone = body.suppressEveryone;
+    if (body.suppressRoles !== undefined) me.suppressRoles = body.suppressRoles;
+    if (body.hideMutedChannels !== undefined) me.hideMutedChannels = body.hideMutedChannels;
+    useSpaces.getState().upsertSpace({ ...before, me });
+  }
+  try {
+    const space = await api.patch<Space>(`${base(spaceId)}/members/me`, body);
+    useSpaces.getState().upsertSpace(space);
+    // Mention counts are computed at read time: the loaded channels' badges change too.
+    if (
+      (body.suppressEveryone !== undefined || body.suppressRoles !== undefined) &&
+      useSpaces.getState().channelsLoaded[spaceId]
+    )
+      useSpaces.getState().refetchChannels(spaceId);
+  } catch (e) {
+    const cur = useSpaces.getState().byId[spaceId];
+    if (before && cur) useSpaces.getState().upsertSpace({ ...cur, me: before.me });
+    throw e;
+  }
 }
 
 export async function updateMember(spaceId: ID, userId: ID, body: UpdateMemberRequest): Promise<SpaceMember> {
@@ -192,11 +282,17 @@ export const spaceMemory = {
     storage.set(LAST_SPACE, spaceId);
   },
   lastSpace: () => storage.get(LAST_SPACE),
+  /** Collapsed categories on this device (category id → true). */
   collapsed: (): Record<ID, boolean> => storage.getJSON<Record<ID, boolean>>(COLLAPSED) ?? {},
-  setCollapsed: (categoryId: ID, collapsed: boolean) => {
+  setCollapsed: (categoryId: ID, collapsed: boolean) => spaceMemory.setCollapsedMany([categoryId], collapsed),
+  /** Collapse All Categories (or expand them): one write. Returns the new map. */
+  setCollapsedMany: (categoryIds: readonly ID[], collapsed: boolean): Record<ID, boolean> => {
     const cur = spaceMemory.collapsed();
-    if (collapsed) cur[categoryId] = true;
-    else delete cur[categoryId];
+    for (const id of categoryIds) {
+      if (collapsed) cur[id] = true;
+      else delete cur[id];
+    }
     storage.setJSON(COLLAPSED, cur);
+    return cur;
   },
 };

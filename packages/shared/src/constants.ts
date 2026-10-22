@@ -445,6 +445,10 @@ export const USER_RATE_LIMITS = {
   addMembers: { limit: 200, windowMs: 60 * 60_000 },
   /** `call:start`, per user. */
   callStart: { limit: 10, windowMs: 60_000 },
+  /** `voice:join`, per user. */
+  voiceJoin: { limit: 20, windowMs: 60_000 },
+  /** `voice:update`, per socket. */
+  voiceUpdate: { limit: 30, windowMs: 10_000 },
   /** `chat:typing`, per socket and chat. */
   typing: { limit: 1, windowMs: 1_000 },
   /** `presence:subscribe` events, per socket. */
@@ -470,3 +474,42 @@ export const USER_RATE_LIMITS = {
   /** Messages mentioning @everyone / @here, per user. */
   mentionEveryone: { limit: 5, windowMs: 60_000 },
 } as const;
+
+// ---------------------------------------------------------------------------
+// Voice channels and Space options
+// ---------------------------------------------------------------------------
+
+/** Default and maximum voice channel bitrate (bit/s). */
+export const VOICE_DEFAULT_BITRATE = 64_000;
+export const VOICE_MIN_BITRATE = 8_000;
+export const VOICE_MAX_BITRATE = 96_000;
+/** Max people in one voice channel without a user limit (media server load). */
+export const VOICE_MAX_PARTICIPANTS = 99;
+/** LiveKit tokens live this long; joining again mints a new one. */
+export const VOICE_TOKEN_TTL_SEC = 10 * 60;
+
+/** `Space.systemFlags`: system messages that are NOT posted to the system channel. */
+export const SPACE_SYSTEM_FLAGS = {
+  SUPPRESS_JOIN_NOTIFICATIONS: 1 << 0,
+  SUPPRESS_JOIN_REPLIES: 1 << 1,
+  SUPPRESS_SETUP_TIPS: 1 << 2,
+} as const;
+
+/** `Space.verificationLevel` labels (Discord's five levels). */
+export const SPACE_VERIFICATION_LEVELS = [
+  { level: 0, label: 'None', description: 'Unrestricted' },
+  { level: 1, label: 'Low', description: 'Must have a verified email on their account' },
+  { level: 2, label: 'Medium', description: 'Must also be registered on Enbox for longer than 5 minutes' },
+  { level: 3, label: 'High', description: 'Must also be a member of this Space for longer than 10 minutes' },
+  { level: 4, label: 'Highest', description: 'Must have a verified phone number' },
+] as const;
+
+/** Discord's mute durations (ms; 0 = until I turn it back on). */
+export const SPACE_MUTE_DURATIONS = [
+  { label: 'For 15 minutes', ms: 15 * 60_000 },
+  { label: 'For 1 hour', ms: 3_600_000 },
+  { label: 'For 3 hours', ms: 3 * 3_600_000 },
+  { label: 'For 8 hours', ms: 8 * 3_600_000 },
+  { label: 'For 24 hours', ms: 24 * 3_600_000 },
+  { label: 'Until I turn it back on', ms: 0 },
+] as const;

@@ -19,10 +19,12 @@ import { router as calls } from './calls/routes.js';
 import { router as push } from './push/routes.js';
 import { router as linkPreviews } from './linkPreviews/routes.js';
 import { router as spaces } from './spaces/routes.js';
+import { router as voice } from './voice/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
 import { registerSpacesSocket } from './spaces/socket.js';
+import { registerVoiceSocket } from './voice/socket.js';
 
 /** Mounted under /api without authentication. */
 export const publicRouters: Router[] = [systemPublic, authPublic];
@@ -43,6 +45,7 @@ export const authedRouters: Router[] = [
   push,
   linkPreviews,
   spaces,
+  voice,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [
@@ -50,4 +53,5 @@ export const socketRegistrars: SocketRegistrar[] = [
   registerChatsSocket,
   registerCallsSocket,
   registerSpacesSocket,
+  registerVoiceSocket,
 ];

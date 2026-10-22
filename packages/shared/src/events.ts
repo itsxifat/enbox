@@ -54,6 +54,9 @@ import type {
   Presence,
   Space,
   SpaceMember,
+  VoiceDisconnectReason,
+  VoiceJoinResult,
+  VoiceState,
   Status,
   StatusViewer,
   UserPublic,
@@ -71,6 +74,8 @@ import type {
   ReceiptPayload,
   SpaceFocusPayload,
   SpaceMembersSubscribePayload,
+  VoiceJoinPayload,
+  VoiceUpdatePayload,
   TypingPayload,
 } from './schemas.js';
 
@@ -116,6 +121,9 @@ export type SpaceInfoChanges = Partial<
     | 'rulesChannelId'
     | 'afkChannelId'
     | 'afkTimeoutSec'
+    | 'systemFlags'
+    | 'verificationLevel'
+    | 'explicitFilter'
     | 'defaultNotifyLevel'
     | 'isDiscoverable'
     | 'roles'
@@ -242,6 +250,14 @@ export interface ServerToClientEvents {
   'space:member-left': (payload: { spaceId: ID; userId: ID }) => void;
   'space:member-updated': (payload: { spaceId: ID; member: SpaceMember }) => void;
 
+  /**
+   * Voice: someone joined, moved within, changed flags in, or left (`state: null`) a voice
+   * channel. Sent to the channel's room (only those who can see it).
+   */
+  'voice:state': (payload: { spaceId: ID; channelId: ID; userId: ID; state: VoiceState | null }) => void;
+  /** My voice connection was ended by the server: disconnect from the media server. */
+  'voice:disconnected': (payload: { channelId: ID; reason: VoiceDisconnectReason }) => void;
+
   // --- Status (user:<id> of the audience / author) ---
   'status:new': (payload: { status: Status; user: UserPublic }) => void;
   'status:deleted': (payload: { statusId: ID; userId: ID }) => void;
@@ -320,6 +336,16 @@ export interface ClientToServerEvents {
   'space:focus': (payload: SpaceFocusPayload) => void;
   /** Receive member list events of a large Space (member list open), or stop (null). */
   'space:members-subscribe': (payload: SpaceMembersSubscribePayload) => void;
+
+  /**
+   * Join a voice channel (needs VIEW_CHANNEL + CONNECT; the user limit applies unless I have
+   * MOVE_MEMBERS). One voice connection per account: another device's is disconnected.
+   */
+  'voice:join': (payload: VoiceJoinPayload, ack: AckFn<VoiceJoinResult>) => void;
+  /** Leave my voice channel. */
+  'voice:leave': (payload: Record<string, never>, ack?: AckFn<null>) => void;
+  /** Change my own mute / deafen / camera / stream flags. */
+  'voice:update': (payload: VoiceUpdatePayload) => void;
 
   /**
    * Start a call; this socket becomes my call socket. If the chat already has a live call →

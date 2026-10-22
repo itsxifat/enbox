@@ -49,6 +49,7 @@ import type {
   SpaceBan,
   SpaceCategory,
   SpaceInvite,
+  VoiceState,
   SpaceMember,
   SpaceMemberPage,
   SpaceRole,
@@ -58,6 +59,7 @@ import type {
   BanRequest,
   CategoryPositionsRequest,
   ChannelPositionsRequest,
+  CloneSpaceChannelRequest,
   CreateCategoryRequest,
   CreateRoleRequest,
   CreateSpaceChannelRequest,
@@ -66,6 +68,7 @@ import type {
   MembersQuery,
   OverwriteRequest,
   RolePositionsRequest,
+  SpaceInvitesQuery,
   SpaceMembersBatchRequest,
   UpdateCategoryRequest,
   UpdateMemberRequest,
@@ -480,6 +483,9 @@ export interface ApiRoutes {
   'PATCH /api/spaces/:spaceId': { B: UpdateSpaceRequest; R: Space } /* MANAGE_SPACE */;
   'DELETE /api/spaces/:spaceId': { R: void } /* owner */;
   'POST /api/spaces/:spaceId/leave': { R: void } /* not the owner */;
+  'POST /api/spaces/:spaceId/read': {
+    R: void;
+  } /* every channel I can see: chat:read per channel, then space:upsert → me */;
   'POST /api/spaces/:spaceId/transfer-ownership': { B: TransferOwnershipRequest; R: Space };
   'GET /api/spaces/:spaceId/channels': { R: ChatSummary[] } /* those I can see */;
   'POST /api/spaces/:spaceId/channels': {
@@ -505,6 +511,10 @@ export interface ApiRoutes {
   'POST /api/spaces/:spaceId/channels/:chatId/sync': {
     R: ChatSummary;
   } /* copy the category's overwrites */;
+  'POST /api/spaces/:spaceId/channels/:chatId/clone': {
+    B: CloneSpaceChannelRequest;
+    R: ChatSummary;
+  } /* MANAGE_CHANNELS: same type, topic, settings, category and overwrites */;
   'POST /api/spaces/:spaceId/categories': {
     B: CreateCategoryRequest;
     R: SpaceCategory;
@@ -551,14 +561,21 @@ export interface ApiRoutes {
   'PUT /api/spaces/:spaceId/members/:userId/roles/:roleId': { R: SpaceMember };
   'DELETE /api/spaces/:spaceId/members/:userId/roles/:roleId': { R: SpaceMember };
   'GET /api/spaces/:spaceId/bans': { R: SpaceBan[] } /* BAN_MEMBERS */;
+  'GET /api/spaces/:spaceId/voice-states': { R: VoiceState[] } /* the voice channels I can see */;
+  'POST /api/spaces/:spaceId/voice-states/:userId/disconnect': { R: void } /* MOVE_MEMBERS */;
   'PUT /api/spaces/:spaceId/bans/:userId': { B: BanRequest; R: void } /* BAN_MEMBERS */;
   'DELETE /api/spaces/:spaceId/bans/:userId': { R: void };
-  'GET /api/spaces/:spaceId/invites': { R: SpaceInvite[] } /* MANAGE_SPACE: all; else mine */;
+  'GET /api/spaces/:spaceId/invites': {
+    Q: SpaceInvitesQuery;
+    R: SpaceInvite[];
+  } /* MANAGE_SPACE (or MANAGE_CHANNELS in ?channelId): all; else mine */;
   'POST /api/spaces/:spaceId/invites': {
     B: CreateSpaceInviteRequest;
     R: SpaceInvite;
   } /* CREATE_INVITE */;
-  'DELETE /api/spaces/:spaceId/invites/:code': { R: void } /* mine, or MANAGE_SPACE */;
+  'DELETE /api/spaces/:spaceId/invites/:code': {
+    R: void;
+  } /* mine, MANAGE_SPACE, or MANAGE_CHANNELS in the invite's channel */;
   'GET /api/spaces/:spaceId/audit-log': {
     Q: AuditLogQuery;
     R: SpaceAuditEntry[];

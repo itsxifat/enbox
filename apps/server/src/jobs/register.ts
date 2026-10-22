@@ -6,5 +6,6 @@ import './linkPreviewGc.js';
 import '../modules/auth/sessionCleanup.js';
 import './disappearingPurge.js';
 import './calls.js';
+import './voice.js';
 import './statusExpiry.js';
 import './presenceExpiry.js';

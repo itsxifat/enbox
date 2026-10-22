@@ -27,6 +27,7 @@ import { registerMessageHandlers } from './messages';
 import { registerSpaceHandlers, resyncSpaces } from './spaces';
 import { registerStatusHandlers, resyncStatus } from './status';
 import { registerUserHandlers, resyncUsers } from './users';
+import { registerVoiceHandlers, resyncVoice } from './voice';
 
 export { markChatRead } from './chats';
 export { handleNewMessage } from './messages';
@@ -47,6 +48,7 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
         resyncCommunities(info),
         resyncStatus(info),
         resyncSpaces(info),
+        resyncVoice(info),
       ]),
     ),
   ]);
@@ -64,6 +66,7 @@ export function startRealtime(): void {
     registerUserHandlers(socket);
     registerCommunityHandlers(socket);
     registerSpaceHandlers(socket);
+    registerVoiceHandlers(socket);
     registerCallHandlers(socket);
     registerStatusHandlers(socket);
   });
