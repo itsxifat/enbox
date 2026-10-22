@@ -4,7 +4,15 @@
  * send — device preferences.
  */
 import { View } from 'react-native';
-import { Check, CornerDownLeft, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react-native';
+import {
+  Check,
+  CornerDownLeft,
+  Link2,
+  Palette,
+  Sparkles,
+  Wallpaper,
+  Zap,
+} from 'lucide-react-native';
 import { WALLPAPER_DIM_MAX } from '@enbox/shared';
 import { ICON_STROKE_BOLD, Icon } from '@/components/icons';
 import { Press, Segmented, T } from '@/components/ui';
@@ -181,6 +189,13 @@ export function ChatsSettingsPage() {
           description="The keyboard's enter key sends your message instead of adding a new line"
           checked={prefs.enterToSend}
           onChange={(v) => useUi.getState().setPref('enterToSend', v)}
+        />
+        <SwitchRow
+          icon={Link2}
+          title="Link previews"
+          description="Show a preview card for links in messages. Enbox fetches it, so sites never see you."
+          checked={prefs.linkPreviews}
+          onChange={(v) => useUi.getState().setPref('linkPreviews', v)}
         />
       </SettingsGroup>
     </SettingsScroller>

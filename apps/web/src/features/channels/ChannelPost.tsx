@@ -32,6 +32,7 @@ import {
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { IconButton, Menu, confirm, toast, type MenuAnchor, type MenuEntry } from '@/components/ui';
 import { Lightbox } from '@/features/groups/shared/MediaGallery';
+import { LinkPreviewCard } from '@/features/conversation/bubbles/LinkPreviewCard';
 import { RichText } from '@/features/groups/shared/RichText';
 import { copyText } from '@/features/groups/shared/share';
 import { EditTextModal } from '@/features/groups/shared/dialogs';
@@ -161,6 +162,7 @@ export const ChannelPost = memo(function ChannelPost({
               {text ? (
                 <div className="px-3 pt-2 text-chat leading-snug">
                   <RichText text={text} />
+                  {m.type === 'text' ? <LinkPreviewCard text={text} /> : null}
                 </div>
               ) : null}
             </>

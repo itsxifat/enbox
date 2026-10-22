@@ -37,6 +37,7 @@ import { InlineMeta, Meta } from './bubbles/Meta';
 import { PollBody } from './bubbles/PollBody';
 import { ReplyQuote, StatusReplyQuote } from './bubbles/Quote';
 import { ReactionPill, ReactionsDialog } from './bubbles/Reactions';
+import { LinkPreviewCard } from './bubbles/LinkPreviewCard';
 import { RichText } from './bubbles/RichText';
 import { DaySeparator, SystemPill, UnreadDivider } from './bubbles/SystemPill';
 import { emojiOnlyCount } from './lib/richText';
@@ -443,6 +444,7 @@ export function MessageContent({
     return (
       <div className="relative px-1.5 pt-1 pb-1.5 text-chat leading-[1.38] break-words whitespace-pre-wrap text-fg">
         <RichText text={m.text ?? ''} highlight={search} />
+        <LinkPreviewCard text={m.text} />
         <InlineMeta m={m} mine={mine} chat={chat} />
       </div>
     );

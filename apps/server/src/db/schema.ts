@@ -257,6 +257,36 @@ export const media = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Link previews
+// ---------------------------------------------------------------------------
+
+/**
+ * Cache of fetched link previews (services/linkPreviews.ts), one row per normalised link.
+ * A row without title, description and image records a link that has no preview (retried
+ * sooner than a real one is refreshed). `image_key` is a file under UPLOAD_DIR owned by the
+ * row: the GC job deletes it with the row, a refresh replaces it.
+ */
+export const linkPreviews = pgTable(
+  'link_previews',
+  {
+    url: text('url').primaryKey(),
+    domain: text('domain'),
+    siteName: text('site_name'),
+    title: text('title'),
+    description: text('description'),
+    themeColor: text('theme_color'),
+    imageKey: text('image_key'),
+    imageWidth: integer('image_width'),
+    imageHeight: integer('image_height'),
+    fetchedAt: ts('fetched_at').notNull().defaultNow(),
+  },
+  (t) => [
+    /** GC scans by age. */
+    index('link_previews_fetched_idx').on(t.fetchedAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Communities
 // ---------------------------------------------------------------------------
 
@@ -796,3 +826,4 @@ export type StatusRow = typeof statuses.$inferSelect;
 export type CallRow = typeof calls.$inferSelect;
 export type CallParticipantRow = typeof callParticipants.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type LinkPreviewRow = typeof linkPreviews.$inferSelect;

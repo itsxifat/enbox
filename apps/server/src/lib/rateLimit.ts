@@ -29,5 +29,7 @@ export const usernameCheckLimiter = limiter(10 * 60_000, 120);
 export const inviteLimiter = limiter(10 * 60_000, 60);
 /** Uploads: 120 per 10 minutes per IP. */
 export const uploadLimiter = limiter(10 * 60_000, 120);
+/** Link previews: 600 per 10 minutes per IP (cached links are cheap; fetches are queued). */
+export const linkPreviewLimiter = limiter(10 * 60_000, 600);
 /** General API: 1200 per minute per IP. */
 export const apiLimiter = limiter(60_000, 1200);

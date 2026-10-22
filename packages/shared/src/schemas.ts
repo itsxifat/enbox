@@ -30,6 +30,7 @@ import {
   MAX_FORWARD_TARGETS,
   MAX_GROUP_MEMBERS,
   MAX_GROUP_NAME_LENGTH,
+  MAX_LINK_PREVIEW_URL_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_MESSAGES_PAGE_SIZE,
   MAX_PRIVACY_LIST_SIZE,
@@ -548,6 +549,11 @@ export const searchMessagesQuerySchema = z.object({
   limit: intWithDefault(z.number().int().min(1).max(100), SEARCH_RESULTS_LIMIT),
 });
 
+/** `GET /api/link-preview`: an http(s) link (the server checks the scheme and host). */
+export const linkPreviewQuerySchema = z.object({
+  url: z.string().trim().min(1).max(MAX_LINK_PREVIEW_URL_LENGTH),
+});
+
 export const pinMessageSchema = z.object({
   messageId: idSchema,
 });
@@ -866,6 +872,7 @@ export type ListMessagesQuery = z.input<typeof listMessagesQuerySchema>;
 export type ChatMediaQuery = z.input<typeof chatMediaQuerySchema>;
 export type StarredMessagesQuery = z.input<typeof starredMessagesQuerySchema>;
 export type SearchMessagesQuery = z.input<typeof searchMessagesQuerySchema>;
+export type LinkPreviewQuery = z.input<typeof linkPreviewQuerySchema>;
 export type PinMessageRequest = z.input<typeof pinMessageSchema>;
 export type UploadMediaMeta = z.input<typeof uploadMediaMetaSchema>;
 export type CreateGroupRequest = z.input<typeof createGroupSchema>;

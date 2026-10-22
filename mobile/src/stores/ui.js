@@ -31,6 +31,8 @@ import { StorageKeys, zustandStorage } from '@/lib/storage';
 
 export const DEFAULT_PREFS = {
   enterToSend: true,
+  /** Preview cards (title, description, image) under messages with a link. */
+  linkPreviews: true,
   fontSize: 'medium',
   wallpaperPattern: true,
   sounds: true,

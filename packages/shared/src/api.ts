@@ -29,6 +29,7 @@ import type {
   Contact,
   IceServerConfig,
   InvitePreview,
+  LinkPreview,
   MediaAttachment,
   Message,
   MessageInfo,
@@ -70,6 +71,7 @@ import type {
   ReadRequest,
   RegisterRequest,
   SearchMessagesQuery,
+  LinkPreviewQuery,
   SendMessageRequest,
   StarredMessagesQuery,
   SetChatThemeRequest,
@@ -375,6 +377,10 @@ export interface ApiRoutes {
   'GET /api/messages/:messageId/info': { R: MessageInfo } /* sender only; 404 in channels */;
   'PUT /api/messages/:messageId/vote': { B: PollVoteRequest; R: Message };
   'GET /api/search/messages': { Q: SearchMessagesQuery; R: MessageSearchResult[] };
+  'GET /api/link-preview': {
+    Q: LinkPreviewQuery;
+    R: { preview: LinkPreview | null };
+  } /* null: no preview (not a page, unreachable, private address) */;
 
   // Groups (type 'group', NOT announcement groups — those are managed via /communities)
   'POST /api/groups': { B: CreateGroupRequest; R: AddMembersResult };

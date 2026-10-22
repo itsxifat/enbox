@@ -17,6 +17,7 @@ import { router as channels } from './channels/routes.js';
 import { router as status } from './status/routes.js';
 import { router as calls } from './calls/routes.js';
 import { router as push } from './push/routes.js';
+import { router as linkPreviews } from './linkPreviews/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -38,6 +39,7 @@ export const authedRouters: Router[] = [
   status,
   calls,
   push,
+  linkPreviews,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

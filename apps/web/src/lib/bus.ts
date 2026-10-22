@@ -48,6 +48,13 @@ export interface BusEvents {
   /** Stop ringing on this device (answered/declined elsewhere, timeout, cancelled, ended). */
   'call:ring-stop': { callId: ID; reason: RingStopReason };
 
+  // --- Conversation ---
+  /**
+   * A message row grew after it was laid out (a link preview arrived): the open message list
+   * keeps the newest message in view when it was at the bottom.
+   */
+  'conversation:row-grew': void;
+
   // --- Navigation ---
   /** Ask the router to navigate (used by notifications / service worker clicks). */
   navigate: { to: string; replace?: boolean };

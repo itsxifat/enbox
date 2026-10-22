@@ -1,4 +1,4 @@
-import { Check, CornerDownLeft, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
+import { Check, CornerDownLeft, Link2, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { ChatPreview } from '@/features/appearance/ChatPreview';
 import {
@@ -132,7 +132,7 @@ function DevicePreview() {
   return <ChatPreview appearance={appearance} className="mx-4 mt-4 min-h-28 lg:mx-5" />;
 }
 
-/** Settings → Chats: theme, wallpaper, animations, text size, enter to send (device preferences). */
+/** Settings → Chats: theme, wallpaper, animations, text size, enter to send, link previews (device preferences). */
 export function ChatsSettingsPage() {
   const prefs = useUi((s) => s.prefs);
   return (
@@ -176,6 +176,13 @@ export function ChatsSettingsPage() {
           description="Enter sends your message; Shift + Enter adds a new line"
           checked={prefs.enterToSend}
           onChange={(v) => useUi.getState().setPref('enterToSend', v)}
+        />
+        <SwitchRow
+          icon={Link2}
+          title="Link previews"
+          description="Show a preview card for links in messages. Enbox fetches it, so sites never see you."
+          checked={prefs.linkPreviews}
+          onChange={(v) => useUi.getState().setPref('linkPreviews', v)}
         />
       </SettingsGroup>
     </SettingsScroller>

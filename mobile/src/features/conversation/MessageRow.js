@@ -29,6 +29,7 @@ import { alpha, useTheme } from '@/theme';
 import { canReact, canReply, retry, startReply } from './actions';
 import { AudioFileBody, VoiceBody } from './bubbles/AudioBody';
 import { CallBody, ContactBody, FileBody, LocationBody } from './bubbles/CardBodies';
+import { LinkPreviewCard } from './bubbles/LinkPreviewCard';
 import { MediaBody } from './bubbles/MediaBody';
 import { DaySeparator, SystemPill, UnreadDivider } from './bubbles/Pills';
 import { PollBody } from './bubbles/PollBody';
@@ -190,6 +191,8 @@ export function MessageContent({ m, mine, chat, search, shape, maxWidth }) {
           <RichText text={m.text ?? ''} highlight={search} />
           <MetaSpacer m={m} mine={mine} />
         </T>
+        {/* The bottom margin keeps the corner meta clear of the card. */}
+        <LinkPreviewCard text={m.text} maxWidth={maxWidth} style={{ marginBottom: 16 }} />
         <CornerMeta m={m} mine={mine} chat={chat} />
       </View>
     );

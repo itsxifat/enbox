@@ -22,6 +22,13 @@
       "when": 1790479978888,
       "tag": "0002_chat_themes",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792666816173,
+      "tag": "0003_link_previews",
+      "breakpoints": true
     }
   ]
 }

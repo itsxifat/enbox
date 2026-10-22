@@ -139,6 +139,8 @@ export const MESSAGES_PAGE_SIZE = 50;
 /** Max `limit` of a message page. */
 export const MAX_MESSAGES_PAGE_SIZE = 200;
 export const SEARCH_RESULTS_LIMIT = 50;
+/** Longest link `GET /api/link-preview` accepts. */
+export const MAX_LINK_PREVIEW_URL_LENGTH = 2_048;
 
 /** A far-future timestamp used for "mute always". */
 export const MUTE_FOREVER_ISO = '9999-12-31T23:59:59.000Z';

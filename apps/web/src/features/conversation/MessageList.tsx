@@ -20,6 +20,7 @@ import { formatDaySeparator } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
 import { useChatMessages, useMessages } from '@/stores/messages';
 import { nameOf } from '@/stores/users';
+import { useBus } from '@/hooks/useBus';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/ui';
 import { CozyMessageRow } from './CozyMessageRow';
@@ -136,6 +137,12 @@ export const MessageList = memo(function MessageList({
   const virtuoso = useRef<VirtuosoHandle>(null);
   const [now, setNow] = useState(() => Date.now());
   const [atBottom, setAtBottom] = useState(true);
+  // Read synchronously by the row-grew handler, before Virtuoso re-measures the grown row.
+  const atBottomRef = useRef(true);
+  const onAtBottom = useCallback((bottom: boolean) => {
+    atBottomRef.current = bottom;
+    setAtBottom(bottom);
+  }, []);
   const wrapper = useRef<HTMLDivElement>(null);
   const [newBelow, setNewBelow] = useState(0);
   const [floating, setFloating] = useState<{ label: string; visible: boolean }>({
@@ -389,6 +396,15 @@ export const MessageList = memo(function MessageList({
     scroller.current = el instanceof HTMLElement ? el : null;
   }, []);
   const loaded = msgs.loaded;
+  // A row that grows after layout (a link preview arriving) would push the newest message
+  // below the fold: stay at the bottom if the list was there.
+  useBus('conversation:row-grew', () => {
+    if (!atBottomRef.current || jumpSettling()) return;
+    requestAnimationFrame(() => {
+      const sc = scroller.current;
+      if (sc) sc.scrollTop = sc.scrollHeight;
+    });
+  });
   useEffect(() => {
     const el = wrapper.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -508,7 +524,7 @@ export const MessageList = memo(function MessageList({
         alignToBottom
         startReached={loadOlder}
         endReached={loadNewer}
-        atBottomStateChange={setAtBottom}
+        atBottomStateChange={onAtBottom}
         atBottomThreshold={96}
         increaseViewportBy={{ top: 0, bottom: 300 }}
         scrollerRef={setScroller}

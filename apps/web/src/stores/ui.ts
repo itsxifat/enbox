@@ -4,7 +4,7 @@
  *
  * State
  * - `theme`: 'light' | 'dark' | 'system'; `resolvedTheme`: 'light' | 'dark'
- * - `prefs`: { enterToSend, fontSize, wallpaperPattern, sounds, desktopNotifications,
+ * - `prefs`: { enterToSend, linkPreviews, fontSize, wallpaperPattern, sounds, desktopNotifications,
  *   reduceMotion, autoplayAnimatedMedia, chatTheme, bubbleStyle, messageAnimation,
  *   wallpaperPreset, wallpaperDim, wallpaperBlur }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
@@ -47,6 +47,8 @@ export type AutoplayAnimatedMedia = 'always' | 'hover' | 'never';
 export interface DevicePrefs {
   /** Enter sends (Shift+Enter = newline). Mobile keyboards always insert newlines. */
   enterToSend: boolean;
+  /** Preview cards (title, description, image) under messages with a link. */
+  linkPreviews: boolean;
   /** Chat text size (sets `--chat-font-size`; use the `text-chat` utility). */
   fontSize: FontSize;
   /** Faint dot pattern over the wallpaper. */
@@ -75,6 +77,7 @@ export interface DevicePrefs {
 
 export const DEFAULT_PREFS: DevicePrefs = {
   enterToSend: true,
+  linkPreviews: true,
   fontSize: 'medium',
   wallpaperPattern: true,
   sounds: true,

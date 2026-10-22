@@ -900,3 +900,26 @@ export interface PushPayload {
   /** Show without sound/vibration. */
   silent?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Link previews
+// ---------------------------------------------------------------------------
+
+/**
+ * Preview card of a link in a message (`GET /api/link-preview`). The server fetches the page
+ * (never the client, so sites do not see who reads a chat) and caches the result; the image
+ * is a copy stored under /uploads, never the site's own URL.
+ */
+export interface LinkPreview {
+  /** The link as it was requested. */
+  url: string;
+  /** Hostname the page was finally served from (after redirects), without `www.`. */
+  domain: string;
+  /** `og:site_name`, else null (clients show `domain`). */
+  siteName: string | null;
+  title: string | null;
+  description: string | null;
+  /** The page's `theme-color` as `#rrggbb`, else null (the card's accent). */
+  themeColor: string | null;
+  image: { url: string; width: number; height: number } | null;
+}

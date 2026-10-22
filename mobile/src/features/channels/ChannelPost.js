@@ -32,6 +32,7 @@ import { isActionable, retry, setStarred } from '@/features/conversation/actions
 import { AudioFileBody, VoiceBody } from '@/features/conversation/bubbles/AudioBody';
 import { ContactBody, FileBody, LocationBody } from '@/features/conversation/bubbles/CardBodies';
 import { MediaBody } from '@/features/conversation/bubbles/MediaBody';
+import { LinkPreviewCard } from '@/features/conversation/bubbles/LinkPreviewCard';
 import { RichText } from '@/features/conversation/bubbles/Text';
 import { useConversationUi } from '@/features/conversation/state';
 import { EmojiPanel } from '@/features/emoji/EmojiPanel';
@@ -179,6 +180,7 @@ export const ChannelPost = memo(function ChannelPost({ m, ctx }) {
                   <T style={{ fontSize: chatFontSize, lineHeight: chatFontSize * 1.375 }}>
                     <RichText text={text} />
                   </T>
+                  {m.type === 'text' ? <LinkPreviewCard text={text} /> : null}
                 </View>
               ) : null}
             </>
