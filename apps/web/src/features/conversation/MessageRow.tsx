@@ -50,7 +50,7 @@ import { ReactionPill, ReactionsDialog } from './bubbles/Reactions';
 import { LinkPreviewCard } from './bubbles/LinkPreviewCard';
 import { RichText } from './bubbles/RichText';
 import { DaySeparator, SystemPill, UnreadDivider } from './bubbles/SystemPill';
-import { emojiOnlyCount } from './lib/richText';
+import { emojiOnlyCount, plainCustomEmoji } from './lib/richText';
 import type { Row } from './lib/rows';
 import { senderColor } from './lib/senderColor';
 import { useConversationUi, useIsSelected, useSelecting } from './state';
@@ -463,9 +463,9 @@ export function MessageContent({
             'leading-tight',
             emojiCount === 1 ? 'text-[52px]' : emojiCount === 2 ? 'text-[44px]' : 'text-[38px]',
           )}
-          aria-label={m.text ?? undefined}
+          aria-label={m.text ? plainCustomEmoji(m.text) : undefined}
         >
-          {m.text}
+          <RichText text={m.text ?? ''} jumbo />
         </span>
         <Meta m={m} mine={mine} chat={chat} variant="pill" />
       </div>

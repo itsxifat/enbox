@@ -7,6 +7,7 @@ import {
   effectiveAvailability,
   isDnd,
   isSharedChatTheme,
+  renderMentions,
   systemEventText,
 } from './utils.js';
 
@@ -125,5 +126,13 @@ describe('isSharedChatTheme', () => {
 
   it('refuses a theme showing my own wallpaper upload', () => {
     expect(isSharedChatTheme({ ...theme, wallpaper: { kind: 'media' } })).toBe(false);
+  });
+});
+
+describe('renderMentions: custom emoji', () => {
+  it('previews read :name: for custom emoji tokens', () => {
+    const id = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+    expect(renderMentions(`hi <:blob:${id}> <a:party:${id}> @{${id}}`, () => 'Maya')).toBe('hi :blob: :party: @Maya');
+    expect(renderMentions('<:x:not-an-id>', () => '')).toBe('<:x:not-an-id>');
   });
 });

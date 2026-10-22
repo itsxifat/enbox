@@ -4,7 +4,7 @@
  */
 import { PERM, hasPerm, type ID, type Space } from '@enbox/shared';
 
-export type SettingsSectionId = 'overview' | 'safety' | 'roles' | 'members' | 'invites' | 'bans' | 'audit-log';
+export type SettingsSectionId = 'overview' | 'safety' | 'roles' | 'emoji' | 'members' | 'invites' | 'bans' | 'audit-log';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -18,6 +18,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'overview', label: 'Overview', show: (s) => has(s, PERM.MANAGE_SPACE) },
   { id: 'safety', label: 'Safety Setup', show: (s) => has(s, PERM.MANAGE_SPACE) },
   { id: 'roles', label: 'Roles', show: (s) => has(s, PERM.MANAGE_ROLES) },
+  { id: 'emoji', label: 'Emoji', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   {
     id: 'members',
     label: 'Members',
@@ -45,6 +46,7 @@ export function canOpenSpaceSettings(space: Space): boolean {
     PERM.VIEW_AUDIT_LOG,
     PERM.MODERATE_MEMBERS,
     PERM.MANAGE_NICKNAMES,
+    PERM.MANAGE_EMOJI,
   );
 }
 

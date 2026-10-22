@@ -22,6 +22,7 @@ import {
   MAX_MENTIONS,
   extractMentionIds,
   isSpaceChatType,
+  parseCustomEmoji,
   referencedUserIds,
   type ChatType,
   type ContactCardPayload,
@@ -63,6 +64,7 @@ import {
 import type { Effects } from './effects.js';
 import { loadMediaMap, toMediaAttachment } from './media.js';
 import { ensureSpaceReadRow } from './spaceAccess.js';
+import { loadThreadRefs, threadMessageFx } from './threads.js';
 import { rawRows, uniq, uuidArray } from './sql.js';
 import { loadStatusesForReplies, toStatusReplyPayload } from './statuses.js';
 import { blockersOf, getUserRow, toUserPublic, toUserPublics } from './users.js';
@@ -197,9 +199,18 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
   }
 
   const createdAt = new Date();
+  // Threads: a member's message counts (the system ones don't) and revives an archived one.
+  const threadPost =
+    locked.type === 'space_thread' && input.type !== 'system' && input.type !== 'call';
   const [chat] = await tx
     .update(chats)
-    .set({ lastSeq: sql`${chats.lastSeq} + 1`, lastMessageAt: createdAt })
+    .set({
+      lastSeq: sql`${chats.lastSeq} + 1`,
+      lastMessageAt: createdAt,
+      ...(threadPost
+        ? { threadMessageCount: sql`${chats.threadMessageCount} + 1`, threadArchivedAt: null }
+        : {}),
+    })
     .where(eq(chats.id, input.chatId))
     .returning();
   const seq = Number(chat!.lastSeq);
@@ -303,6 +314,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
     chat: chatRow,
     publish(fx: Effects) {
       for (const userId of unhidden) fx.join(userId, input.chatId);
+      if (threadPost) threadMessageFx(fx, chatRow, !!locked.threadArchivedAt);
       fx.messageNew(row, { exceptUserIds: [...withheld, ...(input.exceptUserIds ?? [])] });
       if (input.senderId) fx.chatRead(input.senderId, input.chatId);
       // Withheld recipients learn nothing: not even the tick change the hidden seq causes.
@@ -537,7 +549,7 @@ function toPreview(
 /**
  * `toMessages(dbx, viewerId, rows)` (docs): batch serializer, output in input order, a fixed
  * number of queries per call. Viewer-neutral when `viewerId` is null (socket broadcasts:
- * no `starred`/`myReaction`/`poll.myOptionIds` keys). Channels: `senderId` null, reaction
+ * no `starred`/`myReaction(s)`/`poll.myOptionIds` keys). Channels: `senderId` null, reaction
  * `userIds` and poll `voterIds` always []. Direct chats, viewer-specific only: reactions and votes
  * of users the viewer blocked are left out. Deleted-for-everyone rows become tombstones.
  * `replyTo` is computed from the live row (null when purged/expired, `deleted: true` when
@@ -589,13 +601,16 @@ export async function toMessages(
     .map((r) => r.metadata?.statusReply?.statusId)
     .filter((x): x is string => !!x);
   const statusMap = statusIds.length ? await loadStatusesForReplies(dbx, statusIds) : new Map();
+  // Threads started from these messages (fresh rows have none yet): one indexed lookup.
+  const threadRefs = opts.fresh ? new Map() : await loadThreadRefs(dbx, rows, chatTypes);
 
   // Reactions & polls (skipped for fresh rows).
   const reactionGroups = new Map<
     string,
     { emoji: string; count: number; first: number; userIds: string[] }[]
   >();
-  const myReaction = new Map<string, string>();
+  /** The viewer's emoji per message, oldest reaction first. */
+  const myReactions = new Map<string, string[]>();
   const optionCounts = new Map<string, Map<string, number>>();
   const optionVoters = new Map<string, Map<string, string[]>>();
   const totalVoters = new Map<string, number>();
@@ -646,8 +661,10 @@ export async function toMessages(
             eq(messageReactions.userId, viewerId),
             inArray(messageReactions.messageId, reactable),
           ),
-        );
-      for (const r of mine) myReaction.set(r.messageId, r.emoji);
+        )
+        .orderBy(asc(messageReactions.createdAt), asc(messageReactions.emoji));
+      for (const r of mine)
+        myReactions.set(r.messageId, [...(myReactions.get(r.messageId) ?? []), r.emoji]);
     }
   }
 
@@ -754,17 +771,23 @@ export async function toMessages(
     const groups = (reactionGroups.get(row.id) ?? []).map((g) =>
       filterBlocked ? { ...g, userIds: g.userIds.filter((u) => !blockedByViewer.has(u)) } : g,
     );
+    // One summary per emoji in order of its first reaction (Discord: chips never jump);
+    // `emojiId` only for custom emoji tokens.
     const reactions: ReactionSummary[] = deleted
       ? []
       : groups
           .map((g) => (filterBlocked ? { ...g, count: g.userIds.length } : g))
           .filter((g) => g.count > 0)
-          .sort((a, b) => b.count - a.count || a.first - b.first)
-          .map((g) => ({
-            emoji: g.emoji,
-            count: g.count,
-            userIds: anonymousLists ? [] : g.userIds,
-          }));
+          .sort((a, b) => a.first - b.first || (a.emoji < b.emoji ? -1 : a.emoji > b.emoji ? 1 : 0))
+          .map((g) => {
+            const emojiId = parseCustomEmoji(g.emoji)?.id;
+            return {
+              emoji: g.emoji,
+              ...(emojiId ? { emojiId } : {}),
+              count: g.count,
+              userIds: anonymousLists ? [] : g.userIds,
+            };
+          });
 
     const replyTarget = !deleted && row.replyToId ? replyById.get(row.replyToId) : undefined;
     const message: Message = {
@@ -797,9 +820,14 @@ export async function toMessages(
       expiresAt: row.expiresAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
     };
+    const threadRef = threadRefs.get(row.id);
+    if (threadRef) message.thread = threadRef;
     if (viewerId) {
       message.starred = starred.has(row.id);
-      message.myReaction = myReaction.get(row.id) ?? null;
+      // `myReaction` (the APK): the first of mine.
+      const mine = deleted ? [] : (myReactions.get(row.id) ?? []);
+      message.myReactions = mine;
+      message.myReaction = mine[0] ?? null;
     }
     return message;
   });

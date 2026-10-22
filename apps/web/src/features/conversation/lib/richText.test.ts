@@ -7,6 +7,7 @@ import {
   linkify,
   parseMarkdown,
   parseRichText,
+  plainCustomEmoji,
   splitHighlight,
   type Block,
 } from './richText';
@@ -119,6 +120,63 @@ describe('emojiOnlyCount', () => {
     expect(emojiOnlyCount('😂😂😂😂')).toBe(0);
     expect(emojiOnlyCount('')).toBe(0);
     expect(emojiOnlyCount(null)).toBe(0);
+  });
+});
+
+describe('custom emoji tokens', () => {
+  const ID = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+  const ID2 = '0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d';
+  const blob = `<:blob:${ID}>`;
+  const party = `<a:party_2:${ID2}>`;
+
+  it('parses static and animated tokens inside text and formatting', () => {
+    expect(parseRichText(`hi ${blob}!`)).toEqual([
+      { t: 'text', text: 'hi ' },
+      { t: 'emoji', id: ID, name: 'blob', animated: false },
+      { t: 'text', text: '!' },
+    ]);
+    expect(parseRichText(`**${party}**`)).toEqual([
+      { t: 'bold', children: [{ t: 'emoji', id: ID2, name: 'party_2', animated: true }] },
+    ]);
+    // Next to a mention and right after a link.
+    const segs = parseRichText(`@{${U}} ${blob} https://x.io${blob}`);
+    expect(segs.map((s) => s.t)).toEqual(['mention', 'text', 'emoji', 'text', 'link', 'emoji']);
+    expect(segs[4]).toMatchObject({ t: 'link', href: 'https://x.io' });
+    expect(inlineToPlain(segs, name)).toBe('@Maya :blob: https://x.io:blob:');
+  });
+
+  it('shows tokens raw in code spans and code blocks', () => {
+    expect(parseRichText(`\`${blob}\``)).toEqual([{ t: 'code', children: [{ t: 'text', text: blob }] }]);
+    expect(parseMarkdown(`\`\`\`\n${party}\n\`\`\``)).toEqual([{ b: 'code', lang: null, code: party }]);
+  });
+
+  it('an escaped token is its raw text', () => {
+    expect(parseRichText(`\\${blob}`)).toEqual([{ t: 'text', text: blob }]);
+    // An escaped backslash does not escape the token.
+    expect(parseRichText(`\\\\${blob}`)).toEqual([
+      { t: 'text', text: '\\' },
+      { t: 'emoji', id: ID, name: 'blob', animated: false },
+    ]);
+  });
+
+  it('ignores malformed tokens', () => {
+    for (const text of ['<:b:' + ID + '>', `<:blob:${ID.toUpperCase()}>`, '<:blob:123>', `<x:blob:${ID}>`])
+      expect(parseRichText(text).some((s) => s.t === 'emoji')).toBe(false);
+  });
+
+  it('counts custom emoji for jumbo messages', () => {
+    expect(emojiOnlyCount(blob)).toBe(1);
+    expect(emojiOnlyCount(`${blob} ${party}`)).toBe(2);
+    expect(emojiOnlyCount(`${blob}😂 ${party}`)).toBe(3);
+    expect(emojiOnlyCount(`${blob}${blob}${blob}${blob}`)).toBe(0);
+    expect(emojiOnlyCount(`${blob}😂😂😂`)).toBe(0);
+    expect(emojiOnlyCount(`ok ${blob}`)).toBe(0);
+    expect(emojiOnlyCount(`\\${blob}`)).toBe(0);
+  });
+
+  it('plainCustomEmoji turns tokens into :name:', () => {
+    expect(plainCustomEmoji(`hi ${blob} ${party}`)).toBe('hi :blob: :party_2:');
+    expect(plainCustomEmoji('no tokens')).toBe('no tokens');
   });
 });
 

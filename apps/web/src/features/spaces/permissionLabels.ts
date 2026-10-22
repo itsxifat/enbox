@@ -4,6 +4,11 @@ export interface PermissionInfo {
   bit: number;
   label: string;
   description: string;
+  /**
+   * Channel permissions only, never on roles: an IMPLICIT_PERMISSIONS bit (permissions.ts)
+   * every member holds, which only a channel overwrite can deny.
+   */
+  channelOnly?: boolean;
 }
 
 export interface PermissionGroup {
@@ -32,6 +37,12 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { bit: PERM.SEND_MESSAGES, label: 'Send messages', description: 'Post in text channels.' },
       { bit: PERM.ATTACH_FILES, label: 'Attach files', description: 'Upload photos, videos, voice notes and files.' },
       { bit: PERM.ADD_REACTIONS, label: 'Add reactions', description: 'React to messages.' },
+      {
+        bit: PERM.USE_EXTERNAL_EMOJI,
+        label: 'Use external emoji',
+        description: 'Use emoji from other Spaces here. Everyone can unless it’s denied in this channel.',
+        channelOnly: true,
+      },
       { bit: PERM.SEND_POLLS, label: 'Create polls', description: 'Post polls.' },
       { bit: PERM.MENTION_EVERYONE, label: 'Mention @everyone, @here and all roles', description: 'Notify the whole Space, and mention roles that aren’t mentionable.' },
       { bit: PERM.MANAGE_MESSAGES, label: 'Manage messages', description: 'Delete others’ messages and pin messages.' },
@@ -66,6 +77,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     channel: [],
     items: [
       { bit: PERM.MANAGE_SPACE, label: 'Manage Space', description: 'Change the name, icon, banner and settings.' },
+      { bit: PERM.MANAGE_EMOJI, label: 'Manage emoji', description: 'Upload, rename and delete this Space’s custom emoji.' },
       { bit: PERM.VIEW_AUDIT_LOG, label: 'View audit log', description: 'See who changed what.' },
       { bit: PERM.ADMINISTRATOR, label: 'Administrator', description: 'Every permission, and channel permissions don’t apply. Grant with care.' },
     ],

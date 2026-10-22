@@ -4,10 +4,14 @@
  * reference whose "@Name" was edited no longer matches and is sent as plain text (never a
  * wrong mention). Drafts and edits store the tokenized text and restore it with
  * `decodeMentions`. Pure (unit-tested).
+ *
+ * Custom Space emoji ride the same refs: a picked one shows as ":name:" (`pickEmoji`) with a
+ * ref whose `userId` is its token (`<:name:id>`), and encodes back to the token on send.
  */
-import { mentionToken, parseRichMentions, type ID } from '@enbox/shared';
+import { CUSTOM_EMOJI_TOKEN_RE, mentionToken, parseCustomEmoji, parseRichMentions, type ID } from '@enbox/shared';
 
 export interface MentionRef {
+  /** A user id, `everyone` / `here` / `role:<uuid>`, or a custom emoji token. */
   userId: ID;
   name: string;
 }
@@ -16,8 +20,34 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const isEmojiRef = (r: MentionRef) => r.userId.startsWith('<');
+/** A raw token (left alone) or a ":name:" shortcode (group 1). */
+const EMOJI_TEXT = /<a?:[A-Za-z0-9_]{2,32}:[0-9a-f-]{36}>|:([A-Za-z0-9_]{2,32}):/g;
+
+/** Picked custom emoji ":name:" → their tokens. */
+function encodeEmoji(text: string, refs: MentionRef[]): string {
+  const byName = new Map(refs.filter(isEmojiRef).map((r) => [r.name, r.userId]));
+  if (!byName.size || !text.includes(':')) return text;
+  return text.replace(new RegExp(EMOJI_TEXT.source, 'g'), (m: string, name?: string) => (name && byName.get(name)) || m);
+}
+
+/**
+ * What a picked emoji inserts: a unicode emoji as is, a custom emoji token as ":name:" with
+ * the ref that encodes it back (the newest pick of a name wins).
+ */
+export function pickEmoji(emoji: string, refs: MentionRef[]): { insert: string; refs: MentionRef[] } {
+  const custom = parseCustomEmoji(emoji);
+  if (!custom) return { insert: emoji, refs };
+  return {
+    insert: `:${custom.name}:`,
+    refs: [...refs.filter((r) => !(isEmojiRef(r) && r.name === custom.name)), { userId: emoji, name: custom.name }],
+  };
+}
+
 /** Replace "@Name" occurrences of recorded mentions with tokens (longest names first). */
-export function encodeMentions(text: string, refs: MentionRef[]): string {
+export function encodeMentions(text: string, input: MentionRef[]): string {
+  text = encodeEmoji(text, input);
+  const refs = input.filter((r) => !isEmojiRef(r));
   if (!refs.length || !text.includes('@')) return text;
   const unique = new Map<string, MentionRef>();
   for (const r of refs) if (r.name && !unique.has(r.name)) unique.set(r.name, r);
@@ -45,7 +75,10 @@ export function decodeMentions(
   let out = '';
   for (const seg of parseRichMentions(text)) {
     if (seg.type === 'text') {
-      out += seg.text;
+      out += seg.text.replace(new RegExp(CUSTOM_EMOJI_TOKEN_RE.source, 'g'), (token: string, _a: string, name: string) => {
+        if (!refs.some((r) => r.userId === token)) refs.push({ userId: token, name });
+        return `:${name}:`;
+      });
       continue;
     }
     const [key, name] =
@@ -62,9 +95,9 @@ export function decodeMentions(
   return { text: out, refs };
 }
 
-/** Refs still present in the text (drop ones whose "@Name" was deleted). */
+/** Refs still present in the text (drop ones whose "@Name" or ":name:" was deleted). */
 export function pruneRefs(text: string, refs: MentionRef[]): MentionRef[] {
-  return refs.filter((r) => text.includes(`@${r.name}`));
+  return refs.filter((r) => text.includes(isEmojiRef(r) ? `:${r.name}:` : `@${r.name}`));
 }
 
 export interface MentionQuery {

@@ -33,6 +33,7 @@ import { ChannelInfoPanel } from '@/features/channels/ChannelInfoPanel';
 import { ContactInfoPanel } from '@/features/contacts/ContactInfoPanel';
 import { GroupInfoPanel } from '@/features/groups/GroupInfoPanel';
 import { chatPath } from '@/features/chats/links';
+import { ChatSearchDock } from '@/features/search/ChatSearchDock';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
@@ -114,11 +115,14 @@ export function ConversationPane() {
       />
     );
   return (
-    <Conversation
-      key={chat.id}
-      chat={chat}
-      initialTarget={target?.chatId === chat.id ? target.t : null}
-    />
+    // Search results dock beside the conversation (features/search).
+    <ChatSearchDock chatId={chat.id}>
+      <Conversation
+        key={chat.id}
+        chat={chat}
+        initialTarget={target?.chatId === chat.id ? target.t : null}
+      />
+    </ChatSearchDock>
   );
 }
 

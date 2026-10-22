@@ -440,6 +440,8 @@ export const PUSH_MESSAGE_TTL_SEC = 24 * 60 * 60;
 export const USER_RATE_LIMITS = {
   /** Message sends and forwards, per user. */
   sendMessage: { limit: 60, windowMs: 10_000 },
+  /** Reaction adds, removals and clears (`/api/messages/:messageId/reaction[s]…`), per user. */
+  reaction: { limit: 40, windowMs: 10_000 },
   /** `PATCH /me`, `PUT /me/presence`, `PUT|DELETE /me/presence-note`, per user. */
   profileUpdate: { limit: 20, windowMs: 60_000 },
   /** Users added to groups/communities (counted per added user), per user. */
@@ -458,10 +460,14 @@ export const USER_RATE_LIMITS = {
   presenceActivity: { limit: 30, windowMs: 60_000 },
   /** `GET /api/users/search` and `POST /api/contacts`, per user. */
   userSearch: { limit: 60, windowMs: 60_000 },
+  /** Message search (`GET /api/spaces/:spaceId/messages/search`, `/api/chats/:chatId/messages/search`), per user. */
+  search: { limit: 30, windowMs: 60_000 },
   /** `PUT /api/me/rail-layout` (drag-reordering Spaces and folders), per user. */
   railLayout: { limit: 60, windowMs: 60_000 },
   /** `PUT /api/users/:userId/note` (private notes; saved on blur), per user. */
   userNote: { limit: 60, windowMs: 60_000 },
+  /** `POST /api/friends/requests` (failed lookups count too: no username probing), per user. */
+  friendRequest: { limit: 30, windowMs: 60 * 60_000 },
   /** `PUT /api/chats/:chatId/theme` (shared theme changes, each a system message), per user. */
   chatTheme: { limit: 20, windowMs: 60_000 },
   /** `POST /api/spaces`, per user. */

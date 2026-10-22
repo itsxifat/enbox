@@ -13,6 +13,7 @@ import { Badge, IconButton, Menu, type IconType, type MenuAnchor } from '@/compo
 import { chatMenuItems, setArchived } from '@/features/chats/chatActions';
 import { cn } from '@/lib/cn';
 import { isChatUnread, useArchivedCounts, useSortedChats } from '@/stores/chats';
+import { useIncomingFriendRequestCount } from '@/stores/friends';
 import { useQuickSwitcher } from '@/stores/quickSwitcher';
 
 function NavRow({
@@ -122,9 +123,16 @@ interface HeaderContext {
 
 function HomeHeader({ context }: { context: HeaderContext }) {
   const { badges, archivedUnread, onCreate } = context;
+  const requests = useIncomingFriendRequestCount();
   return (
     <div className="px-2 pt-2">
-      <NavRow to="/chats" end icon={Users} label="Friends" />
+      <NavRow
+        to="/chats"
+        end
+        icon={Users}
+        label="Friends"
+        badge={requests ? <Badge count={requests} size="sm" tone="danger" label={`${requests} pending friend request${requests === 1 ? '' : 's'}`} /> : null}
+      />
       <NavRow
         to="/updates"
         icon={UpdatesIcon}

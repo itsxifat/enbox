@@ -23,9 +23,10 @@
  * Mutations (realtime + optimistic)
  * - `upsertMessage(m, { onlyIfPresent })` dedupes by `id`, then by `clientId` (replacing the
  *   optimistic entry). Merges with `mergeMessage` so viewer-specific fields (`starred`,
- *   `myReaction`, `poll.myOptionIds`, `localUrl`) survive viewer-neutral `message:updated`
+ *   `myReaction(s)`, `poll.myOptionIds`, `localUrl`) survive viewer-neutral `message:updated`
  *   payloads. New messages outside the loaded window are ignored (they load on scroll).
  * - `markQuotesDeleted(messageId)` blank loaded quotes of a message deleted for everyone
+ * - `patchReactions(chatId, id, fn)` reaction changes (optimistic and delta events)
  * - `patchMessage(chatId, id, partial)`, `removeMessages(chatId, ids)`,
  *   `clearChat(chatId, clearedSeq)` (also forgets the chat's cached pin ids), `dropChat(chatId)`,
  *   `discardConfirmed(chatId)` (reconnect: drop the cached pages but keep unsent messages)
@@ -108,6 +109,15 @@ export interface MessagesState {
   upsertMessage(message: ClientMessage, opts?: { onlyIfPresent?: boolean }): void;
   upsertMessages(chatId: ID, messages: ClientMessage[]): void;
   patchMessage(chatId: ID, id: ID, partial: Partial<ClientMessage>): void;
+  /**
+   * Reactions (optimistic changes, delta events): `fn` maps the cached message to its new
+   * reaction fields (null = no change), atomically; pages in flight keep the result.
+   */
+  patchReactions(
+    chatId: ID,
+    id: ID,
+    fn: (m: ClientMessage) => Pick<Message, 'reactions' | 'myReactions' | 'myReaction'> | null,
+  ): void;
   removeMessages(chatId: ID, ids: ID[]): void;
   markQuotesDeleted(messageId: ID): void;
   clearChat(chatId: ID, clearedSeq: number): void;
@@ -731,6 +741,21 @@ export const useMessages = create<MessagesState>((set, get) => {
         items[idx] = { ...items[idx]!, ...partial };
         return { items };
       });
+    },
+
+    patchReactions(chatId, id, fn) {
+      let next: ClientMessage | null = null;
+      update(chatId, (s) => {
+        const idx = s.items.findIndex((m) => m.id === id);
+        if (idx === -1) return null;
+        const fields = fn(s.items[idx]!);
+        if (!fields) return null;
+        const items = s.items.slice();
+        items[idx] = next = { ...items[idx]!, ...fields };
+        return { items };
+      });
+      // A latest/around page in flight may predate the change: it keeps this copy.
+      if (next) noteArrived(next, false);
     },
 
     removeMessages(chatId, ids) {

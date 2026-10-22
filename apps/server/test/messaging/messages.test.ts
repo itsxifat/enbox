@@ -355,7 +355,7 @@ describe('messages module (REST)', () => {
   });
 
   describe('reactions', () => {
-    it('one reaction per user (replace / remove), myReaction in REST, message:updated to the room', async () => {
+    it('the single-reaction route (replace / remove), myReaction in REST, deltas to the room', async () => {
       const g = await createGroup(alice, [bob, carol]);
       const m = await sendOk(t, alice, g, 'react to me');
       const as = await t.connect(alice);
@@ -389,12 +389,19 @@ describe('messages module (REST)', () => {
       });
       await t.api(bob).delete(`/api/messages/${m.id}/reaction`).expect(200);
       await settle();
-      const upd = log.of('message:updated');
-      expect(upd).toHaveLength(4);
-      expect(upd.at(-1)!.message.reactions).toEqual([
-        { emoji: '👍', count: 1, userIds: [carol.id] },
+      // Reaction changes are deltas (modules/messages/reactions.ts); groups and DMs follow each
+      // request with one message:updated for the Android app (the replace PUT sends two deltas).
+      expect(log.of('message:updated')).toHaveLength(4);
+      const deltas = log.log
+        .filter((e) => e.event.startsWith('message:reaction'))
+        .map((e) => [e.event, e.payload.emoji, e.payload.userId]);
+      expect(deltas).toEqual([
+        ['message:reaction-add', '👍', bob.id],
+        ['message:reaction-add', '👍', carol.id],
+        ['message:reaction-remove', '👍', bob.id],
+        ['message:reaction-add', '❤️', bob.id],
+        ['message:reaction-remove', '❤️', bob.id],
       ]);
-      expect(upd[0]!.message).not.toHaveProperty('myReaction');
       const page = await historyOf(t, carol, g);
       expect(page.find((x) => x.id === m.id)!.myReaction).toBe('👍');
       as.disconnect();

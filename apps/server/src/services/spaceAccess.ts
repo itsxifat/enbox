@@ -20,12 +20,14 @@ import {
   isSpaceAdmin,
   isSpaceChatType,
   spaceChannelPermissions,
+  type ChatPermissions,
   type PermissionOverwrite,
   type SpaceChannelType,
 } from '@enbox/shared';
 import type { DbOrTx } from '../db/index.js';
 import {
   chatMembers,
+  chats,
   spaceChannelOverwrites,
   spaceMemberRoles,
   spaceMembers,
@@ -39,7 +41,7 @@ import {
 } from '../db/schema.js';
 import { forbidden, notFound } from '../lib/errors.js';
 import type { ChatAccess } from './chats.js';
-import { rawRows } from './sql.js';
+import { rawRows, uniq, uuidArray } from './sql.js';
 
 // ---------------------------------------------------------------------------
 // Roles (cached per perm_version)
@@ -194,7 +196,10 @@ export function channelBits(
   });
 }
 
-/** Overwrites per channel id. */
+/**
+ * Overwrites per channel id. A thread has none of its own: it gets its parent channel's
+ * (one statement either way; the ids go in as one uuid[] parameter).
+ */
 export async function loadChannelOverwrites(
   dbx: DbOrTx,
   chatIds: readonly string[],
@@ -203,15 +208,19 @@ export async function loadChannelOverwrites(
   for (const id of chatIds) out.set(id, []);
   if (chatIds.length === 0) return out;
   const rows = await dbx
-    .select()
-    .from(spaceChannelOverwrites)
-    .where(inArray(spaceChannelOverwrites.chatId, [...chatIds]));
-  for (const r of rows)
-    out.get(r.chatId)?.push({
-      targetType: r.targetType,
-      targetId: r.targetId,
-      allow: r.allow,
-      deny: r.deny,
+    .select({ chatId: chats.id, o: spaceChannelOverwrites })
+    .from(chats)
+    .innerJoin(
+      spaceChannelOverwrites,
+      sql`${spaceChannelOverwrites.chatId} = coalesce(${chats.parentId}, ${chats.id})`,
+    )
+    .where(sql`${chats.id} = any(${uuidArray(uniq(chatIds))})`);
+  for (const { chatId, o } of rows)
+    out.get(chatId)?.push({
+      targetType: o.targetType,
+      targetId: o.targetId,
+      allow: o.allow,
+      deny: o.deny,
     });
   return out;
 }
@@ -298,9 +307,26 @@ export function syntheticSpaceMemberRow(
 }
 
 /**
+ * `ChatPermissions` of a space channel or thread from my bits in it. A thread reads like a
+ * text channel; a locked one takes messages from MANAGE_MESSAGES members only (an archived
+ * one unarchives on the next message).
+ */
+export function spaceChatPermissions(
+  bits: number,
+  chat: Pick<ChatRow, 'type' | 'threadLocked'>,
+): ChatPermissions {
+  if (chat.type !== 'space_thread')
+    return spaceChannelPermissions(bits, chat.type as SpaceChannelType);
+  const p = spaceChannelPermissions(bits, 'space_text');
+  if (chat.threadLocked && !hasPerm(bits, PERM.MANAGE_MESSAGES)) p.canSend = false;
+  return p;
+}
+
+/**
  * `ChatAccess` of a viewer in a space channel: 404 unless a member who can see it. The
- * permissions are mapped from the bits (`spaceChannelPermissions`); `access.space` carries the
- * bits for the checks without a boolean (attach, react, polls, mention everyone).
+ * permissions are mapped from the bits (`spaceChatPermissions`); `access.space` carries the
+ * bits for the checks without a boolean (attach, react, polls, mention everyone). Threads
+ * are seen by whoever sees their parent channel (its overwrites, `loadChannelOverwrites`).
  */
 export async function spaceChannelAccess(
   dbx: DbOrTx,
@@ -321,7 +347,7 @@ export async function spaceChannelAccess(
     chat,
     member,
     membership: 'active',
-    permissions: spaceChannelPermissions(bits, chat.type),
+    permissions: spaceChatPermissions(bits, chat),
     peer: null,
     window: {
       userId: viewerId,

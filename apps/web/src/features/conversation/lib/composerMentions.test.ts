@@ -6,6 +6,7 @@ import {
   encodeMentions,
   insertMention,
   matchesMentionQuery,
+  pickEmoji,
   pruneRefs,
 } from './composerMentions';
 
@@ -86,5 +87,32 @@ describe('space mention tokens', () => {
     expect(decoded.text).toBe('@everyone @here ping @mods and @Maya');
     expect(decoded.refs.map((r) => r.userId)).toEqual(['everyone', 'here', `role:${ROLE}`, MAYA]);
     expect(encodeMentions(decoded.text, decoded.refs)).toBe(text);
+  });
+});
+
+describe('custom emoji in the composer', () => {
+  const ID = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+  const ID2 = '0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d';
+  const blob = `<:blob:${ID}>`;
+
+  it('a picked custom emoji shows as :name: and is sent as its token; unicode is inserted as is', () => {
+    expect(pickEmoji('🎉', [])).toEqual({ insert: '🎉', refs: [] });
+    const picked = pickEmoji(blob, [{ userId: MAYA, name: 'Maya' }]);
+    expect(picked.insert).toBe(':blob:');
+    expect(encodeMentions('@Maya look :blob: :blob:', picked.refs)).toBe(`@{${MAYA}} look ${blob} ${blob}`);
+    // Typed shortcodes without a pick stay text; a raw token in the text is left alone.
+    expect(encodeMentions(':party: and :blob:', picked.refs)).toBe(`:party: and ${blob}`);
+    expect(encodeMentions(`${blob}`, picked.refs)).toBe(blob);
+    // The newest pick of a name wins.
+    const again = pickEmoji(`<a:blob:${ID2}>`, picked.refs);
+    expect(again.refs.filter((r) => r.name === 'blob')).toEqual([{ userId: `<a:blob:${ID2}>`, name: 'blob' }]);
+  });
+
+  it('round-trips drafts and edits, and prunes deleted shortcodes', () => {
+    const text = `hi ${blob} @{${MAYA}}`;
+    const decoded = decodeMentions(text, (id) => names[id] ?? '?');
+    expect(decoded.text).toBe('hi :blob: @Maya');
+    expect(encodeMentions(decoded.text, decoded.refs)).toBe(text);
+    expect(pruneRefs('hi @Maya', decoded.refs)).toEqual([{ userId: MAYA, name: 'Maya' }]);
   });
 });

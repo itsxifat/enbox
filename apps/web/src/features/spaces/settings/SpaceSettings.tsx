@@ -8,6 +8,7 @@ import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useMe } from '@/stores/auth';
 import { useSpace, useSpaces } from '@/stores/spaces';
 import { DeleteSpaceDialog } from './DeleteSpaceDialog';
+import { EmojiPage } from './EmojiPage';
 import { OverviewPage } from './OverviewPage';
 import { AuditLogPage, BansPage, InvitesPage, MembersPage } from './pages';
 import { RolesPage } from './RolesPage';
@@ -18,6 +19,7 @@ const PAGES: Record<SettingsSectionId, (space: Space) => ReactNode> = {
   overview: (s) => <OverviewPage space={s} />,
   safety: (s) => <SafetyPage space={s} />,
   roles: (s) => <RolesPage space={s} />,
+  emoji: (s) => <EmojiPage space={s} />,
   members: (s) => <MembersPage space={s} />,
   invites: (s) => <InvitesPage space={s} />,
   bans: (s) => <BansPage space={s} />,

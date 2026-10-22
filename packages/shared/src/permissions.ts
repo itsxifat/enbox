@@ -9,6 +9,11 @@
  *   a timed-out member (not owner/administrator) keeps only VIEW_CHANNEL and
  *   READ_MESSAGE_HISTORY (Discord's rule: no sending, reacting, voice or moderation).
  *
+ * One deviation: IMPLICIT_PERMISSIONS (USE_EXTERNAL_EMOJI) are in every member's base,
+ * whatever their roles ("allowed when unset"). The bit was reserved until custom emoji, so no
+ * existing role carries it, and roles are not rewritten; a channel overwrite can still deny
+ * it (and allow it back for a role or member).
+ *
  * Category overwrites are templates (copied to a channel on create / sync), never evaluated.
  */
 import type { ID } from './models.js';
@@ -55,12 +60,13 @@ export const ALL_PERMISSIONS = 0x7fffffff;
 
 /** Defined but not implemented yet (P4): hidden in editors, rejected by `permissionsSchema`. */
 export const RESERVED_PERMISSIONS =
-  PERM.EMBED_LINKS |
-  PERM.USE_EXTERNAL_EMOJI |
-  PERM.READ_MESSAGE_HISTORY |
-  PERM.MANAGE_WEBHOOKS |
-  PERM.MANAGE_EMOJI |
-  PERM.PRIORITY_SPEAKER;
+  PERM.EMBED_LINKS | PERM.READ_MESSAGE_HISTORY | PERM.MANAGE_WEBHOOKS | PERM.PRIORITY_SPEAKER;
+
+/**
+ * Bits every member's base holds whatever their roles (see the header): roles cannot take
+ * them away, channel overwrites can. Editors show them in channel permissions only.
+ */
+export const IMPLICIT_PERMISSIONS = PERM.USE_EXTERNAL_EMOJI;
 
 /** Bits a role or overwrite may carry. */
 export const ASSIGNABLE_PERMISSIONS = ALL_PERMISSIONS & ~RESERVED_PERMISSIONS;
@@ -103,12 +109,13 @@ export const SPACE_ONLY_PERMISSIONS =
 /** What a timed-out member keeps in a channel. */
 const TIMED_OUT_KEEP = PERM.VIEW_CHANNEL | PERM.READ_MESSAGE_HISTORY;
 
-/** @everyone of a new Space. */
+/** @everyone of a new Space (USE_EXTERNAL_EMOJI as in Discord; it is implicit anyway). */
 export const DEFAULT_EVERYONE_PERMISSIONS =
   PERM.VIEW_CHANNEL |
   PERM.SEND_MESSAGES |
   PERM.ATTACH_FILES |
   PERM.ADD_REACTIONS |
+  PERM.USE_EXTERNAL_EMOJI |
   PERM.SEND_POLLS |
   PERM.CREATE_INVITE |
   PERM.CHANGE_NICKNAME |
@@ -158,14 +165,14 @@ export interface BaseInput {
   memberRoleIds: readonly ID[];
 }
 
-/** Space-wide permissions of a member (no channel overwrites). */
+/** Space-wide permissions of a member (no channel overwrites; IMPLICIT_PERMISSIONS included). */
 export function computeBasePermissions(input: BaseInput): number {
   if (input.viewerId === input.ownerId) return ALL_PERMISSIONS;
   const byId = new Map(input.roles.map((r) => [r.id, r]));
   let bits = byId.get(input.everyoneRoleId)?.permissions ?? 0;
   for (const id of input.memberRoleIds) bits |= byId.get(id)?.permissions ?? 0;
   if (bits & PERM.ADMINISTRATOR) return ALL_PERMISSIONS;
-  return bits & ALL_PERMISSIONS;
+  return (bits | IMPLICIT_PERMISSIONS) & ALL_PERMISSIONS;
 }
 
 export interface ChannelInput {

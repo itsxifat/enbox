@@ -6,8 +6,11 @@
  *   chats.ts        chat list, receipts, typing, pins           (foundation / agent 2)
  *   messages.ts     message:new/updated/removed, notifications  (foundation / agent 2)
  *   users.ts        presence, profiles, me, contacts, sessions  (foundation / agent 1)
+ *   friends.ts      friends:request / friends:changed (pending requests)
  *   communities.ts  community:*                                 (agent 3)
  *   spaces.ts       space:*, space channel focus / member-list subscriptions
+ *   threads.ts      thread:upsert / thread:deleted, threads of changed channels
+ *   emojis.ts       space:emojis (custom Space emoji)
  *   calls.ts        call:*                                      (agent 4)
  *   status.ts       status:*                                    (agent 4)
  *
@@ -23,9 +26,12 @@ import { useChats } from '@/stores/chats';
 import { installReadTracking, registerChatHandlers, resyncChats } from './chats';
 import { registerCallHandlers, resyncCalls } from './calls';
 import { registerCommunityHandlers, resyncCommunities } from './communities';
+import { registerEmojiHandlers, resyncEmojis } from './emojis';
+import { registerFriendHandlers, resyncFriends } from './friends';
 import { registerMessageHandlers } from './messages';
 import { registerSpaceHandlers, resyncSpaces } from './spaces';
 import { registerStatusHandlers, resyncStatus } from './status';
+import { registerThreadHandlers, resyncThreads } from './threads';
 import { registerUserHandlers, resyncUsers } from './users';
 import { registerVoiceHandlers, resyncVoice } from './voice';
 
@@ -45,9 +51,12 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
     resyncChats(info).then(() =>
       Promise.allSettled([
         resyncUsers(info),
+        resyncFriends(info),
         resyncCommunities(info),
         resyncStatus(info),
         resyncSpaces(info),
+        resyncThreads(info),
+        resyncEmojis(info),
         resyncVoice(info),
       ]),
     ),
@@ -64,8 +73,11 @@ export function startRealtime(): void {
     registerChatHandlers(socket);
     registerMessageHandlers(socket);
     registerUserHandlers(socket);
+    registerFriendHandlers(socket);
     registerCommunityHandlers(socket);
     registerSpaceHandlers(socket);
+    registerThreadHandlers(socket);
+    registerEmojiHandlers(socket);
     registerVoiceHandlers(socket);
     registerCallHandlers(socket);
     registerStatusHandlers(socket);

@@ -1,11 +1,13 @@
 /**
  * Renders message text as Discord markdown (lib/richText.ts): headers, subtext, quotes,
  * lists, code blocks, and inline **bold** *italic* __underline__ ~~strike~~ `code`
- * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions and in-chat search
- * highlights. `inline` (descriptions inside a paragraph) skips the block syntax.
+ * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions, custom Space emoji and
+ * in-chat search highlights. `inline` (descriptions inside a paragraph) skips the block
+ * syntax; `jumbo` (emoji-only messages) draws custom emoji at 48 px instead of 22.
  */
-import { memo, useMemo, useState } from 'react';
+import { createContext, memo, useContext, useMemo, useState } from 'react';
 import type { ID } from '@enbox/shared';
+import { CustomEmoji, type CustomEmojiSize } from '@/components/emoji/CustomEmoji';
 import { cn } from '@/lib/cn';
 import { openProfile } from '@/features/profile/open';
 import { useAuth } from '@/stores/auth';
@@ -97,6 +99,13 @@ function Spoiler({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Custom emoji size of the text being rendered (jumbo for emoji-only messages). */
+const EmojiSize = createContext<CustomEmojiSize>(22);
+
+function InlineEmoji({ id, name, animated }: { id: ID; name: string; animated: boolean }) {
+  return <CustomEmoji id={id} name={name} animated={animated} size={useContext(EmojiSize)} />;
+}
+
 function Timestamp({ unix, style }: { unix: number; style: TimestampStyle }) {
   const full = formatTimestamp(unix, 'F');
   return (
@@ -151,6 +160,8 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
             return <EveryonePill key={i} here={s.here} />;
           case 'role':
             return <RolePill key={i} roleId={s.roleId} />;
+          case 'emoji':
+            return <InlineEmoji key={i} id={s.id} name={s.name} animated={s.animated} />;
           case 'timestamp':
             return <Timestamp key={i} unix={s.unix} style={s.style} />;
           case 'bold':
@@ -258,16 +269,21 @@ export const RichText = memo(function RichText({
   text,
   highlight,
   inline = false,
+  jumbo = false,
 }: {
   text: string;
   highlight?: string | null;
   /** Inline syntax only (inside a paragraph or a one-line preview). */
   inline?: boolean;
+  /** An emoji-only message: custom emoji at 48 px. */
+  jumbo?: boolean;
 }) {
   const blocks = useMemo(() => (inline ? null : parseMarkdown(text)), [text, inline]);
   const segments = useMemo(() => (inline ? parseRichText(text) : null), [text, inline]);
-  if (segments) return <Segments segments={segments} highlight={highlight} />;
+  let out: React.ReactNode;
+  if (segments) out = <Segments segments={segments} highlight={highlight} />;
   // A single paragraph renders inline so the text keeps flowing next to "(edited)".
-  if (blocks!.length === 1 && blocks![0]!.b === 'p') return <Segments segments={blocks![0]!.children} highlight={highlight} />;
-  return <Blocks blocks={blocks!} highlight={highlight} />;
+  else if (blocks!.length === 1 && blocks![0]!.b === 'p') out = <Segments segments={blocks![0]!.children} highlight={highlight} />;
+  else out = <Blocks blocks={blocks!} highlight={highlight} />;
+  return jumbo ? <EmojiSize.Provider value={48}>{out}</EmojiSize.Provider> : out;
 });

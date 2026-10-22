@@ -248,8 +248,13 @@ describe('blocking: the blocked party never reaches the blocker', () => {
       await t.api(a).put(`/api/messages/${bMsg.id}/reaction`).send({ emoji: '🎉' }).expect(200);
       await settle();
 
-      // The blocked party's own devices see everything; the blocker receives nothing live.
+      // The blocked party's own devices see everything (the edit and the vote as
+      // message:updated, reactions as deltas, each followed by message:updated for the
+      // Android app); the blocker receives nothing live.
       expect(la.of('message:updated').length).toBe(5);
+      expect([...la.of('message:reaction-add'), ...la.of('message:reaction-remove')].length).toBe(
+        3,
+      );
       expect(lb.log).toEqual([]);
 
       // Viewer-specific history: the blocker doesn't see the blocked party's reaction/vote.
@@ -272,7 +277,8 @@ describe('blocking: the blocked party never reaches the blocker', () => {
       // The blocker's own interactions still reach both of them.
       await t.api(b).put(`/api/messages/${bMsg.id}/reaction`).send({ emoji: '❤️' }).expect(200);
       await settle();
-      expect(lb.of('message:updated').map((p) => p.message.id)).toEqual([bMsg.id]);
+      expect(lb.of('message:reaction-add').map((p) => p.messageId)).toEqual([bMsg.id]);
+      expect(la.of('message:reaction-add').at(-1)).toMatchObject({ emoji: '❤️', userId: b.id });
       sa.disconnect();
       sb.disconnect();
     });

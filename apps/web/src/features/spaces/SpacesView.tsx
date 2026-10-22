@@ -6,8 +6,7 @@ import { useIsDesktop, useMediaQuery } from '@/hooks/useMediaQuery';
 import { storage } from '@/lib/storage';
 import { useSidePanel } from '@/stores/sidePanel';
 import { useSpaces } from '@/stores/spaces';
-import { SearchResultsPanel } from '@/features/search/SearchResultsPanel';
-import { ThreadPanel } from '@/features/threads/ThreadPanel';
+import { lazyNamed } from '@/lib/lazy';
 import { ChannelSidebar } from './ChannelSidebar';
 import { MemberList } from './MemberList';
 import { SpaceRail } from './SpaceRail';
@@ -15,6 +14,12 @@ import { SpacesEmpty } from './SpacesEmpty';
 import { SpacesUiContext } from './ui';
 
 const MEMBERS_KEY = 'enbox.spaces.members';
+// The right-hand panels embed the conversation view: loaded when first opened.
+const ThreadPanel = lazyNamed(() => import('@/features/threads/ThreadPanel'), 'ThreadPanel');
+const SearchResultsPanel = lazyNamed(
+  () => import('@/features/search/SearchResultsPanel'),
+  'SearchResultsPanel',
+);
 
 /**
  * The Spaces section (Discord layout from the existing card panes).
@@ -65,9 +70,13 @@ export function SpacesView() {
             <Suspense fallback={<PageSpinner />}>{outlet ?? <SpacesEmpty />}</Suspense>
           </main>
           {spaceId && panel?.kind === 'thread' ? (
-            <ThreadPanel key={panel.threadId} threadId={panel.threadId} parentId={panel.parentId} />
+            <Suspense fallback={null}>
+              <ThreadPanel key={panel.threadId} threadId={panel.threadId} parentId={panel.parentId} />
+            </Suspense>
           ) : spaceId && panel?.kind === 'search' ? (
-            <SearchResultsPanel scope={panel.scope} query={panel.query} />
+            <Suspense fallback={null}>
+              <SearchResultsPanel scope={panel.scope} query={panel.query} />
+            </Suspense>
           ) : spaceId && ui.membersOpen ? (
             <MemberList spaceId={spaceId} />
           ) : null}

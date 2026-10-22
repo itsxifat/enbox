@@ -196,6 +196,9 @@ const ACTIONS: Record<string, string> = {
   'member.voice_move': 'moved a member to another voice channel',
   'invite.create': 'created an invite',
   'invite.delete': 'revoked an invite',
+  'emoji.create': 'added an emoji',
+  'emoji.update': 'renamed an emoji',
+  'emoji.delete': 'deleted an emoji',
 };
 
 function AuditRow({ e }: { e: SpaceAuditEntry }) {

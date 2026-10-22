@@ -13,7 +13,6 @@ import {
   SPACE_UNREAD_CAP,
   hasPerm,
   isSpaceChatType,
-  spaceChannelPermissions,
   type ChatSummary,
   type Message,
   type SpaceChannelInfo,
@@ -36,10 +35,12 @@ import {
   loadChannelOverwrites,
   loadSpaceMembers,
   loadSpacePermCtx,
+  spaceChatPermissions,
   type MemberCtx,
   type SpacePermCtx,
 } from './spaceAccess.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
+import { toThreadInfo } from './threads.js';
 
 /** Viewer-neutral `ChatSummary.space` of a channel row. */
 export function toSpaceChannelInfo(
@@ -205,7 +206,8 @@ export async function spaceChannelSummariesForPairs(
     const m = members.get(pairKey(chat.spaceId!, userId))!;
     const lastSeq = Number(chat.lastSeq);
     const lastMessage = s?.last_id ? (messageById.get(s.last_id) ?? null) : null;
-    const permissions = spaceChannelPermissions(bits, chat.type as 'space_text');
+    const permissions = spaceChatPermissions(bits, chat);
+    const thread = chat.type === 'space_thread';
     const wallpaper = row?.wallpaperMediaId ? wallpapers.get(row.wallpaperMediaId) : undefined;
     out.set(key, {
       id: chat.id,
@@ -240,16 +242,22 @@ export async function spaceChannelSummariesForPairs(
       wallpaper: wallpaper ? toChatWallpaper(wallpaper) : null,
       createdAt: chat.createdAt.toISOString(),
       createdBy: chat.createdBy,
-      lastActivityAt: (lastMessage?.createdAt ?? m.member.joinedAt.toISOString()) as string,
+      lastActivityAt: (lastMessage?.createdAt ??
+        (thread ? (chat.lastMessageAt ?? chat.createdAt) : m.member.joinedAt).toISOString()) as string,
+      // Threads: the parent channel's overwrites (loadChannelOverwrites resolves them).
       space: toSpaceChannelInfo(chat, overwrites.get(chat.id) ?? []),
       spacePermissions: bits,
       notifyLevel: row?.notifyLevel ?? null,
+      ...(thread ? { thread: toThreadInfo(chat) } : {}),
     });
   }
   return out;
 }
 
-/** The channels of a Space the viewer can see, in sidebar order (category, then position). */
+/**
+ * The channels of a Space the viewer can see, in sidebar order (category, then position),
+ * with its active threads (Discord's guild sync: archived threads are fetched per channel).
+ */
 export async function spaceChannelSummaries(
   dbx: DbOrTx,
   viewerId: string,
@@ -258,7 +266,9 @@ export async function spaceChannelSummaries(
   const rows = await dbx
     .select({ id: chats.id })
     .from(chats)
-    .where(sql`${chats.spaceId} = ${spaceId}`);
+    .where(
+      sql`${chats.spaceId} = ${spaceId} and (${chats.parentId} is null or ${chats.threadArchivedAt} is null)`,
+    );
   const map = await spaceChannelSummariesForPairs(
     dbx,
     rows.map((r) => ({ chatId: r.id, userId: viewerId })),

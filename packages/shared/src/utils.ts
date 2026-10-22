@@ -185,7 +185,7 @@ export function spaceChannelPermissions(bits: number, type: SpaceChannelType): C
   const manageMessages = hasPerm(bits, PERM.MANAGE_MESSAGES);
   return {
     ...NO_PERMISSIONS,
-    canSend: type === 'space_text' && hasPerm(bits, PERM.SEND_MESSAGES),
+    canSend: (type === 'space_text' || type === 'space_thread') && hasPerm(bits, PERM.SEND_MESSAGES),
     canEditInfo: hasPerm(bits, PERM.MANAGE_CHANNELS),
     canPin: manageMessages,
     canInvite: hasPerm(bits, PERM.CREATE_INVITE),
@@ -368,20 +368,26 @@ export function extractMentionIds(
   return out;
 }
 
+/** A custom emoji token (`<:name:id>` / `<a:name:id>`, social.ts) → its name. */
+const CUSTOM_EMOJI_PLAIN = new RegExp(`<a?:([A-Za-z0-9_]{2,32}):${UUID}>`, 'g');
+
 /**
  * Replace mention tokens with `@Name` (for previews, notifications, search snippets):
- * users through `nameOf`, roles through `roleName` (default "role"), `@everyone`, `@here`.
+ * users through `nameOf`, roles through `roleName` (default "role"), `@everyone`, `@here`;
+ * custom emoji tokens read `:name:`.
  */
 export function renderMentions(
   text: string,
   nameOf: (id: ID) => string,
   roleName: (id: ID) => string = () => 'role',
 ): string {
-  return text.replace(
-    new RegExp(RICH_MENTION_PATTERN, 'g'),
-    (_, userId: string | undefined, special: string | undefined, roleId: string | undefined) =>
-      userId ? `@${nameOf(userId)}` : special ? `@${special}` : `@${roleName(roleId!)}`,
-  );
+  return text
+    .replace(
+      new RegExp(RICH_MENTION_PATTERN, 'g'),
+      (_, userId: string | undefined, special: string | undefined, roleId: string | undefined) =>
+        userId ? `@${nameOf(userId)}` : special ? `@${special}` : `@${roleName(roleId!)}`,
+    )
+    .replace(CUSTOM_EMOJI_PLAIN, ':$1:');
 }
 
 export type TextSegment = { type: 'text'; text: string } | { type: 'mention'; userId: ID };

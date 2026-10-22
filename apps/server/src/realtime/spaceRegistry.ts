@@ -18,8 +18,13 @@
  * `space:member-invalidate` (one member) on the cluster bus and every process reloads. A
  * broadcast racing a reload uses the previous state (documented: a member who just lost
  * access may receive one more event; one who just gained it refetches the channels anyway).
+ *
+ * Threads (`space_thread`) have no state of their own: a thread's `chat:<id>` resolves exactly
+ * like its parent channel's (same audience). Loaded with the Space: open threads and those
+ * archived within ARCHIVED_THREAD_WINDOW_MS; a thread created or revived later is registered
+ * here by `registerThread` (this process) and by the `space:invalidate` reload (the others).
  */
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 import {
   PERM,
   computeChannelPermissions,
@@ -59,7 +64,12 @@ interface SpaceState {
   members: Map<string, MemberCtx>;
   /** (userId → chatId → can view), cleared on any change. */
   views: Map<string, Map<string, boolean>>;
+  /** Registered threads → their parent channel. */
+  threads: Map<string, string>;
 }
+
+/** Archived threads stay registered this long after archiving (late edits, reactions). */
+const ARCHIVED_THREAD_WINDOW_MS = 7 * 24 * 3600_000;
 
 const states = new Map<string, SpaceState>();
 /** chatId → spaceId for the channels of loaded Spaces. */
@@ -93,12 +103,21 @@ function isPublic(ctx: SpacePermCtx, ch: { overwrites: PermissionOverwrite[] }):
 async function loadSpaces(spaceIds: string[], userIds: string[] = []): Promise<void> {
   if (spaceIds.length === 0) return;
   const channelRows = await db
-    .select({ id: chats.id, type: chats.type, spaceId: chats.spaceId })
+    .select({ id: chats.id, type: chats.type, spaceId: chats.spaceId, parentId: chats.parentId })
     .from(chats)
-    .where(inArray(chats.spaceId, spaceIds));
+    .where(
+      and(
+        inArray(chats.spaceId, spaceIds),
+        or(
+          isNull(chats.parentId),
+          isNull(chats.threadArchivedAt),
+          gt(chats.threadArchivedAt, new Date(Date.now() - ARCHIVED_THREAD_WINDOW_MS)),
+        ),
+      ),
+    );
   const overwrites = await loadChannelOverwrites(
     db,
-    channelRows.map((c) => c.id),
+    channelRows.filter((c) => !c.parentId).map((c) => c.id),
   );
   for (const spaceId of spaceIds) {
     const ctx = await loadSpacePermCtx(db, spaceId);
@@ -108,8 +127,13 @@ async function loadSpaces(spaceIds: string[], userIds: string[] = []): Promise<v
     }
     const prev = states.get(spaceId);
     const channels = new Map<string, ChannelState>();
+    const threads = new Map<string, string>();
     for (const c of channelRows) {
       if (c.spaceId !== spaceId || !isSpaceChatType(c.type)) continue;
+      if (c.parentId) {
+        threads.set(c.id, c.parentId);
+        continue;
+      }
       const ow = overwrites.get(c.id) ?? [];
       channels.set(c.id, {
         type: c.type,
@@ -117,21 +141,37 @@ async function loadSpaces(spaceIds: string[], userIds: string[] = []): Promise<v
         public: isPublic(ctx, { overwrites: ow }),
       });
     }
-    if (prev) for (const id of prev.channels.keys()) if (!channels.has(id)) channelSpace.delete(id);
+    // Threads registered meanwhile (created or revived during this load) are kept while their
+    // channel exists; a deleted thread's id resolves to nobody's events anyway.
+    for (const [id, parentId] of prev?.threads ?? []) if (!threads.has(id)) threads.set(id, parentId);
+    for (const [id, parentId] of threads) if (!channels.has(parentId)) threads.delete(id);
+    if (prev)
+      for (const id of [...prev.channels.keys(), ...prev.threads.keys()])
+        if (!channels.has(id) && !threads.has(id)) channelSpace.delete(id);
     for (const id of channels.keys()) channelSpace.set(id, spaceId);
+    for (const id of threads.keys()) channelSpace.set(id, spaceId);
     const memberIds = new Set([...(prev?.members.keys() ?? []), ...userIds]);
     const members = await loadSpaceMembers(db, spaceId, [...memberIds]);
-    states.set(spaceId, { ctx, channels, members, views: new Map() });
+    // A thread registered while the members loaded is not lost.
+    for (const [id, parentId] of states.get(spaceId)?.threads ?? [])
+      if (!threads.has(id) && channels.has(parentId)) threads.set(id, parentId);
+    states.set(spaceId, { ctx, channels, members, views: new Map(), threads });
   }
 }
 
 function dropSpace(spaceId: string): void {
   const s = states.get(spaceId);
-  if (s) for (const id of s.channels.keys()) channelSpace.delete(id);
+  if (s) for (const id of [...s.channels.keys(), ...s.threads.keys()]) channelSpace.delete(id);
   states.delete(spaceId);
 }
 
-function canView(state: SpaceState, userId: string, chatId: string): boolean {
+/** The channel whose state decides a chat's audience: a thread's parent, else the chat itself. */
+function audienceOf(state: SpaceState, chatId: string): string {
+  return state.threads.get(chatId) ?? chatId;
+}
+
+function canView(state: SpaceState, userId: string, threadOrChatId: string): boolean {
+  const chatId = audienceOf(state, threadOrChatId);
   let mine = state.views.get(userId);
   if (!mine) state.views.set(userId, (mine = new Map()));
   const cached = mine.get(chatId);
@@ -167,7 +207,7 @@ function resolveRoom(room: string, out: Set<string>): void {
   const spaceId = channelSpace.get(chatId);
   const state = spaceId ? states.get(spaceId) : undefined;
   if (!spaceId || !state) return void out.add(room); // not a (loaded) space channel
-  const ch = state.channels.get(chatId);
+  const ch = state.channels.get(audienceOf(state, chatId));
   if (!ch) return;
   const spaceRoom = rooms.space(spaceId);
   if (ch.public) return void out.add(spaceRoom);
@@ -295,6 +335,23 @@ export function spaceDeleted(spaceId: string): void {
   publish('space:deleted', { spaceId });
 }
 
+/**
+ * A thread was created or revived (after commit): its room resolves like its parent's here at
+ * once, and every other process learns it from the Space reload.
+ */
+export function threadOpened(spaceId: string, threadId: string, parentId: string): void {
+  registerThread(spaceId, threadId, parentId);
+  spaceStructureChanged(spaceId);
+}
+
+/** Register a thread under its parent channel on this process (no-op when not loaded). */
+export function registerThread(spaceId: string, threadId: string, parentId: string): void {
+  const state = states.get(spaceId);
+  if (!state?.channels.has(parentId)) return;
+  state.threads.set(threadId, parentId);
+  channelSpace.set(threadId, spaceId);
+}
+
 function reload(spaceId: string): void {
   if (!states.has(spaceId)) return;
   void track(
@@ -385,7 +442,7 @@ export function canViewLoaded(userId: string, chatId: string): boolean {
 export function loadedChannelBits(userId: string, chatId: string): number | null {
   const spaceId = channelSpace.get(chatId);
   const state = spaceId ? states.get(spaceId) : undefined;
-  const ch = state?.channels.get(chatId);
+  const ch = state ? state.channels.get(audienceOf(state, chatId)) : undefined;
   const m = state?.members.get(userId);
   if (!state || !ch || !m) return null;
   const base = baseBits(state.ctx, userId, m);

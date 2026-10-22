@@ -151,6 +151,26 @@ describe('permissions', () => {
     expect(hasPerm(b, PERM.ADMINISTRATOR)).toBe(false);
   });
 
+  it('custom emoji bits are assignable; USE_EXTERNAL_EMOJI is implicit unless a channel denies it', () => {
+    expect(ASSIGNABLE_PERMISSIONS & PERM.MANAGE_EMOJI).toBe(PERM.MANAGE_EMOJI);
+    expect(ASSIGNABLE_PERMISSIONS & PERM.USE_EXTERNAL_EMOJI).toBe(PERM.USE_EXTERNAL_EMOJI);
+    expect(hasPerm(DEFAULT_EVERYONE_PERMISSIONS, PERM.USE_EXTERNAL_EMOJI)).toBe(true);
+    // A Space from before the bit existed: @everyone never got it, and it still holds.
+    const legacy: RoleInput[] = [{ id: EVERYONE, permissions: PERM.VIEW_CHANNEL | PERM.SEND_MESSAGES, position: 0 }];
+    const base = computeBasePermissions({ ownerId: OWNER, viewerId: ME, everyoneRoleId: EVERYONE, roles: legacy, memberRoleIds: [] });
+    expect(hasPerm(base, PERM.USE_EXTERNAL_EMOJI)).toBe(true);
+    expect(hasPerm(base, PERM.MANAGE_EMOJI)).toBe(false);
+    const channel = (overwrites: OverwriteInput[], memberRoleIds: string[] = []) =>
+      computeChannelPermissions(base, { channelType: 'space_text', overwrites, everyoneRoleId: EVERYONE, memberRoleIds, viewerId: ME });
+    expect(hasPerm(channel([]), PERM.USE_EXTERNAL_EMOJI)).toBe(true);
+    const deny: OverwriteInput = { targetType: 'role', targetId: EVERYONE, allow: 0, deny: PERM.USE_EXTERNAL_EMOJI };
+    expect(hasPerm(channel([deny]), PERM.USE_EXTERNAL_EMOJI)).toBe(false);
+    const staffAllow: OverwriteInput = { targetType: 'role', targetId: STAFF, allow: PERM.USE_EXTERNAL_EMOJI, deny: 0 };
+    expect(hasPerm(channel([deny, staffAllow], [STAFF]), PERM.USE_EXTERNAL_EMOJI)).toBe(true);
+    // Voice channels drop it with the other text bits.
+    expect(hasPerm(bits([], [], { voice: true }), PERM.USE_EXTERNAL_EMOJI)).toBe(false);
+  });
+
   it('hierarchy: act only from strictly above; the owner is above everyone and untouchable', () => {
     const admin = highestRolePosition(roles, [ADMIN]);
     const staff = highestRolePosition(roles, [STAFF, MUTED]);

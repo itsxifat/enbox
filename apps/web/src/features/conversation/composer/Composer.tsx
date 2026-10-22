@@ -56,6 +56,7 @@ import {
   encodeMentions,
   insertMention,
   matchesMentionQuery,
+  pickEmoji,
   pruneRefs,
   type MentionQuery,
   type MentionRef,
@@ -105,7 +106,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const focusToken = useConversationUi((s) => s.focusToken);
   const members = useChatMembers(chat);
   const listId = useId();
-  const isSpace = chat.type === 'space_text';
+  const isSpace = chat.type === 'space_text' || chat.type === 'space_thread';
   const mentionable = chat.type === 'group' || isSpace;
   const roleName = (id: string) =>
     useSpaces.getState().byId[chat.space?.spaceId ?? '']?.roles.find((r) => r.id === id)?.name ??
@@ -847,7 +848,16 @@ export function Composer({ chat }: { chat: ChatSummary }) {
               </div>
             }
           >
-            <LazyEmojiPicker height="100%" onPick={insertAtCaret} />
+            <LazyEmojiPicker
+              height="100%"
+              custom={chat}
+              onPick={(emoji) => {
+                // Custom emoji show as ":name:" and are sent as their token (composerMentions).
+                const picked = pickEmoji(emoji, refs.current);
+                refs.current = picked.refs;
+                insertAtCaret(picked.insert);
+              }}
+            />
           </Suspense>
         </div>
       ) : null}

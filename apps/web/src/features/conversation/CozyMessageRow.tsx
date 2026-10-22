@@ -9,8 +9,9 @@ import { memo } from 'react';
 import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
+import { ThreadStarterCard } from '@/features/threads/ThreadStarterCard';
 import { useEnterAnimation } from './bubbles/appearance';
-import { ReactionPill, ReactionsDialog } from './bubbles/Reactions';
+import { ReactionChips, ReactionsDialog } from './bubbles/Reactions';
 import { DaySeparator, SystemPill, UnreadDivider } from './bubbles/SystemPill';
 import {
   BubbleHeader,
@@ -135,16 +136,8 @@ export const CozyMessageRow = memo(function CozyMessageRow({
             </div>
           </div>
 
-          {hasReactions ? (
-            <div className="mt-1 flex px-1">
-              <ReactionPill
-                reactions={m.reactions}
-                mine={mine}
-                myReaction={m.myReaction}
-                onClick={() => x.setReactionsOpen(true)}
-              />
-            </div>
-          ) : null}
+          {hasReactions ? <ReactionChips m={m} chat={chat} className="mt-1 px-1" /> : null}
+          {m.thread ? <ThreadStarterCard message={m} /> : null}
 
           <RetryButton chat={chat} m={m} />
         </div>

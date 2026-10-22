@@ -764,7 +764,13 @@ export interface MessageInfo {
 /** Search hit for global message search and the starred list. */
 export interface MessageSearchResult {
   message: Message;
-  chat: Pick<ChatSummary, 'id' | 'type' | 'name' | 'avatarUrl' | 'peer'>;
+  chat: Pick<ChatSummary, 'id' | 'type' | 'name' | 'avatarUrl' | 'peer'> & {
+    /** Space search: the channel's (or thread's) Space. */
+    spaceId?: ID | null;
+    /** Space search, threads: the text channel they belong to. */
+    parentId?: ID | null;
+    parentName?: string | null;
+  };
 }
 
 // ---------------------------------------------------------------------------

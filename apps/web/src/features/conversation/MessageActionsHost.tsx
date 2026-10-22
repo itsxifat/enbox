@@ -1,9 +1,10 @@
 /**
  * The single message action surface of a conversation: desktop dropdown/context menu,
- * touch long-press sheet (with a quick-reactions strip) and the reaction picker (quick
- * reactions + full emoji picker). Opened through `useConversationUi().openActions`.
+ * touch long-press sheet (with a quick-reactions strip) and the reaction picker (my most
+ * recent reactions + the full emoji picker). Opened through `useConversationUi().openActions`.
+ * Touch: a double tap on a message adds ❤️ (Discord's tap to react).
  */
-import { Suspense, useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   CheckSquare,
@@ -25,7 +26,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { QUICK_REACTIONS, type ChatSummary } from '@enbox/shared';
-import { Menu, Spinner, type MenuEntry } from '@/components/ui';
+import { Menu, type MenuEntry } from '@/components/ui';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
@@ -48,7 +49,6 @@ import {
   isActionable,
   openDirectChat,
   pinMessage,
-  react,
   retry,
   setStarred,
   startEdit,
@@ -56,53 +56,94 @@ import {
   unpinMessage,
   type SenderInfo,
 } from './actions';
-import { LazyEmojiPicker } from './lazy';
-import { myReactionOf } from './lib/optimistic';
+import {
+  canAddNewReaction,
+  isMyReaction,
+  reactionKey,
+  reactionLabel,
+} from './bubbles/reactions/model';
+import {
+  addReaction,
+  canAddReaction,
+  canRemoveOwnReaction,
+  toggleReaction,
+} from './bubbles/reactions/reactionActions';
+import { ReactionEmoji } from './bubbles/reactions/ReactionEmoji';
+import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
+import { recentReactions } from './bubbles/reactions/recent';
 import { useChatMembersStore } from './members';
 import { Popover } from './Popover';
 import { useConversationUi } from './state';
+import { threadMessageAction } from '@/features/threads/actions';
 
+/** Discord's tap to react: what a double tap on a message adds. */
+export const DOUBLE_TAP_REACTION = '❤️';
+/** Two taps within this long and this close are a double tap. */
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_SLOP_PX = 24;
+
+/**
+ * Quick reactions: my `count` most recent (QUICK_REACTIONS until I have some), toggling.
+ * Quick-only channels offer QUICK_REACTIONS; without ADD_REACTIONS only the emoji already
+ * on the message (joining needs no more than seeing it).
+ */
 export function QuickReactions({
   chat,
   m,
   onDone,
   onMore,
+  count = 3,
   className,
 }: {
   chat: ChatSummary;
   m: ClientMessage;
   onDone: () => void;
   onMore?: () => void;
+  /** How many recent emoji (hover toolbar 3, long-press sheet 6). */
+  count?: number;
   className?: string;
 }) {
-  const me = useAuth((s) => s.user?.id) ?? '';
-  const current = myReactionOf(m, me);
+  const me = useAuth((s) => s.user?.id);
   const quickOnly = chat.type === 'channel' && chat.channelSettings?.reactions === 'quick';
+  const addNew = canAddNewReaction(chat);
+  // Read once per opening: the strip doesn't reorder under the pointer.
+  const [recent] = useState(() => recentReactions(count));
+  const choices = quickOnly
+    ? [...QUICK_REACTIONS]
+    : addNew
+      ? recent
+      : m.reactions.map((r) => r.emoji).slice(0, count);
   return (
     <div
       className={cn('flex items-center gap-0.5', className)}
       role="group"
       aria-label="Quick reactions"
     >
-      {QUICK_REACTIONS.map((e) => (
-        <button
-          key={e}
-          type="button"
-          aria-label={current === e ? `Remove reaction ${e}` : `React ${e}`}
-          aria-pressed={current === e}
-          onClick={() => {
-            onDone();
-            void react(chat, m, current === e ? null : e);
-          }}
-          className={cn(
-            'flex size-10 items-center justify-center rounded-full text-[26px] leading-none transition-transform hover:scale-125 focus-visible:scale-125 focus-visible:outline-2 focus-visible:outline-brand',
-            current === e && 'bg-brand-soft',
-          )}
-        >
-          {e}
-        </button>
-      ))}
-      {onMore && !quickOnly ? (
+      {choices.map((e) => {
+        const mine = isMyReaction(m, me, e);
+        const enabled = mine ? canRemoveOwnReaction(chat, m) : canAddReaction(chat, m, e);
+        return (
+          <button
+            key={reactionKey(e)}
+            type="button"
+            aria-label={mine ? `Remove reaction ${reactionLabel(e)}` : `React ${reactionLabel(e)}`}
+            aria-pressed={mine}
+            disabled={!enabled}
+            onClick={() => {
+              onDone();
+              void toggleReaction(chat, m, e);
+            }}
+            className={cn(
+              'flex size-10 items-center justify-center rounded-full leading-none transition-transform focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-40',
+              'motion-safe:hover:scale-125 motion-safe:focus-visible:scale-125',
+              mine && 'bg-brand-soft',
+            )}
+          >
+            <ReactionEmoji emoji={e} size={26} />
+          </button>
+        );
+      })}
+      {onMore && !quickOnly && addNew ? (
         <button
           type="button"
           aria-label="More reactions"
@@ -142,6 +183,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
   const pickerMessage = useMessages((s) =>
     picker ? s.byChat[chat.id]?.items.find((x) => x.id === picker.messageId) : undefined,
   );
+  useDoubleTapReaction(chat);
 
   const items: MenuEntry[] = [];
   if (action && m) {
@@ -157,13 +199,16 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
       canReply(chat, m)
         ? { label: 'Reply', icon: Reply, onSelect: () => startReply(chat, m) }
         : null,
-      action.mode === 'menu' && canReact(chat, m)
+      action.mode === 'menu' &&
+        canReact(chat, m) &&
+        (canAddNewReaction(chat) || m.reactions.length > 0)
         ? {
             label: 'React',
             icon: SmilePlus,
-            // Quick-only channels: the full emoji picker would offer emoji the server refuses.
+            // Quick-only channels, and members who may only join existing emoji: the full
+            // emoji picker would offer emoji the server refuses.
             onSelect: () =>
-              quickOnly
+              quickOnly || !canAddNewReaction(chat)
                 ? useConversationUi.getState().openActions({ ...action, mode: 'react' })
                 : setPicker({ anchor: action.anchor, messageId: m.id }),
           }
@@ -196,6 +241,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
             onSelect: () => useConversationUi.getState().openForward([m]),
           }
         : null,
+      threadMessageAction(chat, m),
       canPinMessage(chat, m)
         ? pinned
           ? { label: 'Unpin', icon: PinOff, onSelect: () => void unpinMessage(chat, m.id) }
@@ -264,6 +310,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
               chat={chat}
               m={m}
               onDone={close}
+              count={6}
               className="justify-between rounded-full bg-surface-2 p-1"
               onMore={() => {
                 const anchor = action?.anchor ?? null;
@@ -295,34 +342,57 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
           />
         ) : null}
       </Popover>
-      <Popover
-        open={!!picker && !!pickerMessage}
-        anchor={picker?.anchor ?? null}
+      <ReactionPickerPopover
+        chat={chat}
+        anchor={picker && pickerMessage ? picker.anchor : null}
         onClose={() => setPicker(null)}
-        aria-label="Choose a reaction"
-        className="overflow-hidden"
-      >
-        <div className="w-[min(340px,calc(100vw-16px))]">
-          <Suspense
-            fallback={
-              <div className="flex h-[380px] items-center justify-center text-brand-ink">
-                <Spinner />
-              </div>
-            }
-          >
-            {pickerMessage ? (
-              <LazyEmojiPicker
-                height={380}
-                autoFocusSearch
-                onPick={(emoji) => {
-                  setPicker(null);
-                  void react(chat, pickerMessage, emoji);
-                }}
-              />
-            ) : null}
-          </Suspense>
-        </div>
-      </Popover>
+        onPick={(emoji) => {
+          if (pickerMessage) void toggleReaction(chat, pickerMessage, emoji);
+        }}
+      />
     </>
   );
+}
+
+/**
+ * Discord's tap to react: two quick taps on a message bubble (touch only; not on links,
+ * buttons or media, not in select mode) add DOUBLE_TAP_REACTION. One document listener per
+ * open conversation; only this chat's messages count.
+ */
+function useDoubleTapReaction(chat: ChatSummary): void {
+  useEffect(() => {
+    let last: { id: string; t: number; x: number; y: number } | null = null;
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      const target = e.target instanceof Element ? e.target : null;
+      const row = target
+        ?.closest<HTMLElement>('[data-testid="bubble"]')
+        ?.closest<HTMLElement>('[data-message-id]');
+      const id = row?.dataset.messageId;
+      if (
+        !id ||
+        target!.closest(
+          'a, button, input, textarea, select, label, img, video, audio, [role="button"], [contenteditable="true"]',
+        )
+      ) {
+        last = null;
+        return;
+      }
+      const prev = last;
+      last = { id, t: e.timeStamp, x: e.clientX, y: e.clientY };
+      if (
+        !prev ||
+        prev.id !== id ||
+        e.timeStamp - prev.t > DOUBLE_TAP_MS ||
+        Math.hypot(e.clientX - prev.x, e.clientY - prev.y) > DOUBLE_TAP_SLOP_PX
+      )
+        return;
+      last = null;
+      if (useConversationUi.getState().selecting[chat.id] !== undefined) return;
+      const m = useMessages.getState().byChat[chat.id]?.items.find((x) => x.id === id);
+      if (m) void addReaction(chat, m, DOUBLE_TAP_REACTION);
+    };
+    document.addEventListener('pointerup', onUp);
+    return () => document.removeEventListener('pointerup', onUp);
+  }, [chat]);
 }

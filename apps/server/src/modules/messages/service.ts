@@ -10,7 +10,6 @@ import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
   MAX_CAPTION_LENGTH,
-  QUICK_REACTIONS,
   USER_RATE_LIMITS,
   canDeleteForEveryone,
   canEditMessage,
@@ -27,7 +26,7 @@ import {
 import { db, type Tx } from '../../db/index.js';
 import {
   chatMembers,
-  messageReactions,
+  chats,
   messages,
   pollVotes,
   starredMessages,
@@ -61,16 +60,18 @@ import {
   toMessages,
   type CreateMessageInput,
 } from '../../services/messages.js';
+import { uniq } from '../../services/sql.js';
 import { resolveStatusReply } from '../../services/statuses.js';
 import {
   allowedSpaceMentions,
-  assertCanReact,
   assertSpaceVerification,
   spaceSendRules,
   touchSlowmode,
 } from '../../services/spaceRules.js';
+import { gateExternalEmoji } from '../../services/spaceEmojis.js';
 import { getUserRows, settingsOf, toUserPublicMap } from '../../services/users.js';
 import { toSearchResults } from '../chats/service.js';
+import { removeMyReactions, replaceMyReaction } from './reactions.js';
 
 export type SendMessageBody = z.output<typeof sendMessageSchema>;
 export type ForwardBody = z.output<typeof forwardSchema>;
@@ -192,6 +193,8 @@ export async function sendMessage(
         input.mediaId = body.mediaId;
         input.text = captionOf(body.text);
     }
+    // Space channels: other Spaces' custom emoji need USE_EXTERNAL_EMOJI (else `:name:`).
+    if (input.text) input.text = await gateExternalEmoji(tx, access, input.text);
     if (body.replyToId)
       input.replyToId = (await resolveReplyTarget(tx, me, access.chat, body.replyToId)).id;
     if (body.statusReplyToId) {
@@ -336,6 +339,7 @@ export async function editMessage(me: string, messageId: string, text: string): 
         throw badRequest(`text: Captions are limited to ${MAX_CAPTION_LENGTH} characters`);
       next = text || null;
     }
+    if (next) next = await gateExternalEmoji(tx, access, next);
     if (next === message.text) return message;
     const mentions = await deriveMentions(tx, message.chatId, message.senderId, next, undefined, {
       spaceId: access.chat.spaceId,
@@ -404,15 +408,11 @@ export async function deleteMessage(
 // Reactions, stars, votes
 // ---------------------------------------------------------------------------
 
-/** Compare emoji ignoring variation selector 16 ('❤' vs '❤️'). */
-const stripVs16 = (s: string) => s.replace(/️/g, '');
-const QUICK = new Set(QUICK_REACTIONS.map(stripVs16));
-
 /**
- * Load a message for a reaction/vote: visible (404), message row locked (serializes
- * concurrent votes/reactions and a concurrent delete-for-everyone), active membership (403).
- * `hideFrom`: the direct-chat peer when they blocked me (my reactions and votes are never
- * emitted to them — docs "Blocking").
+ * Load a message for a vote: visible (404), message row locked (serializes concurrent votes
+ * and a concurrent delete-for-everyone), active membership (403). `hideFrom`: the
+ * direct-chat peer when they blocked me (my votes are never emitted to them — docs
+ * "Blocking").
  */
 async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) {
   const v = await loadVisibleMessage(tx, me, messageId, { lock: true });
@@ -421,54 +421,17 @@ async function lockMessageForInteraction(tx: Tx, me: string, messageId: string) 
 }
 
 /**
- * `PUT /messages/:messageId/reaction` (docs "Reactions"): one reaction per user (replaces);
- * not on system or deleted messages (400); channels follow `channelSettings.reactions`
- * ('none' → 403, 'quick' → QUICK_REACTIONS only, else 403). Events: `message:updated` → room.
+ * `PUT /messages/:messageId/reaction` (the APK's single-reaction route): replace semantics —
+ * my other reactions on the message are removed, then this one is added. Rules and delta
+ * events: ./reactions.ts. Returns the message for me (`myReaction` = this one).
  */
 export async function react(me: string, messageId: string, emoji: string): Promise<Message> {
-  const row = await transact(async (tx, fx) => {
-    const { message, chat, hideFrom, access } = await lockMessageForInteraction(tx, me, messageId);
-    if (message.type === 'system' || message.deletedAt)
-      throw badRequest('You cannot react to this message');
-    assertCanReact(access);
-    if (chat.type === 'channel') {
-      const mode = chat.channelSettings?.reactions ?? 'all';
-      if (mode === 'none') throw forbidden('Reactions are turned off in this channel');
-      if (mode === 'quick' && !QUICK.has(stripVs16(emoji)))
-        throw forbidden('Only quick reactions are allowed in this channel');
-    }
-    const [current] = await tx
-      .select({ emoji: messageReactions.emoji })
-      .from(messageReactions)
-      .where(and(eq(messageReactions.messageId, messageId), eq(messageReactions.userId, me)))
-      .limit(1);
-    if (current?.emoji !== emoji) {
-      await tx
-        .insert(messageReactions)
-        .values({ messageId, userId: me, emoji })
-        .onConflictDoUpdate({
-          target: [messageReactions.messageId, messageReactions.userId],
-          set: { emoji, createdAt: new Date() },
-        });
-      fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
-    }
-    return message;
-  });
-  return toMessageFor(me, row);
+  return toMessageFor(me, await replaceMyReaction(me, messageId, emoji));
 }
 
-/** `DELETE /messages/:messageId/reaction`: remove mine (no-op without one). Events: `message:updated` → room. */
+/** `DELETE /messages/:messageId/reaction`: remove all of mine (no-op without any). See ./reactions.ts. */
 export async function unreact(me: string, messageId: string): Promise<Message> {
-  const row = await transact(async (tx, fx) => {
-    const { message, hideFrom } = await lockMessageForInteraction(tx, me, messageId);
-    const removed = await tx
-      .delete(messageReactions)
-      .where(and(eq(messageReactions.messageId, messageId), eq(messageReactions.userId, me)))
-      .returning({ emoji: messageReactions.emoji });
-    if (removed.length) fx.messageUpdated(messageId, { exceptUserIds: hideFrom });
-    return message;
-  });
-  return toMessageFor(me, row);
+  return toMessageFor(me, await removeMyReactions(me, messageId));
 }
 
 /** `PUT/DELETE /messages/:messageId/star`: private, no events. Visible messages only; not system/deleted (400). */
@@ -593,9 +556,10 @@ export async function listStarred(
 ): Promise<MessageSearchResult[]> {
   if (opts.chatId) await getChatAccess(db, me, opts.chatId);
   const rows = await db
-    .select({ message: messages })
+    .select({ message: messages, spaceId: chats.spaceId })
     .from(starredMessages)
     .innerJoin(messages, eq(messages.id, starredMessages.messageId))
+    .innerJoin(chats, eq(chats.id, messages.chatId))
     .innerJoin(
       chatMembers,
       and(eq(chatMembers.chatId, messages.chatId), eq(chatMembers.userId, starredMessages.userId)),
@@ -609,10 +573,16 @@ export async function listStarred(
     )
     .orderBy(desc(starredMessages.createdAt), desc(messages.seq))
     .limit(STARRED_LIST_LIMIT);
+  // A Space channel's read row outlives the access (a role removed, a channel made private):
+  // re-check VIEW from the computed permissions, once per channel.
+  const denied = new Set<string>();
+  for (const chatId of uniq(rows.filter((r) => r.spaceId).map((r) => r.message.chatId))) {
+    await getChatAccess(db, me, chatId).catch(() => denied.add(chatId));
+  }
   return toSearchResults(
     db,
     me,
-    rows.map((r) => r.message),
+    rows.filter((r) => !denied.has(r.message.chatId)).map((r) => r.message),
   );
 }
 
@@ -642,7 +612,12 @@ export async function searchMessages(
     )
     .where(
       and(
-        query.chatId ? eq(messages.chatId, query.chatId) : undefined,
+        // Space channels: only through the access check above (one chat) — across chats they
+        // are searched by `GET /spaces/:spaceId/messages/search`, which re-checks permissions
+        // (a read row outlives a removed role).
+        query.chatId
+          ? eq(messages.chatId, query.chatId)
+          : sql`not exists (select 1 from chats c where c.id = ${messages.chatId} and c.space_id is not null)`,
         memberVisibleSql('messages', 'chat_members'),
         isNull(messages.deletedAt),
         sql`${messages.type} not in ('system', 'call')`,

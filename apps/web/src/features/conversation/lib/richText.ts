@@ -7,9 +7,11 @@
  * Inline: `code`, ||spoiler||, **bold**, __underline__, *italic* / _italic_, ~~strike~~,
  * [masked](https://links), <https://links>, <t:unix:style> timestamps, auto links
  * (http(s)://, www., e-mail), `\` escapes, and mention tokens (`@{uuid}`, `@{everyone}`,
- * `@{here}`, `@{role:uuid}`) anywhere — also inside formatting.
+ * `@{here}`, `@{role:uuid}`) and custom emoji tokens (`<:name:id>`, `<a:name:id>`) anywhere —
+ * also inside formatting. Code spans and blocks show tokens raw; `\<:name:id>` is the raw
+ * token as text (Discord's escape).
  */
-import { parseRichMentions, type ID } from '@enbox/shared';
+import { CUSTOM_EMOJI_TOKEN_RE, customEmojiToken, parseRichMentions, type ID } from '@enbox/shared';
 
 export type Inline =
   | { t: 'text'; text: string }
@@ -19,6 +21,8 @@ export type Inline =
   | { t: 'everyone'; here: boolean }
   /** Space channels: `@{role:<uuid>}`. */
   | { t: 'role'; roleId: ID }
+  /** A custom Space emoji: `<:name:id>`, `<a:name:id>` (animated). */
+  | { t: 'emoji'; id: ID; name: string; animated: boolean }
   | { t: 'bold' | 'italic' | 'underline' | 'strike' | 'spoiler'; children: Inline[] }
   | { t: 'code'; children: [{ t: 'text'; text: string }] }
   /** `<t:unix:style>`; style one of t T d D f F R (default f). */
@@ -61,14 +65,34 @@ export function linkify(text: string): Inline[] {
 
 const PH_OPEN = '';
 const PH_CLOSE = '';
-type Special = Extract<Inline, { t: 'mention' | 'everyone' | 'role' }>;
+type Special = Extract<Inline, { t: 'mention' | 'everyone' | 'role' | 'emoji' }>;
+
+/** A fresh copy of the shared global token regex (no shared `lastIndex`). */
+const emojiTokenRe = () => new RegExp(CUSTOM_EMOJI_TOKEN_RE.source, 'g');
+
+/** Whether the char at `i` follows an odd run of backslashes (it is escaped). */
+function escapedAt(text: string, i: number): boolean {
+  let n = 0;
+  while (i - n - 1 >= 0 && text[i - n - 1] === '\\') n++;
+  return n % 2 === 1;
+}
+
+/** Custom emoji tokens of plain text → placeholders (escaped tokens stay text). */
+function protectEmoji(text: string, specials: Special[]): string {
+  if (!text.includes('<')) return text;
+  return text.replace(emojiTokenRe(), (token: string, a: string, name: string, id: string, at: number) => {
+    if (escapedAt(text, at)) return token;
+    specials.push({ t: 'emoji', id, name, animated: a === 'a' });
+    return `${PH_OPEN}${specials.length - 1}${PH_CLOSE}`;
+  });
+}
 
 function protectMentions(text: string): { text: string; specials: Special[] } {
   const specials: Special[] = [];
   let out = '';
   for (const seg of parseRichMentions(text)) {
     if (seg.type === 'text') {
-      out += seg.text;
+      out += protectEmoji(seg.text, specials);
       continue;
     }
     specials.push(
@@ -104,6 +128,7 @@ function restoreRaw(text: string, specials: Special[]): string {
   return text.replace(new RegExp(`${PH_OPEN}(\\d+)${PH_CLOSE}`, 'g'), (_, i: string) => {
     const s = specials[Number(i)];
     if (!s) return '';
+    if (s.t === 'emoji') return customEmojiToken(s);
     return s.t === 'mention' ? `@{${s.userId}}` : s.t === 'everyone' ? (s.here ? '@{here}' : '@{everyone}') : `@{role:${s.roleId}}`;
   });
 }
@@ -164,9 +189,10 @@ const RULES: Rule[] = [
     re: /<t:(-?\d{1,13})(?::([tTdDfFR]))?>/y,
     node: (m) => ({ t: 'timestamp', unix: Number(m[1]), style: (m[2] as TimestampStyle | undefined) ?? 'f' }),
   },
-  // Bare URLs are consumed whole so markdown characters inside them stay literal.
+  // Bare URLs are consumed whole so markdown characters inside them stay literal. A token
+  // placeholder ends them (a `<:emoji:id>` right after a link, like its `<` would).
   {
-    re: /(?:https?:\/\/|www\.)[^\s<>"'`]+[^\s<>"'`.,;:!?)\]}]/iy,
+    re: /(?:https?:\/\/|www\.)[^\s<>"'`\uE000]+[^\s<>"'`.,;:!?)\]}\uE000]/iy,
     node: (m, prev) => {
       if (isWordChar(prev)) return null;
       const raw = m[0];
@@ -380,6 +406,8 @@ export function inlineToPlain(segments: Inline[], nameOf: (id: ID) => string): s
           return s.here ? '@here' : '@everyone';
         case 'role':
           return '@role';
+        case 'emoji':
+          return `:${s.name}:`;
         case 'timestamp':
           return new Date(s.unix * 1000).toISOString();
         default:
@@ -460,15 +488,36 @@ function graphemes(text: string): string[] {
   return Array.from(text);
 }
 
-/** Number of emoji when `text` consists only of 1..max emoji (whitespace allowed), else 0. */
+/**
+ * Number of emoji when `text` consists only of 1..max emoji (whitespace allowed), else 0.
+ * Custom emoji tokens count as one each (an escaped one is text).
+ */
 export function emojiOnlyCount(text: string | null | undefined, max = 3): number {
   if (!text) return 0;
-  const compact = text.replace(/\s+/g, '');
-  if (!compact || compact.length > max * 16) return 0;
+  let custom = 0;
+  const rest = text.includes('<')
+    ? text.replace(emojiTokenRe(), (token: string, _a: string, _n: string, _id: string, at: number) => {
+        if (escapedAt(text, at)) return token;
+        custom++;
+        return ' ';
+      })
+    : text;
+  if (custom > max) return 0;
+  const compact = rest.replace(/\s+/g, '');
+  if (!compact) return custom;
+  if (compact.length > (max - custom) * 16) return 0;
   const gs = graphemes(compact);
-  if (gs.length > max) return 0;
+  if (custom + gs.length > max) return 0;
   for (const g of gs) if (!EMOJI_GRAPHEME.test(g) || !HAS_PICTO.test(g)) return 0;
-  return gs.length;
+  return custom + gs.length;
+}
+
+/** Custom emoji tokens → `:name:` (plain-text previews, labels, copy). */
+export function plainCustomEmoji(text: string): string {
+  if (!text.includes('<')) return text;
+  return text.replace(emojiTokenRe(), (token: string, _a: string, name: string, _id: string, at: number) =>
+    escapedAt(text, at) ? token : `:${name}:`,
+  );
 }
 
 /** First URL in a text (link previews / "open link" actions). */

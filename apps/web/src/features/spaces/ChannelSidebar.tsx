@@ -65,6 +65,7 @@ import {
   VoiceChannelOccupants,
   type VoiceDragData,
 } from '@/features/voice/VoiceChannelOccupants';
+import { SidebarThreads } from '@/features/threads/SidebarThreads';
 import { markChatRead } from '@/realtime';
 import { useChats } from '@/stores/chats';
 import { useSpace, useSpaceChannels, useSpaces } from '@/stores/spaces';
@@ -247,7 +248,7 @@ function ChannelRow({
           </button>
         ) : null}
       </Link>
-      {voice ? <VoiceChannelOccupants chat={chat} channels={channels} /> : null}
+      {voice ? <VoiceChannelOccupants chat={chat} channels={channels} /> : <SidebarThreads channel={chat} />}
     </div>
   );
 }

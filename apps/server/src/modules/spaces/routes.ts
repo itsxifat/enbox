@@ -7,7 +7,7 @@
  * Members, bans, invites and the audit log: members.ts.
  */
 import { Router } from 'express';
-import { and, count, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   AVATAR_MIME_TYPES,
   CHANNEL_NAME_MAX_LENGTH,
@@ -112,6 +112,7 @@ import {
   setChannelOverwrites,
 } from './service.js';
 import { router as membersRouter } from './members.js';
+import { router as emojisRouter } from './emojis.js';
 import './hooks.js';
 
 export const router = Router();
@@ -387,7 +388,11 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
   const chatId = await transact(async (tx, fx) => {
     await lockSpace(tx, spaceId);
     const access = await requireSpacePermission(tx, spaceId, me, PERM.MANAGE_CHANNELS);
-    const [n] = await tx.select({ n: count() }).from(chats).where(eq(chats.spaceId, spaceId));
+    // Threads don't count toward the channel limit.
+    const [n] = await tx
+      .select({ n: count() })
+      .from(chats)
+      .where(and(eq(chats.spaceId, spaceId), isNull(chats.parentId)));
     if (Number(n?.n ?? 0) >= MAX_SPACE_CHANNELS)
       throw limitReached(`A Space can have at most ${MAX_SPACE_CHANNELS} channels`);
     const categoryId = body.categoryId ?? null;
@@ -732,7 +737,11 @@ router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
     const access = await requireSpacePermission(tx, spaceId, me, PERM.MANAGE_CHANNELS);
     const source = await requireSpaceChannel(tx, spaceId, chatId);
     const { overwrites } = await requireChannelBit(tx, access, me, source, PERM.MANAGE_CHANNELS);
-    const [n] = await tx.select({ n: count() }).from(chats).where(eq(chats.spaceId, spaceId));
+    // Threads don't count toward the channel limit.
+    const [n] = await tx
+      .select({ n: count() })
+      .from(chats)
+      .where(and(eq(chats.spaceId, spaceId), isNull(chats.parentId)));
     if (Number(n?.n ?? 0) >= MAX_SPACE_CHANNELS)
       throw limitReached(`A Space can have at most ${MAX_SPACE_CHANNELS} channels`);
     const type = source.type as 'space_text' | 'space_voice';
@@ -1303,3 +1312,4 @@ router.delete('/spaces/:spaceId/roles/:roleId', async (req, res) => {
 });
 
 router.use(membersRouter);
+router.use(emojisRouter);

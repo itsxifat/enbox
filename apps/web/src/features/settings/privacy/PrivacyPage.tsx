@@ -10,6 +10,7 @@ import {
   updateSettings,
 } from '../settingsApi';
 import { SettingsGroup, SettingsRow, SettingsScroller, SwitchRow } from '../ui';
+import { FriendRequestSettings } from './FriendRequestSettings';
 
 /** Settings → Privacy. */
 export function PrivacyPage() {
@@ -76,6 +77,7 @@ export function PrivacyPage() {
           description={`Who can add me: ${PRIVACY_LABELS[s.groupsAddPermission].toLowerCase()}`}
           to="/settings/privacy/groups"
         />
+        <FriendRequestSettings />
         <SwitchRow
           icon={PhoneOffIcon}
           title="Silence unknown callers"

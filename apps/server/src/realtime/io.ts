@@ -60,7 +60,7 @@ async function visibleChatIds(userId: string): Promise<string[]> {
         eq(chatMembers.userId, userId),
         isNull(chatMembers.leftAt),
         eq(chatMembers.hidden, false),
-        notInArray(chats.type, ['space_text', 'space_voice']),
+        notInArray(chats.type, ['space_text', 'space_voice', 'space_thread']),
       ),
     );
   return rows.map((r) => r.chatId);

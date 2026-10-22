@@ -48,6 +48,7 @@ import {
 } from '../../services/users.js';
 import { readReceiptsChanged } from '../../services/watermarks.js';
 import { checkPassword, isUniqueViolation } from '../auth/service.js';
+import { dropFriendRequests } from '../friends/service.js';
 import { deleteAccount } from './account.js';
 import { userChangedEffect } from './fanout.js';
 import { reevaluatePresence } from './presence.js';
@@ -671,6 +672,7 @@ router.put('/blocks/:userId', async (req, res) => {
       .returning({ id: blocks.blockedId });
     if (inserted.length === 0) return;
     await blockChangedEffects(tx, fx, me, userId);
+    await dropFriendRequests(tx, fx, me, userId); // pending requests go both ways
     fx.domain('user.blocked', { blockerId: me, blockedId: userId });
   });
   res.status(204).end();

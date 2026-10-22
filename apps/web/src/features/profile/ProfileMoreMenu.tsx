@@ -3,6 +3,8 @@ import type { UserPublic } from '@enbox/shared';
 import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { DropdownMenu, IconButton, toast, type IconButtonVariant, type MenuEntry } from '@/components/ui';
 import { confirmBlock, confirmUnblock } from '@/features/contacts/contactActions';
+import { friendMenuItems } from '@/features/home/friendActions';
+import { useFriendStatus } from '@/stores/friends';
 
 async function copy(text: string, done: string): Promise<void> {
   try {
@@ -14,7 +16,8 @@ async function copy(text: string, done: string): Promise<void> {
 }
 
 /**
- * The "..." menu of someone's profile: View Full Profile (popout only), add / edit contact,
+ * The "..." menu of someone's profile: View Full Profile (popout only), the friend action
+ * (Add Friend, Accept / Ignore, Cancel Request or Remove Friend), add / edit contact,
  * calls, Copy Username, Copy User ID and Block / Unblock (the existing contact actions).
  */
 export function ProfileMoreMenu({
@@ -32,8 +35,10 @@ export function ProfileMoreMenu({
   onCall?: (type: 'audio' | 'video') => void;
   variant?: IconButtonVariant;
 }) {
+  const friend = useFriendStatus(user);
   const head: MenuEntry[] = [
     onViewFull && { label: 'View Full Profile', icon: IdCard, onSelect: onViewFull },
+    ...friendMenuItems(user, friend),
     onEditContact && {
       label: user.isContact ? 'Edit contact' : 'Add to contacts',
       icon: user.isContact ? Pencil : UserPlus,

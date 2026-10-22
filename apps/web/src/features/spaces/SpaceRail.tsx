@@ -37,6 +37,7 @@ import {
   useDragSensors,
 } from '@/lib/dnd';
 import { isChatUnread, useSortedChats, useUnreadChatsCount } from '@/stores/chats';
+import { useIncomingFriendRequestCount } from '@/stores/friends';
 import {
   applyRailDrop,
   moveInRail,
@@ -610,7 +611,8 @@ function FolderSettingsDialog({
 
 /** Home (DMs and Friends): the app mark; a red count of unread DMs. */
 function HomeTile({ active }: { active: boolean }) {
-  const unread = useUnreadChatsCount();
+  // Pending friend requests count on Home too (Discord).
+  const unread = useUnreadChatsCount() + useIncomingFriendRequestCount();
   return (
     <NavLink
       to="/chats"

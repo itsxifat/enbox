@@ -7,5 +7,6 @@ import '../modules/auth/sessionCleanup.js';
 import './disappearingPurge.js';
 import './calls.js';
 import './voice.js';
+import './threads.js';
 import './statusExpiry.js';
 import './presenceExpiry.js';

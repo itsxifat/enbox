@@ -17,10 +17,11 @@
  * After commit (in this order): the membership events, `user:changed` → rooms of my direct
  * chats and of the groups I just left and → users who had saved me, `contacts:changed` →
  * users who had saved me, `blocks:changed` → users who had blocked me (their lists lost an
- * entry), `invalidateSessions` + `disconnectUser`, presence re-evaluation (→ hidden).
+ * entry), `friends:changed` → users with a pending friend request to or from me,
+ * `invalidateSessions` + `disconnectUser`, presence re-evaluation (→ hidden).
  * Direct-chat memberships and messages stay (the sender shows as "Deleted account").
  */
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import {
   blocks,
   callParticipants,
@@ -29,6 +30,7 @@ import {
   chats,
   communities,
   communityMembers,
+  friendRequests,
   statuses,
   users,
 } from '../../db/schema.js';
@@ -138,6 +140,13 @@ export async function deleteAccount(userId: string): Promise<void> {
     const blockedBy = (
       await tx.select({ id: blocks.blockerId }).from(blocks).where(eq(blocks.blockedId, userId))
     ).map((r) => r.id);
+    // Pending friend requests either way disappear with the account.
+    const requestPeers = (
+      await tx
+        .select({ fromId: friendRequests.fromId, toId: friendRequests.toId })
+        .from(friendRequests)
+        .where(or(eq(friendRequests.fromId, userId), eq(friendRequests.toId, userId)))
+    ).map((r) => (r.fromId === userId ? r.toId : r.fromId));
 
     // (3) + (4): sessions, push subscriptions, contacts, blocks; scrub the row.
     const { sessionIds } = await scrubDeletedUser(tx, userId, { keepStatuses: true });
@@ -149,6 +158,7 @@ export async function deleteAccount(userId: string): Promise<void> {
       emitUserChanged(userId, { chatIds: [...directChatIds, ...groupIds], userIds: savedBy });
       emitToUsers(savedBy, 'contacts:changed', {});
       emitToUsers(blockedBy, 'blocks:changed', {});
+      emitToUsers(requestPeers, 'friends:changed', {});
       invalidateSessions(sessionIds);
       disconnectUser(userId);
       void reevaluatePresence(userId);

@@ -451,6 +451,7 @@ export interface ApiRoutes {
   'PUT /api/messages/:messageId/reactions/:emoji/@me': { R: void } /* ADD_REACTIONS to add a new emoji; joining an existing one needs only VIEW */;
   'DELETE /api/messages/:messageId/reactions/:emoji/@me': { R: void };
   'DELETE /api/messages/:messageId/reactions/:emoji/:userId': { R: void } /* MANAGE_MESSAGES */;
+  'DELETE /api/messages/:messageId/reactions/:emoji': { R: void } /* moderators: clear one emoji */;
   'DELETE /api/messages/:messageId/reactions': { R: void } /* MANAGE_MESSAGES: clear all */;
   'GET /api/messages/:messageId/reactions/:emoji': { Q: ReactorsQuery; R: UserPublic[] };
   'PUT /api/messages/:messageId/star': { R: void };
@@ -621,7 +622,10 @@ export interface ApiRoutes {
   'PATCH /api/spaces/:spaceId/emojis/:emojiId': { B: UpdateSpaceEmojiRequest; R: SpaceEmoji };
   'DELETE /api/spaces/:spaceId/emojis/:emojiId': { R: void };
   'GET /api/me/emojis': { R: SpaceEmojiGroup[] } /* the picker: emoji of all my Spaces */;
-  'GET /api/emojis/:emojiId': { R: void } /* 302 to the image (cacheable): <img src> works anywhere */;
+  'GET /api/emojis/:emojiId': {
+    Q: { static?: '1' };
+    R: void;
+  } /* public 302 to the image (cacheable), so <img src> works anywhere; ?static=1 → the still of an animated one */;
   'POST /api/spaces/:spaceId/voice-states/:userId/disconnect': { R: void } /* MOVE_MEMBERS */;
   'POST /api/spaces/:spaceId/voice-states/:userId/move': {
     B: VoiceMoveRequest;

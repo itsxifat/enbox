@@ -16,7 +16,14 @@ import {
   type ChatSummary,
   type ID,
   type Message,
+  type ReactionEvent,
 } from '@enbox/shared';
+import {
+  applyReactionChange,
+  applyReactionsCleared,
+  reactorsListed,
+} from '@/features/conversation/bubbles/reactions/model';
+import { hasPendingReaction } from '@/features/conversation/bubbles/reactions/pending';
 import { arrivalKey, markArrival } from '@/lib/arrivals';
 import { isAppFocused, playSound, showNotification } from '@/lib/notify';
 import { registerSessionReset } from '@/lib/session';
@@ -88,9 +95,9 @@ export function withViewerFields(
   // Channels and space channels list no reactors/voters (counts only): keep cached values.
   if (!chat || chat.type === 'channel' || isSpaceChatType(chat.type) || !me) return message;
   let out = message;
-  if (message.myReaction === undefined) {
-    const mine = message.reactions.find((r) => r.userIds.includes(me));
-    out = { ...out, myReaction: mine?.emoji ?? null };
+  if (message.myReactions === undefined) {
+    const mine = message.reactions.filter((r) => r.userIds.includes(me)).map((r) => r.emoji);
+    out = { ...out, myReactions: mine, myReaction: message.myReaction ?? mine[0] ?? null };
   }
   if (message.poll && message.poll.myOptionIds === undefined) {
     const myOptionIds = message.poll.options
@@ -260,10 +267,41 @@ export function handleMessagesRemoved(chatId: ID, messageIds: ID[]): void {
   useMessages.getState().removeMessages(chatId, messageIds);
 }
 
+/**
+ * Reaction deltas (Discord model; the message is not re-sent): merged into the cached
+ * message. My own echo changes nothing — the optimistic update already applied it, and while
+ * a change of mine to that emoji is in flight my echoes are skipped (reactions/pending.ts) —
+ * while one from my other devices updates my reactions. Unloaded messages are ignored (they
+ * arrive with their reactions).
+ */
+export function handleReactionDelta(e: ReactionEvent, add: boolean): void {
+  const me = useAuth.getState().user?.id;
+  if (me && e.userId === me && hasPendingReaction(e.messageId, e.emoji)) return;
+  const chat = useChats.getState().byId[e.chatId];
+  const listed = chat ? reactorsListed(chat) : false;
+  useMessages
+    .getState()
+    .patchReactions(e.chatId, e.messageId, (m) =>
+      applyReactionChange(m, { emoji: e.emoji, userId: e.userId, add }, { me, listed }),
+    );
+}
+
+export function handleReactionsCleared(chatId: ID, messageId: ID, emoji: string | null): void {
+  const me = useAuth.getState().user?.id;
+  useMessages
+    .getState()
+    .patchReactions(chatId, messageId, (m) => applyReactionsCleared(m, emoji, me));
+}
+
 export function registerMessageHandlers(socket: AppSocket): void {
   socket.on('message:new', ({ message }) => handleNewMessage(message));
   socket.on('message:updated', ({ message }) => handleMessageUpdated(message));
   socket.on('message:removed', ({ chatId, messageIds }) =>
     handleMessagesRemoved(chatId, messageIds),
+  );
+  socket.on('message:reaction-add', (e) => handleReactionDelta(e, true));
+  socket.on('message:reaction-remove', (e) => handleReactionDelta(e, false));
+  socket.on('message:reactions-cleared', ({ chatId, messageId, emoji }) =>
+    handleReactionsCleared(chatId, messageId, emoji),
   );
 }

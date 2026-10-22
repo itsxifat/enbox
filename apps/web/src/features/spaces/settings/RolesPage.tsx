@@ -588,7 +588,7 @@ function RoleEditor({ space, role, myTop }: { space: Space; role: SpaceRole; myT
         <section key={g.title}>
           <h3 className="mb-1 text-[12px] font-bold tracking-wide text-muted uppercase">{g.title}</h3>
           <div className="card-inset flex flex-col gap-1 p-2">
-            {g.items.map((p) => (
+            {g.items.filter((p) => !p.channelOnly).map((p) => (
               <Switch
                 key={p.bit}
                 checked={(perms & p.bit) !== 0}

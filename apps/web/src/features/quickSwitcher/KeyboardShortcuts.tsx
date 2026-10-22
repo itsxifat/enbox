@@ -138,6 +138,8 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Previous / next channel or DM', 'Alt ↑ / Alt ↓'],
       ['Previous / next unread', 'Alt Shift ↑ / ↓'],
       ['Previous / next server', `${IS_MAC ? '⌃' : 'Ctrl'} Alt ↑ / ↓`],
+      ['Toggle the Inbox', `${MOD} I`],
+      ['Search the conversation', `${MOD} F`],
       ['User Settings', `${MOD} ,`],
     ],
   },

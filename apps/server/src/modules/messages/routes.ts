@@ -27,6 +27,7 @@ import {
   unreact,
   vote,
 } from './service.js';
+import { router as reactionsRouter } from './reactions.js';
 
 /**
  * Messages module — owns: /chats/:chatId/messages, /messages/*, /search/messages.
@@ -96,6 +97,9 @@ router.delete('/messages/:messageId/reaction', async (req, res) => {
   const { messageId } = parse(messageParams, req.params);
   res.json(await unreact(me, messageId));
 });
+
+// Discord-model reactions: /messages/:messageId/reactions[/:emoji[/@me|/:userId]] (./reactions.ts).
+router.use(reactionsRouter);
 
 router.put('/messages/:messageId/star', async (req, res) => {
   const me = authUserId(req);

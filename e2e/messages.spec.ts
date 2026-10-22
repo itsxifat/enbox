@@ -91,7 +91,7 @@ test('reply and reaction appear on the other side', async ({ browser }) => {
   await replyOnBob.getByRole('button', { name: 'React to message' }).click();
   await b.page.getByRole('button', { name: 'React ❤️' }).click();
   await expect(
-    bubble(a.page, 'Sushi, obviously').getByRole('button', { name: /Reactions: ❤️ 1/ }),
+    bubble(a.page, 'Sushi, obviously').getByRole('button', { name: '❤️, 1 reaction' }),
   ).toBeVisible();
 
   // Quote tap jumps to the original message.
@@ -272,12 +272,47 @@ test('search in chat jumps to an older message', async ({ browser }) => {
 
   const a = await openAs(browser, alice, `/chats/${chatId}`);
   await expect(bubble(a.page, 'filler message 70')).toBeVisible();
-  await a.page.getByRole('button', { name: 'Search in chat' }).click();
+  // The quick in-chat search (Chat menu → Search) steps through matches in place.
+  await a.page.getByRole('button', { name: 'Chat menu' }).click();
+  await a.page.getByRole('menuitem', { name: 'Search' }).click();
   await a.page.getByRole('searchbox', { name: 'Search in chat' }).fill('pelican');
   await expect(a.page.getByTestId('chat-search')).toContainText('1 of 1');
   const target = bubble(a.page, 'secret word is pelican');
   await expect(target).toBeInViewport();
   await expect(target.locator('mark')).toHaveText('pelican');
+  await a.context.close();
+});
+
+test('header search lists results with filters and jumps to one', async ({ browser }) => {
+  const alice = await registerUser({ displayName: 'Alice Finder' });
+  const bob = await registerUser({ displayName: 'Bob Finder' });
+  await makeContacts(alice, bob);
+  const chatId = await directChat(bob, alice);
+  await sendAs(bob, chatId, { type: 'text', text: 'The treasure map is under the oak' });
+  await sendAs(alice, chatId, { type: 'text', text: 'treasure? where?' });
+  for (let i = 1; i <= 60; i++)
+    await sendAs(i % 2 ? bob : alice, chatId, { type: 'text', text: `chatter ${i}` });
+
+  const a = await openAs(browser, alice, `/chats/${chatId}`);
+  await expect(bubble(a.page, 'chatter 60')).toBeVisible();
+  const box = a.page.getByRole('combobox', { name: 'Search messages' });
+  await box.click();
+  await box.fill('treasure');
+  await box.press('Enter');
+  const results = a.page.getByTestId('search-results');
+  await expect(results).toContainText('2 Results');
+  await expect(results.getByTestId('search-result')).toHaveCount(2);
+
+  // Narrow with from: (Bob only) → one result, then jump to it.
+  await box.fill('from:');
+  await a.page.getByTestId('search-suggestions').getByText('Bob Finder').click();
+  await box.fill('treasure');
+  await box.press('Enter');
+  await expect(results).toContainText('1 Result');
+  const hit = results.getByTestId('search-result');
+  await hit.hover();
+  await hit.getByRole('button', { name: 'Jump' }).click();
+  await expect(bubble(a.page, 'The treasure map is under the oak')).toBeInViewport();
   await a.context.close();
 });
 
