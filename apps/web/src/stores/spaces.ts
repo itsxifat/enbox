@@ -418,7 +418,7 @@ export function useSpaceList(): Space[] {
   return useMemo(() => order.map((id) => byId[id]).filter((x): x is Space => !!x), [byId, order]);
 }
 
-/** The loaded channels of a Space (sidebar order: category, text before voice, position). */
+/** The loaded channels of a Space, threads excluded (sidebar order: category, text before voice, position). */
 export function useSpaceChannels(spaceId: ID | null | undefined): ChatSummary[] {
   const byId = useChats((s) => s.byId);
   const space = useSpace(spaceId);
@@ -426,7 +426,7 @@ export function useSpaceChannels(spaceId: ID | null | undefined): ChatSummary[] 
     if (!spaceId) return [];
     const cats = new Map((space?.categories ?? []).map((c) => [c.id, c.position]));
     return Object.values(byId)
-      .filter((c) => c.space?.spaceId === spaceId)
+      .filter((c) => c.space?.spaceId === spaceId && c.type !== 'space_thread')
       .sort((a, b) => {
         const ka = [a.space!.categoryId ? (cats.get(a.space!.categoryId) ?? 0) : -1, a.type === 'space_voice' ? 1 : 0, a.space!.position];
         const kb = [b.space!.categoryId ? (cats.get(b.space!.categoryId) ?? 0) : -1, b.type === 'space_voice' ? 1 : 0, b.space!.position];

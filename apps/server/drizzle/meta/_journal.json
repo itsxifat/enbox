@@ -57,6 +57,13 @@
       "when": 1792700959354,
       "tag": "0007_profiles_dnd",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792706451965,
+      "tag": "0008_social_expressions_threads",
+      "breakpoints": true
     }
   ]
 }

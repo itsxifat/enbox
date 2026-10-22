@@ -169,7 +169,8 @@ export function computeBasePermissions(input: BaseInput): number {
 }
 
 export interface ChannelInput {
-  channelType: 'space_text' | 'space_voice';
+  /** A thread is computed like its parent text channel (pass the parent's overwrites). */
+  channelType: 'space_text' | 'space_voice' | 'space_thread';
   overwrites: readonly OverwriteInput[];
   everyoneRoleId: ID;
   memberRoleIds: readonly ID[];
@@ -210,7 +211,7 @@ export function computeChannelPermissions(base: number, input: ChannelInput): nu
 }
 
 function channelTypeMask(type: ChannelInput['channelType']): number {
-  return type === 'space_text' ? VOICE_PERMISSIONS : TEXT_ONLY_PERMISSIONS;
+  return type === 'space_voice' ? TEXT_ONLY_PERMISSIONS : VOICE_PERMISSIONS;
 }
 
 /** Owner, or ADMINISTRATOR in the base: immune to timeouts and hierarchy limits on bits. */

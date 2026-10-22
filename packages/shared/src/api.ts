@@ -21,6 +21,24 @@
  *   `/members/batch` before `/members/:userId`). The catalogue lists them in that order.
  */
 import type {
+  CreateSpaceEmojiRequest,
+  CreateThreadRequest,
+  FriendRequests,
+  InboxMentionsPage,
+  InboxMentionsQuery,
+  MessageSearchPage,
+  MessageSearchQuery,
+  ReactorsQuery,
+  SendFriendRequest,
+  SendFriendRequestResult,
+  SpaceEmoji,
+  SpaceEmojiGroup,
+  ThreadsPage,
+  ThreadsQuery,
+  UpdateSpaceEmojiRequest,
+  UpdateThreadRequest,
+} from './social.js';
+import type {
   Call,
   CallLogEntry,
   ChannelDirectoryEntry,
@@ -357,6 +375,12 @@ export interface ApiRoutes {
   } /* active groups shared with that user (no channels) */;
 
   // Contacts & blocks
+  // Friends (accepting makes both users each other's contacts)
+  'GET /api/friends/requests': { R: FriendRequests };
+  'POST /api/friends/requests': { B: SendFriendRequest; R: SendFriendRequestResult } /* friends:request → them */;
+  'POST /api/friends/requests/:userId/accept': { R: void } /* friends:changed → both */;
+  'DELETE /api/friends/requests/:userId': { R: void } /* decline incoming or cancel outgoing */;
+  'DELETE /api/friends/:userId': { R: void } /* remove friend: both contact rows */;
   'GET /api/contacts': { R: Contact[] };
   'POST /api/contacts': { B: AddContactRequest; R: Contact };
   'PATCH /api/contacts/:userId': { B: UpdateContactRequest; R: Contact };
@@ -422,11 +446,32 @@ export interface ApiRoutes {
   'DELETE /api/messages/:messageId': { Q: DeleteMessageQuery; R: void };
   'PUT /api/messages/:messageId/reaction': { B: ReactRequest; R: Message };
   'DELETE /api/messages/:messageId/reaction': { R: Message };
+  // Reactions, Discord model (several per user). `:emoji` is URL-encoded: a unicode emoji or
+  // a custom emoji token. The two routes above stay for the Android app (replace semantics).
+  'PUT /api/messages/:messageId/reactions/:emoji/@me': { R: void } /* ADD_REACTIONS to add a new emoji; joining an existing one needs only VIEW */;
+  'DELETE /api/messages/:messageId/reactions/:emoji/@me': { R: void };
+  'DELETE /api/messages/:messageId/reactions/:emoji/:userId': { R: void } /* MANAGE_MESSAGES */;
+  'DELETE /api/messages/:messageId/reactions': { R: void } /* MANAGE_MESSAGES: clear all */;
+  'GET /api/messages/:messageId/reactions/:emoji': { Q: ReactorsQuery; R: UserPublic[] };
   'PUT /api/messages/:messageId/star': { R: void };
   'DELETE /api/messages/:messageId/star': { R: void };
   'GET /api/messages/:messageId/info': { R: MessageInfo } /* sender only; 404 in channels */;
   'PUT /api/messages/:messageId/vote': { B: PollVoteRequest; R: Message };
   'GET /api/search/messages': { Q: SearchMessagesQuery; R: MessageSearchResult[] };
+  'GET /api/spaces/:spaceId/messages/search': {
+    Q: MessageSearchQuery;
+    R: MessageSearchPage;
+  } /* channels I can view and read history of */;
+  'GET /api/chats/:chatId/messages/search': { Q: MessageSearchQuery; R: MessageSearchPage } /* DMs and groups */;
+
+  // Inbox
+  'GET /api/me/mentions': { Q: InboxMentionsQuery; R: InboxMentionsPage };
+
+  // Threads
+  'POST /api/chats/:chatId/threads': { B: CreateThreadRequest; R: ChatSummary } /* a Space text channel; thread:upsert → channel room */;
+  'GET /api/chats/:chatId/threads': { Q: ThreadsQuery; R: ThreadsPage } /* active (or archived) threads of a channel */;
+  'PATCH /api/threads/:threadId': { B: UpdateThreadRequest; R: ChatSummary } /* owner or MANAGE_MESSAGES */;
+  'DELETE /api/threads/:threadId': { R: void } /* MANAGE_MESSAGES / MANAGE_CHANNELS */;
   'GET /api/link-preview': {
     Q: LinkPreviewQuery;
     R: { preview: LinkPreview | null };
@@ -570,6 +615,13 @@ export interface ApiRoutes {
   'DELETE /api/spaces/:spaceId/members/:userId/roles/:roleId': { R: SpaceMember };
   'GET /api/spaces/:spaceId/bans': { R: SpaceBan[] } /* BAN_MEMBERS */;
   'GET /api/spaces/:spaceId/voice-states': { R: VoiceState[] } /* the voice channels I can see */;
+  // Custom emoji (MANAGE_EMOJI to change; any member reads)
+  'GET /api/spaces/:spaceId/emojis': { R: SpaceEmoji[] };
+  'POST /api/spaces/:spaceId/emojis': { B: CreateSpaceEmojiRequest; R: SpaceEmoji } /* space:emojis → Space room */;
+  'PATCH /api/spaces/:spaceId/emojis/:emojiId': { B: UpdateSpaceEmojiRequest; R: SpaceEmoji };
+  'DELETE /api/spaces/:spaceId/emojis/:emojiId': { R: void };
+  'GET /api/me/emojis': { R: SpaceEmojiGroup[] } /* the picker: emoji of all my Spaces */;
+  'GET /api/emojis/:emojiId': { R: void } /* 302 to the image (cacheable): <img src> works anywhere */;
   'POST /api/spaces/:spaceId/voice-states/:userId/disconnect': { R: void } /* MOVE_MEMBERS */;
   'POST /api/spaces/:spaceId/voice-states/:userId/move': {
     B: VoiceMoveRequest;

@@ -42,6 +42,7 @@
  * Mutations go through REST (api.ts); the socket carries fan-out, read receipts, typing,
  * presence and call signaling.
  */
+import type { FriendRequest, ReactionEvent, SpaceEmoji } from './social.js';
 import type { ApiErrorCode } from './api.js';
 import type {
   Call,
@@ -162,6 +163,14 @@ export interface ServerToClientEvents {
    * quotes of it (`replyTo.id === message.id`) as deleted.
    */
   'message:updated': (payload: { message: Message }) => void;
+  /** Reaction deltas (Discord model; the full message is not re-sent). */
+  'message:reaction-add': (payload: ReactionEvent) => void;
+  'message:reaction-remove': (payload: ReactionEvent) => void;
+  /** A moderator cleared one emoji (`emoji`) or every reaction (`emoji: null`). */
+  'message:reactions-cleared': (payload: { chatId: ID; messageId: ID; emoji: string | null }) => void;
+  /** A thread was created or changed (to the parent channel's room and the thread's). */
+  'thread:upsert': (payload: { thread: ChatSummary }) => void;
+  'thread:deleted': (payload: { threadId: ID; parentId: ID }) => void;
   /**
    * Messages disappeared: delete-for-me (user:<id>, my devices) or disappearing-timer purge
    * (room chat:<id>; ids a client doesn't have are ignored). Clients also hide messages
@@ -218,6 +227,10 @@ export interface ServerToClientEvents {
   /** My own profile/settings changed on another device. */
   'me:updated': (payload: { user: UserSelf }) => void;
   'contacts:changed': (payload: Record<string, never>) => void;
+  /** Someone sent me a friend request. */
+  'friends:request': (payload: { request: FriendRequest }) => void;
+  /** Requests or friends changed (accepted, declined, cancelled, removed): refetch. */
+  'friends:changed': (payload: Record<string, never>) => void;
   'blocks:changed': (payload: Record<string, never>) => void;
   /**
    * Sent to the revoked session's own room (session:<id>) right before its sockets are
@@ -249,6 +262,8 @@ export interface ServerToClientEvents {
   'space:member-joined': (payload: { spaceId: ID; member: SpaceMember }) => void;
   'space:member-left': (payload: { spaceId: ID; userId: ID }) => void;
   'space:member-updated': (payload: { spaceId: ID; member: SpaceMember }) => void;
+  /** The Space's custom emoji changed (the whole list, ≤ SPACE_EMOJI_LIMIT). */
+  'space:emojis': (payload: { spaceId: ID; emojis: SpaceEmoji[] }) => void;
 
   /**
    * Voice: someone joined, moved within, changed flags in, or left (`state: null`) a voice

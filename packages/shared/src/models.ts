@@ -16,6 +16,7 @@
  * - Full objects in `chat:upsert`, `community:upsert` and `me:updated` replace the cached copy.
  */
 import type { NameStyle, RoleColorStyle } from './cosmetics.js';
+import type { MessageThreadRef, ThreadInfo } from './social.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -70,6 +71,8 @@ export interface UserSettings {
   callNotifications: boolean;
   /** Include message text in notifications (off → body "New message"). */
   notificationPreviews: boolean;
+  /** Who may send me friend requests: anyone, people who share a Space with me, or no one. */
+  friendRequestsFrom: 'everyone' | 'spaces' | 'nobody';
 }
 
 /**
@@ -304,7 +307,8 @@ export interface MediaAttachment {
  */
 export type ChatType = 'direct' | 'group' | 'channel' | SpaceChannelType;
 
-export type SpaceChannelType = 'space_text' | 'space_voice';
+/** `space_thread`: a thread of a text channel (`ChatSummary.thread`); it takes the parent's permissions. */
+export type SpaceChannelType = 'space_text' | 'space_voice' | 'space_thread';
 
 /** A chat's kind for wording ("group" vs "channel" vs "community" texts). See `chatKindOf()`. */
 export type ChatKind = 'direct' | 'group' | 'channel' | 'announcement' | 'space';
@@ -504,6 +508,8 @@ export interface ChatSummary {
 
   /** Space channels: the channel's viewer-neutral Space data (`chat:updated { space }` replaces it); null otherwise. */
   space: SpaceChannelInfo | null;
+  /** Threads (`space_thread`): parent, starter message, archive state. */
+  thread?: ThreadInfo | null;
   /**
    * Space channels: the viewer's permission bits in this channel (permissions.ts). Clients
    * recompute it from `Space.roles`, `space.overwrites` and `Space.me` after any change.
@@ -681,7 +687,10 @@ export interface StatusReplyPayload {
 }
 
 export interface ReactionSummary {
+  /** A unicode emoji or a custom emoji token (`<:name:id>`, see social.ts). */
   emoji: string;
+  /** The custom emoji's id (null for unicode emoji). */
+  emojiId?: ID | null;
   count: number;
   /** Reacting users. Always [] in channels (anonymous; use count). */
   userIds: ID[];
@@ -734,6 +743,10 @@ export interface Message {
   starred?: boolean;
   /** Viewer's own reaction (null = none). Viewer-specific: REST responses only. */
   myReaction?: string | null;
+  /** Every emoji the viewer reacted with (several per user). Viewer-specific: REST only. */
+  myReactions?: string[];
+  /** A thread was started from this message (Space text channels). */
+  thread?: MessageThreadRef | null;
 }
 
 /**

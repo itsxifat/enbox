@@ -204,6 +204,24 @@ export const blocks = pgTable(
   ],
 );
 
+/** A pending friend request (accepting makes both users each other's contacts). */
+export const friendRequests = pgTable(
+  'friend_requests',
+  {
+    fromId: uuid('from_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    toId: uuid('to_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.fromId, t.toId] }),
+    index('friend_requests_to_idx').on(t.toId, t.createdAt),
+  ],
+);
+
 /** My private note about another user (shown only to me on their profile). */
 export const userNotes = pgTable(
   'user_notes',
@@ -613,6 +631,30 @@ export const spaceBans = pgTable(
   (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
 );
 
+/** Custom emoji of a Space (usable everywhere by its members: perks are free). */
+export const spaceEmojis = pgTable(
+  'space_emojis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    /** CUSTOM_EMOJI_NAME_REGEX; unique per Space, case-insensitively. */
+    name: text('name').notNull(),
+    mediaId: uuid('media_id')
+      .notNull()
+      .references((): AnyPgColumn => media.id, { onDelete: 'cascade' }),
+    animated: boolean('animated').notNull().default(false),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('space_emojis_name_uq').on(t.spaceId, sql`lower(${t.name})`),
+    index('space_emojis_media_idx').on(t.mediaId),
+    check('space_emojis_name_ck', sql`${t.name} ~ '^[A-Za-z0-9_]{2,32}$'`),
+  ],
+);
+
 export const spaceInvites = pgTable(
   'space_invites',
   {
@@ -762,6 +804,18 @@ export const chats = pgTable(
     bitrate: integer('bitrate'),
     /** The channel's overwrites equal its category's. */
     permissionsSynced: boolean('permissions_synced').notNull().default(true),
+    /** Threads (space_thread): the channel they belong to (they take its permissions). */
+    parentId: uuid('parent_id').references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    /** A thread started from a message (one thread per message). */
+    threadStarterId: uuid('thread_starter_id').references((): AnyPgColumn => messages.id, {
+      onDelete: 'set null',
+    }),
+    threadArchivedAt: ts('thread_archived_at'),
+    /** Locked: only MANAGE_MESSAGES members send or unarchive. */
+    threadLocked: boolean('thread_locked').notNull().default(false),
+    /** Archive after this much inactivity (THREAD_AUTO_ARCHIVE_MINUTES). */
+    threadAutoArchiveMinutes: integer('thread_auto_archive_minutes'),
+    threadMessageCount: integer('thread_message_count').notNull().default(0),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),
     lastMessageAt: ts('last_message_at'),
     createdAt: createdAt(),
@@ -788,12 +842,24 @@ export const chats = pgTable(
       .where(sql`${t.spaceId} is not null`),
     check(
       'chats_type_ck',
-      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice')`,
+      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice', 'space_thread')`,
     ),
     check(
       'chats_space_ck',
-      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice'))`,
+      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice', 'space_thread'))`,
     ),
+    check('chats_thread_ck', sql`(${t.parentId} is not null) = (${t.type} = 'space_thread')`),
+    /** A channel's threads, most recent first. */
+    index('chats_parent_idx')
+      .on(t.parentId, t.lastMessageAt)
+      .where(sql`${t.parentId} is not null`),
+    uniqueIndex('chats_thread_starter_uq')
+      .on(t.threadStarterId)
+      .where(sql`${t.threadStarterId} is not null`),
+    /** Auto-archive sweep of open threads. */
+    index('chats_thread_open_idx')
+      .on(t.lastMessageAt)
+      .where(sql`${t.type} = 'space_thread' and ${t.threadArchivedAt} is null`),
     check(
       'chats_space_cols_ck',
       sql`${t.type} in ('space_text', 'space_voice') or (${t.categoryId} is null and ${t.position} is null and ${t.topic} is null and ${t.userLimit} is null)`,
@@ -945,6 +1011,8 @@ export const messages = pgTable(
       .where(
         sql`${t.mentionEveryone} or ${t.mentions} <> '{}'::uuid[] or ${t.mentionRoleIds} <> '{}'::uuid[]`,
       ),
+    /** Inbox: messages that mention a given user (`mentions @> array[me]`). */
+    index('messages_mentions_gin').using('gin', t.mentions),
     index('messages_expires_idx')
       .on(t.expiresAt)
       .where(sql`${t.expiresAt} is not null`),
@@ -985,10 +1053,18 @@ export const messageReactions = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    /** A unicode emoji, or a custom emoji token `<:name:id>` / `<a:name:id>`. */
     emoji: text('emoji').notNull(),
+    /** The custom emoji's id (no FK: a reaction outlives a deleted emoji, as a name). */
+    emojiId: uuid('emoji_id'),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.messageId, t.userId] })],
+  (t) => [
+    /** Several reactions per user (one per emoji). */
+    primaryKey({ columns: [t.messageId, t.userId, t.emoji] }),
+    /** Reactor lists per emoji, oldest first. */
+    index('message_reactions_emoji_idx').on(t.messageId, t.emoji, t.createdAt),
+  ],
 );
 
 export const starredMessages = pgTable(

@@ -361,6 +361,7 @@ export const updateSettingsSchema = z
     groupNotifications: z.boolean(),
     callNotifications: z.boolean(),
     notificationPreviews: z.boolean(),
+    friendRequestsFrom: z.enum(['everyone', 'spaces', 'nobody']),
   })
   .partial();
 

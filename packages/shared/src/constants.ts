@@ -67,6 +67,7 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   groupNotifications: true,
   callNotifications: true,
   notificationPreviews: true,
+  friendRequestsFrom: 'everyone',
 });
 
 // ---------------------------------------------------------------------------

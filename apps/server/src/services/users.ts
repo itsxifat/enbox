@@ -35,6 +35,7 @@ import {
   blocks,
   chatMembers,
   contacts,
+  friendRequests,
   media,
   pushSubscriptions,
   sessions,
@@ -693,6 +694,9 @@ export async function scrubDeletedUser(
   await tx
     .delete(userNotes)
     .where(or(eq(userNotes.ownerId, userId), eq(userNotes.subjectId, userId)));
+  await tx
+    .delete(friendRequests)
+    .where(or(eq(friendRequests.fromId, userId), eq(friendRequests.toId, userId)));
   if (!opts.keepStatuses) await tx.delete(statuses).where(eq(statuses.userId, userId));
   await tx
     .update(users)

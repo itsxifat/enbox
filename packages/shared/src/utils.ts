@@ -116,9 +116,14 @@ export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): 
 // Chat type predicates (use these instead of comparing `type` to string literals)
 // ---------------------------------------------------------------------------
 
-/** A text or voice channel of a Space. */
+/** A text or voice channel of a Space, or a thread of one. */
 export function isSpaceChatType(type: ChatType): type is SpaceChannelType {
-  return type === 'space_text' || type === 'space_voice';
+  return type === 'space_text' || type === 'space_voice' || type === 'space_thread';
+}
+
+/** A thread (a `space_thread` under a text channel). */
+export function isThreadType(type: ChatType): boolean {
+  return type === 'space_thread';
 }
 
 /** Delivered/read ticks and watermarks exist (direct chats and groups only). */

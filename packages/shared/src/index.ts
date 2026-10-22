@@ -7,3 +7,4 @@ export * from './utils.js';
 export * from './imageInfo.js';
 export * from './permissions.js';
 export * from './cosmetics.js';
+export * from './social.js';
