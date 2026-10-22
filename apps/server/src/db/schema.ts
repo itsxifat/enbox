@@ -39,13 +39,18 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type {
+  AutoModAction,
+  AutoModTriggerMetadata,
+  AutoModTriggerType,
   Availability,
-  CallStatus,
   CallParticipantStatus,
+  CallStatus,
   CallType,
   ChannelSettings,
   ChatTheme,
   ChatType,
+  ForumSettings,
+  ForumTag,
   GroupSettings,
   MediaKind,
   MemberRole,
@@ -55,8 +60,12 @@ import type {
   RailEntry,
   RoleColorStyle,
   SharedChatTheme,
+  SpaceEventEntity,
+  SpaceEventStatus,
+  SpaceOnboarding,
   StatusType,
   UserSettings,
+  WelcomeScreen,
 } from '@enbox/shared';
 import type { MessageMetadata } from './types.js';
 
@@ -386,11 +395,22 @@ export const spaces = pgTable(
     verificationLevel: smallint('verification_level').notNull().default(0),
     /** 0 off, 1 members without roles, 2 everyone: scan media for explicit content. */
     explicitFilter: smallint('explicit_filter').notNull().default(0),
+    /** Discovery listing (with `is_discoverable`): DISCOVERY_CATEGORIES id and search tags. */
+    discoveryCategory: text('discovery_category'),
+    discoveryTags: text('discovery_tags').array().notNull().default(sql`'{}'::text[]`),
+    /** Shown to new members on join (null = off). */
+    welcomeScreen: jsonb('welcome_screen').$type<WelcomeScreen>(),
+    /** Onboarding questions that hand out roles (null = off). */
+    onboarding: jsonb('onboarding').$type<SpaceOnboarding>(),
     createdAt: createdAt(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('spaces_vanity_code_uq').on(t.vanityCode),
+    /** Discovery: the biggest discoverable Spaces first. */
+    index('spaces_discovery_idx')
+      .on(t.memberCount)
+      .where(sql`${t.isDiscoverable}`),
     uniqueIndex('spaces_legacy_community_uq').on(t.legacyCommunityId),
     index('spaces_owner_idx').on(t.ownerId),
     index('spaces_icon_idx')
@@ -428,6 +448,8 @@ export const spaceMembers = pgTable(
     suppressRoles: boolean('suppress_roles').notNull().default(false),
     /** Hide channels I muted from my sidebar. */
     hideMutedChannels: boolean('hide_muted_channels').notNull().default(false),
+    /** Finished the Space's onboarding (or there was none when they joined). */
+    onboardedAt: ts('onboarded_at'),
     /** Per-Space profile: each null field falls back to the main profile. */
     avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
       onDelete: 'set null',
@@ -631,6 +653,101 @@ export const spaceBans = pgTable(
   (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
 );
 
+/** A scheduled event of a Space (in a voice channel or somewhere else). */
+export const spaceEvents = pgTable(
+  'space_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    /** Voice events: the voice channel. */
+    channelId: uuid('channel_id').references((): AnyPgColumn => chats.id, { onDelete: 'set null' }),
+    creatorId: uuid('creator_id').references(() => users.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    entityType: text('entity_type').$type<SpaceEventEntity>().notNull(),
+    /** External events: where (a place or a link). */
+    location: text('location'),
+    startAt: ts('start_at').notNull(),
+    endAt: ts('end_at'),
+    status: text('status').$type<SpaceEventStatus>().notNull().default('scheduled'),
+    imageMediaId: uuid('image_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
+    /** Maintained with the interest rows (same transaction). */
+    interestedCount: integer('interested_count').notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('space_events_space_idx').on(t.spaceId, t.startAt),
+    /** The events job: what starts or ends soon. */
+    index('space_events_open_idx')
+      .on(t.startAt)
+      .where(sql`${t.status} in ('scheduled', 'active')`),
+    index('space_events_image_idx')
+      .on(t.imageMediaId)
+      .where(sql`${t.imageMediaId} is not null`),
+    check('space_events_entity_ck', sql`${t.entityType} in ('voice', 'external')`),
+    check(
+      'space_events_status_ck',
+      sql`${t.status} in ('scheduled', 'active', 'completed', 'canceled')`,
+    ),
+  ],
+);
+
+export const spaceEventInterests = pgTable(
+  'space_event_interests',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => spaceEvents.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.userId] }),
+    index('space_event_interests_user_idx').on(t.userId),
+  ],
+);
+
+/** AutoMod rules of a Space (checked on every send in its channels). */
+export const automodRules = pgTable(
+  'automod_rules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    triggerType: text('trigger_type').$type<AutoModTriggerType>().notNull(),
+    triggerMetadata: jsonb('trigger_metadata').$type<AutoModTriggerMetadata>().notNull().default({}),
+    actions: jsonb('actions').$type<AutoModAction[]>().notNull().default([]),
+    enabled: boolean('enabled').notNull().default(true),
+    exemptRoleIds: uuid('exempt_role_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    exemptChannelIds: uuid('exempt_channel_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    creatorId: uuid('creator_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('automod_rules_space_idx').on(t.spaceId),
+    check(
+      'automod_rules_trigger_ck',
+      sql`${t.triggerType} in ('keyword', 'spam_links', 'mention_spam', 'preset')`,
+    ),
+  ],
+);
+
 /** Custom emoji of a Space (usable everywhere by its members: perks are free). */
 export const spaceEmojis = pgTable(
   'space_emojis',
@@ -816,6 +933,11 @@ export const chats = pgTable(
     /** Archive after this much inactivity (THREAD_AUTO_ARCHIVE_MINUTES). */
     threadAutoArchiveMinutes: integer('thread_auto_archive_minutes'),
     threadMessageCount: integer('thread_message_count').notNull().default(0),
+    /** Forum channels: the post tags and the forum's options. */
+    forumTags: jsonb('forum_tags').$type<ForumTag[]>(),
+    forumSettings: jsonb('forum_settings').$type<ForumSettings>(),
+    /** Forum posts (threads of a forum): the forum tag ids they wear. */
+    appliedTags: text('applied_tags').array().notNull().default(sql`'{}'::text[]`),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),
     lastMessageAt: ts('last_message_at'),
     createdAt: createdAt(),
@@ -842,11 +964,11 @@ export const chats = pgTable(
       .where(sql`${t.spaceId} is not null`),
     check(
       'chats_type_ck',
-      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice', 'space_thread')`,
+      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice', 'space_thread', 'space_forum')`,
     ),
     check(
       'chats_space_ck',
-      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice', 'space_thread'))`,
+      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice', 'space_thread', 'space_forum'))`,
     ),
     check('chats_thread_ck', sql`(${t.parentId} is not null) = (${t.type} = 'space_thread')`),
     /** A channel's threads, most recent first. */
@@ -862,11 +984,11 @@ export const chats = pgTable(
       .where(sql`${t.type} = 'space_thread' and ${t.threadArchivedAt} is null`),
     check(
       'chats_space_cols_ck',
-      sql`${t.type} in ('space_text', 'space_voice') or (${t.categoryId} is null and ${t.position} is null and ${t.topic} is null and ${t.userLimit} is null)`,
+      sql`${t.type} in ('space_text', 'space_voice', 'space_forum') or (${t.categoryId} is null and ${t.position} is null and ${t.topic} is null and ${t.userLimit} is null)`,
     ),
     check(
       'chats_space_invite_ck',
-      sql`${t.type} not in ('space_text', 'space_voice') or ${t.inviteCode} is null`,
+      sql`${t.type} not in ('space_text', 'space_voice', 'space_thread', 'space_forum') or ${t.inviteCode} is null`,
     ),
     check('chats_slowmode_ck', sql`${t.slowmodeSeconds} between 0 and 21600`),
     check('chats_direct_key_ck', sql`(${t.type} = 'direct') = (${t.directKey} is not null)`),

@@ -64,6 +64,13 @@
       "when": 1792706451965,
       "tag": "0008_social_expressions_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792711418085,
+      "tag": "0009_community_moderation_forums",
+      "breakpoints": true
     }
   ]
 }

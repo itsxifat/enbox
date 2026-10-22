@@ -21,6 +21,22 @@
  *   `/members/batch` before `/members/:userId`). The catalogue lists them in that order.
  */
 import type {
+  AutoModRule,
+  CreateAutoModRuleRequest,
+  CreateForumPostRequest,
+  CreateSpaceEventRequest,
+  DiscoveryPage,
+  DiscoveryQuery,
+  ForumPostsPage,
+  ForumPostsQuery,
+  OnboardingAnswersRequest,
+  SpaceCommunity,
+  SpaceEvent,
+  UpdateAutoModRuleRequest,
+  UpdateSpaceCommunityRequest,
+  UpdateSpaceEventRequest,
+} from './community.js';
+import type {
   CreateSpaceEmojiRequest,
   CreateThreadRequest,
   FriendRequests,
@@ -622,6 +638,31 @@ export interface ApiRoutes {
   'PATCH /api/spaces/:spaceId/emojis/:emojiId': { B: UpdateSpaceEmojiRequest; R: SpaceEmoji };
   'DELETE /api/spaces/:spaceId/emojis/:emojiId': { R: void };
   'GET /api/me/emojis': { R: SpaceEmojiGroup[] } /* the picker: emoji of all my Spaces */;
+  // Scheduled events (MANAGE_CHANNELS creates; the creator or MANAGE_SPACE edits)
+  'GET /api/spaces/:spaceId/events': { R: SpaceEvent[] } /* scheduled and active, by start */;
+  'POST /api/spaces/:spaceId/events': { B: CreateSpaceEventRequest; R: SpaceEvent } /* space:event → Space room */;
+  'PATCH /api/spaces/:spaceId/events/:eventId': { B: UpdateSpaceEventRequest; R: SpaceEvent };
+  'DELETE /api/spaces/:spaceId/events/:eventId': { R: void };
+  'PUT /api/spaces/:spaceId/events/:eventId/interested': { R: SpaceEvent };
+  'DELETE /api/spaces/:spaceId/events/:eventId/interested': { R: SpaceEvent };
+  'GET /api/spaces/:spaceId/events/:eventId/interested': {
+    Q: { after?: string; limit?: string };
+    R: UserPublic[];
+  };
+  // AutoMod (MANAGE_SPACE)
+  'GET /api/spaces/:spaceId/automod/rules': { R: AutoModRule[] };
+  'POST /api/spaces/:spaceId/automod/rules': { B: CreateAutoModRuleRequest; R: AutoModRule };
+  'PATCH /api/spaces/:spaceId/automod/rules/:ruleId': { B: UpdateAutoModRuleRequest; R: AutoModRule };
+  'DELETE /api/spaces/:spaceId/automod/rules/:ruleId': { R: void };
+  // Community: discovery, welcome screen, onboarding
+  'GET /api/discover/spaces': { Q: DiscoveryQuery; R: DiscoveryPage } /* any signed-in user */;
+  'POST /api/discover/spaces/:spaceId/join': { R: SpaceDetail } /* a discoverable Space, no invite */;
+  'GET /api/spaces/:spaceId/community': { R: SpaceCommunity } /* members read */;
+  'PATCH /api/spaces/:spaceId/community': { B: UpdateSpaceCommunityRequest; R: SpaceCommunity } /* MANAGE_SPACE */;
+  'POST /api/spaces/:spaceId/onboarding/answers': { B: OnboardingAnswersRequest; R: Space } /* roles from my picks; onboardedAt */;
+  // Forums (space_forum: posts are threads)
+  'GET /api/chats/:chatId/posts': { Q: ForumPostsQuery; R: ForumPostsPage };
+  'POST /api/chats/:chatId/posts': { B: CreateForumPostRequest; R: ChatSummary } /* thread + first message; thread:upsert */;
   'GET /api/emojis/:emojiId': {
     Q: { static?: '1' };
     R: void;

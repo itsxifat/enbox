@@ -177,7 +177,7 @@ export function computeBasePermissions(input: BaseInput): number {
 
 export interface ChannelInput {
   /** A thread is computed like its parent text channel (pass the parent's overwrites). */
-  channelType: 'space_text' | 'space_voice' | 'space_thread';
+  channelType: 'space_text' | 'space_voice' | 'space_thread' | 'space_forum';
   overwrites: readonly OverwriteInput[];
   everyoneRoleId: ID;
   memberRoleIds: readonly ID[];

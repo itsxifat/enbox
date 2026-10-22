@@ -180,6 +180,8 @@ export interface ThreadInfo {
   locked: boolean;
   autoArchiveMinutes: number;
   messageCount: number;
+  /** Forum posts: the forum tag ids it wears. */
+  appliedTags?: string[];
 }
 
 /** `Message.thread` of a thread's starter message (the parent channel shows it). */
@@ -211,6 +213,8 @@ export const updateThreadSchema = z
     archived: z.boolean(),
     locked: z.boolean(),
     autoArchiveMinutes,
+    /** Forum posts (the author or MANAGE_MESSAGES; moderated tags need MANAGE_MESSAGES). */
+    appliedTags: z.array(z.string().trim().min(1).max(40)).max(5),
   })
   .partial();
 export const threadsQuerySchema = z.object({

@@ -118,7 +118,9 @@ export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): 
 
 /** A text or voice channel of a Space, or a thread of one. */
 export function isSpaceChatType(type: ChatType): type is SpaceChannelType {
-  return type === 'space_text' || type === 'space_voice' || type === 'space_thread';
+  return (
+    type === 'space_text' || type === 'space_voice' || type === 'space_thread' || type === 'space_forum'
+  );
 }
 
 /** A thread (a `space_thread` under a text channel). */
@@ -576,6 +578,8 @@ export function systemEventText(
 ): string {
   const noun = chatNoun(kind);
   if (event.kind === 'owner_changed') return `The ${noun} owner is now ${nameOf(event.userId)}`;
+  if (event.kind === 'automod_alert')
+    return `AutoMod ${event.action === 'blocked' ? 'blocked a message' : 'flagged a message'} from ${nameOf(event.userId)} (${event.ruleName})`;
   const actor = nameOf(event.actorId);
   switch (event.kind) {
     case 'group_created':
@@ -640,6 +644,8 @@ export function systemEventText(
       return `${actor} pinned a message`;
     case 'member_joined_space':
       return `${actor} joined the Space`;
+    case 'thread_created':
+      return `${actor} started a thread: ${event.name}`;
   }
 }
 

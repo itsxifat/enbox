@@ -43,6 +43,7 @@
  * presence and call signaling.
  */
 import type { FriendRequest, ReactionEvent, SpaceEmoji } from './social.js';
+import type { AutoModRule, SpaceEvent } from './community.js';
 import type { ApiErrorCode } from './api.js';
 import type {
   Call,
@@ -264,6 +265,13 @@ export interface ServerToClientEvents {
   'space:member-updated': (payload: { spaceId: ID; member: SpaceMember }) => void;
   /** The Space's custom emoji changed (the whole list, ≤ SPACE_EMOJI_LIMIT). */
   'space:emojis': (payload: { spaceId: ID; emojis: SpaceEmoji[] }) => void;
+  /** A scheduled event was created or changed (viewer-neutral: `interested` is false). */
+  'space:event': (payload: { spaceId: ID; event: SpaceEvent }) => void;
+  'space:event-deleted': (payload: { spaceId: ID; eventId: ID }) => void;
+  /** An event I am interested in started (in-app reminder). */
+  'space:event-started': (payload: { spaceId: ID; event: SpaceEvent }) => void;
+  /** AutoMod rules changed (to members with MANAGE_SPACE: their own devices refetch). */
+  'automod:rules': (payload: { spaceId: ID; rules: AutoModRule[] }) => void;
 
   /**
    * Voice: someone joined, moved within, changed flags in, or left (`state: null`) a voice

@@ -17,6 +17,7 @@
  */
 import type { NameStyle, RoleColorStyle } from './cosmetics.js';
 import type { MessageThreadRef, ThreadInfo } from './social.js';
+import type { ForumInfo } from './community.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -307,8 +308,12 @@ export interface MediaAttachment {
  */
 export type ChatType = 'direct' | 'group' | 'channel' | SpaceChannelType;
 
-/** `space_thread`: a thread of a text channel (`ChatSummary.thread`); it takes the parent's permissions. */
-export type SpaceChannelType = 'space_text' | 'space_voice' | 'space_thread';
+/**
+ * `space_thread`: a thread of a text channel or a post of a forum (`ChatSummary.thread`); it
+ * takes the parent's permissions. `space_forum`: a forum channel (`SpaceChannelInfo.forum`):
+ * no messages of its own, its posts are threads.
+ */
+export type SpaceChannelType = 'space_text' | 'space_voice' | 'space_thread' | 'space_forum';
 
 /** A chat's kind for wording ("group" vs "channel" vs "community" texts). See `chatKindOf()`. */
 export type ChatKind = 'direct' | 'group' | 'channel' | 'announcement' | 'space';
@@ -625,7 +630,18 @@ export type SystemEvent =
   | { kind: 'removed_from_community'; actorId: ID; communityId: ID; communityName: string }
   | { kind: 'message_pinned'; actorId: ID; messageId: ID }
   /** Space system channel: a member joined the Space. */
-  | { kind: 'member_joined_space'; actorId: ID };
+  | { kind: 'member_joined_space'; actorId: ID }
+  /** A thread was started from a message of this channel. */
+  | { kind: 'thread_created'; actorId: ID; threadId: ID; name: string }
+  /** AutoMod alert channel: a rule blocked or flagged a member's message (`content` is a copy). */
+  | {
+      kind: 'automod_alert';
+      ruleName: string;
+      userId: ID;
+      channelId: ID;
+      content: string;
+      action: 'blocked' | 'flagged';
+    }
 
 export type SystemEventKind = SystemEvent['kind'];
 
@@ -803,6 +819,8 @@ export interface SpaceChannelInfo {
   bitrate: number | null;
   /** The overwrites equal its category's (editing the channel's own overwrites clears this). */
   permissionsSynced: boolean;
+  /** Forum channels: tags and options. */
+  forum?: ForumInfo | null;
   overwrites: PermissionOverwrite[];
 }
 
@@ -873,6 +891,8 @@ export interface SpaceMemberSelf extends SpaceProfile {
   suppressRoles: boolean;
   /** Hide the channels I muted from my sidebar. */
   hideMutedChannels: boolean;
+  /** Finished the Space's onboarding; null = still to do (when the Space has one). */
+  onboardedAt?: ISODate | null;
 }
 
 /**
