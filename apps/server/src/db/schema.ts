@@ -54,6 +54,7 @@ import type {
   ChatType,
   ForumSettings,
   ForumTag,
+  ForwardSource,
   GroupSettings,
   MediaKind,
   MemberRole,
@@ -70,6 +71,7 @@ import type {
   RoleColorStyle,
   OnboardingAnswers,
   ServerGuide,
+  SpaceTagBadge,
   SharedChatTheme,
   SpaceEventEntity,
   SpaceEventStatus,
@@ -127,6 +129,10 @@ export const users = pgTable(
     nameStyle: jsonb('name_style').$type<NameStyle>(),
     /** My Space rail order and folders (`RailEntry[]`), synced across devices. */
     railLayout: jsonb('rail_layout').$type<RailEntry[]>().notNull().default([]),
+    /** The Space whose server tag I wear (cleared when I leave it). */
+    tagSpaceId: uuid('tag_space_id').references((): AnyPgColumn => spaces.id, {
+      onDelete: 'set null',
+    }),
     /** Chosen availability; `effectiveAvailability()` reverts it to 'online' once `availability_until` passes. */
     availability: text('availability').$type<Availability>().notNull().default('online'),
     availabilityUntil: ts('availability_until'),
@@ -161,6 +167,10 @@ export const users = pgTable(
     index('users_presence_note_expires_idx')
       .on(t.presenceNoteExpiresAt)
       .where(sql`${t.presenceNoteExpiresAt} is not null`),
+    /** Wearers of a Space's tag (cleared when they leave it). */
+    index('users_tag_space_idx')
+      .on(t.tagSpaceId)
+      .where(sql`${t.tagSpaceId} is not null`),
     check(
       'users_profile_color_ck',
       sql`${t.profileColor} is null or ${t.profileColor} ~ '^#[0-9a-f]{6}$'`,
@@ -496,6 +506,10 @@ export const spaces = pgTable(
     discoveryTags: text('discovery_tags').array().notNull().default(sql`'{}'::text[]`),
     /** Shown to new members on join (null = off). */
     welcomeScreen: jsonb('welcome_screen').$type<WelcomeScreen>(),
+    /** Server tag members can wear next to their name: 2-4 letters, a badge and its colour. */
+    tag: text('tag'),
+    tagBadge: text('tag_badge').$type<SpaceTagBadge>(),
+    tagColor: text('tag_color'),
     /** Onboarding questions that hand out roles (null = off). */
     onboarding: jsonb('onboarding').$type<SpaceOnboarding>(),
     createdAt: createdAt(),
@@ -519,6 +533,10 @@ export const spaces = pgTable(
       .on(t.memberCount)
       .where(sql`${t.isDiscoverable}`),
     check('spaces_notify_ck', sql`${t.defaultNotifyLevel} in ('all', 'mentions')`),
+    check(
+      'spaces_tag_ck',
+      sql`(${t.tag} is null) = (${t.tagBadge} is null) and (${t.tag} is null) = (${t.tagColor} is null) and (${t.tag} is null or char_length(${t.tag}) between 2 and 4) and (${t.tagColor} is null or ${t.tagColor} ~ '^#[0-9a-f]{6}$')`,
+    ),
   ],
 );
 
@@ -1108,6 +1126,8 @@ export const chats = pgTable(
     forumSettings: jsonb('forum_settings').$type<ForumSettings>(),
     /** Forum posts (threads of a forum): the forum tag ids they wear. */
     appliedTags: text('applied_tags').array().notNull().default(sql`'{}'::text[]`),
+    /** Forum posts: pinned to the top of the forum (one per forum). */
+    threadPinned: boolean('thread_pinned').notNull().default(false),
     lastSeq: bigint('last_seq', { mode: 'number' }).notNull().default(0),
     lastMessageAt: ts('last_message_at'),
     createdAt: createdAt(),
@@ -1153,6 +1173,10 @@ export const chats = pgTable(
     uniqueIndex('chats_thread_starter_uq')
       .on(t.threadStarterId)
       .where(sql`${t.threadStarterId} is not null`),
+    /** One pinned post per forum. */
+    uniqueIndex('chats_thread_pinned_uq')
+      .on(t.parentId)
+      .where(sql`${t.threadPinned}`),
     /** Auto-archive sweep of open threads. */
     index('chats_thread_open_idx')
       .on(t.lastMessageAt)
@@ -1272,6 +1296,28 @@ export const chatMembers = pgTable(
   ],
 );
 
+/** Posts and threads I follow: they show in my sidebar under their channel. */
+export const threadFollows = pgTable(
+  'thread_follows',
+  {
+    threadId: uuid('thread_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The thread's Space (my followed list per Space). */
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.threadId, t.userId] }),
+    index('thread_follows_user_idx').on(t.userId, t.spaceId),
+  ],
+);
+
 export const messages = pgTable(
   'messages',
   {
@@ -1310,6 +1356,11 @@ export const messages = pgTable(
       onDelete: 'set null',
     }),
     forwardCount: integer('forward_count').notNull().default(0),
+    /** A forwarded copy: the original (ids and time; clients resolve names they can see). */
+    forwardedFrom: jsonb('forwarded_from').$type<ForwardSource>(),
+    /** Polls: voting closes then (null = never) and when it did (the result was posted). */
+    pollEndsAt: ts('poll_ends_at'),
+    pollClosedAt: ts('poll_closed_at'),
     /** Derived from the text's mention tokens (active members, ≤ MAX_MENTIONS). */
     mentions: uuid('mentions')
       .array()
@@ -1335,6 +1386,10 @@ export const messages = pgTable(
     index('messages_sender_idx').on(t.senderId),
     /** Mod View: a member's latest messages. */
     index('messages_sender_created_idx').on(t.senderId, t.createdAt),
+    /** The poll closer's sweep: open polls with an end time. */
+    index('messages_poll_open_idx')
+      .on(t.pollEndsAt)
+      .where(sql`${t.pollEndsAt} is not null and ${t.pollClosedAt} is null`),
     /** Unread mention counts of space channels scan only messages that mention someone. */
     index('messages_mentions_idx')
       .on(t.chatId, t.seq)
@@ -1402,11 +1457,13 @@ export const messageReactions = pgTable(
     emoji: text('emoji').notNull(),
     /** The custom emoji's id (no FK: a reaction outlives a deleted emoji, as a name). */
     emojiId: uuid('emoji_id'),
+    /** A super reaction (one of each kind per user and emoji). */
+    burst: boolean('burst').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [
-    /** Several reactions per user (one per emoji). */
-    primaryKey({ columns: [t.messageId, t.userId, t.emoji] }),
+    /** Several reactions per user (one per emoji and kind). */
+    primaryKey({ columns: [t.messageId, t.userId, t.emoji, t.burst] }),
     /** Reactor lists per emoji, oldest first. */
     index('message_reactions_emoji_idx').on(t.messageId, t.emoji, t.createdAt),
   ],

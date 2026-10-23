@@ -10,13 +10,21 @@ describe('User Settings nav', () => {
       ['User Settings', ['My Account', 'Profiles', 'Privacy & Safety', 'Devices']],
       [
         'App Settings',
-        ['Chats', 'Voice & Video', 'Notifications', 'Keybinds', 'Storage & Data', 'Streamer Mode'],
+        [
+          'Chats',
+          'Accessibility',
+          'Voice & Video',
+          'Notifications',
+          'Keybinds',
+          'Storage & Data',
+          'Streamer Mode',
+        ],
       ],
       [null, ['Help', 'Log Out']],
     ]);
     const logout = SETTINGS_NAV[2]!.items[1]!;
     expect(logout).toMatchObject({ action: 'logout', danger: true });
-    expect(SETTINGS_NAV[1]!.items[3]).toMatchObject({ key: 'keybinds', action: 'keybinds' });
+    expect(SETTINGS_NAV[1]!.items[4]).toMatchObject({ key: 'keybinds', action: 'keybinds' });
     expect(SETTINGS_NAV[0]!.items[0]).toMatchObject({ key: 'account', to: '/settings/account' });
   });
 

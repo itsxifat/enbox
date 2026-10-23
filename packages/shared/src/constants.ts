@@ -137,6 +137,11 @@ export const MAX_EMOJI_LENGTH = 16;
 export const POLL_QUESTION_MAX_LENGTH = 300;
 export const POLL_MAX_OPTIONS = 12;
 export const POLL_OPTION_MAX_LENGTH = 100;
+/** Poll durations (Discord's choices: 1 h, 4 h, 8 h, 24 h, 3 days, 1 week, 2 weeks). */
+export const POLL_DURATIONS_HOURS = [1, 4, 8, 24, 72, 168, 336] as const;
+export const DEFAULT_POLL_DURATION_HOURS = 24;
+/** `ForwardRequest.comment`: sent as a normal text message after the copies, in each chat. */
+export const FORWARD_COMMENT_MAX_LENGTH = 2000;
 
 /** Default page size for message history. */
 export const MESSAGES_PAGE_SIZE = 50;
@@ -445,6 +450,8 @@ export const USER_RATE_LIMITS = {
   sendMessage: { limit: 60, windowMs: 10_000 },
   /** Reaction adds, removals and clears (`/api/messages/:messageId/reaction[s]…`), per user. */
   reaction: { limit: 40, windowMs: 10_000 },
+  /** Super reactions added (they animate for everyone in the chat), per user. */
+  superReaction: { limit: 30, windowMs: 60 * 60_000 },
   /** `PATCH /me`, `PUT /me/presence`, `PUT|DELETE /me/presence-note`, per user. */
   profileUpdate: { limit: 20, windowMs: 60_000 },
   /** Users added to groups/communities (counted per added user), per user. */

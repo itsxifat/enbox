@@ -45,6 +45,9 @@ import { router as insights } from './insights/routes.js';
 import { router as guide } from './guide/routes.js';
 import { router as activity } from './activity/routes.js';
 import { router as preview } from './preview/routes.js';
+import { router as polls } from './messages/polls.js';
+import { router as spaceTags } from './spaceTags/routes.js';
+import { router as threadFollow } from './threads/follow.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -78,6 +81,8 @@ export const authedRouters: Router[] = [
   insights,
   guide,
   preview,
+  spaceTags,
+  threadFollow,
   spaces,
   voice,
   inbox,
@@ -96,6 +101,7 @@ export const authedRouters: Router[] = [
   announcements,
   templates,
   activity,
+  polls,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

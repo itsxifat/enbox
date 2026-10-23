@@ -7,6 +7,7 @@ import type { ClientMessage } from '@/stores/messages';
 import { nameOf, useUsers } from '@/stores/users';
 import { AutoModAlertCard } from '@/features/spaces/automod/AutoModAlertCard';
 import { RaidAlertCard } from '@/features/moderation/RaidAlertCard';
+import { PollResultCard } from './polls/PollResultCard';
 
 export function Pill({ children, className }: { children: ReactNode; className?: string }) {
   return (
@@ -71,6 +72,8 @@ export function SystemPill({
   if (m.system.kind === 'automod_alert') return <AutoModAlertCard m={m} event={m.system} />;
   // Raid alerts too (features/moderation).
   if (m.system.kind === 'raid_alert') return <RaidAlertCard m={m} event={m.system} />;
+  // Poll results too (bubbles/polls).
+  if (m.system.kind === 'poll_result') return <PollResultCard m={m} event={m.system} onJump={onJump} />;
   const text = systemEventText(m.system, (id) => nameOf(id), chatKindOf(chat));
   const pinned = m.system.kind === 'message_pinned' ? m.system.messageId : null;
   const timer = m.system.kind === 'disappearing_changed';

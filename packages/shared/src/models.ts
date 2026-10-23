@@ -23,6 +23,7 @@ import type { MessageAuthorOverride, MessageEmbed } from './integrations.js';
 import type { ChatRequestState, DmPolicy } from './safety.js';
 import type { ChannelPref, OnboardingAnswers, ServerGuide } from './guide.js';
 import type { SpaceSecurity } from './moderation.js';
+import type { ForwardSource, PollResultWinner, SpaceTag, UserSpaceTag } from './polish.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -161,6 +162,8 @@ export interface UserPublic {
   profileEffect?: string | null;
   nameplate?: string | null;
   nameStyle?: NameStyle | null;
+  /** The server tag they wear (a Space they're in), or null. */
+  spaceTag?: UserSpaceTag | null;
   /** Visible only if the subject saved the viewer as a contact (and no block exists). */
   phone: string | null;
   /** `null` = the viewer may not see online status (or the account is deleted). */
@@ -604,6 +607,8 @@ export interface ContactCardPayload {
 export interface PollOption {
   id: string;
   text: string;
+  /** An emoji shown before the answer (unicode or a custom token), or null. */
+  emoji?: string | null;
   voteCount: number;
   /** Voters. Always [] in channels (anonymous; use voteCount). */
   voterIds: ID[];
@@ -617,6 +622,10 @@ export interface Poll {
   totalVoters: number;
   /** Viewer's selected option ids. Viewer-specific: REST responses only (see models header). */
   myOptionIds?: string[];
+  /** Voting closes then (null/absent = never: polls made before durations existed). */
+  endsAt?: ISODate | null;
+  /** Ended (by time or End Poll Now): no more votes, the result message was posted. */
+  closedAt?: ISODate | null;
 }
 
 /**
@@ -673,7 +682,19 @@ export type SystemEvent =
    * Safety alerts channel: `joins` members joined within `windowSec` (RAID_JOIN_THRESHOLD in
    * RAID_WINDOW_SEC, moderation.ts). Clients show a card with the security actions.
    */
-  | { kind: 'raid_alert'; joins: number; windowSec: number };
+  | { kind: 'raid_alert'; joins: number; windowSec: number }
+  /**
+   * A poll of this chat ended (time ran out, or End Poll Now). `authorId` = the poll's sender
+   * (null if gone); `winners` = the answers with the most votes (empty: no votes).
+   */
+  | {
+      kind: 'poll_result';
+      pollMessageId: ID;
+      authorId: ID | null;
+      question: string;
+      totalVoters: number;
+      winners: PollResultWinner[];
+    };
 
 export type SystemEventKind = SystemEvent['kind'];
 
@@ -742,8 +763,15 @@ export interface ReactionSummary {
   /** The custom emoji's id (null for unicode emoji). */
   emojiId?: ID | null;
   count: number;
-  /** Reacting users. Always [] in channels (anonymous; use count). */
+  /** Reacting users (normal reactions). Always [] in channels (anonymous; use count). */
   userIds: ID[];
+  /**
+   * Super reactions of this emoji, included in `count` (absent = 0). Clients show a normal
+   * chip for `count - burstCount` and a super chip for `burstCount`.
+   */
+  burstCount?: number;
+  /** Users who super-reacted with it. Always [] in channels. */
+  burstUserIds?: ID[];
 }
 
 /**
@@ -795,6 +823,10 @@ export interface Message {
   myReaction?: string | null;
   /** Every emoji the viewer reacted with (several per user). Viewer-specific: REST only. */
   myReactions?: string[];
+  /** Every emoji the viewer super-reacted with. Viewer-specific: REST only. */
+  myBurstReactions?: string[];
+  /** A forwarded copy: where the original is (absent = not forwarded, or forwarded before this existed). */
+  forwardedFrom?: ForwardSource | null;
   /** Every attachment in order, alt text included; [0] is `media` (absent = just `media`). */
   attachments?: MessageAttachment[];
   /** A sticker message (type `image`, `media` = the sticker's picture). */
@@ -1001,6 +1033,8 @@ export interface Space {
   security?: SpaceSecurity | null;
   /** Invites are paused right now (everyone sees it on invite and join screens). */
   invitesPaused?: boolean;
+  /** The Space's server tag members can wear (null = none). */
+  tag?: SpaceTag | null;
 }
 
 /** A member as listed to other members (viewer-neutral; resolve the user with `POST /users/batch`). */

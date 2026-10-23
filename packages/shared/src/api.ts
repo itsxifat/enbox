@@ -22,6 +22,13 @@
  */
 import type { FriendActivity, SpacePreview, SpacePreviewMessages } from './activity.js';
 import type {
+  AdoptSpaceTagRequest,
+  FollowedThreads,
+  ReactionKindQuery,
+  SpaceTag,
+  SpaceTagRequest,
+} from './polish.js';
+import type {
   ChannelPref,
   ChannelPrefsRequest,
   GuideProgress,
@@ -583,6 +590,10 @@ export interface ApiRoutes {
     B: { answers: OnboardingAnswers };
     R: { roleIds: ID[] };
   } /* change my answers: roles follow */;
+  // Server tags
+  'PUT /api/spaces/:spaceId/tag': { B: SpaceTagRequest; R: SpaceTag } /* MANAGE_SPACE; space:updated */;
+  'DELETE /api/spaces/:spaceId/tag': { R: void } /* MANAGE_SPACE; wearers' tags disappear */;
+  'PUT /api/me/space-tag': { B: AdoptSpaceTagRequest; R: UserPublic } /* user:changed */;
   // Active Now and Space preview
   'GET /api/me/friends/activity': { R: FriendActivity[] };
   'GET /api/spaces/:spaceId/preview': { R: SpacePreview } /* discoverable Spaces, non-members */;
@@ -672,18 +683,32 @@ export interface ApiRoutes {
   'DELETE /api/messages/:messageId/reaction': { R: Message };
   // Reactions, Discord model (several per user). `:emoji` is URL-encoded: a unicode emoji or
   // a custom emoji token. The two routes above stay for the Android app (replace semantics).
+  // `?burst=true`: the super reaction (polish.ts reactionKindQuerySchema).
   'PUT /api/messages/:messageId/reactions/:emoji/@me': {
+    Q: ReactionKindQuery;
     R: void;
   } /* ADD_REACTIONS to add a new emoji; joining an existing one needs only VIEW */;
-  'DELETE /api/messages/:messageId/reactions/:emoji/@me': { R: void };
-  'DELETE /api/messages/:messageId/reactions/:emoji/:userId': { R: void } /* MANAGE_MESSAGES */;
+  'DELETE /api/messages/:messageId/reactions/:emoji/@me': { Q: ReactionKindQuery; R: void };
+  'DELETE /api/messages/:messageId/reactions/:emoji/:userId': {
+    Q: ReactionKindQuery;
+    R: void;
+  } /* MANAGE_MESSAGES */;
   'DELETE /api/messages/:messageId/reactions/:emoji': { R: void } /* moderators: clear one emoji */;
   'DELETE /api/messages/:messageId/reactions': { R: void } /* MANAGE_MESSAGES: clear all */;
-  'GET /api/messages/:messageId/reactions/:emoji': { Q: ReactorsQuery; R: UserPublic[] };
+  'GET /api/messages/:messageId/reactions/:emoji': {
+    Q: ReactorsQuery & ReactionKindQuery;
+    R: UserPublic[];
+  };
   'PUT /api/messages/:messageId/star': { R: void };
   'DELETE /api/messages/:messageId/star': { R: void };
   'GET /api/messages/:messageId/info': { R: MessageInfo } /* sender only; 404 in channels */;
-  'PUT /api/messages/:messageId/vote': { B: PollVoteRequest; R: Message };
+  'PUT /api/messages/:messageId/vote': {
+    B: PollVoteRequest;
+    R: Message;
+  } /* 410 expired once the poll ended */;
+  'POST /api/messages/:messageId/poll/end': {
+    R: Message;
+  } /* End Poll Now: the poll's sender, or MANAGE_MESSAGES in a Space channel; posts the result */;
   'GET /api/search/messages': { Q: SearchMessagesQuery; R: MessageSearchResult[] };
   'GET /api/spaces/:spaceId/messages/search': {
     Q: MessageSearchQuery;
@@ -711,6 +736,9 @@ export interface ApiRoutes {
     R: ChatSummary;
   } /* owner or MANAGE_MESSAGES */;
   'DELETE /api/threads/:threadId': { R: void } /* MANAGE_MESSAGES / MANAGE_CHANNELS */;
+  'PUT /api/threads/:threadId/follow': { R: ChatSummary } /* thread:follow → my devices */;
+  'DELETE /api/threads/:threadId/follow': { R: void } /* thread:follow → my devices */;
+  'GET /api/spaces/:spaceId/followed-threads': { R: FollowedThreads };
   'GET /api/link-preview': {
     Q: LinkPreviewQuery;
     R: { preview: LinkPreview | null };

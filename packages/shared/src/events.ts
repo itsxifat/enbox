@@ -46,6 +46,7 @@ import type { FriendRequest, ReactionEvent, SpaceEmoji } from './social.js';
 import type { AutoModRule, SpaceEvent } from './community.js';
 import type { SpaceSound, SpaceSticker, VoiceSoundEvent } from './expressions.js';
 import type { ChannelPref, ServerGuide } from './guide.js';
+import type { ThreadFollowEvent } from './polish.js';
 import type { SpaceSecurity } from './moderation.js';
 import type { ApiErrorCode } from './api.js';
 import type {
@@ -179,6 +180,8 @@ export interface ServerToClientEvents {
   /** A thread was created or changed (to the parent channel's room and the thread's). */
   'thread:upsert': (payload: { thread: ChatSummary }) => void;
   'thread:deleted': (payload: { threadId: ID; parentId: ID }) => void;
+  /** I followed or unfollowed a post or thread (my devices only). */
+  'thread:follow': (payload: ThreadFollowEvent) => void;
   /**
    * Messages disappeared: delete-for-me (user:<id>, my devices) or disappearing-timer purge
    * (room chat:<id>; ids a client doesn't have are ignored). Clients also hide messages

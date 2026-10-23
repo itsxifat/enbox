@@ -107,7 +107,13 @@ export function removeReaction(chat: ChatSummary, m: ClientMessage, emoji: strin
 }
 
 /** A chip click / quick reaction: remove it when it is mine, else add it. */
-export function toggleReaction(chat: ChatSummary, m: ClientMessage, emoji: string): Promise<void> {
+export function toggleReaction(
+  chat: ChatSummary,
+  m: ClientMessage,
+  emoji: string,
+  /** `burst`: toggle my super reaction of this emoji (superReactions.tsx). */
+  _opts?: { burst?: boolean },
+): Promise<void> {
   return isMyReaction(m, getMyId(), emoji)
     ? removeReaction(chat, m, emoji)
     : addReaction(chat, m, emoji);

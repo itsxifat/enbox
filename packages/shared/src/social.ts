@@ -24,6 +24,8 @@ export interface ReactionEvent {
   emoji: string;
   emojiId: ID | null;
   userId: ID;
+  /** A super reaction (absent = a normal one). */
+  burst?: boolean;
 }
 
 export const reactorsQuerySchema = z.object({
@@ -182,6 +184,10 @@ export interface ThreadInfo {
   messageCount: number;
   /** Forum posts: the forum tag ids it wears. */
   appliedTags?: string[];
+  /** Forum posts: pinned to the top of its forum (one per forum). */
+  pinned?: boolean;
+  /** I follow it (sidebar, notifications). Viewer-specific. */
+  following?: boolean;
 }
 
 /** `Message.thread` of a thread's starter message (the parent channel shows it). */
@@ -215,6 +221,8 @@ export const updateThreadSchema = z
     autoArchiveMinutes,
     /** Forum posts (the author or MANAGE_MESSAGES; moderated tags need MANAGE_MESSAGES). */
     appliedTags: z.array(z.string().trim().min(1).max(40)).max(5),
+    /** Forum posts (MANAGE_THREADS or MANAGE_MESSAGES): pinning one unpins the forum's other. */
+    pinned: z.boolean(),
   })
   .partial();
 export const threadsQuerySchema = z.object({

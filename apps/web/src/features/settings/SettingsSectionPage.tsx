@@ -37,6 +37,7 @@ import { ProfilePage } from './profile/ProfilePage';
 import { PronounsPage } from './profile/PronounsPage';
 import { StreamerModePage } from './StreamerModePage';
 import { VoiceSettingsPage } from './VoiceSettingsPage';
+import { AccessibilityPage } from './accessibility/AccessibilityPage';
 
 interface PageDef {
   title: string;
@@ -84,6 +85,7 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   'chats/theme': { title: 'Chat theme', render: () => <ChatThemePage /> },
   'chats/wallpaper': { title: 'Wallpaper', render: () => <ChatWallpaperPage /> },
   'chats/animations': { title: 'Animations', render: () => <ChatAnimationsPage /> },
+  accessibility: { title: 'Accessibility', render: () => <AccessibilityPage /> },
   notifications: { title: 'Notifications', render: () => <NotificationsPage /> },
   voice: { title: 'Voice and video', render: () => <VoiceSettingsPage /> },
   streamer: { title: 'Streamer Mode', render: () => <StreamerModePage /> },

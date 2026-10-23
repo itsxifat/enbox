@@ -10,7 +10,8 @@ import type {
 /** Poll definition stored on the message; votes live in `poll_votes`. */
 export interface PollDefinition {
   question: string;
-  options: { id: string; text: string }[];
+  /** `emoji`: shown before the answer (unicode or a custom token); absent on older polls. */
+  options: { id: string; text: string; emoji?: string | null }[];
   allowMultiple: boolean;
 }
 

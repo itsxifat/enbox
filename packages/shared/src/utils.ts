@@ -640,6 +640,14 @@ export function systemEventText(
     const minutes = Math.max(1, Math.round(event.windowSec / 60));
     return `Unusual join activity: ${event.joins} members joined in ${minutes} minute${minutes === 1 ? '' : 's'}`;
   }
+  if (event.kind === 'poll_result') {
+    const who = event.authorId ? `${nameOf(event.authorId)}'s` : 'A';
+    const top = event.winners[0];
+    if (!top || event.totalVoters === 0) return `${who} poll ${event.question} has closed. No one voted.`;
+    if (event.winners.length > 1) return `${who} poll ${event.question} has closed. It's a tie.`;
+    const pct = Math.round((top.votes / event.totalVoters) * 100);
+    return `${who} poll ${event.question} has closed. Winning answer: ${top.emoji ? `${top.emoji} ` : ''}${top.text} (${pct}%)`;
+  }
   const actor = nameOf(event.actorId);
   switch (event.kind) {
     case 'group_created':

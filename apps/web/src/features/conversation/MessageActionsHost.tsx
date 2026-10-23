@@ -95,6 +95,8 @@ import {
 } from './bubbles/reactions/reactionActions';
 import { ReactionEmoji } from './bubbles/reactions/ReactionEmoji';
 import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
+import { superReactionMenuItem } from './bubbles/reactions/superReactions';
+import { pollMenuItem } from './bubbles/polls/pollMenu';
 import { recentReactions } from './bubbles/reactions/recent';
 import { useChatMembersStore } from './members';
 import { Popover } from './Popover';
@@ -236,6 +238,8 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
   const [picker, setPicker] = useState<{
     anchor: HTMLElement | { x: number; y: number };
     messageId: string;
+    /** Add Super Reaction: the pick is a super reaction. */
+    burst?: boolean;
   } | null>(null);
   const close = useCallback(() => useConversationUi.getState().openActions(null), []);
   const pickerMessage = useMessages((s) =>
@@ -284,10 +288,18 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
             ],
           }
         : null;
+    const superReaction =
+      action.mode === 'menu'
+        ? superReactionMenuItem(chat, m, () =>
+            setPicker({ anchor: action.anchor, messageId: m.id, burst: true }),
+          )
+        : null;
     items = tidy([
       m.failed ? { label: 'Retry', icon: RotateCw, onSelect: () => retry(chat.id, m) } : null,
       reactions,
-      reactions ? 'separator' : null,
+      superReaction,
+      reactions || superReaction ? 'separator' : null,
+      pollMenuItem(chat, m, me),
       canEdit(chat, m)
         ? { label: 'Edit Message', icon: Pencil, onSelect: () => startEdit(chat, m) }
         : null,
@@ -446,9 +458,11 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
       <ReactionPickerPopover
         chat={chat}
         anchor={picker && pickerMessage ? picker.anchor : null}
+        burst={!!picker?.burst}
         onClose={() => setPicker(null)}
         onPick={(emoji) => {
-          if (pickerMessage) void toggleReaction(chat, pickerMessage, emoji);
+          if (pickerMessage)
+            void toggleReaction(chat, pickerMessage, emoji, picker?.burst ? { burst: true } : undefined);
         }}
       />
     </>

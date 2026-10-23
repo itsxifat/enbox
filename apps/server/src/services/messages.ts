@@ -30,6 +30,7 @@ import {
   type MessagePage,
   type MessagePreview,
   type MessageType,
+  type ForwardSource,
   type Poll,
   type ReactionSummary,
   type MessageAuthorOverride,
@@ -167,6 +168,10 @@ export interface CreateMessageInput {
   /** Mentioned without a token in the text (a reply's author when the reply pings): members only. */
   mentionUserIds?: string[];
   forwardCount?: number;
+  /** A forwarded copy: the original. */
+  forwardedFrom?: ForwardSource | null;
+  /** Polls: voting closes then (null = never). */
+  pollEndsAt?: Date | null;
   /**
    * Users still in the chat room who must not receive `message:new` (e.g. the member who
    * left earlier in this same transaction and is removed from the room after it).
@@ -306,6 +311,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       metadata: input.metadata ?? {},
       replyToId: input.replyToId ?? null,
       forwardCount: input.forwardCount ?? 0,
+      forwardedFrom: input.forwardedFrom ?? null,
+      pollEndsAt: input.pollEndsAt ?? null,
       mentions,
       mentionEveryone: !serverMessage && isSpace && !!input.spaceMentions?.everyone,
       mentionRoleIds: !serverMessage && isSpace ? (input.spaceMentions?.roleIds ?? []) : [],
@@ -434,10 +441,16 @@ export function buildPollDefinition(input: {
   question: string;
   options: string[];
   allowMultiple?: boolean;
+  /** Aligned with `options` (null = none). */
+  emojis?: (string | null)[];
 }): PollDefinition {
   return {
     question: input.question,
-    options: input.options.map((text) => ({ id: randomUUID().slice(0, 8), text })),
+    options: input.options.map((text, i) => ({
+      id: randomUUID().slice(0, 8),
+      text,
+      emoji: input.emojis?.[i] ?? null,
+    })),
     allowMultiple: input.allowMultiple ?? false,
   };
 }
@@ -896,6 +909,7 @@ export async function toMessages(
         options: md.poll.options.map((o) => ({
           id: o.id,
           text: o.text,
+          emoji: o.emoji ?? null,
           voteCount: filterBlocked ? shown(o.id).length : (counts?.get(o.id) ?? 0),
           voterIds: anonymousLists ? [] : filterBlocked ? shown(o.id) : (voters?.get(o.id) ?? []),
         })),
@@ -903,6 +917,8 @@ export async function toMessages(
         totalVoters: filterBlocked
           ? new Set(md.poll.options.flatMap((o) => shown(o.id))).size
           : (totalVoters.get(row.id) ?? 0),
+        endsAt: row.pollEndsAt ? row.pollEndsAt.toISOString() : null,
+        closedAt: row.pollClosedAt ? row.pollClosedAt.toISOString() : null,
       };
       if (viewerId) {
         // Report my votes in option order (deterministic for clients and tests).
@@ -954,6 +970,7 @@ export async function toMessages(
         ? toPreview(replyTarget, chatTypes.get(replyTarget.chatId), mediaRows, now)
         : null,
       forwardCount: row.forwardCount,
+      ...(row.forwardedFrom && !deleted ? { forwardedFrom: row.forwardedFrom } : {}),
       mentions: deleted ? [] : (row.mentions ?? []),
       mentionEveryone: !deleted && row.mentionEveryone,
       mentionRoleIds: deleted ? [] : (row.mentionRoleIds ?? []),

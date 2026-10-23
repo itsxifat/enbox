@@ -254,6 +254,7 @@ describe('User Settings layer (desktop)', () => {
     const app = within(nav).getByRole('group', { name: 'App Settings' });
     expect(names(app)).toEqual([
       'Chats',
+      'Accessibility',
       'Voice & Video',
       'Notifications',
       'Storage & Data',

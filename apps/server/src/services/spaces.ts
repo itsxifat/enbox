@@ -436,6 +436,7 @@ export async function toSpaces(
       unreadMentionCount: mentionCounts.get(s.id) ?? 0,
       guide: s.guide ?? null,
       invitesPaused: !!s.invitesPausedUntil && s.invitesPausedUntil.getTime() > Date.now(),
+      tag: s.tag && s.tagBadge && s.tagColor ? { tag: s.tag, badge: s.tagBadge, color: s.tagColor } : null,
       security:
         hasPerm(base, PERM.MANAGE_SPACE) || hasPerm(base, PERM.MODERATE_MEMBERS)
           ? toSpaceSecurity(s)

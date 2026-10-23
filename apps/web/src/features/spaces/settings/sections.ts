@@ -12,6 +12,7 @@ export type SettingsSectionId =
   | 'emoji'
   | 'stickers'
   | 'soundboard'
+  | 'tag'
   | 'integrations'
   | 'reports'
   | 'template'
@@ -41,6 +42,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'emoji', label: 'Emoji', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   { id: 'stickers', label: 'Stickers', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   { id: 'soundboard', label: 'Soundboard', show: (s) => has(s, PERM.MANAGE_EMOJI) },
+  { id: 'tag', label: 'Server Tag', show: (s) => has(s, PERM.MANAGE_SPACE) },
   { id: 'integrations', label: 'Integrations', show: (s) => has(s, PERM.MANAGE_WEBHOOKS) },
   {
     id: 'reports',

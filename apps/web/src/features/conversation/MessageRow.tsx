@@ -48,7 +48,6 @@ import {
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { StyledName } from '@/components/cosmetics';
 import { ICON_STROKE_BOLD } from '@/components/icons';
-import type { IconType } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { RoleIcon } from '@/features/spaces/RoleIcon';
 import { withSpaceProfile } from '@/features/spaces/serverProfile/merge';
@@ -90,6 +89,11 @@ import {
 } from './bubbles/reactions/reactionActions';
 import { ReactionEmoji } from './bubbles/reactions/ReactionEmoji';
 import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
+import { SuperReactToolButton } from './bubbles/reactions/superReactions';
+import { ToolButton } from './ToolButton';
+import { ForwardSource } from './forward/ForwardSource';
+import { messageRowA11y } from '@/features/a11y/messageRowA11y';
+import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { recentReactions } from './bubbles/reactions/recent';
 import {
   canDeleteMessage,
@@ -192,6 +196,7 @@ export function SenderName({
       {/* Message rows wear the name font only; the role's colours win in a Space. */}
       <StyledName name={name} style={(me ?? other)?.nameStyle} role={author?.role} mode="font" className="truncate" />
       <RoleIcon role={author?.iconRole} size={16} />
+      <ServerTagPill userId={userId} />
     </button>
   );
 }
@@ -474,46 +479,6 @@ function useShiftHeld(active: boolean): boolean {
 const sameList = (a: string[], b: string[]) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
-function ToolButton({
-  icon: Icon,
-  label,
-  onClick,
-  danger,
-  active,
-  ...rest
-}: {
-  icon: IconType;
-  label: string;
-  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
-  danger?: boolean;
-  active?: boolean;
-  'aria-haspopup'?: 'menu' | 'dialog';
-  /** The toolbar's one tab stop (More); arrow keys reach the rest. */
-  tabStop?: boolean;
-}) {
-  const { tabStop, ...props } = rest;
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      tabIndex={tabStop ? 0 : -1}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick(e);
-      }}
-      className={cn(
-        'flex size-8 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
-        danger ? 'text-danger hover:bg-danger/10' : 'text-muted hover:bg-hover hover:text-fg',
-        active && 'bg-hover text-fg',
-      )}
-      {...props}
-    >
-      <Icon size={20} aria-hidden />
-    </button>
-  );
-}
-
 /** ←/→/Home/End move between a toolbar's buttons (one tab stop per message). */
 function onToolbarKeyDown(e: ReactKeyboardEvent<HTMLDivElement>): void {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
@@ -705,6 +670,7 @@ export function RowToolbar({
             }}
           />
         ) : null}
+        {reactable ? <SuperReactToolButton chat={chat} m={m} /> : null}
         {canReply(chat, m) ? (
           <ToolButton icon={Reply} label="Reply" onClick={() => startReply(chat, m)} />
         ) : null}
@@ -882,6 +848,7 @@ export function BubbleHeader({
   return (
     <>
       {m.forwardCount > 0 ? <ForwardedLabel count={m.forwardCount} /> : null}
+      {m.forwardCount > 0 ? <ForwardSource m={m} /> : null}
       {m.replyTo ? (
         <ReplyQuote
           preview={m.replyTo}
@@ -960,6 +927,7 @@ export const MessageRow = memo(function MessageRow({
       data-seq={m.seq}
       data-mine={mine || undefined}
       data-type={m.type}
+      {...messageRowA11y(m)}
     >
       {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
       {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}

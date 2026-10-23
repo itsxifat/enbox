@@ -15,6 +15,7 @@ import { StickersPage } from '@/features/stickers/StickersPage';
 import { ReportsPage } from '@/features/safety/ReportsPage';
 import { TemplatePage } from '@/features/templates/TemplatePage';
 import { GuideSettingsPage } from '@/features/guide/GuideSettingsPage';
+import { ServerTagSettingsPage } from '@/features/spaceTags/ServerTagSettingsPage';
 import { InsightsPage } from '@/features/insights/InsightsPage';
 import { IntegrationsPage } from '@/features/webhooks/IntegrationsPage';
 import { AutoModPage } from './AutoModPage';
@@ -40,6 +41,7 @@ const PAGES: Record<SettingsSectionId, (space: Space) => ReactNode> = {
   template: (s) => <TemplatePage space={s} />,
   insights: (s) => <InsightsPage space={s} />,
   guide: (s) => <GuideSettingsPage space={s} />,
+  tag: (s) => <ServerTagSettingsPage space={s} />,
   members: (s) => <MembersPage space={s} />,
   invites: (s) => <InvitesPage space={s} />,
   bans: (s) => <BansPage space={s} />,

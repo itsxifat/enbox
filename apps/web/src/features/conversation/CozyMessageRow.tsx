@@ -9,6 +9,7 @@ import { memo } from 'react';
 import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
+import { messageRowA11y } from '@/features/a11y/messageRowA11y';
 import { ThreadStarterCard } from '@/features/threads/ThreadStarterCard';
 import { PublishPill } from '@/features/announcements/PublishPill';
 import {
@@ -72,6 +73,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
       data-mine={mine || undefined}
       data-type={m.type}
       data-cozy
+      {...messageRowA11y(m)}
     >
       {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
       {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}

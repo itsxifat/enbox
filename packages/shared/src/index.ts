@@ -17,3 +17,4 @@ export * from './moderation.js';
 export * from './insights.js';
 export * from './guide.js';
 export * from './activity.js';
+export * from './polish.js';

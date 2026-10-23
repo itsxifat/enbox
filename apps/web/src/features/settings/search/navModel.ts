@@ -45,7 +45,7 @@ const LOGOUT: SettingsNavItem = {
 /** Nav order per block; a section missing here lands at the end of its group. */
 const ORDER: Record<SettingsNavGroupId, readonly string[]> = {
   user: ['account', 'profile', 'privacy', 'devices'],
-  app: ['chats', 'voice', 'notifications', KEYBINDS.key, 'storage'],
+  app: ['chats', 'accessibility', 'voice', 'notifications', KEYBINDS.key, 'storage'],
   more: ['help', LOGOUT.key],
 };
 

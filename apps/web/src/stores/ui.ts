@@ -129,7 +129,34 @@ export interface DevicePrefs {
   wallpaperBlur: number;
   /** Developer Mode: "Copy … ID" items in the message, user, channel and Space menus. */
   developerMode: boolean;
+  // Accessibility (features/settings/accessibility; applied on <html> by applyAppearance).
+  /** UI colour saturation, 0..1 (1 = full colour; pictures and video are never changed). */
+  saturation: number;
+  /** Saturation also applies to role and name colours. */
+  saturateRoleColors: boolean;
+  /** Higher contrast: 'system' follows `prefers-contrast: more` (and forced colours). */
+  contrast: ContrastPref;
+  /** Always underline links in messages. */
+  underlineLinks: boolean;
+  /** Role colours: in names, as a dot next to names, or not at all. */
+  roleColors: RoleColorDisplay;
+  /** Stickers: animate always, on hover/focus, or never. */
+  stickerAnimation: StickerAnimation;
+  /** Animated custom emoji play (off: their still frame). */
+  animateEmoji: boolean;
+  /** Super reactions play their burst animation. */
+  superReactionAnimations: boolean;
+  /** A send button beside the message box (also on desktop). */
+  showSendButton: boolean;
+  /** Space between message groups in px (Discord: 0, 4, 8, 16, 24). */
+  messageGroupSpacing: MessageGroupSpacing;
 }
+
+export type ContrastPref = 'system' | 'on' | 'off';
+export type RoleColorDisplay = 'names' | 'dot' | 'hidden';
+export type StickerAnimation = 'always' | 'interaction' | 'never';
+export const MESSAGE_GROUP_SPACINGS = [0, 4, 8, 16, 24] as const;
+export type MessageGroupSpacing = (typeof MESSAGE_GROUP_SPACINGS)[number];
 
 export const DEFAULT_PREFS: DevicePrefs = {
   enterToSend: true,
@@ -163,6 +190,16 @@ export const DEFAULT_PREFS: DevicePrefs = {
   wallpaperDim: 0,
   wallpaperBlur: 0,
   developerMode: false,
+  saturation: 1,
+  saturateRoleColors: false,
+  contrast: 'system',
+  underlineLinks: false,
+  roleColors: 'names',
+  stickerAnimation: 'always',
+  animateEmoji: true,
+  superReactionAnimations: true,
+  showSendButton: false,
+  messageGroupSpacing: 16,
 };
 
 export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {

@@ -14,12 +14,15 @@ export function ReactionPickerPopover({
   anchor,
   onClose,
   onPick,
+  burst: _burst = false,
 }: {
   chat: ChatSummary;
   /** Open while set. */
   anchor: PopoverAnchor | null;
   onClose: () => void;
   onPick: (emoji: string) => void;
+  /** Picking a super reaction (Add Super Reaction). */
+  burst?: boolean;
 }) {
   return (
     <Popover

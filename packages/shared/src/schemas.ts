@@ -37,6 +37,7 @@ import {
   MAX_EMOJI_LENGTH,
   MAX_FORWARD_MESSAGES,
   MAX_FORWARD_TARGETS,
+  FORWARD_COMMENT_MAX_LENGTH,
   MAX_GROUP_MEMBERS,
   MAX_GROUP_NAME_LENGTH,
   MAX_LINK_PREVIEW_URL_LENGTH,
@@ -47,6 +48,7 @@ import {
   MESSAGE_ANIMATIONS,
   MESSAGES_PAGE_SIZE,
   PASSWORD_MIN_LENGTH,
+  POLL_DURATIONS_HOURS,
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
@@ -524,6 +526,14 @@ export const pollInputSchema = z.object({
       'Options must be different',
     ),
   allowMultiple: z.boolean().default(false),
+  /** An emoji per answer, aligned with `options` (null = none; unicode or a custom token). */
+  emojis: z.array(z.string().trim().max(80).nullable()).max(POLL_MAX_OPTIONS).optional(),
+  /** Voting closes after this many hours (POLL_DURATIONS_HOURS; absent = never, old clients). */
+  durationHours: z
+    .number()
+    .int()
+    .refine((h) => (POLL_DURATIONS_HOURS as readonly number[]).includes(h), 'Pick a listed duration')
+    .optional(),
 });
 
 export const MEDIA_MESSAGE_TYPES = ['image', 'video', 'audio', 'voice', 'file'] as const;
@@ -604,6 +614,8 @@ export const forwardSchema = z.object({
   clientId: z.string().min(1).max(48),
   messageIds: uniqueIds(1, MAX_FORWARD_MESSAGES),
   chatIds: uniqueIds(1, MAX_FORWARD_TARGETS),
+  /** Sent after the copies in each chat, as my own text message (clientId `<clientId>:c`). */
+  comment: z.string().trim().min(1).max(FORWARD_COMMENT_MAX_LENGTH).optional(),
 });
 
 export const pollVoteSchema = z.object({

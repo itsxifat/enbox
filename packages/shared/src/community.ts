@@ -96,6 +96,13 @@ export interface ForumSettings {
   defaultReaction: string | null;
   /** Shown above the posts (markdown). */
   guidelines: string | null;
+  /**
+   * A media channel: every post needs a picture or video, posts show as a thumbnail grid and
+   * the sidebar uses the media icon. Optional because forums saved before this lack it.
+   */
+  media?: boolean;
+  /** Media channels: hide the download buttons in the viewer (a courtesy, not protection). */
+  hideDownloads?: boolean;
 }
 
 export const DEFAULT_FORUM_SETTINGS: ForumSettings = Object.freeze({
@@ -104,6 +111,8 @@ export const DEFAULT_FORUM_SETTINGS: ForumSettings = Object.freeze({
   requireTag: false,
   defaultReaction: null,
   guidelines: null,
+  media: false,
+  hideDownloads: false,
 });
 
 export const forumTagSchema = z.object({
@@ -119,6 +128,8 @@ export const forumSettingsSchema = z
     requireTag: z.boolean(),
     defaultReaction: z.string().trim().max(80).nullable(),
     guidelines: z.string().trim().max(FORUM_GUIDELINES_MAX_LENGTH).nullable(),
+    media: z.boolean(),
+    hideDownloads: z.boolean(),
   })
   .partial();
 export const forumTagsSchema = z
@@ -149,6 +160,10 @@ export const createForumPostSchema = z.object({
   /** The post's text (the thread's first message); may be empty with media. */
   text: z.string().max(4000).default(''),
   mediaId: idSchema.optional(),
+  /** More uploads of mine in the first message (10 files in all), like `sendMessageSchema`. */
+  extraMediaIds: z.array(idSchema).max(9).optional(),
+  /** Alt text per file, aligned with [mediaId, ...extraMediaIds] (null = none). */
+  descriptions: z.array(z.string().trim().max(1024).nullable()).max(10).optional(),
   appliedTags: z.array(z.string().trim().min(1).max(40)).max(5).default([]),
   clientId: z.string().min(1).max(48),
 });
