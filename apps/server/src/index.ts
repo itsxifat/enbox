@@ -12,6 +12,7 @@ import { migrateCommunitiesToSpaces } from './services/spacesMigration.js';
 import { createSocketServer } from './realtime/io.js';
 import { startPresenceReplication, stopPresenceReplication } from './realtime/presence.js';
 import { startJobs, stopJobs } from './jobs/index.js';
+import { flushInsightCounters } from './modules/insights/counters.js';
 import './jobs/register.js';
 
 async function main() {
@@ -49,6 +50,8 @@ async function main() {
     stopping = true;
     logger.info({ signal }, 'shutting down');
     stopJobs();
+    // Insights counted since the last flush (up to 15 s) would be lost otherwise.
+    await flushInsightCounters().catch(() => {});
     // Hand over leadership and presence first, so the other processes take over at once.
     await stopLeaderElection();
     stopPresenceReplication();

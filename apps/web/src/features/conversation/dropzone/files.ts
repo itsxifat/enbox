@@ -1,5 +1,6 @@
 /** Shared rules for file uploads in a conversation (drop overlay, composer tray). */
 import {
+  isVoiceChannelType,
   MAX_ATTACHMENTS_PER_MESSAGE,
   PERM,
   chatTitle,
@@ -29,7 +30,7 @@ export function dragHasFiles(e: Pick<DragEvent, 'dataTransfer'>): boolean {
 export function uploadTargetLabel(
   chat: Pick<ChatSummary, 'space' | 'type' | 'name' | 'peer'>,
 ): string {
-  if (chat.space) return `#${chat.name ?? 'channel'}`;
+  if (chat.space) return `${isVoiceChannelType(chat.type) ? '🔊 ' : '#'}${chat.name ?? 'channel'}`;
   if (chat.type === 'direct') return `@${chatTitle(chat)}`;
   return chatTitle(chat);
 }

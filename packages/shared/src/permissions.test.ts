@@ -5,6 +5,7 @@ import {
   DEFAULT_EVERYONE_PERMISSIONS,
   PERM,
   RESERVED_PERMISSIONS,
+  VOICE_PERMISSIONS,
   canActOn,
   canManageRole,
   computeBasePermissions,
@@ -13,9 +14,11 @@ import {
   hasPerm,
   highestRolePosition,
   memberChannelPermissions,
+  type ChannelInput,
   type OverwriteInput,
   type RoleInput,
 } from './permissions.js';
+import { spaceChannelPermissions } from './utils.js';
 
 const EVERYONE = 'e0000000-0000-4000-8000-000000000000';
 const ADMIN = 'a0000000-0000-4000-8000-000000000000';
@@ -34,7 +37,12 @@ const roles: RoleInput[] = [
 function bits(
   memberRoleIds: string[],
   overwrites: OverwriteInput[] = [],
-  opts: { viewerId?: string; voice?: boolean; timedOut?: boolean } = {},
+  opts: {
+    viewerId?: string;
+    voice?: boolean;
+    type?: ChannelInput['channelType'];
+    timedOut?: boolean;
+  } = {},
 ) {
   return memberChannelPermissions(
     {
@@ -44,7 +52,11 @@ function bits(
       roles,
       memberRoleIds,
     },
-    { channelType: opts.voice ? 'space_voice' : 'space_text', overwrites, timedOut: opts.timedOut },
+    {
+      channelType: opts.type ?? (opts.voice ? 'space_voice' : 'space_text'),
+      overwrites,
+      timedOut: opts.timedOut,
+    },
   );
 }
 
@@ -59,10 +71,10 @@ describe('permissions', () => {
     const b = bits([]);
     expect(hasPerm(b, PERM.SEND_MESSAGES)).toBe(true);
     expect(hasPerm(b, PERM.MANAGE_MESSAGES)).toBe(false);
-    // Voice bits are dropped in a text channel, text-only bits in a voice channel.
+    // Voice bits are dropped in a text channel; a voice channel keeps the text bits (its chat).
     expect(hasPerm(b, PERM.CONNECT)).toBe(false);
     const v = bits([], [], { voice: true });
-    expect([hasPerm(v, PERM.CONNECT), hasPerm(v, PERM.SEND_MESSAGES)]).toEqual([true, false]);
+    expect([hasPerm(v, PERM.CONNECT), hasPerm(v, PERM.SEND_MESSAGES)]).toEqual([true, true]);
   });
 
   it('(2) an announcements channel: @everyone cannot send, administrators can', () => {
@@ -167,8 +179,81 @@ describe('permissions', () => {
     expect(hasPerm(channel([deny]), PERM.USE_EXTERNAL_EMOJI)).toBe(false);
     const staffAllow: OverwriteInput = { targetType: 'role', targetId: STAFF, allow: PERM.USE_EXTERNAL_EMOJI, deny: 0 };
     expect(hasPerm(channel([deny, staffAllow], [STAFF]), PERM.USE_EXTERNAL_EMOJI)).toBe(true);
-    // Voice channels drop it with the other text bits.
-    expect(hasPerm(bits([], [], { voice: true }), PERM.USE_EXTERNAL_EMOJI)).toBe(false);
+    // Voice channels keep it with the other text bits (their chat).
+    expect(hasPerm(bits([], [], { voice: true }), PERM.USE_EXTERNAL_EMOJI)).toBe(true);
+  });
+
+  describe('text in voice and Stage channels', () => {
+    const MOD = 'd0000000-0000-4000-8000-000000000000';
+    const modRoles: RoleInput[] = [
+      ...roles,
+      { id: MOD, permissions: PERM.MANAGE_MESSAGES | PERM.MENTION_EVERYONE, position: 4 },
+    ];
+    const withMod = (memberRoleIds: string[], type: ChannelInput['channelType']) =>
+      memberChannelPermissions(
+        { ownerId: OWNER, viewerId: ME, everyoneRoleId: EVERYONE, roles: modRoles, memberRoleIds },
+        { channelType: type, overwrites: [] },
+      );
+    const MEMBER_TEXT = [
+      PERM.SEND_MESSAGES,
+      PERM.EMBED_LINKS,
+      PERM.ATTACH_FILES,
+      PERM.ADD_REACTIONS,
+      PERM.USE_EXTERNAL_EMOJI,
+      PERM.SEND_POLLS,
+    ];
+
+    for (const type of ['space_voice', 'space_stage'] as const) {
+      it(`${type}: members keep their text bits next to the voice ones, and send`, () => {
+        const b = bits([], [], { type });
+        for (const p of MEMBER_TEXT) expect(hasPerm(b, p)).toBe(true);
+        expect([hasPerm(b, PERM.CONNECT), hasPerm(b, PERM.SPEAK)]).toEqual([true, true]);
+        // Not granted to @everyone: no moderation of the chat.
+        expect([hasPerm(b, PERM.MANAGE_MESSAGES), hasPerm(b, PERM.MENTION_EVERYONE)]).toEqual([
+          false,
+          false,
+        ]);
+        expect(spaceChannelPermissions(b, type)).toMatchObject({ canSend: true, canPin: false });
+        // A role's message bits apply in the chat as they do in text channels.
+        const mod = withMod([MOD], type);
+        expect([hasPerm(mod, PERM.MANAGE_MESSAGES), hasPerm(mod, PERM.MENTION_EVERYONE)]).toEqual([
+          true,
+          true,
+        ]);
+        expect(spaceChannelPermissions(mod, type)).toMatchObject({
+          canSend: true,
+          canPin: true,
+          canDeleteForEveryoneAsAdmin: true,
+        });
+      });
+
+      it(`${type}: overwrites, timeouts and ADMINISTRATOR work as in text channels`, () => {
+        const ow: OverwriteInput[] = [
+          { targetType: 'role', targetId: EVERYONE, allow: 0, deny: PERM.SEND_MESSAGES },
+        ];
+        const denied = bits([], ow, { type });
+        expect([hasPerm(denied, PERM.SEND_MESSAGES), hasPerm(denied, PERM.CONNECT)]).toEqual([
+          false,
+          true,
+        ]);
+        expect(spaceChannelPermissions(denied, type).canSend).toBe(false);
+        const out = bits([STAFF], [], { type, timedOut: true });
+        expect(out).toBe(PERM.VIEW_CHANNEL);
+        expect(spaceChannelPermissions(out, type).canSend).toBe(false);
+        // Administrators hold everything there: voice and text bits alike.
+        expect(bits([ADMIN], ow, { type })).toBe(ALL_PERMISSIONS);
+      });
+    }
+
+    it('text channels, threads and forums still drop the voice bits; forums take no messages', () => {
+      for (const type of ['space_text', 'space_thread', 'space_forum'] as const) {
+        const b = bits([], [], { type });
+        expect([hasPerm(b, PERM.CONNECT), hasPerm(b, PERM.SEND_MESSAGES)]).toEqual([false, true]);
+        expect(bits([ADMIN], [], { type })).toBe(ALL_PERMISSIONS & ~VOICE_PERMISSIONS);
+      }
+      const forum = bits([], [], { type: 'space_forum' });
+      expect(spaceChannelPermissions(forum, 'space_forum').canSend).toBe(false);
+    });
   });
 
   it('hierarchy: act only from strictly above; the owner is above everyone and untouchable', () => {

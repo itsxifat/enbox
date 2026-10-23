@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Link2 } from 'lucide-react';
+import { Copy, Link2, PauseCircle } from 'lucide-react';
 import {
   INVITE_MAX_AGE_OPTIONS,
   INVITE_MAX_USES_OPTIONS,
@@ -8,7 +8,12 @@ import {
   type SpaceInvite,
 } from '@enbox/shared';
 import { Button, Field, Modal, Spinner, toast } from '@/components/ui';
-import { copyText, inviteUrl, shownInviteUrl, useHideInvites } from '@/features/groups/shared/share';
+import {
+  copyText,
+  inviteUrl,
+  shownInviteUrl,
+  useHideInvites,
+} from '@/features/groups/shared/share';
 import { createInvite } from '../actions';
 
 const AGE_LABEL: Record<number, string> = {
@@ -22,7 +27,15 @@ const AGE_LABEL: Record<number, string> = {
 };
 
 /** Invite people: a fresh link (7 days, unlimited by default) with expiry and use limits. */
-export function InviteDialog({ space, channelId, onClose }: { space: Space; channelId?: ID; onClose: () => void }) {
+export function InviteDialog({
+  space,
+  channelId,
+  onClose,
+}: {
+  space: Space;
+  channelId?: ID;
+  onClose: () => void;
+}) {
   const [maxAgeSec, setMaxAge] = useState<number>(604800);
   const [maxUses, setMaxUses] = useState<number>(0);
   const [invite, setInvite] = useState<SpaceInvite | null>(null);
@@ -54,18 +67,43 @@ export function InviteDialog({ space, channelId, onClose }: { space: Space; chan
   const url = invite ? inviteUrl(invite.code) : '';
   const expires = invite?.expiresAt ? new Date(invite.expiresAt).toLocaleString() : null;
   return (
-    <Modal open onClose={onClose} title={`Invite friends to ${space.name}`} footer={<Button onClick={onClose}>Done</Button>}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Invite friends to ${space.name}`}
+      footer={<Button onClick={onClose}>Done</Button>}
+    >
       <div className="flex flex-col gap-4">
+        {space.invitesPaused ? (
+          <p
+            role="status"
+            className="flex items-center gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[14px] text-warning-ink"
+          >
+            <PauseCircle size={18} className="shrink-0" aria-hidden />
+            Invites are paused: links won't let anyone join until a moderator resumes them.
+          </p>
+        ) : null}
         <div className="flex items-center gap-2 rounded-xl bg-surface-2 p-2 pl-3">
           <Link2 size={18} className="shrink-0 text-muted" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-[14px] select-all" data-testid="space-invite-url">
-            {busy && !invite ? <Spinner size={16} /> : invite ? shownInviteUrl(invite.code, hideInvites) : ''}
+          <span
+            className="min-w-0 flex-1 truncate text-[14px] select-all"
+            data-testid="space-invite-url"
+          >
+            {busy && !invite ? (
+              <Spinner size={16} />
+            ) : invite ? (
+              shownInviteUrl(invite.code, hideInvites)
+            ) : (
+              ''
+            )}
           </span>
           <Button
             size="sm"
             leftIcon={Copy}
             disabled={!invite}
-            onClick={() => void copyText(url).then((ok) => ok && toast.success('Invite link copied'))}
+            onClick={() =>
+              void copyText(url).then((ok) => ok && toast.success('Invite link copied'))
+            }
           >
             Copy
           </Button>
@@ -76,7 +114,12 @@ export function InviteDialog({ space, channelId, onClose }: { space: Space; chan
         </p>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Expire after" htmlFor="inv-age">
-            <select id="inv-age" value={maxAgeSec} onChange={(e) => setMaxAge(Number(e.target.value))} className="h-11 w-full rounded-xl bg-surface-2 px-3">
+            <select
+              id="inv-age"
+              value={maxAgeSec}
+              onChange={(e) => setMaxAge(Number(e.target.value))}
+              className="h-11 w-full rounded-xl bg-surface-2 px-3"
+            >
               {INVITE_MAX_AGE_OPTIONS.map((s) => (
                 <option key={s} value={s}>
                   {AGE_LABEL[s] ?? `${s}s`}
@@ -85,7 +128,12 @@ export function InviteDialog({ space, channelId, onClose }: { space: Space; chan
             </select>
           </Field>
           <Field label="Max uses" htmlFor="inv-uses">
-            <select id="inv-uses" value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} className="h-11 w-full rounded-xl bg-surface-2 px-3">
+            <select
+              id="inv-uses"
+              value={maxUses}
+              onChange={(e) => setMaxUses(Number(e.target.value))}
+              className="h-11 w-full rounded-xl bg-surface-2 px-3"
+            >
               {INVITE_MAX_USES_OPTIONS.map((n) => (
                 <option key={n} value={n}>
                   {n === 0 ? 'No limit' : `${n} use${n === 1 ? '' : 's'}`}

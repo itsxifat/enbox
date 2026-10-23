@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowLeft, Bell, Hash, Megaphone, Settings, Users } from 'lucide-react';
-import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
+import { PERM, hasPerm, isVoiceChannelType, type ChatSummary, type Space } from '@enbox/shared';
 import { EmptyState, IconButton, PageSpinner, Sheet } from '@/components/ui';
 import { Conversation } from '@/features/conversation/ConversationPane';
 import { PinsButton } from '@/features/conversation/pins/PinsPopout';
@@ -23,7 +23,10 @@ import { MemberList } from './MemberList';
 import { useSpacesUi } from './ui';
 
 /** Stage channels (features/voice): split out, loaded when one is opened. */
-const StageChannelView = lazyNamed(() => import('@/features/voice/StageChannelView'), 'StageChannelView');
+const StageChannelView = lazyNamed(
+  () => import('@/features/voice/StageChannelView'),
+  'StageChannelView',
+);
 
 function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
   const desktop = useIsDesktop();
@@ -34,9 +37,17 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
   const canManage = hasPerm(chat.spacePermissions, PERM.MANAGE_CHANNELS);
   const topic = chat.space?.topic;
   return (
-    <header className="flex min-h-14 shrink-0 items-center gap-2 px-3 pt-[env(safe-area-inset-top)]" data-testid="space-channel-header">
+    <header
+      className="flex min-h-14 shrink-0 items-center gap-2 px-3 pt-[env(safe-area-inset-top)]"
+      data-testid="space-channel-header"
+    >
       {desktop ? null : (
-        <IconButton icon={ArrowLeft} label="Back" variant="ghost" onClick={() => navigate(`/spaces/${space.id}`)} />
+        <IconButton
+          icon={ArrowLeft}
+          label="Back"
+          variant="ghost"
+          onClick={() => navigate(`/spaces/${space.id}`)}
+        />
       )}
       {chat.space?.isNews ? (
         <Megaphone size={22} className="shrink-0 text-muted" aria-hidden />
@@ -62,29 +73,56 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <FollowButton chat={chat} />
         <ThreadsButton chat={chat} />
-        <IconButton icon={Bell} label="Notification settings" variant="ghost" onClick={() => setDialog('notifications')} />
+        <IconButton
+          icon={Bell}
+          label="Notification settings"
+          variant="ghost"
+          onClick={() => setDialog('notifications')}
+        />
         <PinsButton chat={chat} />
         {canManage ? (
-          <IconButton icon={Settings} label="Edit channel" variant="ghost" onClick={() => setDialog('settings')} />
+          <IconButton
+            icon={Settings}
+            label="Edit channel"
+            variant="ghost"
+            onClick={() => setDialog('settings')}
+          />
         ) : null}
         <IconButton
           icon={Users}
-          label={ui.canShowMembers ? (ui.membersOpen ? 'Hide member list' : 'Show member list') : 'Members'}
+          label={
+            ui.canShowMembers
+              ? ui.membersOpen
+                ? 'Hide member list'
+                : 'Show member list'
+              : 'Members'
+          }
           variant="ghost"
           active={ui.membersOpen}
           onClick={() => (ui.canShowMembers ? ui.toggleMembers() : setDialog('members'))}
         />
-        <HeaderSearch scope={{ kind: 'space', spaceId: space.id, channelId: chat.id }} chatId={chat.id} />
+        <HeaderSearch
+          scope={{ kind: 'space', spaceId: space.id, channelId: chat.id }}
+          chatId={chat.id}
+        />
         <InboxButton />
       </div>
       {topicOpen && topic ? (
-        <div role="dialog" aria-label="Channel topic" className="absolute top-14 right-3 left-3 z-20 rounded-xl bg-elevated p-4 text-[14px] text-fg shadow-elevated">
+        <div
+          role="dialog"
+          aria-label="Channel topic"
+          className="absolute top-14 right-3 left-3 z-20 rounded-xl bg-elevated p-4 text-[14px] text-fg shadow-elevated"
+        >
           <p className="mb-1 font-bold">#{chat.name}</p>
           <p className="whitespace-pre-wrap text-muted">{topic}</p>
         </div>
       ) : null}
-      {dialog === 'settings' ? <ChannelDialog spaceId={space.id} chat={chat} onClose={() => setDialog(null)} /> : null}
-      {dialog === 'notifications' ? <NotificationDialog space={space} chat={chat} onClose={() => setDialog(null)} /> : null}
+      {dialog === 'settings' ? (
+        <ChannelDialog spaceId={space.id} chat={chat} onClose={() => setDialog(null)} />
+      ) : null}
+      {dialog === 'notifications' ? (
+        <NotificationDialog space={space} chat={chat} onClose={() => setDialog(null)} />
+      ) : null}
       <Sheet open={dialog === 'members'} onClose={() => setDialog(null)} aria-label="Members">
         <MemberList spaceId={space.id} inSheet />
       </Sheet>
@@ -103,10 +141,14 @@ export function SpaceChannelPane() {
   useEffect(() => {
     if (!chatId || !spaceId) return;
     spaceMemory.setLastChannel(spaceId, chatId);
-    useChats.getState().setOpenChat(chatId);
+    // A voice or Stage channel's chat is the open conversation only while its chat panel shows
+    // (the panel sets it), so opening the call doesn't mark the chat read.
+    const voiceLike = isVoiceChannelType(useChats.getState().byId[chatId]?.type ?? 'space_text');
+    if (!voiceLike) useChats.getState().setOpenChat(chatId);
     focusSpaceChannel(chatId);
     return () => {
-      if (useChats.getState().openChatId === chatId) useChats.getState().setOpenChat(null);
+      if (!voiceLike && useChats.getState().openChatId === chatId)
+        useChats.getState().setOpenChat(null);
       focusSpaceChannel(null);
     };
   }, [chatId, spaceId]);
@@ -116,13 +158,23 @@ export function SpaceChannelPane() {
     // Gone (deleted, no access): back to the Space.
     return <Navigate to={space ? `/spaces/${spaceId}` : '/spaces'} replace />;
   }
-  if (chat.space?.spaceId !== space.id) return <Navigate to={`/spaces/${chat.space?.spaceId ?? ''}/${chat.id}`} replace />;
+  if (chat.space?.spaceId !== space.id)
+    return <Navigate to={`/spaces/${chat.space?.spaceId ?? ''}/${chat.id}`} replace />;
   if (chat.type === 'space_voice') return <VoiceChannelView chat={chat} space={space} />;
   if (chat.type === 'space_stage') return <StageChannelView chat={chat} space={space} />;
-  if (chat.type === 'space_forum') return <ForumChannelView key={chat.id} chat={chat} space={space} />;
+  if (chat.type === 'space_forum')
+    return <ForumChannelView key={chat.id} chat={chat} space={space} />;
   const seq = Number(params.get('m'));
-  const target = Number.isInteger(seq) && seq > 0 ? { seq, messageId: params.get('mid') ?? undefined } : null;
-  return <Conversation key={chat.id} chat={chat} initialTarget={target} header={<ChannelHeader chat={chat} space={space} />} />;
+  const target =
+    Number.isInteger(seq) && seq > 0 ? { seq, messageId: params.get('mid') ?? undefined } : null;
+  return (
+    <Conversation
+      key={chat.id}
+      chat={chat}
+      initialTarget={target}
+      header={<ChannelHeader chat={chat} space={space} />}
+    />
+  );
 }
 
 /** /spaces/:spaceId — the last channel I had open there, else its first text channel. */
@@ -144,11 +196,15 @@ export function SpaceHome() {
     channels.find((c) => c.id === last) ??
     channels
       .filter((c) => c.type === 'space_text')
-      .sort((a, b) => (a.space!.position - b.space!.position))[0];
+      .sort((a, b) => a.space!.position - b.space!.position)[0];
   if (target) return <Navigate to={`/spaces/${spaceId}/${target.id}`} replace />;
   return (
     <div className="flex flex-1 items-center justify-center p-6">
-      <EmptyState icon={Hash} title="No text channels yet" description="Create one from the Space menu." />
+      <EmptyState
+        icon={Hash}
+        title="No text channels yet"
+        description="Create one from the Space menu."
+      />
     </div>
   );
 }

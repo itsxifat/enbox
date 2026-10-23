@@ -228,7 +228,8 @@ describe('message search', () => {
     it('404 for non-members and channels outside the scope; 400 without anything to look for', async () => {
       await t.api(carol).get(searchUrl({ q: 'quokka' })).expect(404);
       await t.api(bob).get(searchUrl({ q: 'x' }, randomUUID())).expect(404);
-      await t.api(bob).get(searchUrl({ q: 'x', channelId: voice })).expect(404);
+      // A voice channel's text chat is searched (spaces/voiceText.test.ts).
+      await t.api(bob).get(searchUrl({ q: 'x', channelId: voice })).expect(200);
       await t.api(bob).get(searchUrl({ q: 'x', channelId: randomUUID() })).expect(404);
       await t.api(bob).get(searchUrl({})).expect(400);
       await t.api(bob).get(searchUrl({ q: '   ', sort: 'oldest' })).expect(400);

@@ -689,7 +689,8 @@ export function SpaceRail() {
   const { spaceId } = useParams<{ spaceId?: string }>();
   const { pathname } = useLocation();
   const inSpaces = pathname === '/spaces' || pathname.startsWith('/spaces/');
-  const inDiscover = pathname === '/discover';
+  // Previewing a Space from Discover keeps Discover selected.
+  const inDiscover = pathname === '/discover' || pathname.startsWith('/preview/');
   const chats = useSortedChats();
   const unreadDms = useMemo(
     () => chats.filter((c) => isChatUnread(c) && !isMuted(c.mutedUntil)).slice(0, 5),

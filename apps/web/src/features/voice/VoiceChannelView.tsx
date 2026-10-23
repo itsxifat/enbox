@@ -1,26 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import {
-  ArrowLeft,
-  Headphones,
-  HeadphoneOff,
-  Mic,
-  MicOff,
-  MonitorUp,
-  UserRound,
-  Volume2,
-  VolumeX,
-} from 'lucide-react';
+import { ArrowLeft, Headphones, HeadphoneOff, Mic, MicOff, MonitorUp, Volume2 } from 'lucide-react';
 import { PhoneOffIcon, VideoIcon, VideoOffIcon } from '@/components/icons';
-import { Track, type Participant } from 'livekit-client';
 import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
-import { Avatar, Button, IconButton, contextMenuAnchor, type MenuAnchor } from '@/components/ui';
-import { openProfile } from '@/features/profile/open';
+import { Avatar, Button, IconButton } from '@/components/ui';
 import { SoundboardButton } from '@/features/soundboard/SoundboardButton';
-import { SoundFlash } from '@/features/soundboard/SoundFlash';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
-import { useAuth } from '@/stores/auth';
 import { useVoice, useVoiceChannelStates } from '@/stores/voice';
 import { useVoiceSelf } from '@/stores/voiceSelf';
 import {
@@ -32,110 +18,13 @@ import {
   toggleScreenShare,
   voiceAvailable,
 } from './engine';
-import { useUserAudio } from './userAudio';
+import { VoiceGrid } from './stream/VoiceGrid';
 import { useVoiceUser } from './useVoiceUser';
 import { VoiceStatusHeader } from './VoiceStatus';
-import { VoiceUserMenu } from './VoiceUserMenu';
+import { VoiceChatButton } from './chat/VoiceChatButton';
 
-function VideoTrack({ participant, source }: { participant: Participant; source: Track.Source }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const track = participant.getTrackPublication(source)?.track;
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !track) return;
-    track.attach(el);
-    return () => {
-      track.detach(el);
-    };
-  }, [track]);
-  if (!track) return null;
-  return (
-    <video
-      ref={ref}
-      autoPlay
-      playsInline
-      muted
-      className={cn('absolute inset-0 size-full bg-black', source === Track.Source.ScreenShare ? 'object-contain' : 'object-cover')}
-    />
-  );
-}
-
-export function Tile({
-  participant,
-  spaceId,
-  source,
-}: {
-  participant: Participant;
-  spaceId: string;
-  source: Track.Source;
-}) {
-  const { name, user } = useVoiceUser(spaceId, participant.identity);
-  const speaking = useVoice((s) => !!s.speaking[participant.identity]);
-  const state = useVoice((s) => s.byUser[participant.identity]);
-  const me = useAuth((s) => s.user?.id);
-  // Muted only for me (my "Mute" in their menu).
-  const mutedForMe = useUserAudio(participant.identity).muted && participant.identity !== me;
-  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
-  const screen = source === Track.Source.ScreenShare;
-  const hasVideo = !!participant.getTrackPublication(source)?.track && !participant.getTrackPublication(source)?.isMuted;
-  const muted = state ? state.selfMute || state.serverMute : !participant.isMicrophoneEnabled;
-  const label = screen
-    ? `${name}'s screen`
-    : [name, muted && 'muted', mutedForMe && 'muted for you'].filter(Boolean).join(', ');
-  return (
-    <>
-      <div
-        className={cn(
-          'relative flex aspect-video min-w-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 ring-2 transition-shadow',
-          speaking && !screen ? 'ring-success' : 'ring-transparent',
-        )}
-        aria-label={label}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setAnchor(contextMenuAnchor(e));
-        }}
-        data-testid="voice-tile"
-        data-animate-avatars
-      >
-        {hasVideo ? (
-          <VideoTrack participant={participant} source={source} />
-        ) : (
-          <Avatar
-            src={user?.avatarUrl}
-            animatedSrc={user?.avatarAnimatedUrl}
-            name={name}
-            colorSeed={participant.identity}
-            size={80}
-            decoration={user?.avatarDecoration}
-            decorative
-          />
-        )}
-        <span className="absolute bottom-2 left-2 flex max-w-[80%] items-center gap-1 rounded-md bg-black/55 px-2 py-0.5 text-[13px] font-medium text-white">
-          {screen ? <MonitorUp size={14} aria-hidden /> : muted ? <MicOff size={14} aria-hidden /> : null}
-          {mutedForMe && !screen ? (
-            <VolumeX size={14} className="text-danger" aria-hidden data-testid="muted-for-me" />
-          ) : null}
-          <span className="truncate">{screen ? `${name}'s screen` : name}</span>
-        </span>
-        {screen ? null : <SoundFlash userId={participant.identity} />}
-      </div>
-      <VoiceUserMenu
-        open={!!anchor}
-        anchor={anchor}
-        onClose={() => setAnchor(null)}
-        userId={participant.identity}
-        items={[
-          {
-            label: 'Profile',
-            icon: UserRound,
-            onSelect: () => openProfile(participant.identity, anchor, { spaceId }),
-          },
-        ]}
-        aria-label={`${name} menu`}
-      />
-    </>
-  );
-}
+// A person's tile lives with the grid (stream/); it stays importable from here.
+export { Tile } from './stream/Tile';
 
 function Lobby({ chat, space }: { chat: ChatSummary; space: Space }) {
   const states = useVoiceChannelStates(chat.id);
@@ -177,28 +66,14 @@ function LobbyAvatar({ spaceId, userId }: { spaceId: string; userId: string }) {
   );
 }
 
+/** The call: the grid of tiles, or focus mode with a strip (stream/VoiceGrid.tsx). */
 function Stage({ space }: { space: Space }) {
-  useVoice((s) => s.roomVersion);
   const audioBlocked = useVoice((s) => s.audioBlocked);
-  const room = getVoiceRoom();
-  if (!room) return <div className="flex-1" />;
-  const people: Participant[] = [room.localParticipant, ...room.remoteParticipants.values()];
-  const tiles: { p: Participant; source: Track.Source; key: string }[] = [];
-  for (const p of people) {
-    if (p.isScreenShareEnabled || p.getTrackPublication(Track.Source.ScreenShare)?.track)
-      tiles.push({ p, source: Track.Source.ScreenShare, key: `${p.identity}:screen` });
-    tiles.push({ p, source: Track.Source.Camera, key: `${p.identity}:camera` });
-  }
-  const cols = tiles.length <= 1 ? 'grid-cols-1' : tiles.length <= 4 ? 'grid-cols-2' : tiles.length <= 9 ? 'grid-cols-3' : 'grid-cols-4';
   return (
-    <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
-      <div className={cn('grid w-full max-w-6xl gap-3', cols)}>
-        {tiles.map((t) => (
-          <Tile key={t.key} participant={t.p} source={t.source} spaceId={space.id} />
-        ))}
-      </div>
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <VoiceGrid space={space} />
       {audioBlocked ? (
-        <Button className="absolute top-4" onClick={() => void resumeVoiceAudio()}>
+        <Button className="absolute top-4 left-1/2 z-10 -translate-x-1/2" onClick={() => void resumeVoiceAudio()}>
           Click to hear voice
         </Button>
       ) : null}
@@ -255,6 +130,7 @@ export function VoiceChannelView({ chat, space }: { chat: ChatSummary; space: Sp
           <VoiceStatusHeader chat={chat} />
         </div>
         {status && status !== 'connected' ? <span className="shrink-0 text-[13px] text-warning">{status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span> : null}
+        <VoiceChatButton chat={chat} />
       </header>
       {here ? (
         <>

@@ -51,4 +51,5 @@ ALTER TABLE "space_stats_daily" ADD CONSTRAINT "space_stats_daily_space_id_space
 CREATE INDEX "space_channel_stats_space_idx" ON "space_channel_stats_daily" USING btree ("space_id","day");--> statement-breakpoint
 CREATE INDEX "space_member_channels_space_idx" ON "space_member_channels" USING btree ("space_id","user_id");--> statement-breakpoint
 ALTER TABLE "spaces" ADD CONSTRAINT "spaces_safety_alerts_channel_id_chats_id_fk" FOREIGN KEY ("safety_alerts_channel_id") REFERENCES "public"."chats"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "messages_sender_created_idx" ON "messages" USING btree ("sender_id","created_at");
+CREATE INDEX "messages_sender_created_idx" ON "messages" USING btree ("sender_id","created_at");--> statement-breakpoint
+CREATE INDEX "space_audit_log_target_idx" ON "space_audit_log" USING btree ("space_id","target_id","created_at") WHERE "space_audit_log"."target_id" is not null;

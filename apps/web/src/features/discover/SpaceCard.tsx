@@ -1,6 +1,7 @@
+import { Link } from 'react-router';
 import { Check } from 'lucide-react';
 import { DISCOVERY_CATEGORIES, type DiscoverableSpace } from '@enbox/shared';
-import { Button } from '@/components/ui';
+import { Button, buttonClasses } from '@/components/ui';
 import { SpaceIcon } from '@/features/spaces/community/SpaceIcon';
 import { mediaUrl } from '@/lib/api';
 
@@ -26,7 +27,7 @@ export function memberCountLabel(n: number): string {
 
 /**
  * A discovery card (Discord's server card): banner or a brand gradient, the icon overlapping
- * it, name, three lines of description, member count and Join / Joined.
+ * it, name, three lines of description, member count, and Preview + Join (or Joined).
  */
 export function SpaceCard({
   space,
@@ -96,9 +97,19 @@ export function SpaceCard({
               Joined
             </Button>
           ) : (
-            <Button size="sm" className="ml-auto" loading={joining} onClick={onJoin} aria-label={`Join ${space.name}`}>
-              Join
-            </Button>
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              {/* Read its public channels first (features/preview). */}
+              <Link
+                to={`/preview/${space.id}`}
+                className={buttonClasses('secondary', 'sm')}
+                aria-label={`Preview ${space.name}`}
+              >
+                Preview
+              </Link>
+              <Button size="sm" loading={joining} onClick={onJoin} aria-label={`Join ${space.name}`}>
+                Join
+              </Button>
+            </span>
           )}
         </div>
       </div>

@@ -11,3 +11,4 @@ import './threads.js';
 import './events.js';
 import './statusExpiry.js';
 import './presenceExpiry.js';
+import './insights.js';

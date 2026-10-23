@@ -33,6 +33,7 @@ import { addSpaceMemberTx } from '../../services/spaces.js';
 import { spaceChannelSummaries } from '../../services/spaceSummaries.js';
 import { postSystemMessage } from '../../services/system.js';
 import { markOnboardedOnJoin } from '../community/service.js';
+import { INVITES_PAUSED_MESSAGE, invitesPaused, invitesPausedNow } from '../moderation/security.js';
 
 export interface SpaceInviteTarget {
   invite: SpaceInviteRow | null;
@@ -97,6 +98,7 @@ export async function spaceInvitePreview(
       .where(and(eq(spaceBans.spaceId, space.id), eq(spaceBans.userId, me)))
       .limit(1);
     if (ban) reason = 'You are banned from this Space';
+    else if (invitesPausedNow(space)) reason = INVITES_PAUSED_MESSAGE;
     else
       reason =
         inviteProblem(invite) ??
@@ -145,6 +147,8 @@ export async function joinSpaceViaInvite(
     .where(and(eq(spaceBans.spaceId, space.id), eq(spaceBans.userId, me)))
     .limit(1);
   if (ban) throw forbidden('You are banned from this Space');
+  // Security actions → Pause Invites: no way in until it ends (403 invites_paused).
+  if (invitesPausedNow(space)) throw invitesPaused();
   const problem = inviteProblem(invite ?? null);
   if (problem) throw expired(problem);
   if (space.memberCount >= MAX_SPACE_MEMBERS) throw limitReached('This Space is full');

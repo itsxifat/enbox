@@ -120,6 +120,14 @@ describe('DiscoverPage', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it('Preview links to the Space preview next to Join (joined Spaces have none)', async () => {
+    mockDiscovery(() => ({ spaces: [card('s1', 'Rocket Club'), card('s2', 'Pixel Painters', { joined: true })], total: 2 }));
+    renderPage();
+    expect(await screen.findByRole('link', { name: 'Preview Rocket Club' })).toHaveAttribute('href', '/preview/s1');
+    expect(screen.getByRole('button', { name: 'Join Rocket Club' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Preview Pixel Painters' })).toBeNull();
+  });
+
   it('pages in more Spaces when the end of the grid comes into view', async () => {
     let seen: ((entries: { isIntersecting: boolean }[]) => void) | null = null;
     vi.stubGlobal(

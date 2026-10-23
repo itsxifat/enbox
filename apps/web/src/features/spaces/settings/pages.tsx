@@ -1,22 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MoreHorizontal } from 'lucide-react';
 import {
   userDisplayName,
   type Space,
   type SpaceAuditEntry,
   type SpaceBan,
   type SpaceInvite,
-  type SpaceMember,
-  type SpaceMemberPage,
 } from '@enbox/shared';
-import { Avatar, Button, EmptyState, IconButton, SearchInput, Spinner, toast, type MenuAnchor } from '@/components/ui';
+import { Avatar, Button, EmptyState, Spinner, toast } from '@/components/ui';
 import { shownInviteUrl, useHideInvites } from '@/features/groups/shared/share';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { api } from '@/lib/api';
-import { useSpaces } from '@/stores/spaces';
 import { useUser, useUsers } from '@/stores/users';
 import { revokeInvite, unbanMember } from '../actions';
-import { MemberActionsMenu } from '../MemberActions';
 
 function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
@@ -46,59 +40,7 @@ function UserCell({ userId, nickname }: { userId: string; nickname?: string | nu
   );
 }
 
-export function MembersPage({ space }: { space: Space }) {
-  const [query, setQuery] = useState('');
-  const q = useDebouncedValue(query.trim(), 250);
-  const [menu, setMenu] = useState<{ member: SpaceMember; anchor: MenuAnchor } | null>(null);
-  const { data, error } = useLoad(
-    () => api.get<SpaceMemberPage>(`/api/spaces/${space.id}/members`, { query: { q: q || undefined, limit: 100 } }),
-    [space.id, q],
-  );
-  const cached = useSpaces((s) => s.members[space.id]);
-  useEffect(() => {
-    if (!data) return;
-    useSpaces.getState().upsertMembers(space.id, data.members);
-    void useUsers
-      .getState()
-      .fetchUsers(data.members.map((m) => m.userId))
-      .catch(() => undefined);
-  }, [data, space.id]);
-  const list = (data?.members ?? []).map((m) => cached?.[m.userId] ?? m);
-  return (
-    <div className="flex flex-col gap-4">
-      <SearchInput value={query} onChange={setQuery} placeholder="Search members" aria-label="Search members" />
-      {error ? <p className="text-danger">{error}</p> : null}
-      {!data ? <Spinner /> : null}
-      <div className="card-inset flex flex-col p-1">
-        {list.map((m) => {
-          return (
-            <div key={m.userId} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-hover">
-              <div className="min-w-0 flex-1">
-                <UserCell userId={m.userId} nickname={m.nickname} />
-              </div>
-              <div className="hidden min-w-0 flex-wrap gap-1 sm:flex">
-                {space.roles
-                  .filter((r) => m.roleIds.includes(r.id))
-                  .sort((a, b) => b.position - a.position)
-                  .map((r) => (
-                    <span key={r.id} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[12px]">
-                      <span className="size-2 rounded-full" style={{ background: r.color ?? 'var(--color-muted)' }} aria-hidden />
-                      {r.name}
-                    </span>
-                  ))}
-              </div>
-              {m.timedOutUntil ? <span className="text-[12px] text-danger">Timed out</span> : null}
-              <IconButton icon={MoreHorizontal} label="Member actions" variant="ghost" onClick={(e) => setMenu({ member: m, anchor: e.currentTarget })} />
-            </div>
-          );
-        })}
-        {data && list.length === 0 ? <p className="p-4 text-muted">No members match.</p> : null}
-      </div>
-      {data?.nextCursor ? <p className="text-[13px] text-muted">Showing the first 100 — search to find others.</p> : null}
-      {menu ? <MemberActionsMenu space={space} member={menu.member} anchor={menu.anchor} onClose={() => setMenu(null)} /> : null}
-    </div>
-  );
-}
+// The Members page lives in features/moderation (MembersPage).
 
 export function InvitesPage({ space }: { space: Space }) {
   const { data, error, setData } = useLoad(() => api.get<SpaceInvite[]>(`/api/spaces/${space.id}/invites`), [space.id]);
@@ -198,6 +140,10 @@ const ACTIONS: Record<string, string> = {
   'member.unban': 'unbanned a member',
   'member.voice_disconnect': 'disconnected a member from voice',
   'member.voice_move': 'moved a member to another voice channel',
+  'member.join': 'joined the Space',
+  'member.leave': 'left the Space',
+  'space.security': 'changed the security actions',
+  'space.guide': 'updated the Server Guide',
   'event.create': 'created an event',
   'event.update': 'updated an event',
   'event.delete': 'deleted an event',
@@ -235,7 +181,8 @@ const ACTIONS: Record<string, string> = {
 
 function AuditRow({ e }: { e: SpaceAuditEntry }) {
   const actor = useUser(e.actorId);
-  const target = useUser(e.targetType === 'member' ? e.targetId : null);
+  // Joins and leaves are their own actor: the name once.
+  const target = useUser(e.targetType === 'member' && e.targetId !== e.actorId ? e.targetId : null);
   return (
     <div className="flex items-start gap-3 rounded-lg px-3 py-2.5">
       <Avatar src={actor?.avatarUrl} name={userDisplayName(actor)} colorSeed={e.actorId ?? 'system'} size={32} decorative />

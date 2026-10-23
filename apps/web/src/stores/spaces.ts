@@ -492,10 +492,15 @@ export interface SpaceBadge {
   muted: boolean;
 }
 
+/** Channels whose messages count for the rail and tab badges: text, voice and Stage chats. */
+function countsForBadges(c: ChatSummary): boolean {
+  return c.type === 'space_text' || isVoiceChannelType(c.type);
+}
+
 /**
- * Badges of Spaces in one pass over the chats: from the loaded text channels when a Space's
- * channel list is loaded (muted channels never count as unread), else the server's aggregate.
- * A muted Space is never unread; its mentions still count.
+ * Badges of Spaces in one pass over the chats: from the loaded text channels and voice / Stage
+ * chats when a Space's channel list is loaded (muted channels never count as unread), else the
+ * server's aggregate. A muted Space is never unread; its mentions still count.
  */
 export function computeSpaceBadges(
   spaces: readonly Space[],
@@ -508,7 +513,7 @@ export function computeSpaceBadges(
   if (live.size)
     for (const c of Object.values(chats)) {
       const acc = c.space ? live.get(c.space.spaceId) : undefined;
-      if (!acc || c.type !== 'space_text') continue;
+      if (!acc || !countsForBadges(c)) continue;
       if (c.lastSeq > c.lastReadSeq && !(c.mutedUntil && Date.parse(c.mutedUntil) > now)) acc.unread = true;
       acc.mentions += c.unreadMentionCount;
     }
@@ -546,7 +551,7 @@ export function useSpacesTabBadge(): { count?: number; dot?: boolean } | undefin
     const loadedUnread = new Set<ID>();
     for (const c of Object.values(chats)) {
       const sid = c.space?.spaceId;
-      if (!sid || !loadedIds[sid] || c.type !== 'space_text') continue;
+      if (!sid || !loadedIds[sid] || !countsForBadges(c)) continue;
       loadedMentions.set(sid, (loadedMentions.get(sid) ?? 0) + c.unreadMentionCount);
       if (c.lastSeq > c.lastReadSeq && !(c.mutedUntil && Date.parse(c.mutedUntil) > Date.now())) loadedUnread.add(sid);
     }

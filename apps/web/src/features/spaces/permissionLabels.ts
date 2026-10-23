@@ -13,7 +13,10 @@ export interface PermissionInfo {
 
 export interface PermissionGroup {
   title: string;
-  /** Shown in channel overwrites for these channel types. */
+  /**
+   * Shown in channel overwrites for these channel types (Stage channels show the voice ones;
+   * voice and Stage channels have a text chat, so they show the text group too).
+   */
   channel: ('space_text' | 'space_voice')[];
   items: PermissionInfo[];
 }
@@ -32,9 +35,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   },
   {
     title: 'Text channels',
-    channel: ['space_text'],
+    channel: ['space_text', 'space_voice'],
     items: [
-      { bit: PERM.SEND_MESSAGES, label: 'Send messages', description: 'Post in text channels.' },
+      { bit: PERM.SEND_MESSAGES, label: 'Send messages', description: 'Post in text channels and in the chat of voice channels.' },
       { bit: PERM.ATTACH_FILES, label: 'Attach files', description: 'Upload photos, videos, voice notes and files.' },
       {
         bit: PERM.EMBED_LINKS,

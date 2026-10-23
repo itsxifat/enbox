@@ -19,6 +19,12 @@
  * server could not reach the media server), one fresh token (`voice:join` again: my role is
  * kept) and a quick reconnect bring it.
  *
+ * Go Live (stream/): the room connects without auto-subscribe. Microphones and cameras are
+ * subscribed as they are published; a stream (screen and tab audio) only while I watch it
+ * (`useStreams().watching`, stream/subscriptions.ts). Viewers tell the room what they watch
+ * over data messages (stream/viewers.ts) for the "N watching" counts. My own stream starts at
+ * the Screen share quality of Settings (stream/quality.ts).
+ *
  * Settings → Voice & Video apply live:
  * - Devices: `switchActiveDevice` for the mic, speaker and camera; tracks made later in the
  *   room use them too (its capture defaults follow the settings).
@@ -41,8 +47,11 @@ import {
   Track,
   type AudioCaptureOptions,
   type LocalAudioTrack,
+  type LocalTrackPublication,
   type Participant,
+  type RemoteParticipant,
   type RemoteTrack,
+  type RemoteTrackPublication,
   type VideoCaptureOptions,
 } from 'livekit-client';
 import {
@@ -73,6 +82,10 @@ import { GATE_CLOSED, stepGate, type GateState } from './input/gate';
 import { useVoiceInputLevel } from './input/level';
 import { createPushToTalk, type PushToTalk } from './input/ptt';
 import { VoiceInputProcessor } from './processor';
+import { screenShareOptions, useStreamQuality } from './stream/quality';
+import { useStreams } from './stream/store';
+import { isStreaming, syncParticipant, syncPublication } from './stream/subscriptions';
+import { STREAM_TOPIC, decodeStreamMessage, encodeStreamMessage } from './stream/viewers';
 import { VOLUME_MAX, applyVoiceGains } from './userAudio';
 
 let room: Room | null = null;
@@ -567,6 +580,58 @@ useVoiceSelf.subscribe((s, prev) => {
   void applyMic().then(syncFlags);
 });
 
+// ---------------------------------------------------------------------------
+// Go Live: watch to subscribe, who watches (stream/)
+// ---------------------------------------------------------------------------
+
+/** Every remote publication of `r` as wanted (after connecting, after a reconnect). */
+function syncSubscriptions(r: Room): void {
+  const { watching } = useStreams.getState();
+  for (const p of r.remoteParticipants.values()) syncParticipant(p, !!watching[p.identity]);
+}
+
+/** Tell the room (or only `to`) which streams I watch. Best effort. */
+function sendWatching(r: Room, to?: string[]): void {
+  const streams = Object.keys(useStreams.getState().watching);
+  void r.localParticipant
+    .publishData(encodeStreamMessage({ type: 'watching', streams }), {
+      reliable: true,
+      topic: STREAM_TOPIC,
+      ...(to ? { destinationIdentities: to } : {}),
+    })
+    .catch(() => undefined);
+}
+
+/** Joining a room where someone streams: ask who watches. */
+function askViewers(r: Room): void {
+  if (![...r.remoteParticipants.values()].some(isStreaming)) return;
+  void r.localParticipant
+    .publishData(encodeStreamMessage({ type: 'sync' }), { reliable: true, topic: STREAM_TOPIC })
+    .catch(() => undefined);
+}
+
+function onStreamData(r: Room, payload: Uint8Array, from: RemoteParticipant | undefined, topic: string | undefined): void {
+  if (topic !== STREAM_TOPIC || !from || r !== room) return;
+  const msg = decodeStreamMessage(payload);
+  if (!msg) return;
+  if (msg.type === 'watching') useStreams.getState().setViewing(from.identity, msg.streams);
+  else if (Object.keys(useStreams.getState().watching).length) sendWatching(r, [from.identity]);
+}
+
+// What I watch drives the room's subscriptions; the others hear of it.
+useStreams.subscribe((s, prev) => {
+  const r = room;
+  if (!r || s.watching === prev.watching) return;
+  for (const id of new Set([...Object.keys(s.watching), ...Object.keys(prev.watching)])) {
+    const on = !!s.watching[id];
+    if (on === !!prev.watching[id]) continue;
+    const p = r.remoteParticipants.get(id);
+    if (p) syncParticipant(p, on);
+  }
+  sendWatching(r);
+  useVoice.getState().bumpRoom();
+});
+
 function wire(r: Room): void {
   const bump = () => useVoice.getState().bumpRoom();
   r.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
@@ -592,17 +657,27 @@ function wire(r: Room): void {
     applyVolumes();
     bump();
   });
-  for (const ev of [
-    RoomEvent.ParticipantDisconnected,
-    RoomEvent.TrackMuted,
-    RoomEvent.TrackUnmuted,
-    RoomEvent.TrackPublished,
-    RoomEvent.TrackUnpublished,
-    RoomEvent.LocalTrackPublished,
-  ] as const)
+  for (const ev of [RoomEvent.TrackMuted, RoomEvent.TrackUnmuted, RoomEvent.LocalTrackPublished] as const)
     r.on(ev, bump);
+  // No auto-subscribe: what appears is asked for, a stream only while I watch it.
+  r.on(RoomEvent.TrackPublished, (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+    syncPublication(pub, !!useStreams.getState().watching[p.identity]);
+    bump();
+  });
+  r.on(RoomEvent.TrackUnpublished, (pub: RemoteTrackPublication, p: RemoteParticipant) => {
+    if (pub.source === Track.Source.ScreenShare) useStreams.getState().streamEnded(p.identity);
+    bump();
+  });
+  r.on(RoomEvent.ParticipantDisconnected, (p?: RemoteParticipant) => {
+    if (p) useStreams.getState().participantLeft(p.identity);
+    bump();
+  });
+  r.on(RoomEvent.DataReceived, (payload: Uint8Array, p?: RemoteParticipant, _kind?: unknown, topic?: string) =>
+    onStreamData(r, payload, p, topic),
+  );
   // Stopping a screen share from the browser's own bar unpublishes it.
-  r.on(RoomEvent.LocalTrackUnpublished, () => {
+  r.on(RoomEvent.LocalTrackUnpublished, (pub?: LocalTrackPublication) => {
+    if (pub?.source === Track.Source.ScreenShare) useStreams.getState().streamEnded(r.localParticipant.identity);
     bump();
     syncFlags();
   });
@@ -616,7 +691,10 @@ function wire(r: Room): void {
     useVoice.setState({ audioBlocked: !r.canPlaybackAudio }),
   );
   r.on(RoomEvent.Reconnecting, () => setStatus('reconnecting'));
-  r.on(RoomEvent.Reconnected, () => setStatus('connected'));
+  r.on(RoomEvent.Reconnected, () => {
+    setStatus('connected');
+    syncSubscriptions(r);
+  });
   r.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
     if (r !== room) return;
     cleanup();
@@ -660,6 +738,7 @@ function cleanup(): void {
   syncPtt();
   if (audioHost) audioHost.replaceChildren();
   grantWait?.resolve(false);
+  useStreams.getState().reset();
   useVoice.getState().bumpRoom();
 }
 
@@ -727,12 +806,17 @@ async function openRoom(res: VoiceJoinResult, channelId: ID, opts: { chime?: boo
   wire(r);
   room = r;
   await r.connect(resolveUrl(res.url), res.token, {
+    // Streams wait for Watch (stream/subscriptions.ts); the rest is asked for below.
+    autoSubscribe: false,
     rtcConfig: { iceServers: ice, iceTransportPolicy: res.relayOnly ? 'relay' : 'all' },
   });
   if (room !== r || useVoice.getState().connection?.channelId !== channelId) {
     await r.disconnect();
     return;
   }
+  // Who was here before me: their publications came with the join.
+  syncSubscriptions(r);
+  askViewers(r);
   if (speaker && webAudioOut) applyOutputDevice(r);
   syncPtt();
   await applyMic();
@@ -852,11 +936,16 @@ export async function toggleCamera(): Promise<void> {
   useVoice.getState().bumpRoom();
 }
 
+/** Go Live at my Screen share quality (stream/quality.ts), or stop. */
 export async function toggleScreenShare(): Promise<void> {
   const r = room;
   if (!r || audienceRefuses()) return;
   try {
-    await r.localParticipant.setScreenShareEnabled(!r.localParticipant.isScreenShareEnabled, { audio: true });
+    if (r.localParticipant.isScreenShareEnabled) await r.localParticipant.setScreenShareEnabled(false);
+    else {
+      const { capture, publish } = screenShareOptions(useStreamQuality.getState().quality);
+      await r.localParticipant.setScreenShareEnabled(true, capture, publish);
+    }
   } catch (e) {
     if (!(e instanceof DOMException && e.name === 'NotAllowedError')) toast.error('Screen sharing didn’t start');
   }

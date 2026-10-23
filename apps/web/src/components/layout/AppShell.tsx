@@ -29,7 +29,7 @@ const KeyboardShortcuts = lazyNamed(
 );
 
 /** Sections that live under Home (Discord's DMs): they get the DM sidebar on desktop. */
-const NOT_HOME = ['/spaces', '/settings', '/join', '/communities', '/discover'];
+const NOT_HOME = ['/spaces', '/settings', '/join', '/communities', '/discover', '/preview'];
 function isHomePath(pathname: string): boolean {
   return !NOT_HOME.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }

@@ -1144,7 +1144,7 @@ export async function messageUpdatedPayloads(
         -- clear/delete-for-me don't exist there. Index range scan, never a member scan.
         select m.id, cm.user_id
         from messages m
-        join chats c on c.id = m.chat_id and c.type in ('space_text', 'space_voice')
+        join chats c on c.id = m.chat_id and c.type in ('space_text', 'space_voice', 'space_stage')
         join chat_members cm on cm.chat_id = m.chat_id and cm.joined_seq > 0 and cm.joined_seq >= m.seq
         where m.id = any(${uuidArray(rows.map((r) => r.id))})`,
   );

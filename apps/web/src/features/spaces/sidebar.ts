@@ -37,8 +37,13 @@ export function groupsOf(space: Pick<Space, 'categories'>, channels: readonly Ch
   return out;
 }
 
+/** Unread (bold, the pill): text channels and the text chat of voice and Stage channels. */
 export function isChannelUnread(c: ChatSummary, now = new Date()): boolean {
-  return c.type === 'space_text' && c.lastSeq > c.lastReadSeq && !isMuted(c.mutedUntil, now);
+  return (
+    (c.type === 'space_text' || isVoiceChannelType(c.type)) &&
+    c.lastSeq > c.lastReadSeq &&
+    !isMuted(c.mutedUntil, now)
+  );
 }
 
 export function isChannelMuted(c: Pick<ChatSummary, 'mutedUntil'>, now = new Date()): boolean {
@@ -53,17 +58,30 @@ export interface SidebarFilter {
   /** The open channel stays visible whatever the filters say. */
   activeId?: ID | null;
   now?: Date;
+  /** `space.me.channelPrefs` (Browse Channels): my choices that differ from the defaults. */
+  prefs?: readonly { channelId: ID; shown: boolean }[];
+  /** "Show All Channels" on this device: my choices and the opt-in defaults are ignored. */
+  showAll?: boolean;
+}
+
+/** Browse Channels: listed by my choice for it, else by default (opt-in channels are not). Pure. */
+export function shownByPrefs(c: Pick<ChatSummary, 'id' | 'space'>, prefs: ReadonlyMap<ID, boolean>): boolean {
+  return prefs.get(c.id) ?? !c.space?.optIn;
 }
 
 /**
- * What the sidebar lists of one group. Collapsed (Discord): only the open channel and unread
- * ones. Hide muted: muted channels go, except the open one and those with unread mentions.
+ * What the sidebar lists of one group. Browse Channels: channels I hid, and opt-in ones I did
+ * not show, go (mentions don't bring them back: they still count in the Space's badge) unless
+ * Show All Channels is on. Collapsed (Discord): only the open channel and unread ones. Hide
+ * muted: muted channels go, except the open one and those with unread mentions.
  */
 export function shownChannels(group: ChannelGroup, f: SidebarFilter): ChatSummary[] {
   const now = f.now ?? new Date();
   const collapsed = group.category ? !!f.collapsed[group.category.id] : false;
+  const prefs = new Map((f.prefs ?? []).map((p) => [p.channelId, p.shown]));
   return group.channels.filter((c) => {
     if (c.id === f.activeId) return true;
+    if (!f.showAll && !shownByPrefs(c, prefs)) return false;
     if (f.hideMuted && isChannelMuted(c, now) && c.unreadMentionCount === 0) return false;
     if (collapsed) return isChannelUnread(c, now) || c.unreadMentionCount > 0;
     return true;
@@ -73,7 +91,8 @@ export function shownChannels(group: ChannelGroup, f: SidebarFilter): ChatSummar
 /**
  * The groups to render, with their visible channels. The uncategorised group shows only with
  * channels; a category shows when it is empty (so it can be filled) or something in it is
- * visible — with Hide Muted Channels, a category whose channels are all muted disappears.
+ * visible — a category whose channels are all muted (with Hide Muted Channels) or all hidden
+ * in Browse Channels disappears. Collapsing never hides the header.
  */
 export function visibleGroups(
   groups: readonly ChannelGroup[],
@@ -86,11 +105,9 @@ export function visibleGroups(
       if (shown.length) out.push({ group, shown });
       continue;
     }
-    const hiddenByMute =
-      f.hideMuted &&
-      group.channels.length > 0 &&
-      shownChannels(group, { ...f, collapsed: {} }).length === 0;
-    if (!hiddenByMute) out.push({ group, shown });
+    const hiddenByFilters =
+      group.channels.length > 0 && shownChannels(group, { ...f, collapsed: {} }).length === 0;
+    if (!hiddenByFilters) out.push({ group, shown });
   }
   return out;
 }

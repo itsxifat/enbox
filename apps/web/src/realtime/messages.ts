@@ -4,6 +4,7 @@
  * idempotent — the sender also gets its own events). Delivered receipts are server-driven.
  */
 import {
+  isVoiceChannelType,
   chatKindOf,
   chatTitle,
   isDnd,
@@ -235,7 +236,9 @@ export function messageNotification(
   ctx: NotificationContext,
 ): AppNotification {
   const where = isSpaceChatType(chat.type)
-    ? [`#${chat.name ?? ''}`, ctx.spaceName].filter(Boolean).join(', ')
+    ? [`${isVoiceChannelType(chat.type) ? '🔊 ' : '#'}${chat.name ?? ''}`, ctx.spaceName]
+        .filter(Boolean)
+        .join(', ')
     : chat.type === 'direct'
       ? null
       : ctx.chatName || chatTitle(chat);

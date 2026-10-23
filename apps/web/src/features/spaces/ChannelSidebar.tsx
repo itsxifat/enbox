@@ -63,6 +63,7 @@ import {
 import { copyText } from '@/features/groups/shared/share';
 import { patchPrefs } from '@/features/chats/chatActions';
 import { joinVoiceChannel, moveVoiceMember } from '@/features/voice/actions';
+import { OpenVoiceChatButton } from '@/features/voice/chat/OpenVoiceChatButton';
 import {
   OccupantDragPreview,
   VoiceChannelOccupants,
@@ -70,6 +71,8 @@ import {
 } from '@/features/voice/VoiceChannelOccupants';
 import { SidebarThreads } from '@/features/threads/SidebarThreads';
 import { SidebarEvents } from '@/features/events/SidebarEvents';
+import { SidebarGuideLinks } from '@/features/guide/SidebarGuideLinks';
+import { useShowAllChannels } from '@/features/guide/showAll';
 import { markChatRead } from '@/realtime';
 import { useChats } from '@/stores/chats';
 import { useSpace, useSpaceChannels, useSpaces } from '@/stores/spaces';
@@ -222,6 +225,7 @@ function ChannelRow({
         {chat.unreadMentionCount > 0 ? (
           <Badge count={chat.unreadMentionCount} size="sm" tone="danger" />
         ) : null}
+        {voice ? <OpenVoiceChatButton chat={chat} active={active} /> : null}
         {canInvite ? (
           <button
             type="button"
@@ -412,9 +416,12 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
   const spaceMenu = useSpaceMenu(space);
   const groups = useMemo(() => (space ? groupsOf(space, channels) : []), [space, channels]);
   const hideMuted = !!space?.me.hideMutedChannels;
+  // Browse Channels: my choices (opt-in channels hidden until shown), or everything.
+  const prefs = space?.me.channelPrefs;
+  const showAll = useShowAllChannels(spaceId);
   const shown = useMemo(
-    () => visibleGroups(groups, { collapsed, hideMuted, activeId: chatId }),
-    [groups, collapsed, hideMuted, chatId],
+    () => visibleGroups(groups, { collapsed, hideMuted, activeId: chatId, prefs, showAll }),
+    [groups, collapsed, hideMuted, chatId, prefs, showAll],
   );
   const sensors = useDragSensors(12);
   const [dragging, setDragging] = useState<DragData | null>(null);
@@ -713,6 +720,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
           <img src={space.bannerUrl} alt="" className="size-full object-cover" />
         </div>
       ) : null}
+      <SidebarGuideLinks space={space} />
       <SidebarEvents space={space} />
       <nav
         className="min-h-0 flex-1 overflow-y-auto pb-4"

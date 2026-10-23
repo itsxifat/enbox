@@ -467,12 +467,15 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
         // Stages: the topic is what the Stage is about (its header).
         topic: body.type === 'space_text' || stage ? (body.topic ?? null) : null,
         nsfw: body.nsfw ?? false,
-        // Forums: one post per interval (their posts' replies are not slowed).
-        slowmodeSeconds: body.type !== 'space_voice' && !stage ? (body.slowmodeSeconds ?? 0) : 0,
+        // Forums: one post per interval (their posts' replies are not slowed). Voice and Stage
+        // channels: their text chat.
+        slowmodeSeconds: body.slowmodeSeconds ?? 0,
         userLimit: body.type === 'space_voice' || stage ? (body.userLimit ?? null) : null,
         bitrate: body.type === 'space_voice' || stage ? (body.bitrate ?? null) : null,
         ...forum,
         isNews: body.type === 'space_text' && !!body.isNews,
+        // Browse Channels: hidden from members' sidebars until they show it.
+        optIn: !!body.optIn,
         permissionsSynced: synced,
         createdBy: me,
       })
@@ -572,10 +575,8 @@ router.patch('/spaces/:spaceId/channels/:chatId', async (req, res) => {
     if (body.topic !== undefined)
       patch.topic = chat.type === 'space_text' || stage ? body.topic : null;
     if (body.nsfw !== undefined) patch.nsfw = body.nsfw;
-    if (
-      body.slowmodeSeconds !== undefined &&
-      (chat.type === 'space_text' || chat.type === 'space_forum')
-    )
+    // Text channels, forums (posts) and the text chat of voice and Stage channels.
+    if (body.slowmodeSeconds !== undefined && chat.type !== 'space_thread')
       patch.slowmodeSeconds = body.slowmodeSeconds;
     if (body.userLimit !== undefined && (chat.type === 'space_voice' || stage))
       patch.userLimit = body.userLimit;
@@ -586,6 +587,11 @@ router.patch('/spaces/:spaceId/channels/:chatId', async (req, res) => {
       if (chat.type !== 'space_text')
         throw badRequest('isNews: only text channels can be announcement channels');
       patch.isNews = body.isNews;
+    }
+    // Browse Channels: opt-in channels stay out of sidebars until shown (threads follow theirs).
+    if (body.optIn !== undefined && body.optIn !== chat.optIn) {
+      if (chat.type === 'space_thread') throw badRequest('optIn: threads follow their channel');
+      patch.optIn = body.optIn;
     }
     // Forums: tags (the whole list) and options (merged).
     const forum = forumPatch(chat, body);
@@ -807,6 +813,7 @@ router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
         // Forums: the same tags and options (not the posts).
         ...clonedForumColumns(source),
         isNews: source.isNews,
+        optIn: source.optIn,
         permissionsSynced: source.permissionsSynced,
         createdBy: me,
       })

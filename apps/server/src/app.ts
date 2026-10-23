@@ -12,6 +12,7 @@ import { logger } from './lib/logger.js';
 import { requestLogSerializers } from './lib/redact.js';
 import { apiLimiter } from './lib/rateLimit.js';
 import { authedRouters, publicRouters } from './modules/index.js';
+import { inviteUnfurl } from './modules/preview/unfurl.js';
 
 /** Extensions browsers may render inline from /uploads; everything else is forced to download. */
 const INLINE_EXT = new Set([
@@ -97,6 +98,8 @@ export function createApp() {
   const indexHtml = path.join(config.webDistDir, 'index.html');
   if (fs.existsSync(indexHtml)) {
     app.use(express.static(config.webDistDir, { index: false, maxAge: '1h' }));
+    // Invite links unfurl where they are shared: Open Graph tags of the Space (preview module).
+    app.get('/join/:code', inviteUnfurl(config.webDistDir));
     // `root` keeps the dotfile check to the relative path, so a dist dir that lives under a
     // dot-directory (e.g. `.cache/…`) still serves.
     app.get(/^\/(?!api\/|uploads\/|socket\.io\/).*/, (_req, res) =>

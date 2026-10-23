@@ -7,7 +7,15 @@
  */
 import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, CheckCheck, Hash, MessagesSquare, PartyPopper } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  Hash,
+  MessagesSquare,
+  PartyPopper,
+  Podcast,
+  Volume2,
+} from 'lucide-react';
 import { chatTitle, type ChatSummary, type ID, type Space } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { Avatar, Button, EmptyState, IconButton, Spinner } from '@/components/ui';
@@ -61,7 +69,15 @@ export function MarkAllReadButton() {
   );
 }
 
-function UnreadCard({ chat, space, onOpen }: { chat: ChatSummary; space: Space | null; onOpen: () => void }) {
+function UnreadCard({
+  chat,
+  space,
+  onOpen,
+}: {
+  chat: ChatSummary;
+  space: Space | null;
+  onOpen: () => void;
+}) {
   const me = useAuth((s) => s.user?.id);
   const preview = useInbox((s) => s.previews[chat.id]);
   useEffect(() => {
@@ -74,9 +90,21 @@ function UnreadCard({ chat, space, onOpen }: { chat: ChatSummary; space: Space |
     const unread = list.filter((m) => m.seq > chat.lastReadSeq);
     return unread.length ? unread : list;
   }, [preview, chat.lastReadSeq]);
-  const Icon = chat.type === 'space_thread' ? MessagesSquare : Hash;
+  const Icon =
+    chat.type === 'space_thread'
+      ? MessagesSquare
+      : chat.type === 'space_stage'
+        ? Podcast
+        : chat.type === 'space_voice'
+          ? Volume2
+          : Hash;
   return (
-    <section className="card-inset overflow-hidden" aria-label={title} data-testid="inbox-unread" data-chat-id={chat.id}>
+    <section
+      className="card-inset overflow-hidden"
+      aria-label={title}
+      data-testid="inbox-unread"
+      data-chat-id={chat.id}
+    >
       <header className="flex min-w-0 items-center gap-1.5 py-1.5 pr-1.5 pl-3">
         <button
           type="button"
@@ -90,12 +118,21 @@ function UnreadCard({ chat, space, onOpen }: { chat: ChatSummary; space: Space |
           )}
           <span className="truncate text-[14px] font-semibold text-fg">{title}</span>
           {chat.unreadMentionCount > 0 ? (
-            <span className="shrink-0 rounded-full bg-danger-fill px-1.5 text-[11px] leading-[18px] font-semibold text-white" aria-label={`${chat.unreadMentionCount} mentions`}>
+            <span
+              className="shrink-0 rounded-full bg-danger-fill px-1.5 text-[11px] leading-[18px] font-semibold text-white"
+              aria-label={`${chat.unreadMentionCount} mentions`}
+            >
               @{chat.unreadMentionCount}
             </span>
           ) : null}
         </button>
-        <IconButton icon={Check} label={`Mark ${title} as read`} size="sm" variant="ghost" onClick={() => markChatRead(chat.id, { force: true })} />
+        <IconButton
+          icon={Check}
+          label={`Mark ${title} as read`}
+          size="sm"
+          variant="ghost"
+          onClick={() => markChatRead(chat.id, { force: true })}
+        />
       </header>
       <div className="pb-1.5">
         {!preview ? (
@@ -130,7 +167,14 @@ export function UnreadsTab({ onClose }: { onClose: () => void }) {
             <section key={g.key} aria-label={g.space ? g.space.name : 'Direct Messages'}>
               <h3 className="mb-1.5 flex min-w-0 items-center gap-2 px-1 section-label">
                 {g.space ? (
-                  <Avatar src={g.space.iconUrl} name={g.space.name} colorSeed={g.space.id} size={18} kind="community" decorative />
+                  <Avatar
+                    src={g.space.iconUrl}
+                    name={g.space.name}
+                    colorSeed={g.space.id}
+                    size={18}
+                    kind="community"
+                    decorative
+                  />
                 ) : null}
                 <span className="truncate">{g.space ? g.space.name : 'Direct Messages'}</span>
               </h3>
@@ -143,7 +187,11 @@ export function UnreadsTab({ onClose }: { onClose: () => void }) {
           ))}
         </div>
       ) : (
-        <EmptyState icon={PartyPopper} title="You’re all caught up!" description="Nothing unread right now." />
+        <EmptyState
+          icon={PartyPopper}
+          title="You’re all caught up!"
+          description="Nothing unread right now."
+        />
       )}
     </div>
   );

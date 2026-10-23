@@ -286,11 +286,17 @@ export async function toSpaces(
   const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
 
   // Unread channels: activity after my read position (row) or my join (no row), not muted.
-  const unreadRows = await rawRows<{ space_id: string; chat_id: string; type: string }>(
+  // Text channels and the text chat of voice and Stage channels.
+  const unreadRows = await rawRows<{
+    space_id: string;
+    chat_id: string;
+    type: 'space_text' | 'space_voice' | 'space_stage';
+  }>(
     dbx,
     sql`select ch.space_id, ch.id as chat_id, ch.type
         from space_members sm
-        join chats ch on ch.space_id = sm.space_id and ch.type = 'space_text'
+        join chats ch on ch.space_id = sm.space_id
+          and ch.type in ('space_text', 'space_voice', 'space_stage')
         left join chat_members cm on cm.chat_id = ch.id and cm.user_id = sm.user_id
         where sm.user_id = ${viewerId} and sm.space_id = any(${uuidArray(ids)})
           and ch.last_message_at is not null
@@ -308,7 +314,7 @@ export async function toSpaces(
     const m = memberBy.get(r.space_id);
     if (!ctx || !m) continue;
     const mc: MemberCtx = { member: m, roleIds: myRoles.get(r.space_id) ?? [] };
-    const bits = channelBits(ctx, viewerId, mc, 'space_text', overwrites.get(r.chat_id) ?? []);
+    const bits = channelBits(ctx, viewerId, mc, r.type, overwrites.get(r.chat_id) ?? []);
     if (hasPerm(bits, PERM.VIEW_CHANNEL))
       visibleUnread.push({ spaceId: r.space_id, chatId: r.chat_id });
   }
@@ -877,9 +883,7 @@ async function applyTemplateTx(
             ? (c.topic?.slice(0, CHANNEL_TOPIC_MAX_LENGTH) ?? null)
             : null,
         nsfw: !!c.nsfw,
-        slowmodeSeconds: voiceLike
-          ? 0
-          : Math.min(21_600, Math.max(0, Math.trunc(c.slowmodeSeconds) || 0)),
+        slowmodeSeconds: Math.min(21_600, Math.max(0, Math.trunc(c.slowmodeSeconds) || 0)),
         userLimit:
           voiceLike && c.userLimit ? Math.min(MAX_VOICE_CHANNEL_PARTICIPANTS, c.userLimit) : null,
         isNews: c.type === 'space_text' && !!c.isNews,

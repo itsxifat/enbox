@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { SPACE_VERIFICATION_LEVELS, type Space } from '@enbox/shared';
 import { Button, RadioGroup, toast } from '@/components/ui';
+import { SecurityCard } from '@/features/moderation/SecurityCard';
 import { updateSpace } from '../actions';
 import { settingsPath } from './sections';
 
@@ -18,9 +19,9 @@ const EXPLICIT_FILTER = [
 ] as const;
 
 /**
- * Space Settings → Safety Setup (MANAGE_SPACE): Discord's verification level and explicit
- * media content filter. Members with a role, the owner and administrators are exempt from
- * the verification level.
+ * Space Settings → Safety Setup (MANAGE_SPACE): Discord's security actions (pause invites and
+ * DMs, raid alerts), verification level and explicit media content filter. Members with a
+ * role, the owner and administrators are exempt from the verification level.
  */
 export function SafetyPage({ space }: { space: Space }) {
   const [level, setLevel] = useState(space.verificationLevel);
@@ -53,6 +54,8 @@ export function SafetyPage({ space }: { space: Space }) {
           Set up AutoMod
         </Button>
       </section>
+      {/* Pause invites / DMs, the safety alerts channel and raid alerts (features/moderation). */}
+      <SecurityCard space={space} />
       <section className="flex flex-col gap-2">
         <h3 className="text-[12px] font-bold tracking-wide text-muted uppercase">Verification level</h3>
         <p className="text-[13px] text-muted">

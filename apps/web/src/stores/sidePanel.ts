@@ -6,11 +6,13 @@ export type SearchScope = { kind: 'space'; spaceId: ID; channelId?: ID } | { kin
 
 /**
  * The right-hand panel next to a conversation (Discord: a thread opens beside its channel,
- * search results replace the member list). Null: the default (the member list in Spaces).
+ * search results replace the member list, a voice or Stage channel's text chat sits beside its
+ * call view — features/voice/chat). Null: the default (the member list in Spaces).
  */
 export type SidePanel =
   | { kind: 'thread'; threadId: ID; parentId: ID }
   | { kind: 'search'; scope: SearchScope; query: string }
+  | { kind: 'voiceChat'; channelId: ID }
   | null;
 
 interface SidePanelState {

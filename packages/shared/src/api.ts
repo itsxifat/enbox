@@ -243,6 +243,7 @@ export type ApiErrorCode =
   | 'automod_blocked' // 403: a Space AutoMod rule blocked the message (not created)
   | 'invalid_code' // 400: a wrong, expired or already used two-factor code
   | 'dm_not_allowed' // 403: their "Who can send you direct messages" refuses me (safety.ts)
+  | 'invites_paused' // 403: the Space paused invites (security actions, moderation.ts)
   | 'internal_error'; // 500
 
 export interface ApiErrorBody {

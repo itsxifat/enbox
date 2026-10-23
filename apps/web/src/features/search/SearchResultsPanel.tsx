@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
+  Podcast,
   ChartColumn,
   ChevronLeft,
   ChevronRight,
@@ -121,7 +122,8 @@ function useJump(onJumped?: () => void) {
       const open = useChats.getState().openChatId;
       if (c.type === 'space_thread' && c.parentId && c.spaceId) {
         // A thread opens beside its channel (the thread panel takes the results' place).
-        if (open !== c.parentId) void navigate(`/spaces/${c.spaceId}/${c.parentId}`, { state: IN_APP_NAV });
+        if (open !== c.parentId)
+          void navigate(`/spaces/${c.spaceId}/${c.parentId}`, { state: IN_APP_NAV });
         useSidePanel.getState().open({ kind: 'thread', threadId: c.id, parentId: c.parentId });
         ui.requestJump(c.id, m.seq, m.id);
       } else if (open === c.id) {
@@ -169,9 +171,17 @@ function Attachment({ m }: { m: Message }) {
       );
     if (media.kind === 'voice') return <AttachmentLine icon={Volume2} text="Voice message" />;
     const icon = media.kind === 'audio' ? Volume2 : media.kind === 'video' ? Film : Paperclip;
-    return <AttachmentLine icon={icon} text={media.fileName ?? (media.kind === 'audio' ? 'Audio' : 'File')} />;
+    return (
+      <AttachmentLine
+        icon={icon}
+        text={media.fileName ?? (media.kind === 'audio' ? 'Audio' : 'File')}
+      />
+    );
   }
-  if (m.location) return <AttachmentLine icon={MapPin} text={m.location.name ?? m.location.address ?? 'Location'} />;
+  if (m.location)
+    return (
+      <AttachmentLine icon={MapPin} text={m.location.name ?? m.location.address ?? 'Location'} />
+    );
   if (m.contact) return <AttachmentLine icon={Contact} text={m.contact.name} />;
   return null;
 }
@@ -181,7 +191,10 @@ function ResultBody({ m, words }: { m: Message; words: readonly string[] }) {
   const native = supportsHighlights();
   useWordHighlights(ref, native ? words : []);
   return (
-    <div ref={ref} className="min-w-0 text-[14px] leading-[1.375] break-words whitespace-pre-wrap text-fg">
+    <div
+      ref={ref}
+      className="min-w-0 text-[14px] leading-[1.375] break-words whitespace-pre-wrap text-fg"
+    >
       {/* Without the Highlight API RichText marks the longest word itself. */}
       {m.text ? <RichText text={m.text} highlight={native ? null : (words[0] ?? null)} /> : null}
       <Attachment m={m} />
@@ -210,16 +223,26 @@ function ResultCard({
       aria-label={`Message from ${formatResultTime(m.createdAt)}`}
       className={cn(
         'group/card relative flex gap-3 rounded-lg p-2.5 pr-3 transition-colors',
-        variant === 'inset' ? 'bg-surface hover:bg-hover' : 'bg-surface-2 hover:brightness-[0.98] dark:hover:brightness-110',
+        variant === 'inset'
+          ? 'bg-surface hover:bg-hover'
+          : 'bg-surface-2 hover:brightness-[0.98] dark:hover:brightness-110',
       )}
     >
       <span className="w-10 shrink-0">
-        {m.senderId ? <SenderAvatar userId={m.senderId} selecting={false} size={40} spaceId={spaceId} /> : null}
+        {m.senderId ? (
+          <SenderAvatar userId={m.senderId} selecting={false} size={40} spaceId={spaceId} />
+        ) : null}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-1">
-          {m.senderId ? <SenderName userId={m.senderId} selecting={false} spaceId={spaceId} you={myName} /> : null}
-          <time dateTime={m.createdAt} title={new Date(m.createdAt).toLocaleString()} className="shrink-0 text-[12px] text-muted">
+          {m.senderId ? (
+            <SenderName userId={m.senderId} selecting={false} spaceId={spaceId} you={myName} />
+          ) : null}
+          <time
+            dateTime={m.createdAt}
+            title={new Date(m.createdAt).toLocaleString()}
+            className="shrink-0 text-[12px] text-muted"
+          >
             {formatResultTime(m.createdAt)}
           </time>
         </div>
@@ -246,10 +269,13 @@ function ResultCard({
 
 function GroupHeader({ chat }: { chat: MessageSearchResult['chat'] }) {
   const thread = chat.type === 'space_thread';
+  const Icon = chat.type === 'space_stage' ? Podcast : chat.type === 'space_voice' ? Volume2 : Hash;
   return (
     <h3 className="flex min-w-0 items-center gap-1 px-1 pt-3 pb-1.5 text-[13px] font-semibold text-muted">
-      <Hash size={15} className="shrink-0" aria-hidden />
-      <span className="truncate">{thread ? (chat.parentName ?? 'channel') : (chat.name ?? 'channel')}</span>
+      <Icon size={15} className="shrink-0" aria-hidden />
+      <span className="truncate">
+        {thread ? (chat.parentName ?? 'channel') : (chat.name ?? 'channel')}
+      </span>
       {thread ? (
         <>
           <ChevronRight size={14} className="shrink-0" aria-hidden />
@@ -277,12 +303,23 @@ function ResultsSkeleton() {
   );
 }
 
-function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+function Pager({
+  page,
+  pages,
+  onPage,
+}: {
+  page: number;
+  pages: number;
+  onPage: (p: number) => void;
+}) {
   if (pages <= 1) return null;
   const btn =
     'inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-[13px] font-medium text-fg hover:bg-hover disabled:pointer-events-none disabled:opacity-40';
   return (
-    <nav aria-label="Result pages" className="flex shrink-0 flex-wrap items-center justify-center gap-1 px-3 py-3">
+    <nav
+      aria-label="Result pages"
+      className="flex shrink-0 flex-wrap items-center justify-center gap-1 px-3 py-3"
+    >
       <button type="button" className={btn} disabled={page === 0} onClick={() => onPage(page - 1)}>
         <ChevronLeft size={16} aria-hidden /> Previous
       </button>
@@ -304,7 +341,12 @@ function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (
           </button>
         ),
       )}
-      <button type="button" className={btn} disabled={page >= pages - 1} onClick={() => onPage(page + 1)}>
+      <button
+        type="button"
+        className={btn}
+        disabled={page >= pages - 1}
+        onClick={() => onPage(page + 1)}
+      >
         Next <ChevronRight size={16} aria-hidden />
       </button>
     </nav>
@@ -331,7 +373,13 @@ export interface SearchResultsProps {
 }
 
 /** Header, results and pager of one query (remount it per query: the page starts at 1). */
-export function SearchResults({ scope, query, onClose, onJumped, variant = 'card' }: SearchResultsProps) {
+export function SearchResults({
+  scope,
+  query,
+  onClose,
+  onJumped,
+  variant = 'card',
+}: SearchResultsProps) {
   const parsed = useMemo(() => parseQuery(query), [query]);
   const apiQuery = useMemo(() => toApiQuery(parsed, scope.kind), [parsed, scope.kind]);
   const words = useMemo(() => searchWords(parsed.text), [parsed.text]);
@@ -362,7 +410,8 @@ export function SearchResults({ scope, query, onClose, onJumped, variant = 'card
         setLastTotal({ total: data.total, capped: data.capped });
       })
       .catch((e: unknown) => {
-        if (!controller.signal.aborted) setLoaded({ key: reqKey, data: null, error: errorMessage(e) });
+        if (!controller.signal.aborted)
+          setLoaded({ key: reqKey, data: null, error: errorMessage(e) });
       });
     return () => controller.abort();
     // reqKey covers url, query, sort, page and retries.
@@ -402,7 +451,10 @@ export function SearchResults({ scope, query, onClose, onJumped, variant = 'card
     <>
       <SearchHighlightStyle />
       <header className="flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-fg" aria-live="polite">
+        <h2
+          className="min-w-0 flex-1 truncate text-[15px] font-semibold text-fg"
+          aria-live="polite"
+        >
           {lastTotal ? resultCountLabel(lastTotal.total, lastTotal.capped) : 'Searching…'}
         </h2>
         <div className="flex items-center gap-0.5" role="group" aria-label="Sort results">
@@ -411,7 +463,11 @@ export function SearchResults({ scope, query, onClose, onJumped, variant = 'card
         </div>
         <IconButton icon={X} label="Close search results" size="sm" onClick={onClose} />
       </header>
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto scrollbar-thin" data-testid="search-results-list">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 overflow-y-auto scrollbar-thin"
+        data-testid="search-results-list"
+      >
         {loading ? (
           <ResultsSkeleton />
         ) : loaded.error ? (
@@ -422,7 +478,10 @@ export function SearchResults({ scope, query, onClose, onJumped, variant = 'card
             </Button>
           </div>
         ) : !groups.length ? (
-          <div className="flex flex-col items-center gap-3 px-8 py-14 text-center" data-testid="search-empty">
+          <div
+            className="flex flex-col items-center gap-3 px-8 py-14 text-center"
+            data-testid="search-empty"
+          >
             <div className="flex size-16 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
               <SearchX size={28} aria-hidden />
             </div>
@@ -437,14 +496,22 @@ export function SearchResults({ scope, query, onClose, onJumped, variant = 'card
                 {scope.kind === 'space' ? <GroupHeader chat={g.chat} /> : <div className="h-2" />}
                 <div className="flex flex-col gap-2">
                   {g.items.map((r) => (
-                    <ResultCard key={r.message.id} r={r} words={words} variant={variant} onJump={jump} />
+                    <ResultCard
+                      key={r.message.id}
+                      r={r}
+                      words={words}
+                      variant={variant}
+                      onJump={jump}
+                    />
                   ))}
                 </div>
               </section>
             ))}
           </div>
         )}
-        {!loading && !loaded.error && groups.length ? <Pager page={page} pages={pages} onPage={goTo} /> : null}
+        {!loading && !loaded.error && groups.length ? (
+          <Pager page={page} pages={pages} onPage={goTo} />
+        ) : null}
       </div>
     </>
   );

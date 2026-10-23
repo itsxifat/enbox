@@ -6,6 +6,7 @@ import { formatDaySeparator } from '@/lib/format';
 import type { ClientMessage } from '@/stores/messages';
 import { nameOf, useUsers } from '@/stores/users';
 import { AutoModAlertCard } from '@/features/spaces/automod/AutoModAlertCard';
+import { RaidAlertCard } from '@/features/moderation/RaidAlertCard';
 
 export function Pill({ children, className }: { children: ReactNode; className?: string }) {
   return (
@@ -68,6 +69,8 @@ export function SystemPill({
   if (!m.system) return null;
   // AutoMod alerts are a card, not a pill (features/spaces/automod).
   if (m.system.kind === 'automod_alert') return <AutoModAlertCard m={m} event={m.system} />;
+  // Raid alerts too (features/moderation).
+  if (m.system.kind === 'raid_alert') return <RaidAlertCard m={m} event={m.system} />;
   const text = systemEventText(m.system, (id) => nameOf(id), chatKindOf(chat));
   const pinned = m.system.kind === 'message_pinned' ? m.system.messageId : null;
   const timer = m.system.kind === 'disappearing_changed';

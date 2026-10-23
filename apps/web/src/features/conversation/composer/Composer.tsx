@@ -26,6 +26,7 @@ import {
 } from 'react';
 import { Check, Mic, Pencil, PlusCircle, Smile, X, Camera, Keyboard } from 'lucide-react';
 import {
+  isVoiceChannelType,
   MAX_CAPTION_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_UPLOAD_BYTES,
@@ -129,7 +130,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   // Unnamed group DMs: their members' names.
   const title = useChatTitle(chat);
   const listId = useId();
-  const isSpace = chat.type === 'space_text' || chat.type === 'space_thread';
+  const isSpace = !!chat.space; // text channels, threads and voice / Stage chats
   const mentionable = chat.type === 'group' || isSpace;
   const roleName = (id: string) =>
     useSpaces.getState().byId[chat.space?.spaceId ?? '']?.roles.find((r) => r.id === id)?.name ??
@@ -858,7 +859,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     (voice?.locked ?? false);
   const showMic = !showSend && (!hasText || !!voice);
   const placeholder = chat.space
-    ? `Message #${chat.name ?? 'channel'}`
+    ? `Message ${isVoiceChannelType(chat.type) ? '🔊 ' : '#'}${chat.name ?? 'channel'}`
     : chat.type === 'direct'
       ? `Message @${title}`
       : `Message ${title}`;

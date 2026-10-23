@@ -2,10 +2,16 @@
  * Suggestions and chip labels of the header search: people for `from:` / `mentions:`
  * (Spaces search their members on the server, debounced like @mention suggestions; DMs and
  * groups filter the chat's member list, a DM without one offers me and the peer) and text
- * channels for `in:` (Spaces only).
+ * channels and voice / Stage chats for `in:` (Spaces only).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { userDisplayName, type ChatSummary, type ID, type SpaceMemberPage } from '@enbox/shared';
+import {
+  isVoiceChannelType,
+  userDisplayName,
+  type ChatSummary,
+  type ID,
+  type SpaceMemberPage,
+} from '@enbox/shared';
 import { useChatMembers } from '@/features/conversation/members';
 import { api } from '@/lib/api';
 import { useAuth } from '@/stores/auth';
@@ -109,21 +115,29 @@ export interface ChannelCandidate {
   name: string;
 }
 
-/** The Space's text channels I can see matching `partial`, the current one first (null: none). */
+/**
+ * The Space's text channels and voice / Stage chats I can see matching `partial`, the current
+ * one first (null: none).
+ */
 export function useChannelCandidates(scope: SearchScope, partial: string | null): ChannelCandidate[] {
   const spaceId = scope.kind === 'space' ? scope.spaceId : null;
   const current = scope.kind === 'space' ? scope.channelId : undefined;
   const channels = useSpaceChannels(spaceId);
   return useMemo(() => {
     if (partial === null || !spaceId) return [];
-    const list = channels.filter((c) => c.type === 'space_text' && matches(partial, c.name));
+    const list = channels.filter(
+      (c) => (c.type === 'space_text' || isVoiceChannelType(c.type)) && matches(partial, c.name),
+    );
     const at = list.findIndex((c) => c.id === current);
     if (at > 0) list.unshift(...list.splice(at, 1));
     return list.slice(0, MAX_CANDIDATES).map((c) => ({ id: c.id, name: c.name ?? 'channel' }));
   }, [channels, partial, spaceId, current]);
 }
 
-/** What a chip shows after its key: a person's name, `#channel`, or the value itself. */
+/**
+ * What a chip shows after its key: a person's name, `#channel` (a voice or Stage channel: its
+ * name, they carry no `#`), or the value itself.
+ */
 export function useTokenLabel(scope: SearchScope, token: SearchToken): string {
   const person = token.key === 'from' || token.key === 'mentions' ? token.value : null;
   const me = useAuth((s) => s.user);
@@ -135,6 +149,9 @@ export function useTokenLabel(scope: SearchScope, token: SearchToken): string {
     if (me && person === me.id) return me.displayName;
     return user ? userDisplayName(user) : 'someone';
   }
-  if (token.key === 'in') return `#${channel?.name ?? 'channel'}`;
+  if (token.key === 'in')
+    return channel && isVoiceChannelType(channel.type)
+      ? (channel.name ?? 'channel')
+      : `#${channel?.name ?? 'channel'}`;
   return token.value;
 }

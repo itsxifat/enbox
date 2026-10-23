@@ -63,8 +63,9 @@ describe('unreadGroups', () => {
       channel: makeChat({ id: 'channel', type: 'channel', unreadCount: 4 }),
     };
     const groups = unreadGroups(chats, { s1, s2 }, now);
+    // A voice channel's text chat counts like a text channel.
     expect(groups.map((g) => [g.key, g.chats.map((c) => c.id)])).toEqual([
-      ['s1', ['memes', 'general']],
+      ['s1', ['voice', 'memes', 'general']],
       ['direct', ['dm', 'marked']],
     ]);
     expect(groups[0]!.space?.name).toBe('Rockets');

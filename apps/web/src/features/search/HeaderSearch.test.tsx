@@ -149,7 +149,8 @@ describe('header search box', () => {
     expect(chips()).toEqual(['mentions:Ally']);
 
     type(input, 'in:');
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['general']);
+    // Voice channels too (their text chat).
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['general', 'Lounge']);
     fireEvent.keyDown(input, { key: 'Tab' });
     expect(chips()).toEqual(['mentions:Ally', 'in:#general']);
     fireEvent.keyDown(input, { key: 'Enter' });

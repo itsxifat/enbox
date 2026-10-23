@@ -5,7 +5,8 @@
  *
  *   base = owner ? ALL : @everyone | member roles;   ADMINISTRATOR → ALL
  *   channel = base, then overwrites: @everyone → member's roles (OR deny, OR allow) → member
- *   no VIEW_CHANNEL → 0; text channels drop voice bits, voice channels drop text-only bits;
+ *   no VIEW_CHANNEL → 0; text channels (threads, forums) drop voice bits; voice and Stage
+ *   channels keep every bit (their text chat uses the text ones, Discord's "Text in Voice");
  *   a timed-out member (not owner/administrator) keeps only VIEW_CHANNEL and
  *   READ_MESSAGE_HISTORY (Discord's rule: no sending, reacting, voice or moderation).
  *
@@ -81,7 +82,10 @@ export const VOICE_PERMISSIONS =
   PERM.MOVE_MEMBERS |
   PERM.PRIORITY_SPEAKER;
 
-/** Bits that only mean something in text channels. */
+/**
+ * Message bits: text channels, threads, and the text chat of voice and Stage channels (no
+ * channel type drops them).
+ */
 export const TEXT_ONLY_PERMISSIONS =
   PERM.SEND_MESSAGES |
   PERM.EMBED_LINKS |
@@ -216,8 +220,9 @@ export function computeChannelPermissions(base: number, input: ChannelInput): nu
   return bits & ALL_PERMISSIONS;
 }
 
+/** Bits a channel type drops: voice bits outside voice and Stage channels (they keep all). */
 function channelTypeMask(type: ChannelInput['channelType']): number {
-  return type === 'space_voice' || type === 'space_stage' ? TEXT_ONLY_PERMISSIONS : VOICE_PERMISSIONS;
+  return type === 'space_voice' || type === 'space_stage' ? 0 : VOICE_PERMISSIONS;
 }
 
 /** Owner, or ADMINISTRATOR in the base: immune to timeouts and hierarchy limits on bits. */

@@ -2,7 +2,8 @@
  * /spaces/:spaceId/:chatId for a Stage channel (Discord's Stage): a header with the Stage's
  * name and topic; while I am connected, the speakers (big avatars, speaking rings, mic state),
  * the raised hands for moderators ("Requests to Speak", each with Invite to Speak), the
- * audience (small avatars, a hand on those who asked) and the bar of my role:
+ * audience (small avatars, a hand on those who asked), the speakers' streams above them while
+ * any is live (Watch Stream, focus, fullscreen — stream/VoiceGrid.tsx) and the bar of my role:
  * - audience: Request to Speak (a toggle; moderators: Become a Speaker) and Leave Quietly
  * - speakers: mic, soundboard, Move to Audience and Leave Quietly
  * Right-clicking someone opens the Stage menu (stageMenu.ts: Invite to Speak / Move to
@@ -28,10 +29,12 @@ import { useVoiceSelf } from '@/stores/voiceSelf';
 import { isStageModerator, requestToSpeak, setStageSpeaker } from './actions';
 import { connectVoice, disconnectVoice, resumeVoiceAudio, voiceAvailable } from './engine';
 import { stageMemberMenuItems } from './stageMenu';
+import { VoiceGrid } from './stream/VoiceGrid';
 import { useUserAudio } from './userAudio';
 import { useVoiceUser } from './useVoiceUser';
 import { VoiceStatusHeader } from './VoiceStatus';
 import { VoiceUserMenu } from './VoiceUserMenu';
+import { VoiceChatButton } from './chat/VoiceChatButton';
 
 const fail = (e: unknown) => toast.error(e);
 
@@ -239,6 +242,13 @@ function StageRoom({ chat, space }: { chat: ChatSummary; space: Space }) {
           </div>
         ) : null}
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+          {speakers.some((v) => v.selfStream) ? (
+            // Speakers' streams: Watch, focus, fullscreen and picture-in-picture as in voice.
+            <section aria-label="Live" data-testid="stage-streams">
+              <h2 className="section-label pb-2">Live</h2>
+              <VoiceGrid space={space} streamsOnly fill={false} />
+            </section>
+          ) : null}
           <section aria-label="Speakers">
             <h2 className="section-label pb-2">Speakers — {speakers.length}</h2>
             {speakers.length ? (
@@ -363,6 +373,7 @@ export function StageChannelView({ chat, space }: { chat: ChatSummary; space: Sp
         {status && status !== 'connected' ? (
           <span className="shrink-0 text-[13px] text-warning">{status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span>
         ) : null}
+        <VoiceChatButton chat={chat} />
       </header>
       {here ? <StageRoom chat={chat} space={space} /> : <StageLobby chat={chat} space={space} />}
     </div>

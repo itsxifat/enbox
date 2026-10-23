@@ -669,6 +669,11 @@ export type SystemEvent =
       content: string;
       action: 'blocked' | 'flagged';
     }
+  /**
+   * Safety alerts channel: `joins` members joined within `windowSec` (RAID_JOIN_THRESHOLD in
+   * RAID_WINDOW_SEC, moderation.ts). Clients show a card with the security actions.
+   */
+  | { kind: 'raid_alert'; joins: number; windowSec: number };
 
 export type SystemEventKind = SystemEvent['kind'];
 

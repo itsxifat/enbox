@@ -41,13 +41,18 @@ export const dmNotAllowed = (message = DM_NOT_ALLOWED_MESSAGE) =>
  */
 export type DmGate = 'open' | 'request' | 'refused';
 
-/** We share a Space where `recipientId` allows DMs from its members (`space_members.allow_dms`). */
+/**
+ * We share a Space where `recipientId` allows DMs from its members (`space_members.allow_dms`)
+ * and whose moderators haven't paused DMs (security actions: `spaces.dms_paused_until`).
+ */
 async function sharesDmSpace(dbx: DbOrTx, senderId: ID, recipientId: ID): Promise<boolean> {
   const rows = await rawRows<{ x: number }>(
     dbx,
     sql`select 1 as x from space_members r
         join space_members s on s.space_id = r.space_id and s.user_id = ${senderId}
+        join spaces sp on sp.id = r.space_id
         where r.user_id = ${recipientId} and r.allow_dms
+          and (sp.dms_paused_until is null or sp.dms_paused_until <= now())
         limit 1`,
   );
   return rows.length > 0;
@@ -58,7 +63,7 @@ async function sharesDmSpace(dbx: DbOrTx, senderId: ID, recipientId: ID): Promis
  * - myself, a deleted account, or someone who saved me as a contact (friends are contacts
  *   both ways): `open`;
  * - their `whoCanDm` refuses me: `refused` — `friends` lets in no one else, `spaces` only
- *   members of a Space we share where they allow DMs, `everyone` anyone;
+ *   members of a Space we share where they allow DMs (and DMs aren't paused), `everyone` anyone;
  * - else `request` when their `messageRequests` is on (and the server's), `open` when off.
  * Two queries at most; blocks are not looked at (see the file comment).
  */

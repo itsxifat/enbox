@@ -18,6 +18,7 @@ import {
   hasPerm,
   isDnd,
   isMuted,
+  isVoiceChannelType,
   messagePreviewText,
   truncate,
   userDisplayName,
@@ -47,6 +48,16 @@ interface Candidate {
   c_level: NotifyLevel | null;
   c_muted: string | null;
   mentioned: boolean;
+}
+
+/**
+ * A push's title: `#name · Space` for text channels; the text chat of a voice or Stage channel
+ * reads `🔊 name · Space` (their names carry no `#`).
+ */
+export function spacePushTitle(chat: Pick<ChatRow, 'type' | 'name'>, spaceName: string): string {
+  return isVoiceChannelType(chat.type)
+    ? `🔊 ${chat.name ?? 'Voice'} · ${spaceName}`
+    : `#${chat.name ?? 'channel'} · ${spaceName}`;
 }
 
 export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow): Promise<void> {
@@ -160,10 +171,13 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
       : 'New message';
     const payload: PushPayload = {
       type: 'message',
-      title: `#${chat.name ?? 'channel'} · ${space.name}`,
+      title: spacePushTitle(chat, space.name),
       body: s.notificationPreviews ? `${senderName}: ${preview}` : preview,
       tag: `chat:${chat.id}`,
-      url: `/spaces/${chat.spaceId}/${chat.id}`,
+      // A voice or Stage chat opens beside its call view, at the message (`?m=&mid=`).
+      url: isVoiceChannelType(chat.type)
+        ? `/spaces/${chat.spaceId}/${chat.id}?m=${msg.seq}&mid=${msg.id}`
+        : `/spaces/${chat.spaceId}/${chat.id}`,
       chatId: chat.id,
     };
     return { userId: viewerId, payload, opts: { ttl: PUSH_MESSAGE_TTL_SEC } };

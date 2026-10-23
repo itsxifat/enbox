@@ -1,13 +1,14 @@
 /**
  * Message search (docs/design/discord-parity.md W4-E): the header search of a Space (the
- * text channels and threads I can see) or of one DM / group (my visible window).
+ * text channels, threads and voice / Stage chats I can see) or of one DM / group (my visible
+ * window).
  *
  * - Words: every word of `q` must occur in the text or caption, case-insensitively
  *   (`ILIKE '%word%'`, LIKE wildcards escaped). Filters narrow further: author, channel,
  *   mentions, has (link / file / image / video / sound / poll; several = all of them),
  *   `after` (inclusive) / `before` (exclusive) on created_at, pinned.
  * - Never listed: deleted, expired or hidden-for-me messages, system and call messages.
- * - Space scope: VIEW_CHANNEL is computed per text channel from my roles and its overwrites
+ * - Space scope: VIEW_CHANNEL is computed per channel from my roles and its overwrites
  *   (never from the lazy `chat_members` rows), threads follow their parent channel; where I
  *   do have a read row its window still applies (converted channels: joined_seq, cleared).
  * - Paging: SEARCH_PAGE_SIZE per page from `offset`; `total` counts at most SEARCH_TOTAL_CAP
@@ -23,6 +24,7 @@ import {
   SEARCH_PAGE_SIZE,
   SEARCH_TOTAL_CAP,
   hasPerm,
+  isVoiceChannelType,
   type ChatType,
   type MediaKind,
   type Message,
@@ -65,6 +67,9 @@ const SEARCH_BITS =
   (RESERVED_PERMISSIONS & PERM.READ_MESSAGE_HISTORY) !== 0
     ? PERM.VIEW_CHANNEL
     : PERM.VIEW_CHANNEL | PERM.READ_MESSAGE_HISTORY;
+
+/** Space channels a search covers (threads follow their parent; a forum's posts are threads). */
+const SEARCHED_CHANNEL_TYPES = ['space_text', 'space_voice', 'space_stage', 'space_forum'] as const;
 
 /** Whether the query looks for anything (words or at least one filter). */
 export function hasCriteria(q: MessageSearchParams): boolean {
@@ -145,8 +150,9 @@ const emptyPage = (): MessageSearchPage => ({ total: 0, capped: false, items: []
 // ---------------------------------------------------------------------------
 
 /**
- * `GET /spaces/:spaceId/messages/search`: 404 unless I am a member; `channelId` must be a text
- * channel I can see or a thread of one (404 otherwise, also for voice channels).
+ * `GET /spaces/:spaceId/messages/search`: 404 unless I am a member; `channelId` must be a
+ * text, voice or Stage channel I can see (voice and Stage: their text chat), a forum (its
+ * posts) or a thread of a visible channel (404 otherwise).
  */
 export async function searchSpaceMessages(
   me: string,
@@ -155,32 +161,29 @@ export async function searchSpaceMessages(
 ): Promise<MessageSearchPage> {
   assertCriteria(query);
   const access = await requireSpaceMember(db, spaceId, me);
-  // Text channels and forums (a forum holds no messages itself: its posts are threads).
-  const channels = await db
-    .select({ id: chats.id, name: chats.name, type: chats.type })
-    .from(chats)
-    .where(and(eq(chats.spaceId, spaceId), inArray(chats.type, ['space_text', 'space_forum'])));
+  // Text channels, voice and Stage chats, and forums (a forum holds no messages itself: its
+  // posts are threads).
+  const channels = (
+    await db
+      .select({ id: chats.id, name: chats.name, type: chats.type })
+      .from(chats)
+      .where(and(eq(chats.spaceId, spaceId), inArray(chats.type, [...SEARCHED_CHANNEL_TYPES])))
+  ).map((c) => ({ ...c, type: c.type as (typeof SEARCHED_CHANNEL_TYPES)[number] }));
   const overwrites = await loadChannelOverwrites(
     db,
     channels.map((c) => c.id),
   );
   // VIEW_CHANNEL from the computed bits, channel by channel.
-  const visible = new Map(
-    channels
-      .filter((c) =>
-        hasPerm(
-          channelBits(
-            access.ctx,
-            me,
-            access.me,
-            c.type === 'space_forum' ? 'space_forum' : 'space_text',
-            overwrites.get(c.id) ?? [],
-            access.base,
-          ),
-          SEARCH_BITS,
-        ),
-      )
-      .map((c) => [c.id, c.name]),
+  const shown = channels.filter((c) =>
+    hasPerm(
+      channelBits(access.ctx, me, access.me, c.type, overwrites.get(c.id) ?? [], access.base),
+      SEARCH_BITS,
+    ),
+  );
+  const visible = new Map(shown.map((c) => [c.id, c.name]));
+  // How a channel's results are labelled: voice and Stage chats as themselves.
+  const resultType = new Map(
+    shown.map((c) => [c.id, isVoiceChannelType(c.type) ? c.type : ('space_text' as const)]),
   );
 
   let scope: SQL;
@@ -250,7 +253,16 @@ export async function searchSpaceMessages(
     : [];
   const chatOf = new Map<string, MessageSearchResult['chat']>();
   for (const [id, name] of visible)
-    chatOf.set(id, { id, type: 'space_text', name, avatarUrl: null, peer: null, spaceId, parentId: null, parentName: null });
+    chatOf.set(id, {
+      id,
+      type: resultType.get(id) ?? 'space_text',
+      name,
+      avatarUrl: null,
+      peer: null,
+      spaceId,
+      parentId: null,
+      parentName: null,
+    });
   for (const t of threads)
     chatOf.set(t.id, {
       id: t.id,

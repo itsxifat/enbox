@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Check, Inbox, MessageCircle, MoreVertical, SearchX, ShieldBan, Users, X } from 'lucide-react';
 import { activePresenceNote, userDisplayName, type UserPublic } from '@enbox/shared';
@@ -9,12 +9,18 @@ import { ensureDirectChat } from '@/features/calls/directChat';
 import { confirmBlock } from '@/features/contacts/contactActions';
 import { InboxButton } from '@/features/inbox/InboxButton';
 import { openProfile } from '@/features/profile/open';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { lazyNamed } from '@/lib/lazy';
 import { matchesUser, useBlockedUsers, useContactList, useContacts } from '@/stores/contacts';
 import { useFriendRequests, useFriends, useIncomingFriendRequestCount, type PendingItem } from '@/stores/friends';
 import { useUsers } from '@/stores/users';
 import { acceptFriend, cancelFriendRequest, confirmRemoveFriend, ignoreFriend } from './friendActions';
+
+const ActiveNow = lazyNamed(() => import('@/features/activeNow/ActiveNow'), 'ActiveNow');
+/** The Active Now column shows from this width (Discord hides it on narrower windows). */
+const ACTIVE_NOW_QUERY = '(min-width: 1200px)';
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add';
 const TABS: readonly Tab[] = ['online', 'all', 'pending', 'blocked', 'add'];
@@ -167,7 +173,8 @@ function AddFriend() {
 /**
  * Home main view (Discord's Friends page): Online / All / Pending / Blocked / Add Friend. Friends
  * are my contacts, with live presence, a message button and a menu per row; Pending lists the
- * requests both ways. Every list has a search box and a "NAME — N" header.
+ * requests both ways. Every list has a search box and a "NAME — N" header. At ≥ 1200px the
+ * Active Now column (features/activeNow) sits on the right.
  */
 export function FriendsPage() {
   const [params, setParams] = useSearchParams();
@@ -180,6 +187,7 @@ export function FriendsPage() {
   const requests = useFriendRequests();
   const pendingCount = useIncomingFriendRequestCount();
   const presence = useUsers((s) => s.presence);
+  const wide = useMediaQuery(ACTIVE_NOW_QUERY);
 
   // `?friends=pending` (a push or a toast) switches tabs, then leaves the URL.
   useEffect(() => {
@@ -308,16 +316,26 @@ export function FriendsPage() {
         </div>
         <div className="ml-auto flex items-center"><InboxButton /></div>
       </header>
-      {tab === 'add' ? (
-        <AddFriend />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col pt-4">
-          <div className="px-5 lg:px-8">
-            <SearchInput value={query} onChange={setQuery} placeholder="Search" aria-label={`Search ${tab === 'blocked' ? 'blocked users' : tab === 'pending' ? 'friend requests' : 'friends'}`} />
+      <div className="flex min-h-0 flex-1">
+        {tab === 'add' ? (
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <AddFriend />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto pb-4 scrollbar-thin">{body}</div>
-        </div>
-      )}
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col pt-4">
+            <div className="px-5 lg:px-8">
+              <SearchInput value={query} onChange={setQuery} placeholder="Search" aria-label={`Search ${tab === 'blocked' ? 'blocked users' : tab === 'pending' ? 'friend requests' : 'friends'}`} />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto pb-4 scrollbar-thin">{body}</div>
+          </div>
+        )}
+        {/* Discord's Active Now column, on wide screens only. */}
+        {wide ? (
+          <Suspense fallback={null}>
+            <ActiveNow />
+          </Suspense>
+        ) : null}
+      </div>
       <Menu
         open={!!menu}
         onClose={() => setMenu(null)}

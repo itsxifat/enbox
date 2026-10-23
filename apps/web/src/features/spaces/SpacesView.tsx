@@ -20,6 +20,7 @@ const SearchResultsPanel = lazyNamed(
   () => import('@/features/search/SearchResultsPanel'),
   'SearchResultsPanel',
 );
+const VoiceChatPanel = lazyNamed(() => import('@/features/voice/chat/VoiceChatPanel'), 'VoiceChatPanel');
 
 /**
  * The Spaces section (Discord layout from the existing card panes).
@@ -76,6 +77,10 @@ export function SpacesView() {
           ) : spaceId && panel?.kind === 'search' ? (
             <Suspense fallback={null}>
               <SearchResultsPanel scope={panel.scope} query={panel.query} />
+            </Suspense>
+          ) : spaceId && panel?.kind === 'voiceChat' ? (
+            <Suspense fallback={null}>
+              <VoiceChatPanel key={panel.channelId} channelId={panel.channelId} />
             </Suspense>
           ) : spaceId && ui.membersOpen ? (
             <MemberList spaceId={spaceId} />

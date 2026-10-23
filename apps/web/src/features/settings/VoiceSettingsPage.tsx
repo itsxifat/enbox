@@ -21,6 +21,7 @@ import {
   SensitivitySlider,
 } from '@/features/voice/settings/controls';
 import { ShortcutRecorder } from '@/features/voice/settings/ShortcutRecorder';
+import { StreamQualityRow } from '@/features/voice/stream/StreamQualityRow';
 import { VOLUME_MAX } from '@/features/voice/userAudio';
 import { RadioGroup } from '@/components/ui';
 import { useUi, type VoiceInputMode } from '@/stores/ui';
@@ -46,7 +47,8 @@ const INPUT_MODES: { value: VoiceInputMode; label: string; description: string }
  * Settings → Voice & Video (device preferences, all applied at once — also in a call or voice
  * channel): devices and output volume, the mic test, the input mode (voice activity with an
  * automatic or manual sensitivity, or push to talk with its shortcut and release delay), the
- * camera, microphone processing and the soundboard volume.
+ * camera, the screen share quality (stream/quality.ts), microphone processing and the
+ * soundboard volume.
  */
 export function VoiceSettingsPage() {
   const prefs = useUi((s) => s.prefs);
@@ -165,6 +167,13 @@ export function VoiceSettingsPage() {
           onChange={(id) => set('videoInputDevice', id)}
           testId="camera-device"
         />
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Screen share"
+        footer="Applies the next time you share your screen. Higher quality needs a faster connection."
+      >
+        <StreamQualityRow />
       </SettingsGroup>
 
       <SettingsGroup

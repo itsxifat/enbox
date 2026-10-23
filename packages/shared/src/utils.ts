@@ -207,6 +207,17 @@ export type ChatPermissionInput = Pick<
 };
 
 /**
+ * Space chats that take messages: text channels, threads, and the text chat of voice and Stage
+ * channels (Discord's "Text in Voice"; Stage audiences chat too). A forum only holds posts.
+ */
+const MESSAGE_CHANNEL_TYPES: ReadonlySet<SpaceChannelType> = new Set<SpaceChannelType>([
+  'space_text',
+  'space_thread',
+  'space_voice',
+  'space_stage',
+]);
+
+/**
  * `ChatPermissions` of a space channel from the viewer's bits in it. Bits without a boolean
  * here (attach, react, polls, mention everyone, voice) are checked with `hasPerm`.
  */
@@ -215,8 +226,7 @@ export function spaceChannelPermissions(bits: number, type: SpaceChannelType): C
   const manageMessages = hasPerm(bits, PERM.MANAGE_MESSAGES);
   return {
     ...NO_PERMISSIONS,
-    canSend:
-      (type === 'space_text' || type === 'space_thread') && hasPerm(bits, PERM.SEND_MESSAGES),
+    canSend: MESSAGE_CHANNEL_TYPES.has(type) && hasPerm(bits, PERM.SEND_MESSAGES),
     canEditInfo: hasPerm(bits, PERM.MANAGE_CHANNELS),
     canPin: manageMessages,
     canInvite: hasPerm(bits, PERM.CREATE_INVITE),
@@ -626,6 +636,10 @@ export function systemEventText(
   if (event.kind === 'owner_changed') return `The ${noun} owner is now ${nameOf(event.userId)}`;
   if (event.kind === 'automod_alert')
     return `AutoMod ${event.action === 'blocked' ? 'blocked a message' : 'flagged a message'} from ${nameOf(event.userId)} (${event.ruleName})`;
+  if (event.kind === 'raid_alert') {
+    const minutes = Math.max(1, Math.round(event.windowSec / 60));
+    return `Unusual join activity: ${event.joins} members joined in ${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
   const actor = nameOf(event.actorId);
   switch (event.kind) {
     case 'group_created':

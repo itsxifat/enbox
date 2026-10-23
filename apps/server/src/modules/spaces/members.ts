@@ -274,6 +274,23 @@ router.patch('/spaces/:spaceId/members/:userId', async (req, res) => {
   const { spaceId, userId } = parse(P.member, req.params);
   const body = parse(updateMemberSchema, req.body ?? {});
   assertUserLimit(me, 'spaceMemberUpdate', USER_RATE_LIMITS.spaceMemberUpdate);
+  await updateMember(me, spaceId, userId, body);
+  const m = await memberOrThrow(db, spaceId, userId);
+  res.json(await serializeMember(db, m));
+});
+
+export type UpdateMemberBody = z.output<typeof updateMemberSchema>;
+
+/**
+ * Change a member as `me` (the PATCH route; bulk timeouts in modules/moderation): nickname,
+ * roles, timeout, server mute / deafen, each with its permission and hierarchy checks; audited.
+ */
+export async function updateMember(
+  me: string,
+  spaceId: string,
+  userId: string,
+  body: UpdateMemberBody,
+): Promise<void> {
   await transact(async (tx, fx) => {
     const space = await lockSpace(tx, spaceId);
     const access = await requireSpaceMember(tx, spaceId, me);
@@ -394,9 +411,7 @@ router.patch('/spaces/:spaceId/members/:userId', async (req, res) => {
       fxChannelsChanged(fx, spaceId, userId);
     }
   });
-  const m = await memberOrThrow(db, spaceId, userId);
-  res.json(await serializeMember(db, m));
-});
+}
 
 // DELETE /spaces/:spaceId/members/:userId (KICK_MEMBERS, above them) → 204
 router.delete('/spaces/:spaceId/members/:userId', async (req, res) => {
@@ -404,6 +419,17 @@ router.delete('/spaces/:spaceId/members/:userId', async (req, res) => {
   const { spaceId, userId } = parse(P.member, req.params);
   const reason = typeof req.query.reason === 'string' ? req.query.reason.slice(0, 512) : null;
   assertUserLimit(me, 'spaceMemberUpdate', USER_RATE_LIMITS.spaceMemberUpdate);
+  await kickMember(me, spaceId, userId, reason);
+  res.status(204).end();
+});
+
+/** Kick as `me` (KICK_MEMBERS, from above them): the route and bulk kicks (modules/moderation). */
+export async function kickMember(
+  me: string,
+  spaceId: string,
+  userId: string,
+  reason: string | null,
+): Promise<void> {
   await transact(async (tx, fx) => {
     const space = await lockSpace(tx, spaceId);
     const access = await requireSpacePermission(tx, spaceId, me, PERM.KICK_MEMBERS);
@@ -421,13 +447,28 @@ router.delete('/spaces/:spaceId/members/:userId', async (req, res) => {
       reason,
     });
   });
-  res.status(204).end();
-});
+}
 
 async function setRole(req: Request, add: boolean): Promise<SpaceMember> {
   const me = authUserId(req);
   const { spaceId, userId, roleId } = parse(P.memberRole, req.params);
   assertUserLimit(me, 'spaceMemberUpdate', USER_RATE_LIMITS.spaceMemberUpdate);
+  await setMemberRole(me, spaceId, userId, roleId, add);
+  const m = await memberOrThrow(db, spaceId, userId);
+  return serializeMember(db, m);
+}
+
+/**
+ * Give (`add`) or take one role as `me` (MANAGE_ROLES, a role below my highest): the routes
+ * and bulk role changes (modules/moderation). Nothing happens when it is already so.
+ */
+export async function setMemberRole(
+  me: string,
+  spaceId: string,
+  userId: string,
+  roleId: string,
+  add: boolean,
+): Promise<void> {
   await transact(async (tx, fx) => {
     const space = await lockSpace(tx, spaceId);
     const access = await requireSpacePermission(tx, spaceId, me, PERM.MANAGE_ROLES);
@@ -468,8 +509,6 @@ async function setRole(req: Request, add: boolean): Promise<SpaceMember> {
     fxMemberChanged(fx, spaceId, userId);
     fxChannelsChanged(fx, spaceId, userId);
   });
-  const m = await memberOrThrow(db, spaceId, userId);
-  return serializeMember(db, m);
 }
 
 // PUT|DELETE /spaces/:spaceId/members/:userId/roles/:roleId (MANAGE_ROLES, role below mine) → SpaceMember
@@ -520,6 +559,21 @@ router.put('/spaces/:spaceId/bans/:userId', async (req, res) => {
   const { spaceId, userId } = parse(P.member, req.params);
   const body = parse(banSchema, req.body ?? {});
   assertUserLimit(me, 'spaceMemberUpdate', USER_RATE_LIMITS.spaceMemberUpdate);
+  await banUser(me, spaceId, userId, body);
+  res.status(204).end();
+});
+
+/**
+ * Ban as `me` (BAN_MEMBERS, from above them; anyone who isn't a member too: ban by ID),
+ * deleting their messages of the last `deleteMessageSeconds` (BAN_DELETE_MESSAGE_OPTIONS):
+ * the route and bulk bans (modules/moderation).
+ */
+export async function banUser(
+  me: string,
+  spaceId: string,
+  userId: string,
+  body: { reason?: string; deleteMessageSeconds: number },
+): Promise<void> {
   await transact(async (tx, fx) => {
     const space = await lockSpace(tx, spaceId);
     const access = await requireSpacePermission(tx, spaceId, me, PERM.BAN_MEMBERS);
@@ -583,8 +637,7 @@ router.put('/spaces/:spaceId/bans/:userId', async (req, res) => {
       changes: purged ? { deletedMessages: purged } : null,
     });
   });
-  res.status(204).end();
-});
+}
 
 // DELETE /spaces/:spaceId/bans/:userId (BAN_MEMBERS) → 204
 router.delete('/spaces/:spaceId/bans/:userId', async (req, res) => {

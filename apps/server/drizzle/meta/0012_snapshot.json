@@ -1,5 +1,5 @@
 {
-  "id": "0088e21c-b9b5-4430-8ed3-2970ad29948f",
+  "id": "74f41766-93a4-4434-9197-199cc044413c",
   "prevId": "8985e200-8a22-4eee-afbe-af3854860b36",
   "version": "7",
   "dialect": "postgresql",
@@ -3958,6 +3958,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "space_audit_log_target_idx": {
+          "name": "space_audit_log_target_idx",
+          "columns": [
+            {
+              "expression": "space_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "target_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"space_audit_log\".\"target_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

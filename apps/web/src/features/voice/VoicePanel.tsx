@@ -1,7 +1,8 @@
 import { Link } from 'react-router';
 import { MonitorUp, Signal, Volume2 } from 'lucide-react';
+import { PERM, hasPerm } from '@enbox/shared';
 import { PhoneOffIcon, VideoIcon } from '@/components/icons';
-import { IconButton } from '@/components/ui';
+import { IconButton, Tooltip } from '@/components/ui';
 import { SoundboardButton } from '@/features/soundboard/SoundboardButton';
 import { cn } from '@/lib/cn';
 import { useChat } from '@/stores/chats';
@@ -31,11 +32,22 @@ function PushToTalkBadge() {
   );
 }
 
+/** Why I cannot turn this on here (null: I can). */
+function mediaBlocked(o: { audience: boolean; allowed: boolean; what: 'camera' | 'screen' }): string | null {
+  if (o.audience) return o.what === 'camera' ? 'Become a speaker to turn on your camera' : 'Become a speaker to share your screen';
+  if (!o.allowed)
+    return o.what === 'camera'
+      ? 'You don’t have permission to use video here'
+      : 'You don’t have permission to stream here';
+  return null;
+}
+
 /**
  * Discord's "Voice Connected" panel above the user panel while I am in a voice channel:
  * status (with "PTT" under push to talk), the channel and Space (opens the channel),
- * Disconnect, then Camera, Screen and the soundboard. A Stage audience has no camera or screen
- * (they are for speakers).
+ * Disconnect, then Camera, Screen and the soundboard. Camera needs VIDEO and Screen STREAM in
+ * the channel, and a Stage audience has neither (they are for speakers): disabled, the reason
+ * as the tooltip. While I share my screen the button says "Live".
  */
 export function VoicePanel() {
   const connection = useVoice((s) => s.connection);
@@ -49,12 +61,14 @@ export function VoicePanel() {
   const camera = !!room?.localParticipant.isCameraEnabled;
   const screen = !!room?.localParticipant.isScreenShareEnabled;
   const audience = !!mine?.suppressed && mine.channelId === connection.channelId;
+  const cameraBlocked = mediaBlocked({ audience, allowed: hasPerm(chat?.spacePermissions, PERM.VIDEO), what: 'camera' });
+  const screenBlocked = mediaBlocked({ audience, allowed: hasPerm(chat?.spacePermissions, PERM.STREAM), what: 'screen' });
   const status =
     connection.status === 'connected' ? 'Voice Connected' : connection.status === 'reconnecting' ? 'Reconnecting' : 'Connecting';
-  const tile = (on: boolean) =>
+  const tile = (look: 'off' | 'on' | 'live') =>
     cn(
-      'flex h-8 items-center justify-center gap-1.5 rounded-md text-[13px] font-medium disabled:pointer-events-none disabled:opacity-45',
-      on ? 'bg-fg text-surface' : 'bg-surface-2 text-fg hover:bg-hover',
+      'flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-[13px] font-medium disabled:pointer-events-none disabled:opacity-45',
+      look === 'live' ? 'bg-danger text-white hover:brightness-110' : look === 'on' ? 'bg-fg text-surface' : 'bg-surface-2 text-fg hover:bg-hover',
     );
   return (
     <div className="shrink-0 px-2 pt-2 pb-1" data-testid="voice-panel">
@@ -93,24 +107,32 @@ export function VoicePanel() {
         </button>
       ) : null}
       <div className="mt-2 grid grid-cols-3 gap-2">
-        <button
-          type="button"
-          aria-pressed={camera}
-          disabled={audience}
-          onClick={() => void toggleCamera()}
-          className={tile(camera)}
-        >
-          <VideoIcon size={16} aria-hidden /> Camera
-        </button>
-        <button
-          type="button"
-          aria-pressed={screen}
-          disabled={audience}
-          onClick={() => void toggleScreenShare()}
-          className={tile(screen)}
-        >
-          <MonitorUp size={16} aria-hidden /> Screen
-        </button>
+        <Tooltip label={cameraBlocked ?? (camera ? 'Turn off camera' : 'Turn on camera')} className="w-full">
+          <button
+            type="button"
+            aria-pressed={camera}
+            aria-label={cameraBlocked ? `Camera: ${cameraBlocked}` : undefined}
+            disabled={!!cameraBlocked && !camera}
+            onClick={() => void toggleCamera()}
+            className={tile(camera ? 'on' : 'off')}
+            data-testid="panel-camera"
+          >
+            <VideoIcon size={16} aria-hidden /> Camera
+          </button>
+        </Tooltip>
+        <Tooltip label={screenBlocked ?? (screen ? 'Stop streaming' : 'Share your screen')} className="w-full">
+          <button
+            type="button"
+            aria-pressed={screen}
+            aria-label={screenBlocked ? `Screen: ${screenBlocked}` : undefined}
+            disabled={!!screenBlocked && !screen}
+            onClick={() => void toggleScreenShare()}
+            className={tile(screen ? 'live' : 'off')}
+            data-testid="panel-screen"
+          >
+            <MonitorUp size={16} aria-hidden /> {screen ? 'Live' : 'Screen'}
+          </button>
+        </Tooltip>
         <SoundboardButton />
       </div>
     </div>

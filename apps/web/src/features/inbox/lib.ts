@@ -5,6 +5,7 @@
 import type { NavigateFunction } from 'react-router';
 import {
   isMuted,
+  isVoiceChannelType,
   type ChatSummary,
   type ID,
   type InboxMention,
@@ -12,6 +13,7 @@ import {
 } from '@enbox/shared';
 import { IN_APP_NAV } from '@/components/layout/navigation';
 import { chatPath } from '@/features/chats/links';
+import { openVoiceChat } from '@/features/voice/chat/actions';
 import { formatShortDate, formatTime, isSameLocalDay } from '@/lib/format';
 import { getChat, isChatUnread, useChats } from '@/stores/chats';
 import { useSidePanel } from '@/stores/sidePanel';
@@ -56,8 +58,9 @@ export interface UnreadGroup {
 const activity = (c: ChatSummary) => Date.parse(c.lastActivityAt) || 0;
 
 /**
- * Unread chats that are not muted: Space text channels and threads (not in muted Spaces) by
- * Space, then DMs and groups (not archived). Newest activity first, in groups and inside them.
+ * Unread chats that are not muted: Space text channels, threads and voice / Stage chats (not
+ * in muted Spaces) by Space, then DMs and groups (not archived). Newest activity first, in
+ * groups and inside them.
  */
 export function unreadGroups(
   chats: Readonly<Record<ID, ChatSummary>>,
@@ -69,7 +72,9 @@ export function unreadGroups(
   for (const c of Object.values(chats)) {
     if (!isChatUnread(c) || isMuted(c.mutedUntil, now)) continue;
     if (c.space) {
-      if (c.type !== 'space_text' && c.type !== 'space_thread') continue;
+      // A forum's posts are its threads.
+      if (c.type !== 'space_text' && c.type !== 'space_thread' && !isVoiceChannelType(c.type))
+        continue;
       const space = spaces[c.space.spaceId];
       if (!space || isSpaceMuted(space, now.getTime())) continue;
       const list = bySpace.get(space.id);
@@ -136,12 +141,19 @@ export async function jumpToMention(item: InboxMention, navigate: NavigateFuncti
   void navigate(mentionPath(item), { state: IN_APP_NAV });
 }
 
-/** Open a chat of the Unreads tab (a thread: beside its parent channel). */
+/**
+ * Open a chat of the Unreads tab (a thread: beside its parent channel; a voice or Stage chat:
+ * beside its channel's view).
+ */
 export function openUnreadChat(chat: ChatSummary, navigate: NavigateFunction): void {
   const parentId = chat.type === 'space_thread' ? chat.thread?.parentId : undefined;
   if (parentId && chat.space) {
     void navigate(`/spaces/${chat.space.spaceId}/${parentId}`, { state: IN_APP_NAV });
     setTimeout(() => useSidePanel.getState().open({ kind: 'thread', threadId: chat.id, parentId }), 0);
+    return;
+  }
+  if (chat.space && isVoiceChannelType(chat.type)) {
+    openVoiceChat(chat, navigate);
     return;
   }
   void navigate(chatPath(chat), { state: IN_APP_NAV });

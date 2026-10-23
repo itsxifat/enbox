@@ -62,6 +62,7 @@ import {
   rolesForAnswers,
   toSpaceCommunity,
 } from './service.js';
+import { answersOf } from '../guide/service.js';
 import './hooks.js';
 
 export const router = Router();
@@ -231,7 +232,8 @@ router.patch('/spaces/:spaceId/community', async (req, res) => {
 
 // POST /spaces/:spaceId/onboarding/answers { optionIds } → Space. Validated against the current
 // prompts (required, single-select); the roles of my picks are added (none removed) with one
-// perm_version bump: space:member-updated → room, my channel list refetches; onboardedAt set;
+// perm_version bump: space:member-updated → room, my channel list refetches; onboardedAt set and
+// my picks saved as my answers (Channels & Roles changes them later: modules/guide);
 // space:upsert → U(me).
 router.post('/spaces/:spaceId/onboarding/answers', async (req, res) => {
   const me = authUserId(req);
@@ -265,7 +267,10 @@ router.post('/spaces/:spaceId/onboarding/answers', async (req, res) => {
     }
     const [row] = await tx
       .update(spaceMembers)
-      .set({ onboardedAt: sql`coalesce(${spaceMembers.onboardedAt}, now())` })
+      .set({
+        onboardedAt: sql`coalesce(${spaceMembers.onboardedAt}, now())`,
+        onboardingAnswers: answersOf(space.onboarding, optionIds),
+      })
       .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, me)))
       .returning();
     if (added.length) {

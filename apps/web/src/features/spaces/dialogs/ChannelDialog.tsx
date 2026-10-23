@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, Hash, Megaphone, MessagesSquare, Minus, Plus, Podcast, Trash2, Volume2, X } from 'lucide-react';
+import {
+  Check,
+  Hash,
+  Megaphone,
+  MessagesSquare,
+  Minus,
+  Plus,
+  Podcast,
+  Trash2,
+  Volume2,
+  X,
+} from 'lucide-react';
 import {
   CHANNEL_NAME_MAX_LENGTH,
   CHANNEL_TOPIC_MAX_LENGTH,
@@ -17,7 +28,20 @@ import {
   type SpaceInvite,
   type UpdateSpaceChannelRequest,
 } from '@enbox/shared';
-import { Button, DropdownMenu, EmptyState, Field, Input, Modal, Spinner, Switch, Tabs, Textarea, confirm, toast } from '@/components/ui';
+import {
+  Button,
+  DropdownMenu,
+  EmptyState,
+  Field,
+  Input,
+  Modal,
+  Spinner,
+  Switch,
+  Tabs,
+  Textarea,
+  confirm,
+  toast,
+} from '@/components/ui';
 import { ForumSettingsSection } from '@/features/forums/ForumSettingsSection';
 import { shownInviteUrl, useHideInvites } from '@/features/groups/shared/share';
 import { cn } from '@/lib/cn';
@@ -62,7 +86,9 @@ export function ChannelDialog({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<ChannelTab>('overview');
-  const title = chat ? `${chat.type === 'space_voice' || chat.type === 'space_stage' ? '' : '#'}${chat.name}` : 'Create Channel';
+  const title = chat
+    ? `${chat.type === 'space_voice' || chat.type === 'space_stage' ? '' : '#'}${chat.name}`
+    : 'Create Channel';
   return (
     <Modal open onClose={onClose} size="lg" title={title}>
       {chat ? (
@@ -92,7 +118,17 @@ export function ChannelDialog({
   );
 }
 
-function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: ChatSummary; categoryId: ID | null; onClose: () => void }) {
+function Overview({
+  spaceId,
+  chat,
+  categoryId,
+  onClose,
+}: {
+  spaceId: ID;
+  chat?: ChatSummary;
+  categoryId: ID | null;
+  onClose: () => void;
+}) {
   const space = useSpace(spaceId);
   const navigate = useNavigate();
   const [type, setType] = useState<'space_text' | 'space_voice' | 'space_forum' | 'space_stage'>(
@@ -109,6 +145,8 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
   const [isPrivate, setPrivate] = useState(false);
   // Announcement channels are text channels with Publish and Follow.
   const [isNews, setNews] = useState(!!chat?.space?.isNews);
+  // Browse Channels: out of members' sidebars until they show it.
+  const [optIn, setOptIn] = useState(!!chat?.space?.optIn);
   const [busy, setBusy] = useState(false);
   // Forums are named like text channels; Stages are voice channels with a topic.
   const stage = type === 'space_stage';
@@ -125,6 +163,8 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
     try {
       if (chat) {
         const body: UpdateSpaceChannelRequest = { name: shown, nsfw };
+        // Every kind with a chat has slowmode (voice and Stage chats too).
+        body.slowmodeSeconds = slowmode as 0;
         if (voice) {
           body.userLimit = userLimit || null;
           if (bitrate !== initialBitrate) body.bitrate = bitrate;
@@ -132,9 +172,9 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
         } else {
           // Forums keep their guidelines in the Forum tab.
           if (!forum) body.topic = topic.trim() || null;
-          body.slowmodeSeconds = slowmode as 0;
           if (type === 'space_text' && isNews !== !!chat.space?.isNews) body.isNews = isNews;
         }
+        if (optIn !== !!chat.space?.optIn) body.optIn = optIn;
         await updateChannel(spaceId, chat.id, body);
       } else {
         await createChannel(spaceId, {
@@ -143,6 +183,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           categoryId: cat,
           ...(type === 'space_text' || stage ? { topic: topic.trim() || undefined } : {}),
           ...(type === 'space_text' && isNews ? { isNews: true } : {}),
+          ...(optIn ? { optIn: true } : {}),
           privateRoleIds: isPrivate ? [] : undefined,
         });
       }
@@ -185,10 +226,30 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           {(
             [
               { v: 'space_text', icon: Hash, title: 'Text', sub: 'Messages, images, links, polls' },
-              { v: 'space_voice', icon: Volume2, title: 'Voice', sub: 'Talk, video and screen share' },
-              { v: 'space_forum', icon: MessagesSquare, title: 'Forum', sub: 'Organized posts, each with its own replies' },
-              { v: 'news', icon: Megaphone, title: 'Announcement', sub: 'Important updates that other Spaces can follow' },
-              { v: 'space_stage', icon: Podcast, title: 'Stage', sub: 'Speakers talk while an audience listens' },
+              {
+                v: 'space_voice',
+                icon: Volume2,
+                title: 'Voice',
+                sub: 'Talk, video and screen share',
+              },
+              {
+                v: 'space_forum',
+                icon: MessagesSquare,
+                title: 'Forum',
+                sub: 'Organized posts, each with its own replies',
+              },
+              {
+                v: 'news',
+                icon: Megaphone,
+                title: 'Announcement',
+                sub: 'Important updates that other Spaces can follow',
+              },
+              {
+                v: 'space_stage',
+                icon: Podcast,
+                title: 'Stage',
+                sub: 'Speakers talk while an audience listens',
+              },
             ] as const
           ).map((o) => (
             <button
@@ -200,7 +261,10 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
                 setType(o.v === 'news' ? 'space_text' : o.v);
                 setNews(o.v === 'news');
               }}
-              className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors', picked(o.v) ? 'bg-selected' : 'bg-surface-2 hover:bg-hover')}
+              className={cn(
+                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+                picked(o.v) ? 'bg-selected' : 'bg-surface-2 hover:bg-hover',
+              )}
             >
               <o.icon size={22} className="text-muted" aria-hidden />
               <span className="flex-1">
@@ -211,27 +275,55 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           ))}
         </div>
       ) : null}
-      <Field label="Channel name" htmlFor="ch-name" hint={!voice && name && shown !== name ? `Will be #${shown}` : undefined}>
-        <Input id="ch-name" value={name} maxLength={CHANNEL_NAME_MAX_LENGTH} placeholder={stage ? 'Town Hall' : voice ? 'Lounge' : forum ? 'new-forum' : 'new-channel'} onChange={(e) => setName(e.target.value)} autoFocus data-testid="channel-name" />
+      <Field
+        label="Channel name"
+        htmlFor="ch-name"
+        hint={!voice && name && shown !== name ? `Will be #${shown}` : undefined}
+      >
+        <Input
+          id="ch-name"
+          value={name}
+          maxLength={CHANNEL_NAME_MAX_LENGTH}
+          placeholder={stage ? 'Town Hall' : voice ? 'Lounge' : forum ? 'new-forum' : 'new-channel'}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+          data-testid="channel-name"
+        />
       </Field>
       {!chat && space && space.categories.length ? (
         <Field label="Category" htmlFor="ch-cat">
-          <select id="ch-cat" value={cat ?? ''} onChange={(e) => setCat(e.target.value || null)} className="h-11 w-full rounded-xl bg-surface-2 px-3">
+          <select
+            id="ch-cat"
+            value={cat ?? ''}
+            onChange={(e) => setCat(e.target.value || null)}
+            className="h-11 w-full rounded-xl bg-surface-2 px-3"
+          >
             <option value="">No category</option>
-            {[...space.categories].sort((a, b) => a.position - b.position).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
+            {[...space.categories]
+              .sort((a, b) => a.position - b.position)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
           </select>
         </Field>
       ) : null}
       {type === 'space_text' || stage ? (
         <Field label={stage ? 'Stage topic' : 'Channel topic'} htmlFor="ch-topic">
-          <Textarea id="ch-topic" value={topic} maxLength={CHANNEL_TOPIC_MAX_LENGTH} rows={2} placeholder={stage ? 'What is the Stage about?' : 'Let everyone know how to use this channel'} onChange={(e) => setTopic(e.target.value)} />
+          <Textarea
+            id="ch-topic"
+            value={topic}
+            maxLength={CHANNEL_TOPIC_MAX_LENGTH}
+            rows={2}
+            placeholder={
+              stage ? 'What is the Stage about?' : 'Let everyone know how to use this channel'
+            }
+            onChange={(e) => setTopic(e.target.value)}
+          />
         </Field>
       ) : null}
-      {chat && !voice ? (
+      {chat ? (
         <Field
           label={`Slowmode: ${slowmodeLabel(slowmode)}`}
           htmlFor="ch-slow"
@@ -246,7 +338,10 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
             type="range"
             min={0}
             max={SLOWMODE_OPTIONS.length - 1}
-            value={Math.max(0, SLOWMODE_OPTIONS.indexOf(slowmode as (typeof SLOWMODE_OPTIONS)[number]))}
+            value={Math.max(
+              0,
+              SLOWMODE_OPTIONS.indexOf(slowmode as (typeof SLOWMODE_OPTIONS)[number]),
+            )}
             aria-valuetext={slowmodeLabel(slowmode)}
             onChange={(e) => setSlowmode(SLOWMODE_OPTIONS[Number(e.target.value)] ?? 0)}
             className="w-full accent-[var(--color-brand)]"
@@ -259,7 +354,12 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
         </Field>
       ) : null}
       {chat ? (
-        <Switch checked={nsfw} onChange={setNsfw} label="Age-Restricted Channel" description="Members confirm they are over 18 before viewing its content." />
+        <Switch
+          checked={nsfw}
+          onChange={setNsfw}
+          label="Age-Restricted Channel"
+          description="Members confirm they are over 18 before viewing its content."
+        />
       ) : null}
       {chat && type === 'space_text' ? (
         <Switch
@@ -269,9 +369,19 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           description="Posts reach Spaces outside this one: they can follow this channel, and the messages you publish show up in their own channels."
         />
       ) : null}
+      <Switch
+        checked={optIn}
+        onChange={setOptIn}
+        label="Hide by default"
+        description="Members show it in Browse Channels. It doesn’t change who can see it."
+      />
       {chat && voice ? (
         <>
-          <Field label={`Bitrate: ${Math.round(bitrate / 1000)}kbps`} htmlFor="ch-bitrate" hint="Higher sounds better but needs more bandwidth. Keep it at 64kbps or lower for people on slow connections.">
+          <Field
+            label={`Bitrate: ${Math.round(bitrate / 1000)}kbps`}
+            htmlFor="ch-bitrate"
+            hint="Higher sounds better but needs more bandwidth. Keep it at 64kbps or lower for people on slow connections."
+          >
             <input
               id="ch-bitrate"
               type="range"
@@ -289,7 +399,11 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
               <span>{VOICE_MAX_BITRATE / 1000}kbps</span>
             </div>
           </Field>
-          <Field label={`User limit: ${userLimit ? `${userLimit} users` : 'No limit'}`} htmlFor="ch-limit" hint="How many people can join at once. Members who can move members are not limited.">
+          <Field
+            label={`User limit: ${userLimit ? `${userLimit} users` : 'No limit'}`}
+            htmlFor="ch-limit"
+            hint="How many people can join at once. Members who can move members are not limited."
+          >
             <input
               id="ch-limit"
               type="range"
@@ -308,11 +422,22 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
         </>
       ) : null}
       {!chat ? (
-        <Switch checked={isPrivate} onChange={setPrivate} label="Private channel" description="Only you can see it until you add roles or members in its permissions." />
+        <Switch
+          checked={isPrivate}
+          onChange={setPrivate}
+          label="Private channel"
+          description="Only you can see it until you add roles or members in its permissions."
+        />
       ) : null}
       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
         {chat ? (
-          <Button variant="ghost" type="button" leftIcon={Trash2} className="mr-auto text-danger" onClick={() => void remove()}>
+          <Button
+            variant="ghost"
+            type="button"
+            leftIcon={Trash2}
+            className="mr-auto text-danger"
+            onClick={() => void remove()}
+          >
             Delete Channel
           </Button>
         ) : null}
@@ -337,7 +462,10 @@ function InviteRow({ invite, onRevoke }: { invite: SpaceInvite; onRevoke: () => 
         <p className="text-[13px] text-muted">
           {inviter ? `${userDisplayName(inviter)} · ` : ''}
           {invite.uses}
-          {invite.maxUses ? ` / ${invite.maxUses}` : ''} uses · {invite.expiresAt ? `expires ${new Date(invite.expiresAt).toLocaleString()}` : 'never expires'}
+          {invite.maxUses ? ` / ${invite.maxUses}` : ''} uses ·{' '}
+          {invite.expiresAt
+            ? `expires ${new Date(invite.expiresAt).toLocaleString()}`
+            : 'never expires'}
         </p>
       </div>
       <Button size="sm" variant="ghost" className="text-danger" onClick={onRevoke}>
@@ -366,7 +494,12 @@ function ChannelInvites({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
   if (error) return <p className="text-danger">{error}</p>;
   if (!list) return <Spinner />;
   if (list.length === 0)
-    return <EmptyState title="No invites yet" description="Invites created from this channel's menu → Invite People land here." />;
+    return (
+      <EmptyState
+        title="No invites yet"
+        description="Invites created from this channel's menu → Invite People land here."
+      />
+    );
   return (
     <div className="card-inset flex flex-col p-1">
       {list.map((inv) => (
@@ -386,14 +519,25 @@ function ChannelInvites({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
 
 type Tri = 'allow' | 'neutral' | 'deny';
 
-function TriState({ value, onChange, label }: { value: Tri; onChange: (v: Tri) => void; label: string }) {
+function TriState({
+  value,
+  onChange,
+  label,
+}: {
+  value: Tri;
+  onChange: (v: Tri) => void;
+  label: string;
+}) {
   const btn = (v: Tri, Icon: typeof Check, tone: string) => (
     <button
       type="button"
       aria-label={`${label}: ${v}`}
       aria-pressed={value === v}
       onClick={() => onChange(v)}
-      className={cn('flex size-8 items-center justify-center rounded-lg transition-colors', value === v ? tone : 'text-muted hover:bg-hover')}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-lg transition-colors',
+        value === v ? tone : 'text-muted hover:bg-hover',
+      )}
     >
       <Icon size={16} aria-hidden />
     </button>
@@ -418,7 +562,13 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
 
   const targets = useMemo(() => {
     const out = new Map<string, PermissionOverwrite>();
-    if (everyoneId) out.set(`role:${everyoneId}`, { targetType: 'role', targetId: everyoneId, allow: 0, deny: 0 });
+    if (everyoneId)
+      out.set(`role:${everyoneId}`, {
+        targetType: 'role',
+        targetId: everyoneId,
+        allow: 0,
+        deny: 0,
+      });
     for (const o of overwrites ?? []) out.set(`${o.targetType}:${o.targetId}`, o);
     for (const [k, o] of Object.entries(draft)) out.set(k, o);
     return out;
@@ -431,7 +581,9 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
   const current = selected ? targets.get(selected) : undefined;
   // Forums take the text channel permissions (SEND_MESSAGES creates posts).
   const groups = PERMISSION_GROUPS.filter((g) =>
-    g.channel.includes(chat.type === 'space_voice' || chat.type === 'space_stage' ? 'space_voice' : 'space_text'),
+    g.channel.includes(
+      chat.type === 'space_voice' || chat.type === 'space_stage' ? 'space_voice' : 'space_text',
+    ),
   );
   const valueOf = (bit: number): Tri =>
     !current ? 'neutral' : current.allow & bit ? 'allow' : current.deny & bit ? 'deny' : 'neutral';
@@ -449,7 +601,12 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
     try {
       for (const o of Object.values(draft)) {
         const empty = o.allow === 0 && o.deny === 0;
-        await setChannelOverwrite(spaceId, chat.id, { type: o.targetType, id: o.targetId }, empty ? null : { allow: o.allow, deny: o.deny });
+        await setChannelOverwrite(
+          spaceId,
+          chat.id,
+          { type: o.targetType, id: o.targetId },
+          empty ? null : { allow: o.allow, deny: o.deny },
+        );
       }
       setDraft({});
       toast.success('Permissions saved');
@@ -466,10 +623,18 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
       {chat.space?.categoryId ? (
         <div className="card-inset flex items-center gap-3 p-3 text-[14px]">
           <span className="flex-1 text-muted">
-            {chat.space.permissionsSynced ? 'Synced with its category.' : 'Not synced with its category.'}
+            {chat.space.permissionsSynced
+              ? 'Synced with its category.'
+              : 'Not synced with its category.'}
           </span>
           {!chat.space.permissionsSynced ? (
-            <Button size="sm" variant="soft" onClick={() => void syncChannel(spaceId, chat.id).catch((e: unknown) => toast.error(e))}>
+            <Button
+              size="sm"
+              variant="soft"
+              onClick={() =>
+                void syncChannel(spaceId, chat.id).catch((e: unknown) => toast.error(e))
+              }
+            >
               Sync now
             </Button>
           ) : null}
@@ -478,19 +643,30 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="flex shrink-0 flex-col gap-1 sm:w-48">
           <div className="flex items-center justify-between px-1">
-            <span className="text-[12px] font-bold tracking-wide text-muted uppercase">Roles / members</span>
+            <span className="text-[12px] font-bold tracking-wide text-muted uppercase">
+              Roles / members
+            </span>
             <DropdownMenu
               aria-label="Add a role"
               items={addable.map((r) => ({
                 label: r.name,
                 onSelect: () => {
                   const k = `role:${r.id}`;
-                  setDraft((d) => ({ ...d, [k]: { targetType: 'role', targetId: r.id, allow: 0, deny: 0 } }));
+                  setDraft((d) => ({
+                    ...d,
+                    [k]: { targetType: 'role', targetId: r.id, allow: 0, deny: 0 },
+                  }));
                   setSelected(k);
                 },
               }))}
               trigger={(p) => (
-                <button type="button" {...p} aria-label="Add a role" className="rounded p-1 text-muted hover:text-fg" disabled={!addable.length}>
+                <button
+                  type="button"
+                  {...p}
+                  aria-label="Add a role"
+                  className="rounded p-1 text-muted hover:text-fg"
+                  disabled={!addable.length}
+                >
                   <Plus size={16} aria-hidden />
                 </button>
               )}
@@ -501,7 +677,10 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
               key={k}
               type="button"
               onClick={() => setSelected(k)}
-              className={cn('truncate rounded-lg px-3 py-2 text-left text-[14px]', selected === k ? 'bg-selected font-semibold' : 'hover:bg-hover')}
+              className={cn(
+                'truncate rounded-lg px-3 py-2 text-left text-[14px]',
+                selected === k ? 'bg-selected font-semibold' : 'hover:bg-hover',
+              )}
             >
               {labelOf(o)}
             </button>
@@ -510,14 +689,20 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
         <div className="min-w-0 flex-1">
           {groups.map((g) => (
             <section key={g.title} className="mb-4">
-              <h3 className="mb-1 text-[12px] font-bold tracking-wide text-muted uppercase">{g.title}</h3>
+              <h3 className="mb-1 text-[12px] font-bold tracking-wide text-muted uppercase">
+                {g.title}
+              </h3>
               {g.items.map((p) => (
                 <div key={p.bit} className="flex items-center gap-3 py-2">
                   <div className="min-w-0 flex-1">
                     <div className="text-[15px] font-medium">{p.label}</div>
                     <div className="text-[13px] text-muted">{p.description}</div>
                   </div>
-                  <TriState label={p.label} value={valueOf(p.bit)} onChange={(v) => set(p.bit, v)} />
+                  <TriState
+                    label={p.label}
+                    value={valueOf(p.bit)}
+                    onChange={(v) => set(p.bit, v)}
+                  />
                 </div>
               ))}
             </section>

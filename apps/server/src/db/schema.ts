@@ -973,6 +973,10 @@ export const spaceAuditLog = pgTable(
   },
   (t) => [
     index('space_audit_log_space_idx').on(t.spaceId, t.createdAt),
+    /** Mod View: what happened to one member. */
+    index('space_audit_log_target_idx')
+      .on(t.spaceId, t.targetId, t.createdAt)
+      .where(sql`${t.targetId} is not null`),
     index('space_audit_log_created_idx').on(t.createdAt),
   ],
 );
