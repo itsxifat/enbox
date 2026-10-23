@@ -61,6 +61,8 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
       'per-server',
       'server profile',
       'space profile',
+      'server tag',
+      'space tag',
     ],
     wide: true,
   },

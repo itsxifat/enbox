@@ -1,14 +1,16 @@
+import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { isMuted, type ChatSummary } from '@enbox/shared';
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useSidePanel } from '@/stores/sidePanel';
-import { useSidebarThreads } from '@/stores/threads';
+import { useSidebarThreads, useThreads } from '@/stores/threads';
 import { openThread } from './actions';
 
 /**
- * The active threads I joined or recently viewed, nested under their channel in the channel
- * sidebar (Discord: indented rows on a branch line; unread ones bold). A click opens the
+ * The active threads and posts I follow, nested under their text channel or forum in the
+ * channel sidebar (Discord: indented rows on a branch line; unread ones bold), and the one open
+ * beside its channel. The Space's followed list loads with its sidebar. A click opens the
  * thread beside its channel (going to the channel first when another one is open).
  */
 export function SidebarThreads({ channel }: { channel: ChatSummary }) {
@@ -16,10 +18,23 @@ export function SidebarThreads({ channel }: { channel: ChatSummary }) {
   const openId = useSidePanel((s) => (s.panel?.kind === 'thread' ? s.panel.threadId : null));
   const { chatId } = useParams<{ chatId?: string }>();
   const navigate = useNavigate();
-  if (channel.type !== 'space_text' || threads.length === 0) return null;
   const spaceId = channel.space?.spaceId;
+  const nests = channel.type === 'space_text' || channel.type === 'space_forum';
+  const loaded = useThreads((s) => (spaceId ? s.followed[spaceId] !== undefined : true));
+  useEffect(() => {
+    if (nests && spaceId && !loaded)
+      void useThreads
+        .getState()
+        .loadFollowed(spaceId)
+        .catch(() => undefined);
+  }, [nests, spaceId, loaded]);
+  if (!nests || threads.length === 0) return null;
+  const forum = channel.type === 'space_forum';
   return (
-    <ul className="relative mt-0.5 ml-[18px] flex flex-col" aria-label={`Threads in ${channel.name ?? 'channel'}`}>
+    <ul
+      className="relative mt-0.5 ml-[18px] flex flex-col"
+      aria-label={`${forum ? 'Posts' : 'Threads'} in ${channel.name ?? 'channel'}`}
+    >
       {threads.map((t, i) => {
         const active = t.id === openId;
         const unread = t.lastSeq > t.lastReadSeq && !isMuted(t.mutedUntil);

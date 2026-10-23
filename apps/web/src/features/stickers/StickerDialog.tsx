@@ -153,7 +153,7 @@ export function StickerDialog({
 
   const previewUrl = chosen?.url ?? sticker?.url ?? null;
   const animated = chosen ? chosen.prepared.animated : !!sticker?.animated;
-  const playing = useStickerPlayback(previewRef, animated, 'open');
+  const playing = useStickerPlayback(previewRef, animated, 'open', 'sticker');
 
   return (
     <Modal

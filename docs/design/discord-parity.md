@@ -318,102 +318,102 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| layout-app-shell-columns | Desktop four-column shell | partial | W1-B | XL |
+| layout-app-shell-columns | Desktop four-column shell | exists | W1-B | XL |
 | layout-title-bar | Top title bar | missing | W1-B | M |
 | layout-back-forward-navigation | Back / Forward navigation | partial | W1-B | S |
 | layout-ui-refresh-2025 | 2025 visual refresh | partial | W1-F | L |
-| layout-shape-language | Circles for people, squircles for things | partial | W1-A | M |
+| layout-shape-language | Circles for people, squircles for things | exists | W1-A | M |
 | layout-ui-density | UI density | missing | W1-F | S |
-| layout-themes-base | App themes | partial | W1-F | L |
+| layout-themes-base | App themes | exists | W1-F | L |
 | layout-message-display-cozy-compact | Cozy vs Compact display | partial | W2-B | M |
 | layout-chat-font-scaling-zoom | Chat font scaling and zoom | partial | W1-F | S |
-| layout-rail-home-button | Rail Home button | missing | W1-A | S |
-| layout-rail-unread-dm-bubbles | Unread DM avatars on the rail | missing | W1-A | S |
-| layout-rail-separator | Rail separator | partial | W1-A | S |
-| layout-rail-server-icons | Server icons on the rail | partial | W1-A | M |
-| layout-rail-pill-indicator | Rail pill indicator | partial | W1-A | S |
-| layout-rail-mention-badge | Rail mention badges | partial | W1-A | S |
+| layout-rail-home-button | Rail Home button | exists | W1-A | S |
+| layout-rail-unread-dm-bubbles | Unread DM avatars on the rail | exists | W1-A | S |
+| layout-rail-separator | Rail separator | exists | W1-A | S |
+| layout-rail-server-icons | Server icons on the rail | exists | W1-A | M |
+| layout-rail-pill-indicator | Rail pill indicator | exists | W1-A | S |
+| layout-rail-mention-badge | Rail mention badges | exists | W1-A | S |
 | layout-rail-activity-badges | Rail voice/event/live glyphs | missing | W8-C | S |
 | layout-rail-offscreen-mentions | Off-screen rail indicators | missing | W1-A | S |
-| layout-rail-folders | Server folders | missing | W5-E | L |
-| layout-rail-drag-reorder | Rail drag reorder | missing | W1-A | M |
-| layout-rail-add-server | Add a Server | partial | W12-F | M |
-| layout-rail-discover | Discover button | missing | W12-C | L |
+| layout-rail-folders | Server folders | exists | W5-E | L |
+| layout-rail-drag-reorder | Rail drag reorder | exists | W1-A | M |
+| layout-rail-add-server | Add a Server | exists | W12-F | M |
+| layout-rail-discover | Discover button | exists | W12-C | L |
 | layout-rail-download-apps | Download Apps button | missing | W1-A | S |
-| layout-rail-server-context-menu | Server icon context menu | missing | W2-E | M |
-| layout-server-preview-mode | Server preview (lurk) | missing | W12-C | L |
-| layout-dm-sidebar-search | Find or start a conversation | missing | W1-C | S |
-| layout-dm-sidebar-nav-links | Home sidebar fixed links | missing | W1-C | S |
-| layout-dm-create-dm | Create DM / group DM popout | partial | W7-E | M |
-| layout-dm-list-rows | DM list rows | partial | W1-C | M |
+| layout-rail-server-context-menu | Server icon context menu | exists | W2-E | M |
+| layout-server-preview-mode | Server preview (lurk) | exists | W12-C | L |
+| layout-dm-sidebar-search | Find or start a conversation | exists | W1-C | S |
+| layout-dm-sidebar-nav-links | Home sidebar fixed links | exists | W1-C | S |
+| layout-dm-create-dm | Create DM / group DM popout | exists | W7-E | M |
+| layout-dm-list-rows | DM list rows | exists | W1-C | M |
 | layout-dm-list-ordering | DM list ordering and paging | partial | W4-B | L |
-| layout-dm-pinning | Pin DMs | partial | W1-C | S |
+| layout-dm-pinning | Pin DMs | exists | W1-C | S |
 | layout-dm-context-menu | DM row context menu | partial | W7-D | M |
 | layout-dm-bulk-leave-groups | Bulk-leave inactive group DMs | missing | W7-E | S |
 | layout-dm-wave-prompt | Wave prompt for new friends | missing | W7-B | S |
-| layout-dm-message-requests | Message Requests inbox | missing | W7-C | L |
+| layout-dm-message-requests | Message Requests inbox | exists | W7-C | L |
 | layout-dm-header-toolbar | DM header | partial | W7-D | M |
 | layout-dm-profile-side-panel | DM profile side panel | partial | W7-D | M |
 | layout-dm-call-area | DM call area | partial | W9-D | M |
-| layout-friends-page | Friends page | missing | W7-A | XL |
-| layout-friends-row-actions | Friend row actions | missing | W7-A | S |
-| layout-friends-pending | Pending friend requests | missing | W7-A | M |
-| layout-friends-blocked-ignored | Blocked tab and Ignore | partial | W7-F | M |
-| layout-friends-add-friend | Add Friend panel | missing | W7-A | M |
-| layout-friends-active-now | Active Now column | missing | W9-E | M |
-| layout-friends-empty-states | Friends empty states | missing | W7-A | S |
+| layout-friends-page | Friends page | exists | W7-A | XL |
+| layout-friends-row-actions | Friend row actions | exists | W7-A | S |
+| layout-friends-pending | Pending friend requests | exists | W7-A | M |
+| layout-friends-blocked-ignored | Blocked tab and Ignore | exists | W7-F | M |
+| layout-friends-add-friend | Add Friend panel | exists | W7-A | M |
+| layout-friends-active-now | Active Now column | exists | W9-E | M |
+| layout-friends-empty-states | Friends empty states | exists | W7-A | S |
 | layout-friend-nicknames-favorites | Friend nicknames and favourites | partial | W7-A | S |
 | layout-friend-online-notifications | Friend-online notifications | missing | W7-B | M |
 | layout-home-nitro-page | Nitro page (becomes Perks) | missing | W3-E | S |
-| layout-home-shop-page | Shop page (Collectibles) | missing | W3-E | M |
+| layout-home-shop-page | Shop page (Collectibles) | exists | W3-E | M |
 | layout-home-quests-page | Quests page (achievements) | missing | W15-E | L |
-| layout-channel-sidebar-header | Server header and banner | partial | W2-E | S |
-| layout-channel-sidebar-top-links | Channel sidebar shortcuts | missing | W12-B | S |
-| layout-channel-categories | Collapsible categories | partial | W2-E | M |
-| layout-channel-rows | Channel rows and states | partial | W2-E | S |
-| layout-channel-voice-occupants | Voice occupants in the sidebar | missing | W8-C | L |
+| layout-channel-sidebar-header | Server header and banner | exists | W2-E | S |
+| layout-channel-sidebar-top-links | Channel sidebar shortcuts | exists | W12-B | S |
+| layout-channel-categories | Collapsible categories | exists | W2-E | M |
+| layout-channel-rows | Channel rows and states | exists | W2-E | S |
+| layout-channel-voice-occupants | Voice occupants in the sidebar | exists | W8-C | L |
 | layout-channel-unread-jump-pills | Unread/mention jump pills | missing | W2-E | S |
 | layout-channel-list-resize | Resizable sidebar | missing | W1-B | S |
 | layout-channel-pinning | Pin channels | missing | W2-E | S |
-| layout-channel-hide-muted | Hide muted channels | missing | W2-E | S |
-| layout-channel-reorder-drag | Drag-reorder channels and categories | partial | W4-F | M |
-| layout-user-panel | User panel | missing | W1-D | M |
-| layout-user-panel-account-popout | Account / status popout | partial | W1-D | M |
-| layout-voice-connection-panel | Voice connection panel | missing | W8-D | M |
+| layout-channel-hide-muted | Hide muted channels | exists | W2-E | S |
+| layout-channel-reorder-drag | Drag-reorder channels and categories | exists | W4-F | M |
+| layout-user-panel | User panel | exists | W1-D | M |
+| layout-user-panel-account-popout | Account / status popout | exists | W1-D | M |
+| layout-voice-connection-panel | Voice connection panel | exists | W8-D | M |
 | layout-user-panel-activity | Now-playing panel | missing | W15-B | L |
 | layout-in-app-pip | In-app picture-in-picture | partial | W8-B | S |
-| layout-channel-header | Server channel header | partial | W2-E | S |
-| layout-header-threads-button | Threads popout | missing | W10-B | M |
-| layout-header-notification-bell | Channel notification bell | partial | W2-E | S |
-| layout-header-pins | Pinned messages popout | partial | W2-D | M |
-| layout-member-list-toggle | Member list toggle | partial | W2-E | S |
+| layout-channel-header | Server channel header | exists | W2-E | S |
+| layout-header-threads-button | Threads popout | exists | W10-B | M |
+| layout-header-notification-bell | Channel notification bell | exists | W2-E | S |
+| layout-header-pins | Pinned messages popout | exists | W2-D | M |
+| layout-member-list-toggle | Member list toggle | exists | W2-E | S |
 | layout-member-list | Member list panel | partial | W11-F | XL |
-| layout-header-search | Header search and results | partial | W4-E | L |
-| layout-inbox | Inbox popout | missing | W5-C | L |
+| layout-header-search | Header search and results | exists | W4-E | L |
+| layout-inbox | Inbox popout | exists | W5-C | L |
 | layout-help-button | Help button | partial | W1-B | S |
-| layout-thread-side-panel | Thread side panel | missing | W10-A | L |
-| layout-voice-channel-view | Voice/stage view | missing | W8-B | XL |
-| layout-quick-switcher | Quick Switcher | missing | W4-D | M |
-| layout-quick-switcher-prefixes | Quick Switcher prefixes | missing | W4-D | S |
-| layout-shortcuts-modal | Shortcuts overlay | missing | W4-C | S |
-| layout-shortcuts-navigation | Navigation shortcuts | missing | W4-C | M |
+| layout-thread-side-panel | Thread side panel | exists | W10-A | L |
+| layout-voice-channel-view | Voice/stage view | exists | W8-B | XL |
+| layout-quick-switcher | Quick Switcher | exists | W4-D | M |
+| layout-quick-switcher-prefixes | Quick Switcher prefixes | exists | W4-D | S |
+| layout-shortcuts-modal | Shortcuts overlay | exists | W4-C | S |
+| layout-shortcuts-navigation | Navigation shortcuts | exists | W4-C | M |
 | layout-shortcuts-panels-chat | Panel and chat shortcuts | partial | W4-C | M |
 | layout-message-keyboard-navigation | Keyboard message navigation | missing | W4-C | M |
 | layout-keybinds-settings | Custom keybinds page | missing | W8-E | M |
 | layout-mobile-overall | Mobile layout | partial | W1-B | L |
 | layout-mobile-swipe-panels | Mobile swipe panels | missing | W16-A | L |
-| layout-mobile-you-bar | Mobile You Bar | missing | W1-D | M |
-| layout-mobile-bottom-tabs-legacy | Mobile bottom tabs | partial | W1-B | S |
+| layout-mobile-you-bar | Mobile You Bar | exists | W1-D | M |
+| layout-mobile-bottom-tabs-legacy | Mobile bottom tabs | exists | W1-B | S |
 | layout-mobile-dm-list | Mobile Messages list | partial | W1-C | S |
-| layout-mobile-notifications | Mobile Notifications feed | missing | W5-C | L |
-| layout-mobile-you-page | Mobile You page | partial | W1-D | M |
+| layout-mobile-notifications | Mobile Notifications feed | exists | W5-C | L |
+| layout-mobile-you-page | Mobile You page | exists | W1-D | M |
 | layout-mobile-launchpad | Mobile Launchpad | missing | W4-D | S |
 | layout-mobile-server-view | Mobile server channel list | partial | W16-A | S |
 | layout-mobile-voice-bar | Mobile voice bar and PiP | partial | W9-D | S |
 | layout-tablet-layout | Tablet layout | partial | W1-B | M |
 | layout-responsive-breakpoints | Responsive width budget | partial | W1-B | M |
-| layout-window-title-favicon | Window title and unread favicon | missing | W5-F | S |
-| layout-taskbar-badge-tray | App badge (tray in W16-D) | missing | W5-F | S |
+| layout-window-title-favicon | Window title and unread favicon | exists | W5-F | S |
+| layout-taskbar-badge-tray | App badge (tray in W16-D) | exists | W5-F | S |
 | layout-desktop-window-behaviors | Desktop window behaviours | missing | W16-D | L |
 | layout-loading-and-connection | Loading and connection state | partial | W5-F | M |
 | layout-notice-banners | Notice banners | partial | W1-B | S |
@@ -421,12 +421,12 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | layout-remember-last-location | Remembered locations and links | partial | W1-B | M |
 | layout-read-state-sync | Cross-device read state | partial | W4-B | M |
 | layout-user-context-menu | User context menu | partial | W2-F | M |
-| layout-developer-mode-ids | Developer Mode copy ID | missing | W2-D | S |
-| layout-settings-modal | User Settings full-screen layout | partial | W1-E | M |
+| layout-developer-mode-ids | Developer Mode copy ID | exists | W2-D | S |
+| layout-settings-modal | User Settings full-screen layout | exists | W1-E | M |
 | layout-whats-new-changelog | What's New | missing | W1-E | S |
-| layout-streamer-mode | Streamer Mode | missing | W5-F | S |
+| layout-streamer-mode | Streamer Mode | exists | W5-F | S |
 | layout-accessibility-layout | Accessibility layout options | partial | W16-E | M |
-| layout-nameplates-in-lists | Nameplates and decorations in lists | missing | W3-C | M |
+| layout-nameplates-in-lists | Nameplates and decorations in lists | exists | W3-C | M |
 | layout-in-game-overlay | In-game overlay (overlay window) | missing | W16-D | XL |
 | layout-empty-states-wumpus | Illustrated empty states | partial | W2-B | M |
 
@@ -434,7 +434,7 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| messaging-composer | Chat bar | partial | W2-C | L |
+| messaging-composer | Chat bar | exists | W2-C | L |
 | messaging-character-limit | Length limit and counter | partial | W2-C | S |
 | messaging-composer-markdown-preview | Live markdown preview | missing | W6-F | L |
 | messaging-composer-formatting-toolbar | Selection formatting toolbar | missing | W6-F | M |
@@ -443,123 +443,123 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | messaging-spellcheck | Spellcheck toggle | partial | W2-C | S |
 | messaging-send-button-setting | Show send button | partial | W2-C | S |
 | messaging-drafts | Per-channel drafts | exists | W2-C | S |
-| messaging-drag-drop-paste | Drag-and-drop and paste | partial | W2-C | S |
-| messaging-upload-tray | Attachment tray | missing | W6-D | XL |
+| messaging-drag-drop-paste | Drag-and-drop and paste | exists | W2-C | S |
+| messaging-upload-tray | Attachment tray | exists | W6-D | XL |
 | messaging-upload-limits | Upload limits | partial | W6-D | S |
 | messaging-image-editing | Edit image before sending | partial | W6-D | M |
 | messaging-media-keyboard | Mobile media keyboard | partial | W2-C | S |
 | messaging-silent-messages | @silent messages | missing | W2-C | S |
-| messaging-tts | Text-to-speech messages | missing | W6-F | M |
-| messaging-builtin-commands | Built-in slash commands | missing | W6-F | M |
-| messaging-markdown-emphasis | Markdown emphasis | partial | W2-A | L |
-| messaging-markdown-headers | Markdown headers | missing | W2-A | S |
-| messaging-markdown-subtext | Markdown subtext | missing | W2-A | S |
-| messaging-markdown-lists | Markdown lists | missing | W2-A | S |
-| messaging-markdown-masked-links | Masked links | missing | W2-A | S |
-| messaging-markdown-autolinks | Autolinks | partial | W2-A | M |
-| messaging-markdown-blockquotes | Block quotes | missing | W2-A | S |
-| messaging-markdown-inline-code | Inline code | partial | W2-A | S |
+| messaging-tts | Text-to-speech messages | exists | W6-F | M |
+| messaging-builtin-commands | Built-in slash commands | exists | W6-F | M |
+| messaging-markdown-emphasis | Markdown emphasis | exists | W2-A | L |
+| messaging-markdown-headers | Markdown headers | exists | W2-A | S |
+| messaging-markdown-subtext | Markdown subtext | exists | W2-A | S |
+| messaging-markdown-lists | Markdown lists | exists | W2-A | S |
+| messaging-markdown-masked-links | Masked links | exists | W2-A | S |
+| messaging-markdown-autolinks | Autolinks | exists | W2-A | M |
+| messaging-markdown-blockquotes | Block quotes | exists | W2-A | S |
+| messaging-markdown-inline-code | Inline code | exists | W2-A | S |
 | messaging-markdown-code-blocks | Code blocks with highlighting | partial | W2-A | M |
 | messaging-markdown-ansi | ANSI code blocks | missing | W2-A | S |
-| messaging-markdown-spoilers | Spoiler text | missing | W2-A | M |
-| messaging-markdown-escaping | Escaping | missing | W2-A | S |
-| messaging-timestamps | Dynamic timestamps | missing | W2-A | S |
+| messaging-markdown-spoilers | Spoiler text | exists | W2-A | M |
+| messaging-markdown-escaping | Escaping | exists | W2-A | S |
+| messaging-timestamps | Dynamic timestamps | exists | W2-A | S |
 | messaging-time-picker | @time picker | missing | W2-C | M |
-| messaging-mention-users | User mentions | partial | W2-F | S |
-| messaging-mention-roles | Role mentions | partial | W2-F | M |
-| messaging-mention-everyone-here | @everyone and @here | partial | W2-C | M |
+| messaging-mention-users | User mentions | exists | W2-F | S |
+| messaging-mention-roles | Role mentions | exists | W2-F | M |
+| messaging-mention-everyone-here | @everyone and @here | exists | W2-C | M |
 | messaging-mention-channels | Channel mentions | missing | W2-A | M |
 | messaging-mention-slash-commands | Slash command mentions | missing | W14-C | S |
 | messaging-mention-guild-navigation | Server navigation mentions | missing | W12-A | S |
 | messaging-mention-game | @game mentions | missing | W15-D | L |
 | messaging-mention-highlight | Mention highlighting | partial | W2-B | S |
-| messaging-replies | Inline replies | partial | W2-B | M |
-| messaging-reply-ping-toggle | Reply ping toggle | missing | W2-C | S |
-| messaging-threads | Threads from messages | missing | W10-A | XL |
-| messaging-threads-browser | Threads browser | missing | W10-B | M |
+| messaging-replies | Inline replies | exists | W2-B | M |
+| messaging-reply-ping-toggle | Reply ping toggle | exists | W2-C | S |
+| messaging-threads | Threads from messages | exists | W10-A | XL |
+| messaging-threads-browser | Threads browser | exists | W10-B | M |
 | messaging-private-threads | Private threads | missing | W10-A | M |
-| messaging-thread-archive | Thread archive, lock, close | missing | W10-B | M |
-| messaging-reactions | Emoji reactions | partial | W6-A | L |
-| messaging-double-tap-react | Double-tap to react | missing | W6-A | S |
-| messaging-reaction-list | Who reacted | partial | W6-A | M |
-| messaging-reaction-moderation | Removing reactions | missing | W6-A | S |
+| messaging-thread-archive | Thread archive, lock, close | exists | W10-B | M |
+| messaging-reactions | Emoji reactions | exists | W6-A | L |
+| messaging-double-tap-react | Double-tap to react | exists | W6-A | S |
+| messaging-reaction-list | Who reacted | exists | W6-A | M |
+| messaging-reaction-moderation | Removing reactions | exists | W6-A | S |
 | messaging-super-reactions | Super reactions | missing | W6-A | M |
 | messaging-reaction-notifications | Reaction notifications | missing | W6-A | M |
-| messaging-emoji-picker | Emoji picker | partial | W6-C | L |
-| messaging-custom-emoji | Custom server emoji | missing | W6-B | XL |
-| messaging-animated-emoji | Animated emoji playback | partial | W6-B | S |
-| messaging-jumbo-emoji | Jumbo emoji | partial | W2-B | S |
+| messaging-emoji-picker | Emoji picker | exists | W6-C | L |
+| messaging-custom-emoji | Custom server emoji | exists | W6-B | XL |
+| messaging-animated-emoji | Animated emoji playback | exists | W6-B | S |
+| messaging-jumbo-emoji | Jumbo emoji | exists | W2-B | S |
 | messaging-emoji-popout | Emoji info popout | missing | W6-B | S |
-| messaging-stickers | Stickers | missing | W6-B | XL |
-| messaging-sticker-suggestions | Sticker suggestions | missing | W6-B | S |
+| messaging-stickers | Stickers | exists | W6-B | XL |
+| messaging-sticker-suggestions | Sticker suggestions | exists | W6-B | S |
 | messaging-gif-picker | GIF picker | missing | W6-C | L |
 | messaging-gif-favorites | Favourite GIFs | missing | W6-C | M |
-| messaging-gif-autoplay | GIF autoplay | partial | W6-C | S |
-| messaging-attachment-images | Images and mosaic | partial | W6-D | M |
+| messaging-gif-autoplay | GIF autoplay | exists | W6-C | S |
+| messaging-attachment-images | Images and mosaic | exists | W6-D | M |
 | messaging-media-viewer | Media viewer | partial | W6-D | S |
-| messaging-attachment-video | Inline video player | partial | W2-B | S |
-| messaging-attachment-audio | Inline audio player | partial | W2-B | S |
+| messaging-attachment-video | Inline video player | exists | W2-B | S |
+| messaging-attachment-audio | Inline audio player | exists | W2-B | S |
 | messaging-attachment-files | Files and text previews | partial | W6-D | M |
-| messaging-attachment-alt-text | Alt text | missing | W6-D | S |
-| messaging-attachment-spoiler | Spoiler attachments | missing | W6-D | S |
+| messaging-attachment-alt-text | Alt text | exists | W6-D | S |
+| messaging-attachment-spoiler | Spoiler attachments | exists | W6-D | S |
 | messaging-attachment-cdn-expiry | Signed expiring media URLs | missing | W13-F | L |
-| messaging-voice-messages | Voice messages | partial | W6-D | M |
+| messaging-voice-messages | Voice messages | exists | W6-D | M |
 | messaging-polls | Polls | partial | W5-D | M |
 | messaging-forwarding | Forwarding | partial | W6-F | M |
-| messaging-message-links | Message links | partial | W2-D | S |
+| messaging-message-links | Message links | exists | W2-D | S |
 | messaging-jump-to-message | Jump to message | exists | W2-B | S |
-| messaging-jump-to-present | Jump to present | partial | W2-D | S |
-| messaging-unread-divider | NEW divider | partial | W2-B | S |
+| messaging-jump-to-present | Jump to present | exists | W2-D | S |
+| messaging-unread-divider | NEW divider | exists | W2-B | S |
 | messaging-new-messages-bar | New messages top bar | missing | W2-D | S |
-| messaging-mark-unread | Mark Unread | partial | W2-D | S |
+| messaging-mark-unread | Mark Unread | exists | W2-D | S |
 | messaging-mark-read | Mark as read | partial | W4-C | M |
-| messaging-no-read-receipts | No receipts in Spaces | partial | W2-D | S |
-| messaging-pending-failed | Pending and failed states | partial | W2-B | S |
-| messaging-pins | Pinned messages | partial | W2-D | M |
-| messaging-edit | Editing | partial | W2-D | M |
-| messaging-edited-marker | (edited) marker | partial | W2-B | S |
-| messaging-delete | Deleting | partial | W2-D | M |
+| messaging-no-read-receipts | No receipts in Spaces | exists | W2-D | S |
+| messaging-pending-failed | Pending and failed states | exists | W2-B | S |
+| messaging-pins | Pinned messages | exists | W2-D | M |
+| messaging-edit | Editing | exists | W2-D | M |
+| messaging-edited-marker | (edited) marker | exists | W2-B | S |
+| messaging-delete | Deleting | exists | W2-D | M |
 | messaging-bulk-delete | Bulk delete | partial | W11-D | M |
-| messaging-suppress-embeds | Remove embeds | missing | W6-E | S |
-| messaging-report-message | Report message | missing | W7-F | M |
-| messaging-copy-text | Copy Text and selection | partial | W2-D | S |
-| messaging-copy-id-developer-mode | Copy Message ID | missing | W2-D | S |
-| messaging-hover-action-bar | Hover action bar | partial | W2-D | M |
-| messaging-context-menu | Message context menu | partial | W2-D | M |
-| messaging-mobile-action-sheet | Mobile action sheet | partial | W2-D | S |
-| messaging-swipe-to-reply | Swipe to reply | partial | W2-B | S |
+| messaging-suppress-embeds | Remove embeds | exists | W6-E | S |
+| messaging-report-message | Report message | exists | W7-F | M |
+| messaging-copy-text | Copy Text and selection | exists | W2-D | S |
+| messaging-copy-id-developer-mode | Copy Message ID | exists | W2-D | S |
+| messaging-hover-action-bar | Hover action bar | exists | W2-D | M |
+| messaging-context-menu | Message context menu | exists | W2-D | M |
+| messaging-mobile-action-sheet | Mobile action sheet | exists | W2-D | S |
+| messaging-swipe-to-reply | Swipe to reply | exists | W2-B | S |
 | messaging-typing-indicator | Typing indicator | partial | W2-C | S |
 | messaging-slowmode | Slowmode | partial | W2-C | M |
-| messaging-composer-states | Composer locked states | partial | W2-C | S |
+| messaging-composer-states | Composer locked states | exists | W2-C | S |
 | messaging-permission-gating | Messaging permissions | partial | W4-A | L |
 | messaging-read-history-permission | Read Message History gate | missing | W4-A | S |
-| messaging-message-requests | Message Requests | missing | W7-C | L |
+| messaging-message-requests | Message Requests | exists | W7-C | L |
 | messaging-spam-filter | DM spam filter | missing | W7-C | L |
 | messaging-sensitive-media | Sensitive media filter | missing | W13-E | L |
 | messaging-blocked-messages | Blocked users' messages | partial | W2-B | S |
-| messaging-ignore-user | Ignore user | missing | W7-F | M |
+| messaging-ignore-user | Ignore user | exists | W7-F | M |
 | messaging-link-safety | Leaving-app link warning | missing | W2-A | S |
-| messaging-automod-block | AutoMod blocked messages | missing | W11-B | XL |
-| messaging-embeds-link | Link embeds | partial | W6-E | L |
-| messaging-embeds-direct-media | Direct media links | missing | W6-E | M |
-| messaging-embeds-video-players | Video site players | missing | W6-E | M |
-| messaging-embeds-music | Music embeds | missing | W6-E | S |
-| messaging-embeds-social | Social post embeds | missing | W6-E | L |
-| messaging-embeds-rich | Rich embeds | missing | W10-E | M |
-| messaging-invite-embeds | Invite cards | missing | W6-E | S |
+| messaging-automod-block | AutoMod blocked messages | exists | W11-B | XL |
+| messaging-embeds-link | Link embeds | exists | W6-E | L |
+| messaging-embeds-direct-media | Direct media links | partial | W6-E | M |
+| messaging-embeds-video-players | Video site players | exists | W6-E | M |
+| messaging-embeds-music | Music embeds | exists | W6-E | S |
+| messaging-embeds-social | Social post embeds | partial | W6-E | L |
+| messaging-embeds-rich | Rich embeds | exists | W10-E | M |
+| messaging-invite-embeds | Invite cards | exists | W6-E | S |
 | messaging-embed-settings | Embed and media settings | partial | W6-E | S |
 | messaging-system-join | Join system messages | partial | W2-B | S |
 | messaging-system-boost | Boost system messages | missing | excluded | S |
-| messaging-system-pin | Pin system message | partial | W2-B | S |
-| messaging-system-other | Other system messages | partial | W2-B | M |
-| messaging-channel-beginning | Channel and DM intro headers | missing | W2-B | S |
+| messaging-system-pin | Pin system message | exists | W2-B | S |
+| messaging-system-other | Other system messages | exists | W2-B | M |
+| messaging-channel-beginning | Channel and DM intro headers | partial | W2-B | S |
 | messaging-history-scroll | History loading and scroll | partial | W2-B | S |
-| messaging-message-grouping | Message grouping | partial | W2-B | S |
-| messaging-date-dividers | Date separators | partial | W2-B | S |
+| messaging-message-grouping | Message grouping | exists | W2-B | S |
+| messaging-date-dividers | Date separators | exists | W2-B | S |
 | messaging-message-timestamps | Message timestamps | partial | W2-B | S |
 | messaging-display-modes | Cozy and Compact display | partial | W2-B | L |
-| messaging-author-header | Author line | partial | W2-B | M |
-| messaging-profile-popout-from-message | Profile popout from chat | partial | W2-F | M |
+| messaging-author-header | Author line | exists | W2-B | M |
+| messaging-profile-popout-from-message | Profile popout from chat | exists | W2-F | M |
 | messaging-slash-commands | App slash commands | missing | W14-C | XL |
 | messaging-context-menu-commands | Context-menu commands | missing | W14-C | M |
 | messaging-app-launcher | App Launcher | missing | W14-E | M |
@@ -568,22 +568,22 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | messaging-components-selects | Select menus | missing | W14-D | M |
 | messaging-components-v2 | Components V2 | missing | W14-D | L |
 | messaging-modals | App modals | missing | W14-D | M |
-| messaging-ephemeral-messages | Ephemeral messages | missing | W2-C | M |
-| messaging-webhooks | Webhook messages | missing | W10-E | L |
-| messaging-announcement-publish | Publish announcements | missing | W10-F | L |
-| messaging-search | Message search | partial | W4-E | L |
-| messaging-search-filters | Search filters | missing | W4-E | M |
-| messaging-search-results | Search results panel | missing | W4-E | M |
+| messaging-ephemeral-messages | Ephemeral messages | partial | W2-C | M |
+| messaging-webhooks | Webhook messages | exists | W10-E | L |
+| messaging-announcement-publish | Publish announcements | exists | W10-F | L |
+| messaging-search | Message search | exists | W4-E | L |
+| messaging-search-filters | Search filters | exists | W4-E | M |
+| messaging-search-results | Search results panel | exists | W4-E | M |
 | messaging-search-mobile-tabs | Mobile search tabs | partial | W4-E | M |
-| messaging-inbox | Inbox | missing | W5-C | M |
-| messaging-inbox-mentions | Inbox Mentions | missing | W5-C | L |
-| messaging-inbox-unreads | Inbox Unreads | missing | W5-C | M |
+| messaging-inbox | Inbox | exists | W5-C | M |
+| messaging-inbox-mentions | Inbox Mentions | exists | W5-C | L |
+| messaging-inbox-unreads | Inbox Unreads | exists | W5-C | M |
 | messaging-inbox-for-you | Inbox For You | missing | W5-C | M |
 | messaging-bookmarks | Bookmarks | partial | W5-D | M |
 | messaging-reminders | Remind Me | missing | W5-D | M |
-| messaging-text-in-voice | Text chat in voice | missing | W8-F | M |
+| messaging-text-in-voice | Text chat in voice | exists | W8-F | M |
 | messaging-spoiler-channels | Spoiler channels | missing | W13-E | S |
-| messaging-dm-chat | DM conversations on Discord rows | partial | W7-D | L |
+| messaging-dm-chat | DM conversations on Discord rows | exists | W7-D | L |
 | messaging-notification-quick-reply | Notification actions | missing | W5-B | M |
 | messaging-share-sheet | Share target | missing | W16-A | M |
 | messaging-keyboard-shortcuts | Messaging shortcuts | partial | W4-C | M |
@@ -596,81 +596,81 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| servers-server-rail | Guild rail | partial | W1-A | L |
-| servers-folders | Server folders | missing | W5-E | M |
-| servers-create-server | Create a server | partial | W12-F | M |
+| servers-server-rail | Guild rail | exists | W1-A | L |
+| servers-folders | Server folders | exists | W5-E | M |
+| servers-create-server | Create a server | exists | W12-F | M |
 | servers-new-server-checklist | Setup checklist | missing | W12-B | S |
-| servers-join-via-invite | Join via invite | partial | W12-D | M |
-| servers-preview-lurk | Preview (lurking) | missing | W12-C | L |
+| servers-join-via-invite | Join via invite | exists | W12-D | M |
+| servers-preview-lurk | Preview (lurking) | exists | W12-C | L |
 | servers-limits | Structure limits | partial | W4-B | S |
-| servers-header-menu | Server header menu | partial | W2-E | S |
-| servers-channel-list-banner | Banner in channel list | partial | W2-E | S |
-| servers-server-context-menu | Server icon menu | missing | W2-E | M |
-| servers-leave | Leave server | partial | W2-E | S |
-| servers-delete-server | Delete server | partial | W12-F | S |
-| servers-transfer-ownership | Transfer ownership | partial | W2-F | S |
-| servers-owner-crown | Owner crown | partial | W2-F | S |
+| servers-header-menu | Server header menu | exists | W2-E | S |
+| servers-channel-list-banner | Banner in channel list | exists | W2-E | S |
+| servers-server-context-menu | Server icon menu | exists | W2-E | M |
+| servers-leave | Leave server | exists | W2-E | S |
+| servers-delete-server | Delete server | exists | W12-F | S |
+| servers-transfer-ownership | Transfer ownership | exists | W2-F | S |
+| servers-owner-crown | Owner crown | exists | W2-F | S |
 | servers-server-profile-settings | Server Profile settings | partial | W12-F | M |
 | servers-public-web-page | Public server page | missing | W12-C | M |
-| servers-engagement-settings | Engagement settings | partial | W12-F | S |
-| servers-system-messages | System messages | partial | W2-B | S |
+| servers-engagement-settings | Engagement settings | exists | W12-F | S |
+| servers-system-messages | System messages | exists | W2-B | S |
 | servers-afk-channel | AFK channel | partial | W8-A | M |
-| servers-notification-settings | Per-server notification settings | partial | W5-A | M |
-| servers-privacy-settings | Per-server privacy settings | missing | W7-C | M |
-| servers-mark-as-read | Mark as read / unread | partial | W2-E | M |
-| servers-member-nickname | Server nickname | partial | W2-F | S |
-| servers-member-server-profile | Per-server profile | missing | W3-F | L |
-| servers-profile-popout-server | Server details in popout | missing | W2-F | M |
+| servers-notification-settings | Per-server notification settings | exists | W5-A | M |
+| servers-privacy-settings | Per-server privacy settings | exists | W7-C | M |
+| servers-mark-as-read | Mark as read / unread | exists | W2-E | M |
+| servers-member-nickname | Server nickname | exists | W2-F | S |
+| servers-member-server-profile | Per-server profile | exists | W3-F | L |
+| servers-profile-popout-server | Server details in popout | exists | W2-F | M |
 | servers-server-tag-wear | Wear a server tag | missing | W3-F | M |
 | servers-server-tag-setup | Server tag setup | missing | W3-F | M |
-| servers-channel-list | Channel list | partial | W2-E | M |
-| servers-categories | Categories | partial | W2-E | M |
-| servers-create-channel | Create Channel modal | partial | W4-F | S |
-| servers-reorder-channels | Drag reorder | partial | W4-F | M |
-| servers-text-channel | Text channels | partial | W2-E | M |
+| servers-channel-list | Channel list | exists | W2-E | M |
+| servers-categories | Categories | exists | W2-E | M |
+| servers-create-channel | Create Channel modal | exists | W4-F | S |
+| servers-reorder-channels | Drag reorder | exists | W4-F | M |
+| servers-text-channel | Text channels | exists | W2-E | M |
 | servers-channel-header | Channel header and welcome | partial | W2-E | M |
 | servers-slowmode | Slowmode | partial | W2-C | S |
 | servers-age-restricted-channel | Age-restricted channels | partial | W13-E | M |
 | servers-spoiler-channel | Spoiler channels | missing | W13-E | S |
-| servers-voice-channel | Voice channels | partial | W8-A | XL |
-| servers-text-in-voice | Text in voice | missing | W8-F | M |
-| servers-voice-channel-status | Voice channel status | missing | W8-C | S |
-| servers-voice-moderation | Voice moderation | partial | W8-A | M |
-| servers-stage-channel | Stage channels | missing | W9-B | L |
-| servers-announcement-channel | Announcement channels | missing | W10-F | L |
-| servers-forum-channel | Forum channels | missing | W10-C | XL |
-| servers-forum-new-post | Forum post composer | missing | W10-C | M |
-| servers-forum-tags | Forum tags | missing | W10-C | M |
+| servers-voice-channel | Voice channels | exists | W8-A | XL |
+| servers-text-in-voice | Text in voice | exists | W8-F | M |
+| servers-voice-channel-status | Voice channel status | exists | W8-C | S |
+| servers-voice-moderation | Voice moderation | exists | W8-A | M |
+| servers-stage-channel | Stage channels | exists | W9-B | L |
+| servers-announcement-channel | Announcement channels | exists | W10-F | L |
+| servers-forum-channel | Forum channels | exists | W10-C | XL |
+| servers-forum-new-post | Forum post composer | exists | W10-C | M |
+| servers-forum-tags | Forum tags | exists | W10-C | M |
 | servers-forum-post-actions | Forum post actions | missing | W10-D | M |
 | servers-media-channel | Media channels | missing | W10-D | M |
 | servers-rules-and-updates-channels | Rules and updates channels | partial | W12-A | S |
-| servers-private-channels | Private channels | partial | W4-F | S |
-| servers-channel-permission-overwrites | Permission overwrites | partial | W4-F | M |
-| servers-permission-sync | Category permission sync | partial | W4-F | S |
-| servers-channel-settings | Channel settings pages | partial | W4-F | M |
-| servers-clone-channel | Duplicate channel | missing | W4-F | S |
-| servers-delete-channel | Delete channel or category | partial | W4-F | S |
-| servers-channel-context-menu | Channel context menu | partial | W2-E | S |
+| servers-private-channels | Private channels | exists | W4-F | S |
+| servers-channel-permission-overwrites | Permission overwrites | exists | W4-F | M |
+| servers-permission-sync | Category permission sync | exists | W4-F | S |
+| servers-channel-settings | Channel settings pages | exists | W4-F | M |
+| servers-clone-channel | Duplicate channel | exists | W4-F | S |
+| servers-delete-channel | Delete channel or category | exists | W4-F | S |
+| servers-channel-context-menu | Channel context menu | exists | W2-E | S |
 | servers-pin-channels | Pin channels | missing | W2-E | S |
-| servers-hide-muted-channels | Hide muted channels | missing | W2-E | S |
-| servers-browse-channels | Browse Channels | missing | W12-B | M |
-| servers-channels-and-roles | Channels & Roles | missing | W12-B | M |
+| servers-hide-muted-channels | Hide muted channels | exists | W2-E | S |
+| servers-browse-channels | Browse Channels | exists | W12-B | M |
+| servers-channels-and-roles | Channels & Roles | exists | W12-B | M |
 | servers-channel-links-mentions | Channel mentions and links | partial | W2-A | M |
 | servers-channel-naming | Channel naming | exists | W4-F | S |
-| servers-threads-public | Public threads | missing | W10-A | XL |
+| servers-threads-public | Public threads | exists | W10-A | XL |
 | servers-threads-private | Private threads | missing | W10-A | M |
-| servers-thread-archive-lock | Thread archive and lock | missing | W10-B | M |
-| servers-threads-browser | Threads browser | missing | W10-B | M |
-| servers-thread-actions | Thread actions | missing | W10-B | M |
-| servers-announcement-threads | Announcement threads | missing | W10-B | S |
+| servers-thread-archive-lock | Thread archive and lock | exists | W10-B | M |
+| servers-threads-browser | Threads browser | exists | W10-B | M |
+| servers-thread-actions | Thread actions | exists | W10-B | M |
+| servers-announcement-threads | Announcement threads | exists | W10-B | S |
 | servers-roles-page | Roles page | partial | W4-A | M |
-| servers-role-display | Role display settings | partial | W3-F | S |
-| servers-enhanced-role-styles | Gradient/holographic roles | missing | W3-F | S |
-| servers-role-icons | Role icons | missing | W3-F | S |
+| servers-role-display | Role display settings | exists | W3-F | S |
+| servers-enhanced-role-styles | Gradient/holographic roles | exists | W3-F | S |
+| servers-role-icons | Role icons | exists | W3-F | S |
 | servers-role-permissions | Role permissions (64-bit) | partial | W4-A | L |
 | servers-role-hierarchy | Role hierarchy | exists | W4-A | S |
-| servers-role-members | Assign roles | partial | W4-A | S |
-| servers-role-mentions | Role, @everyone, @here mentions | partial | W2-F | S |
+| servers-role-members | Assign roles | exists | W4-A | S |
+| servers-role-mentions | Role, @everyone, @here mentions | exists | W2-F | S |
 | servers-view-as-role | View Server As Role | missing | W4-A | M |
 | servers-duplicate-role | Duplicate role | missing | W4-A | S |
 | servers-linked-roles | Linked roles | missing | W15-C | XL |
@@ -678,83 +678,83 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | servers-everyone-role | @everyone role | exists | W4-A | S |
 | servers-member-list | Member list service | partial | W11-E | XL |
 | servers-member-context-menu | Member context menu | partial | W2-F | M |
-| servers-members-page | Members page | partial | W11-D | M |
-| servers-mod-view | Mod View | missing | W11-D | M |
-| servers-timeout | Time out | partial | W2-F | S |
-| servers-kick | Kick | partial | W2-F | S |
-| servers-ban | Ban with purge | partial | W11-D | M |
+| servers-members-page | Members page | exists | W11-D | M |
+| servers-mod-view | Mod View | exists | W11-D | M |
+| servers-timeout | Time out | exists | W2-F | S |
+| servers-kick | Kick | exists | W2-F | S |
+| servers-ban | Ban with purge | exists | W11-D | M |
 | servers-bans-list | Bans list | partial | W11-D | S |
 | servers-prune | Prune | missing | W11-D | M |
 | servers-access-join-modes | Join modes | missing | W12-B | S |
 | servers-member-applications | Member applications | missing | W12-B | L |
 | servers-rules-screening | Rules screening | missing | W12-A | M |
-| servers-verification-level | Verification level | missing | W11-C | M |
-| servers-explicit-media-filter | Explicit media filter | missing | W13-E | L |
+| servers-verification-level | Verification level | exists | W11-C | M |
+| servers-explicit-media-filter | Explicit media filter | partial | W13-E | L |
 | servers-2fa-moderation | 2FA for moderators | missing | W13-B | L |
-| servers-dm-spam-protection | DM and spam protection | missing | W7-C | L |
-| servers-raid-protection | Raid protection and CAPTCHA | missing | W11-C | L |
-| servers-activity-alerts | Activity alerts | missing | W11-C | M |
-| servers-security-actions | Pause invites and DMs | missing | W11-C | S |
+| servers-dm-spam-protection | DM and spam protection | partial | W7-C | L |
+| servers-raid-protection | Raid protection and CAPTCHA | partial | W11-C | L |
+| servers-activity-alerts | Activity alerts | exists | W11-C | M |
+| servers-security-actions | Pause invites and DMs | exists | W11-C | S |
 | servers-report-raid | Report raid | missing | W11-C | S |
-| servers-safety-setup | Safety Setup page | missing | W11-C | S |
-| servers-automod | AutoMod | missing | W11-A | L |
-| servers-automod-keyword | AutoMod keywords | missing | W11-A | M |
-| servers-automod-spam | AutoMod spam | missing | W11-B | M |
-| servers-automod-mention-spam | AutoMod mention spam | missing | W11-B | S |
-| servers-automod-presets | AutoMod presets | missing | W11-A | S |
+| servers-safety-setup | Safety Setup page | exists | W11-C | S |
+| servers-automod | AutoMod | exists | W11-A | L |
+| servers-automod-keyword | AutoMod keywords | exists | W11-A | M |
+| servers-automod-spam | AutoMod spam | partial | W11-B | M |
+| servers-automod-mention-spam | AutoMod mention spam | exists | W11-B | S |
+| servers-automod-presets | AutoMod presets | exists | W11-A | S |
 | servers-automod-member-profile | AutoMod profile filter | missing | W11-B | M |
-| servers-automod-responses | AutoMod responses | missing | W11-B | S |
-| servers-automod-alerts | AutoMod alerts | missing | W11-B | M |
+| servers-automod-responses | AutoMod responses | exists | W11-B | S |
+| servers-automod-alerts | AutoMod alerts | exists | W11-B | M |
 | servers-audit-log | Audit log | partial | W11-F | M |
-| servers-message-moderation | Moderator message actions | partial | W11-D | M |
+| servers-message-moderation | Moderator message actions | exists | W11-D | M |
 | servers-age-restricted-server | Age-restricted servers | missing | W13-E | S |
 | servers-new-member-badge | New member badge | missing | W2-B | S |
-| servers-emoji | Custom emoji | missing | W6-B | L |
-| servers-stickers | Custom stickers | missing | W6-B | L |
-| servers-soundboard | Soundboard | missing | W9-C | L |
+| servers-emoji | Custom emoji | exists | W6-B | L |
+| servers-stickers | Custom stickers | exists | W6-B | L |
+| servers-soundboard | Soundboard | exists | W9-C | L |
 | servers-invite-modal | Invite modal | partial | W12-D | M |
-| servers-invite-options | Invite settings | partial | W12-D | S |
+| servers-invite-options | Invite settings | exists | W12-D | S |
 | servers-temporary-membership | Temporary membership | missing | W12-D | M |
 | servers-role-invites | Role-granting invites | missing | W12-D | S |
 | servers-targeted-invites | Targeted invites | missing | W12-D | S |
 | servers-guest-invites | Guest invites | missing | W12-D | M |
-| servers-invites-management | Invites page | partial | W12-D | S |
-| servers-invite-embed | Invite cards in chat | missing | W6-E | S |
+| servers-invites-management | Invites page | exists | W12-D | S |
+| servers-invite-embed | Invite cards in chat | exists | W6-E | S |
 | servers-invite-landing-page | Invite landing page | partial | W12-D | M |
 | servers-invite-splash | Invite splash | missing | W12-D | S |
-| servers-vanity-url | Vanity URL | partial | W12-D | S |
-| servers-community-enable | Enable Community | missing | W12-A | M |
-| servers-community-overview | Community Overview | missing | W12-A | S |
-| servers-onboarding-setup | Onboarding setup | missing | W12-A | L |
-| servers-onboarding-questions | Onboarding questions | missing | W12-A | M |
-| servers-onboarding-member-flow | Onboarding member flow | missing | W12-A | M |
-| servers-server-guide | Server Guide | missing | W12-B | L |
-| servers-welcome-screen | Welcome screen | missing | W12-B | S |
-| servers-discovery-browse | Server Discovery | missing | W12-C | M |
-| servers-discovery-settings | Discovery settings | partial | W12-C | M |
-| servers-insights | Server Insights | missing | W12-F | L |
+| servers-vanity-url | Vanity URL | exists | W12-D | S |
+| servers-community-enable | Enable Community | partial | W12-A | M |
+| servers-community-overview | Community Overview | exists | W12-A | S |
+| servers-onboarding-setup | Onboarding setup | exists | W12-A | L |
+| servers-onboarding-questions | Onboarding questions | exists | W12-A | M |
+| servers-onboarding-member-flow | Onboarding member flow | exists | W12-A | M |
+| servers-server-guide | Server Guide | exists | W12-B | L |
+| servers-welcome-screen | Welcome screen | exists | W12-B | S |
+| servers-discovery-browse | Server Discovery | exists | W12-C | M |
+| servers-discovery-settings | Discovery settings | exists | W12-C | M |
+| servers-insights | Server Insights | exists | W12-F | L |
 | servers-verified-partnered | Verified badge | missing | W12-C | S |
-| servers-boosting | Boosting (free top tier) | missing | W12-D | XL |
-| servers-boost-levels | Boost levels (free) | missing | W12-D | M |
+| servers-boosting | Boosting (free top tier) | partial | W12-D | XL |
+| servers-boost-levels | Boost levels (free) | partial | W12-D | M |
 | servers-boost-perk-allocation | Perk switches (tags, role styles) | missing | W3-F | M |
 | servers-boost-progress-bar | Boost goal bar | missing | excluded | S |
 | servers-booster-recognition | Booster recognition | missing | excluded | S |
-| servers-events-create | Create event | missing | W12-E | L |
-| servers-events-list-rsvp | Events list and RSVP | missing | W12-E | M |
-| servers-events-live | Live events | missing | W12-E | M |
-| servers-events-share | Event sharing | missing | W12-E | S |
-| servers-integrations-page | Integrations page | missing | W10-F | S |
-| servers-webhooks | Webhooks | missing | W10-E | L |
+| servers-events-create | Create event | exists | W12-E | L |
+| servers-events-list-rsvp | Events list and RSVP | exists | W12-E | M |
+| servers-events-live | Live events | exists | W12-E | M |
+| servers-events-share | Event sharing | exists | W12-E | S |
+| servers-integrations-page | Integrations page | exists | W10-F | S |
+| servers-webhooks | Webhooks | exists | W10-E | L |
 | servers-add-apps | Add bots and apps | missing | W14-B | XL |
 | servers-app-command-permissions | App command permissions | missing | W14-C | M |
 | servers-app-directory | App Directory | missing | W14-E | M |
 | servers-twitch-youtube-integrations | Twitch/YouTube integrations | missing | W15-B | L |
 | servers-activities | Activities | missing | W14-E | XL |
-| servers-template | Server templates | missing | W12-F | M |
+| servers-template | Server templates | exists | W12-F | M |
 | servers-widget | Server widget | missing | W12-F | M |
-| servers-settings-navigation | Server Settings layout | partial | W1-E | S |
-| servers-unsaved-changes-bar | Unsaved changes bar | partial | W1-E | S |
-| servers-developer-ids | Copy IDs | missing | W2-D | S |
+| servers-settings-navigation | Server Settings layout | exists | W1-E | S |
+| servers-unsaved-changes-bar | Unsaved changes bar | exists | W1-E | S |
+| servers-developer-ids | Copy IDs | exists | W2-D | S |
 | servers-server-subscriptions | Server subscriptions (role-gated previews) | missing | W16-F | XL |
 | servers-hubs-directory | Directory channels | missing | W12-C | M |
 
@@ -762,96 +762,96 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| social-unique-username | Unique username | partial | W3-B | S |
-| social-display-name | Global display name | partial | W3-B | S |
+| social-unique-username | Unique username | exists | W3-B | S |
+| social-display-name | Global display name | exists | W3-B | S |
 | social-legacy-username-badge | "Originally known as" badge | missing | W3-A | S |
-| social-user-id-and-link | User ID and profile link | partial | W3-A | S |
-| social-default-avatar | Generated default avatar | partial | W3-A | S |
-| social-avatar | Avatar upload | partial | W3-B | M |
-| social-profile-banner | Banner and banner colour | partial | W3-B | S |
-| social-profile-theme | Profile theme colours | partial | W3-A | M |
-| social-about-me | About Me with markdown | partial | W3-B | M |
+| social-user-id-and-link | User ID and profile link | exists | W3-A | S |
+| social-default-avatar | Generated default avatar | exists | W3-A | S |
+| social-avatar | Avatar upload | exists | W3-B | M |
+| social-profile-banner | Banner and banner colour | exists | W3-B | S |
+| social-profile-theme | Profile theme colours | exists | W3-A | M |
+| social-about-me | About Me with markdown | exists | W3-B | M |
 | social-pronouns | Pronouns | exists | W3-B | S |
-| social-display-name-styles | Display name styles | missing | W3-D | L |
-| social-avatar-decorations | Avatar decorations | missing | W3-C | L |
-| social-profile-effects | Profile effects | missing | W3-D | M |
-| social-nameplates | Nameplates | missing | W3-C | M |
+| social-display-name-styles | Display name styles | exists | W3-D | L |
+| social-avatar-decorations | Avatar decorations | exists | W3-C | L |
+| social-profile-effects | Profile effects | exists | W3-D | M |
+| social-nameplates | Nameplates | exists | W3-C | M |
 | social-profile-frames | Profile frames | missing | W3-D | M |
-| social-shop-collectibles | Collectibles catalogue | missing | W3-E | M |
+| social-shop-collectibles | Collectibles catalogue | exists | W3-E | M |
 | social-orbs-quests | Orbs and Quests (achievements) | missing | W15-E | L |
-| social-wishlist | Wishlist (favourites shelf) | missing | W3-E | S |
+| social-wishlist | Wishlist (favourites shelf) | partial | W3-E | S |
 | social-profile-widgets | Profile widgets | missing | W15-D | L |
 | social-game-profiles | Game profiles | missing | W15-D | M |
 | social-server-tags | Server tags | missing | W3-F | L |
-| social-badges | Profile badges | missing | W3-A | M |
-| social-tenure-badges | Tenure badges | missing | W3-A | S |
-| social-per-server-profile | Per-server profiles | partial | W3-F | L |
+| social-badges | Profile badges | exists | W3-A | M |
+| social-tenure-badges | Tenure badges | exists | W3-A | S |
+| social-per-server-profile | Per-server profiles | exists | W3-F | L |
 | social-server-nickname | Server nickname | exists | W2-F | S |
-| social-profile-popout | Profile popout | partial | W3-A | L |
-| social-full-profile-modal | Full profile modal | partial | W3-A | M |
+| social-profile-popout | Profile popout | exists | W3-A | L |
+| social-full-profile-modal | Full profile modal | exists | W3-A | M |
 | social-dm-profile-panel | DM profile panel | partial | W7-D | M |
 | social-mobile-profile-sheet | Mobile profile sheet | partial | W3-A | M |
-| social-profile-editor | Profile editor with preview | partial | W3-B | L |
-| social-account-panel | Own account panel | missing | W1-D | M |
+| social-profile-editor | Profile editor with preview | exists | W3-B | L |
+| social-account-panel | Own account panel | exists | W1-D | M |
 | social-user-context-menu | User context menu | partial | W2-F | M |
-| social-member-since | Member since dates | partial | W2-F | S |
-| social-mutuals | Mutual servers and friends | partial | W7-D | M |
-| social-roles-in-profile | Roles in profile | missing | W2-F | S |
-| social-enhanced-role-styles | Role styles on names | missing | W3-F | M |
-| social-user-notes | Private notes | missing | W7-D | S |
+| social-member-since | Member since dates | exists | W2-F | S |
+| social-mutuals | Mutual servers and friends | exists | W7-D | M |
+| social-roles-in-profile | Roles in profile | exists | W2-F | S |
+| social-enhanced-role-styles | Role styles on names | exists | W3-F | M |
+| social-user-notes | Private notes | exists | W7-D | S |
 | social-friend-nicknames | Friend nicknames | partial | W7-A | S |
 | social-connections | Connections | missing | W15-A | XL |
 | social-linked-roles | Linked roles | missing | W15-C | XL |
 | social-presence-status | Presence status | exists | W1-D | S |
-| social-status-duration | Status duration | partial | W1-D | S |
+| social-status-duration | Status duration | exists | W1-D | S |
 | social-mobile-indicator | Mobile online indicator | missing | W4-B | M |
 | social-streaming-status | Streaming status | missing | W15-B | L |
-| social-custom-status | Custom status | partial | W1-D | S |
+| social-custom-status | Custom status | exists | W1-D | S |
 | social-status-reactions-replies | React and reply to status | missing | W7-D | S |
 | social-activity-rich-presence | Activity and rich presence | missing | W14-F | XL |
 | social-game-invites-join | Join / Ask to Join | missing | W14-F | XL |
 | social-spotify-listen-along | Listen Along | missing | W15-B | L |
 | social-game-detection | Game detection | missing | W16-D | XL |
 | social-recent-activity | Recent activity | missing | W14-F | M |
-| social-active-now | Active Now | missing | W9-E | M |
+| social-active-now | Active Now | exists | W9-E | M |
 | social-activity-privacy | Activity privacy | missing | W14-F | S |
-| social-friends-list | Friends list | missing | W7-A | M |
-| social-add-friend | Add Friend by username | missing | W7-A | S |
-| social-friend-requests | Friend requests | missing | W7-A | L |
+| social-friends-list | Friends list | exists | W7-A | M |
+| social-add-friend | Add Friend by username | exists | W7-A | S |
+| social-friend-requests | Friend requests | exists | W7-A | L |
 | social-friend-request-note | Request note | missing | W7-A | S |
 | social-friend-request-spam | Spam request filtering | missing | W7-B | M |
-| social-friend-request-settings | Who can send requests | missing | W7-B | S |
+| social-friend-request-settings | Who can send requests | exists | W7-B | S |
 | social-friend-invite-links | Friend invite links | missing | W7-B | M |
 | social-contact-sync | Contact matching | partial | W7-B | M |
-| social-remove-friend | Remove friend | missing | W7-A | S |
+| social-remove-friend | Remove friend | exists | W7-A | S |
 | social-favorite-friends | Favourite friends | missing | W7-A | S |
 | social-friend-online-notifications | Friend online alerts | missing | W7-B | M |
-| social-block | Block | partial | W7-F | M |
-| social-ignore | Ignore | missing | W7-F | M |
-| social-blocked-ignored-lists | Blocked and ignored lists | partial | W7-F | S |
-| social-report-user | Report user | missing | W7-F | M |
-| social-dm-list | DM list | partial | W1-C | L |
-| social-dm-create | Start a DM / group DM | partial | W7-E | M |
+| social-block | Block | exists | W7-F | M |
+| social-ignore | Ignore | exists | W7-F | M |
+| social-blocked-ignored-lists | Blocked and ignored lists | exists | W7-F | S |
+| social-report-user | Report user | exists | W7-F | M |
+| social-dm-list | DM list | exists | W1-C | L |
+| social-dm-create | Start a DM / group DM | exists | W7-E | M |
 | social-dm-header | DM header and intro | partial | W7-D | M |
 | social-dm-mute-read | DM mute and read controls | partial | W1-C | S |
-| social-message-requests | Message requests | missing | W7-C | L |
+| social-message-requests | Message requests | exists | W7-C | L |
 | social-dm-spam-filter | DM spam filter | missing | W7-C | L |
-| social-dm-permissions | Who can DM you | missing | W7-C | M |
+| social-dm-permissions | Who can DM you | exists | W7-C | M |
 | social-dm-safety-alerts | DM safety alerts | missing | W7-C | M |
 | social-sensitive-media-filter | Sensitive media filter | missing | W13-E | L |
-| social-group-dm | Group DMs (10) | partial | W7-E | L |
-| social-group-dm-name-icon | Group DM name and icon | partial | W7-E | S |
-| social-group-dm-owner | Group DM owner | partial | W7-E | S |
+| social-group-dm | Group DMs (10) | exists | W7-E | L |
+| social-group-dm-name-icon | Group DM name and icon | exists | W7-E | S |
+| social-group-dm-owner | Group DM owner | exists | W7-E | S |
 | social-group-dm-invites | Group DM invite links | partial | W7-E | S |
-| social-group-dm-leave | Leave silently | partial | W7-E | S |
+| social-group-dm-leave | Leave silently | exists | W7-E | S |
 | social-profile-privacy | Profile privacy | partial | W13-D | L |
-| social-streamer-mode | Streamer mode | missing | W5-F | S |
+| social-streamer-mode | Streamer mode | exists | W5-F | S |
 | social-data-privacy | Data and privacy page | missing | W13-D | S |
 | social-data-download | Data export | missing | W13-D | L |
 | social-account-email | Email and verification | missing | W13-A | L |
 | social-account-phone | Phone verification | partial | W13-C | M |
 | social-account-password | Password change and reset | partial | W13-A | S |
-| social-mfa | Multi-factor authentication | missing | W13-B | XL |
+| social-mfa | Multi-factor authentication | exists | W13-B | XL |
 | social-passkey-login | Passkey login | missing | W13-B | M |
 | social-qr-login | QR login | missing | W13-B | M |
 | social-account-switcher | Account switcher | missing | W1-D | M |
@@ -863,93 +863,93 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | social-age-assurance | Age assurance | missing | W13-F | XL |
 | social-family-center | Family Center | missing | W13-F | XL |
 | social-settings-sync | Settings sync | partial | W1-F | M |
-| social-settings-shell | Settings shell | partial | W1-E | L |
+| social-settings-shell | Settings shell | exists | W1-E | L |
 | social-share-profile | Share profile link | partial | W3-A | S |
 | social-app-profiles | Bot and app profiles | missing | W14-A | L |
-| social-cosmetic-motion-settings | Cosmetic motion controls | partial | W3-C | S |
+| social-cosmetic-motion-settings | Cosmetic motion controls | exists | W3-C | S |
 
 ### Voice, video and live
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| voice-channel-join | Join a voice channel | partial | W8-A | XL |
-| voice-sidebar-participants | Occupants in the sidebar | missing | W8-C | M |
-| voice-speaking-indicator | Speaking indicators | partial | W8-B | S |
-| voice-channel-user-limit | User limit | partial | W8-A | S |
-| voice-channel-bitrate | Bitrate | missing | W8-F | S |
+| voice-channel-join | Join a voice channel | exists | W8-A | XL |
+| voice-sidebar-participants | Occupants in the sidebar | exists | W8-C | M |
+| voice-speaking-indicator | Speaking indicators | exists | W8-B | S |
+| voice-channel-user-limit | User limit | exists | W8-A | S |
+| voice-channel-bitrate | Bitrate | partial | W8-F | S |
 | voice-channel-region | Region override | missing | W8-F | S |
 | voice-channel-video-quality | Video quality mode | missing | W8-F | S |
-| voice-channel-create-settings | Voice channel settings | partial | W8-F | M |
+| voice-channel-create-settings | Voice channel settings | exists | W8-F | M |
 | voice-permissions | Voice and stage permissions | partial | W4-A | L |
-| voice-channel-status | Voice channel status | missing | W8-C | S |
-| voice-text-in-voice | Text chat in voice | missing | W8-F | M |
-| voice-connection-panel | Voice Connected panel | missing | W8-D | M |
+| voice-channel-status | Voice channel status | exists | W8-C | S |
+| voice-text-in-voice | Text chat in voice | exists | W8-F | M |
+| voice-connection-panel | Voice Connected panel | exists | W8-D | M |
 | voice-connection-info | Ping, debug, privacy | missing | W8-D | S |
-| voice-mute-deafen | Self mute and deafen | partial | W8-D | M |
-| voice-input-voice-activity | Voice Activity mode | missing | W8-E | M |
-| voice-push-to-talk | Push-to-talk | missing | W8-E | M |
-| voice-keybinds | Voice keybinds | missing | W8-E | M |
+| voice-mute-deafen | Self mute and deafen | exists | W8-D | M |
+| voice-input-voice-activity | Voice Activity mode | exists | W8-E | M |
+| voice-push-to-talk | Push-to-talk | exists | W8-E | M |
+| voice-keybinds | Voice keybinds | partial | W8-E | M |
 | voice-input-profiles | Input profiles | partial | W8-D | S |
-| voice-noise-suppression | Noise suppression | partial | W8-D | S |
-| voice-echo-gain-processing | Echo, noise, gain | partial | W8-D | S |
+| voice-noise-suppression | Noise suppression | exists | W8-D | S |
+| voice-echo-gain-processing | Echo, noise, gain | exists | W8-D | S |
 | voice-devices-volume | Devices and volumes | partial | W8-D | M |
-| voice-mic-test | Mic test | missing | W8-D | S |
+| voice-mic-test | Mic test | exists | W8-D | S |
 | voice-attenuation | Attenuation (in-app ducking) | missing | W8-D | S |
 | voice-advanced-settings | Advanced voice settings | missing | W8-D | S |
 | voice-sound-notifications | Call and voice sounds | partial | W5-B | S |
-| voice-per-user-volume | Per-user volume | missing | W8-C | M |
-| voice-user-context-menu | Voice participant menu | partial | W8-C | M |
-| voice-server-mute-deafen | Server mute and deafen | partial | W8-A | S |
-| voice-move-members | Move members | missing | W8-A | M |
-| voice-disconnect-member | Disconnect member | missing | W8-A | S |
+| voice-per-user-volume | Per-user volume | exists | W8-C | M |
+| voice-user-context-menu | Voice participant menu | exists | W8-C | M |
+| voice-server-mute-deafen | Server mute and deafen | exists | W8-A | S |
+| voice-move-members | Move members | exists | W8-A | M |
+| voice-disconnect-member | Disconnect member | exists | W8-A | S |
 | voice-priority-speaker | Priority speaker | missing | W8-A | S |
 | voice-afk-channel | AFK channel | partial | W8-A | M |
-| voice-dm-call-start | Start a DM call | partial | W9-D | S |
-| voice-incoming-call-ringing | Incoming call ringing | partial | W9-D | S |
-| voice-call-system-messages | Call history lines | partial | W2-B | S |
-| voice-group-dm-call | Group DM calls | partial | W9-D | M |
+| voice-dm-call-start | Start a DM call | exists | W9-D | S |
+| voice-incoming-call-ringing | Incoming call ringing | exists | W9-D | S |
+| voice-call-system-messages | Call history lines | exists | W2-B | S |
+| voice-group-dm-call | Group DM calls | exists | W9-D | M |
 | voice-dm-call-ui | DM call layout | partial | W9-D | L |
-| voice-camera | Camera | partial | W8-B | M |
+| voice-camera | Camera | exists | W8-B | M |
 | voice-video-backgrounds | Video backgrounds | missing | W9-E | M |
-| voice-video-grid | Grid and focus | partial | W8-B | L |
-| voice-call-control-bar | Call control bar | partial | W8-B | S |
+| voice-video-grid | Grid and focus | exists | W8-B | L |
+| voice-call-control-bar | Call control bar | exists | W8-B | S |
 | voice-call-fullscreen-popout-pip | Full screen, pop-out, PiP | partial | W8-B | M |
-| voice-screen-share | Screen share | partial | W9-A | L |
-| voice-go-live-game | Go Live | missing | W9-A | M |
-| voice-go-live-quality | Stream quality | missing | W9-A | S |
-| voice-go-live-watch | Watching streams | missing | W9-A | L |
+| voice-screen-share | Screen share | exists | W9-A | L |
+| voice-go-live-game | Go Live | exists | W9-A | M |
+| voice-go-live-quality | Stream quality | exists | W9-A | S |
+| voice-go-live-watch | Watching streams | exists | W9-A | L |
 | voice-stream-zoom-pan | Zoom and pan | missing | W9-A | S |
-| voice-go-live-streamer-controls | Streamer controls | missing | W9-A | M |
+| voice-go-live-streamer-controls | Streamer controls | partial | W9-A | M |
 | voice-stream-request | Request to Stream | missing | W9-A | S |
-| voice-mobile-screen-share | Mobile stream viewing | missing | W9-A | L |
-| voice-stage-channel | Stage channels | missing | W9-B | L |
-| voice-stage-start-topic | Start Stage and topic | missing | W9-B | M |
-| voice-stage-speakers-audience | Speakers and audience | missing | W9-B | M |
-| voice-stage-request-to-speak | Request to Speak | missing | W9-B | M |
-| voice-stage-video | Stage video | missing | W9-B | S |
-| voice-stage-text-chat | Stage chat | missing | W9-B | S |
-| voice-soundboard | Soundboard | missing | W9-C | L |
-| voice-soundboard-management | Soundboard management | missing | W9-C | M |
+| voice-mobile-screen-share | Mobile stream viewing | partial | W9-A | L |
+| voice-stage-channel | Stage channels | exists | W9-B | L |
+| voice-stage-start-topic | Start Stage and topic | partial | W9-B | M |
+| voice-stage-speakers-audience | Speakers and audience | exists | W9-B | M |
+| voice-stage-request-to-speak | Request to Speak | exists | W9-B | M |
+| voice-stage-video | Stage video | partial | W9-B | S |
+| voice-stage-text-chat | Stage chat | exists | W9-B | S |
+| voice-soundboard | Soundboard | exists | W9-C | L |
+| voice-soundboard-management | Soundboard management | exists | W9-C | M |
 | voice-entrance-sounds | Entrance sounds | missing | W9-C | S |
-| voice-channel-effects | Voice effects | missing | W9-C | S |
+| voice-channel-effects | Voice effects | partial | W9-C | S |
 | voice-activities | Activities in calls | missing | W14-E | XL |
-| voice-presence-in-voice | In Voice presence | missing | W8-C | M |
+| voice-presence-in-voice | In Voice presence | partial | W8-C | M |
 | voice-invite-to-voice | Invite to Voice | partial | W8-C | M |
 | voice-temporary-membership | Temporary membership | missing | W12-D | S |
-| voice-device-transfer | Move voice between devices | partial | W8-A | S |
-| voice-reconnect-rejoin | Reconnect and rejoin | partial | W8-A | S |
+| voice-device-transfer | Move voice between devices | exists | W8-A | S |
+| voice-reconnect-rejoin | Reconnect and rejoin | exists | W8-A | S |
 | voice-e2ee | End-to-end encrypted calls | partial | W9-E | XL |
 | voice-blocked-ignored-in-voice | Blocked users in voice | missing | W8-C | S |
-| voice-moderation-audit | Voice moderation audit | partial | W8-A | S |
+| voice-moderation-audit | Voice moderation audit | exists | W8-A | S |
 | voice-game-overlay | Overlay voice widget (overlay window) | missing | W16-D | XL |
 | voice-clips | Clips | missing | W16-D | L |
-| voice-mobile-voice-ui | Mobile voice experience | missing | W9-D | L |
-| voice-web-browser | Voice in the browser | partial | W8-B | S |
-| voice-scheduled-events | Voice and Stage events | missing | W12-E | L |
-| voice-streamer-mode | Streamer Mode | missing | W5-F | S |
+| voice-mobile-voice-ui | Mobile voice experience | partial | W9-D | L |
+| voice-web-browser | Voice in the browser | exists | W8-B | S |
+| voice-scheduled-events | Voice and Stage events | exists | W12-E | L |
+| voice-streamer-mode | Streamer Mode | exists | W5-F | S |
 | voice-call-feedback | Post-call feedback | missing | W8-F | S |
 | voice-bots-in-voice | Bots in voice | missing | W14-E | XL |
-| voice-server-boost-perks | Voice tier limits (free) | missing | W8-F | M |
+| voice-server-boost-perks | Voice tier limits (free) | partial | W8-F | M |
 | voice-living-room-layout | Living Room layout | missing | W16-F | M |
 | voice-accessibility | Voice accessibility | partial | W8-B | S |
 
@@ -957,63 +957,63 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| customization-settings-shell | User Settings layer | partial | W1-E | L |
-| customization-settings-search | Settings search | missing | W1-E | M |
-| customization-settings-unsaved-changes-bar | Unsaved changes guard | missing | W1-E | M |
+| customization-settings-shell | User Settings layer | exists | W1-E | L |
+| customization-settings-search | Settings search | exists | W1-E | M |
+| customization-settings-unsaved-changes-bar | Unsaved changes guard | exists | W1-E | M |
 | customization-settings-cog-quick-menu | Gear quick menu | missing | W1-E | S |
 | customization-settings-whats-new | What's New | missing | W1-E | S |
 | customization-settings-client-info | Client build info | partial | W1-E | S |
-| customization-mobile-you-tab | Mobile You tab | partial | W1-D | M |
-| customization-user-panel | Desktop user panel | partial | W1-D | M |
+| customization-mobile-you-tab | Mobile You tab | exists | W1-D | M |
+| customization-user-panel | Desktop user panel | exists | W1-D | M |
 | customization-account-switcher | Account switcher | missing | W1-D | M |
 | customization-account-overview | My Account card | partial | W1-E | S |
-| customization-account-username | Change username | partial | W3-B | S |
-| customization-profile-display-name | Display name | partial | W3-B | S |
+| customization-account-username | Change username | exists | W3-B | S |
+| customization-profile-display-name | Display name | exists | W3-B | S |
 | customization-account-email | Change email | missing | W13-A | L |
 | customization-account-phone | Phone number | partial | W13-C | M |
-| customization-account-password | Change password | partial | W13-A | M |
-| customization-account-mfa | MFA | missing | W13-B | XL |
+| customization-account-password | Change password | exists | W13-A | M |
+| customization-account-mfa | MFA | exists | W13-B | XL |
 | customization-account-removal | Disable or delete | partial | W13-C | M |
 | customization-account-standing | Account Standing | missing | W13-D | L |
 | customization-account-devices | Devices | partial | W13-C | S |
 | customization-account-family-center | Family Center | missing | W13-F | L |
-| customization-profile-editor | Profile editor | partial | W3-B | L |
-| customization-profile-live-preview | Live preview card | partial | W3-B | M |
+| customization-profile-editor | Profile editor | exists | W3-B | L |
+| customization-profile-live-preview | Live preview card | exists | W3-B | M |
 | customization-profile-pronouns | Pronouns | exists | W3-B | S |
-| customization-profile-avatar | Avatar upload and crop | partial | W3-B | M |
-| customization-profile-avatar-decoration | Avatar decorations | missing | W3-C | L |
-| customization-profile-banner | Banner image or colour | partial | W3-B | S |
-| customization-profile-theme | Profile theme colours | partial | W3-A | M |
-| customization-profile-effect | Profile effects | missing | W3-D | L |
-| customization-profile-nameplate | Nameplates | missing | W3-C | L |
+| customization-profile-avatar | Avatar upload and crop | exists | W3-B | M |
+| customization-profile-avatar-decoration | Avatar decorations | exists | W3-C | L |
+| customization-profile-banner | Banner image or colour | exists | W3-B | S |
+| customization-profile-theme | Profile theme colours | exists | W3-A | M |
+| customization-profile-effect | Profile effects | exists | W3-D | L |
+| customization-profile-nameplate | Nameplates | exists | W3-C | L |
 | customization-profile-frame | Profile frames | missing | W3-D | M |
-| customization-profile-display-name-styles | Display name styles | missing | W3-D | L |
-| customization-profile-bio | About Me formatting | partial | W3-B | S |
+| customization-profile-display-name-styles | Display name styles | exists | W3-D | L |
+| customization-profile-bio | About Me formatting | exists | W3-B | S |
 | customization-profile-server-tag | Wear a server tag | missing | W3-F | M |
 | customization-server-tag-config | Server tag config | missing | W3-F | M |
 | customization-profile-widgets | Profile widgets | missing | W15-D | L |
-| customization-profile-wishlist | Favourites shelf | missing | W3-E | S |
-| customization-profile-badges | Badges row | missing | W3-A | M |
+| customization-profile-wishlist | Favourites shelf | partial | W3-E | S |
+| customization-profile-badges | Badges row | exists | W3-A | M |
 | customization-profile-legacy-username-badge | Legacy username toggle | missing | W3-A | S |
-| customization-profile-per-server | Per-server profiles | partial | W3-F | L |
+| customization-profile-per-server | Per-server profiles | exists | W3-F | L |
 | customization-profile-privacy | Profile privacy | partial | W13-D | M |
-| customization-profile-popout | Profile popout | partial | W3-A | M |
-| customization-profile-full | Full profile page decoration | partial | W3-A | M |
+| customization-profile-popout | Profile popout | exists | W3-A | M |
+| customization-profile-full | Full profile page decoration | exists | W3-A | M |
 | customization-profile-connections-display | Connections on profile | missing | W15-A | S |
 | customization-connections | Connections | missing | W15-A | XL |
 | customization-authorized-apps | Authorized apps | missing | W14-B | L |
-| customization-profile-notes | Private notes | missing | W7-D | S |
+| customization-profile-notes | Private notes | exists | W7-D | S |
 | customization-profile-friend-nickname | Friend nicknames | partial | W7-A | S |
-| customization-profile-member-since | Member since dates | partial | W2-F | S |
-| customization-status-online | Online status picker | partial | W1-D | S |
-| customization-status-custom | Custom status | partial | W1-D | S |
-| customization-profile-collectibles | Collectibles inventory | missing | W3-E | M |
-| customization-shop | Collectibles gallery | missing | W3-E | M |
-| customization-shop-try-on | Try-on preview | missing | W3-B | S |
+| customization-profile-member-since | Member since dates | exists | W2-F | S |
+| customization-status-online | Online status picker | exists | W1-D | S |
+| customization-status-custom | Custom status | exists | W1-D | S |
+| customization-profile-collectibles | Collectibles inventory | exists | W3-E | M |
+| customization-shop | Collectibles gallery | exists | W3-E | M |
+| customization-shop-try-on | Try-on preview | exists | W3-B | S |
 | customization-shop-gifting | Suggest a cosmetic | missing | W3-E | M |
 | customization-shop-orbs-quests | Orbs and Quests | missing | W15-E | L |
 | customization-perk-model | Free perks policy | exists | W3-E | S |
-| customization-appearance-base-themes | Light, Ash, Dark, Onyx | partial | W1-F | M |
+| customization-appearance-base-themes | Light, Ash, Dark, Onyx | exists | W1-F | M |
 | customization-appearance-sync-with-computer | Sync with computer | exists | W1-F | S |
 | customization-appearance-sync-across-clients | Sync across clients | missing | W1-F | M |
 | customization-appearance-color-themes | Gradient themes | missing | W1-F | M |
@@ -1026,30 +1026,30 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | customization-appearance-zoom | App zoom | missing | W1-F | M |
 | customization-appearance-channel-list-resize | Resizable sidebar | missing | W1-B | S |
 | customization-appearance-app-icon | Custom app icon | missing | W16-E | S |
-| customization-appearance-server-folders | Folder name and colour | missing | W5-E | L |
+| customization-appearance-server-folders | Folder name and colour | exists | W5-E | L |
 | customization-a11y-saturation | Saturation | missing | W16-E | M |
 | customization-a11y-contrast | Contrast | missing | W16-E | M |
-| customization-a11y-reduced-motion | Reduced motion | partial | W1-F | S |
+| customization-a11y-reduced-motion | Reduced motion | exists | W1-F | S |
 | customization-a11y-gif-autoplay | GIF autoplay | exists | W1-F | S |
 | customization-a11y-animated-emoji | Animated emoji | missing | W6-B | S |
 | customization-a11y-sticker-animation | Sticker animation | missing | W6-B | S |
 | customization-a11y-link-underline | Underline links | missing | W16-E | S |
 | customization-a11y-role-colors | Role colour display | missing | W3-F | S |
-| customization-role-enhanced-styles | Role styles and icons | partial | W3-F | M |
-| customization-a11y-display-name-styles-toggle | Show others' name styles | missing | W3-D | S |
-| customization-a11y-tts | TTS playback | missing | W6-F | M |
+| customization-role-enhanced-styles | Role styles and icons | exists | W3-F | M |
+| customization-a11y-display-name-styles-toggle | Show others' name styles | exists | W3-D | S |
+| customization-a11y-tts | TTS playback | exists | W6-F | M |
 | customization-a11y-keyboard-navigation | Keyboard navigation | partial | W4-C | L |
 | customization-a11y-screen-reader | Screen reader | partial | W16-E | M |
 | customization-a11y-send-button | Show send button | partial | W2-C | S |
 | customization-chat-media-display | Inline media display | missing | W6-D | S |
-| customization-chat-embeds-link-previews | Embeds toggle | partial | W6-E | M |
+| customization-chat-embeds-link-previews | Embeds toggle | exists | W6-E | M |
 | customization-chat-emoji-reactions-display | Show reactions | missing | W6-A | S |
 | customization-chat-emoticon-conversion | Emoticon conversion | missing | W2-C | S |
 | customization-chat-emoji-autocomplete | Autocomplete | partial | W2-C | M |
-| customization-chat-sticker-suggestions | Sticker suggestions | missing | W6-B | S |
+| customization-chat-sticker-suggestions | Sticker suggestions | partial | W6-B | S |
 | customization-chat-rich-text-preview | Preview as you type | missing | W6-F | L |
 | customization-chat-spoiler-display | Spoiler display | missing | W2-A | S |
-| customization-chat-tap-to-react | Tap to react | missing | W6-A | S |
+| customization-chat-tap-to-react | Tap to react | partial | W6-A | S |
 | customization-chat-spellcheck | Spellcheck | partial | W2-C | S |
 | customization-notif-desktop | Desktop notifications | exists | W5-B | S |
 | customization-notif-badge-flash | Badge and flash | missing | W5-F | S |
@@ -1060,28 +1060,28 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | customization-notif-friend-online | Friend-online notifications | missing | W7-B | M |
 | customization-notif-mobile-push | Mobile push settings | partial | W5-B | M |
 | customization-notif-email | Email preferences | missing | W13-A | L |
-| customization-notif-server-level | Per-server notifications | partial | W5-A | M |
-| customization-notif-overrides | Channel/category overrides | partial | W5-A | M |
+| customization-notif-server-level | Per-server notifications | exists | W5-A | M |
+| customization-notif-overrides | Channel/category overrides | exists | W5-A | M |
 | customization-notif-mute-durations | Mute durations | partial | W1-C | S |
-| customization-notif-hide-muted-channels | Hide muted channels | missing | W2-E | S |
+| customization-notif-hide-muted-channels | Hide muted channels | exists | W2-E | S |
 | customization-notif-threads-forums | Thread notifications | missing | W10-B | M |
 | customization-notif-highlights | Highlights | missing | W13-A | L |
 | customization-notif-dnd-integration | DND and notifications | exists | W5-A | S |
-| customization-keybinds-custom | Custom keybinds | missing | W8-E | M |
+| customization-keybinds-custom | Custom keybinds | partial | W8-E | M |
 | customization-keybinds-defaults | Default shortcuts and sheet | partial | W4-C | L |
 | customization-voice-devices | Voice devices and volumes | partial | W8-D | M |
-| customization-voice-mic-test | Mic test | missing | W8-D | S |
-| customization-voice-input-mode | VAD or PTT | missing | W8-E | M |
+| customization-voice-mic-test | Mic test | exists | W8-D | S |
+| customization-voice-input-mode | VAD or PTT | exists | W8-E | M |
 | customization-voice-processing | Voice processing | exists | W8-D | S |
 | customization-voice-attenuation | Attenuation | missing | W8-D | S |
 | customization-voice-advanced | Advanced voice | missing | W8-D | S |
-| customization-voice-video-settings | Camera and backgrounds | missing | W9-E | L |
-| customization-voice-soundboard-settings | Soundboard volume, entrance sounds | missing | W9-C | M |
-| customization-voice-per-user-volume | Per-user volume | missing | W8-C | M |
-| customization-streamer-mode | Streamer Mode | missing | W5-F | M |
+| customization-voice-video-settings | Camera and backgrounds | partial | W9-E | L |
+| customization-voice-soundboard-settings | Soundboard volume, entrance sounds | partial | W9-C | M |
+| customization-voice-per-user-volume | Per-user volume | exists | W8-C | M |
+| customization-streamer-mode | Streamer Mode | exists | W5-F | M |
 | customization-language | Language | missing | W16-B | XL |
 | customization-os-settings | OS integration (install row, desktop shell) | missing | W16-D | S |
-| customization-advanced-developer-mode | Developer Mode | missing | W2-D | S |
+| customization-advanced-developer-mode | Developer Mode | exists | W2-D | S |
 | customization-advanced-hardware-acceleration | Hardware acceleration (desktop shell) | missing | W16-D | S |
 | customization-advanced-app-test-mode | App test mode | missing | W14-A | S |
 | customization-activity-privacy | Activity privacy | missing | W14-F | L |
@@ -1090,9 +1090,9 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | customization-clips-settings | Clips settings | missing | W16-D | S |
 | customization-social-sensitive-media | Sensitive media filters | missing | W13-E | L |
 | customization-social-dm-spam-filter | DM spam filter | missing | W7-C | L |
-| customization-social-server-dms | Server DMs and message requests | missing | W7-C | L |
-| customization-social-friend-requests | Who can send friend requests | missing | W7-B | M |
-| customization-social-block-ignore | Blocked and ignored users | partial | W7-F | M |
+| customization-social-server-dms | Server DMs and message requests | exists | W7-C | L |
+| customization-social-friend-requests | Who can send friend requests | exists | W7-B | M |
+| customization-social-block-ignore | Blocked and ignored users | exists | W7-F | M |
 | customization-privacy-data-usage | Data usage page | missing | W13-D | S |
 | customization-privacy-data-export | Request my data | missing | W13-D | L |
 | customization-billing-pages | Billing pages (Perks) | missing | W3-E | S |
@@ -1101,7 +1101,7 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 
 | id | name | status | wave/ws | size |
 | --- | --- | --- | --- | --- |
-| notifications-desktop-os-notifications | Desktop notifications | partial | W5-B | S |
+| notifications-desktop-os-notifications | Desktop notifications | exists | W5-B | S |
 | notifications-browser-permission-banner | Permission prompt bar | partial | W5-F | S |
 | notifications-mobile-push | Mobile push (FCM switch) | partial | W5-B | L |
 | notifications-push-inactive-timeout | Push inactive timeout | missing | W5-B | M |
@@ -1109,103 +1109,103 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | notifications-in-app-banners | In-app banners | missing | W5-B | S |
 | notifications-sounds | Notification sounds | partial | W5-B | S |
 | notifications-tts | TTS notifications | missing | W6-F | M |
-| notifications-app-badge | App and tab badge | partial | W5-F | S |
+| notifications-app-badge | App and tab badge | exists | W5-F | S |
 | notifications-taskbar-flash | Taskbar flash (title blink) | missing | W5-F | S |
 | notifications-email | Email notifications | missing | W13-A | L |
 | notifications-reaction-notifications | Reaction notifications | missing | W6-A | M |
-| notifications-friend-request-notifications | Friend request notifications | missing | W7-A | M |
-| notifications-call-ringing | Incoming call ringing | partial | W9-D | M |
+| notifications-friend-request-notifications | Friend request notifications | exists | W7-A | M |
+| notifications-call-ringing | Incoming call ringing | exists | W9-D | M |
 | notifications-stage-stream-notify | Stage and Go Live notify | missing | W9-B | L |
-| notifications-event-notifications | Event notifications | missing | W12-E | L |
+| notifications-event-notifications | Event notifications | exists | W12-E | L |
 | notifications-highlights | Highlights | missing | W13-A | L |
 | notifications-server-notification-level | Server notification level | exists | W5-A | S |
 | notifications-suppress-everyone | Suppress @everyone/@here | exists | W5-A | S |
-| notifications-suppress-roles | Suppress role mentions | missing | W5-A | S |
+| notifications-suppress-roles | Suppress role mentions | exists | W5-A | S |
 | notifications-mute-new-events | Mute new events | missing | W5-A | S |
 | notifications-mobile-push-per-server | Per-server mobile push | missing | W5-A | S |
-| notifications-channel-overrides | Channel and category overrides | partial | W5-A | M |
+| notifications-channel-overrides | Channel and category overrides | exists | W5-A | M |
 | notifications-mute | Mute with durations | partial | W1-C | M |
-| notifications-hide-muted-channels | Hide muted channels | missing | W2-E | S |
+| notifications-hide-muted-channels | Hide muted channels | exists | W2-E | S |
 | notifications-server-default-notifications | Server default level | exists | W5-A | S |
 | notifications-unread-vs-notify-split | Unread vs notify split | missing | W5-A | M |
 | notifications-dm-group-notifications | DM and group levels | partial | W5-A | S |
 | notifications-thread-notifications | Thread notifications | missing | W10-B | L |
 | notifications-dnd-status | Do Not Disturb | exists | W1-D | S |
-| notifications-profiles-gap | Quiet hours via DND + timed mutes | partial | W5-A | S |
-| notifications-streamer-mode | Streamer Mode | missing | W5-F | M |
+| notifications-profiles-gap | Quiet hours via DND + timed mutes | exists | W5-A | S |
+| notifications-streamer-mode | Streamer Mode | exists | W5-F | M |
 | notifications-game-overlay | Overlay notifications (overlay window) | missing | W16-D | XL |
 | notifications-silent-messages | @silent | missing | W2-C | S |
-| notifications-reply-ping | Reply mention toggle | missing | W2-C | S |
-| notifications-everyone-here | @everyone and @here | partial | W2-C | S |
+| notifications-reply-ping | Reply mention toggle | exists | W2-C | S |
+| notifications-everyone-here | @everyone and @here | exists | W2-C | S |
 | notifications-role-mentions | Role mentions | exists | W2-F | S |
-| notifications-mention-highlight | Mention highlight | missing | W2-B | S |
-| notifications-mention-badges | Mention badges | partial | W1-A | S |
-| notifications-unread-pill-server | Server unread pill | partial | W1-A | S |
+| notifications-mention-highlight | Mention highlight | partial | W2-B | S |
+| notifications-mention-badges | Mention badges | exists | W1-A | S |
+| notifications-unread-pill-server | Server unread pill | exists | W1-A | S |
 | notifications-unread-channel | Channel unread state | exists | W2-E | S |
-| notifications-dm-rail-stack | Unread DMs on the rail | missing | W1-A | M |
-| notifications-folder-unreads | Folder unreads | missing | W5-E | M |
-| notifications-new-messages-divider | NEW divider | partial | W2-B | S |
+| notifications-dm-rail-stack | Unread DMs on the rail | exists | W1-A | M |
+| notifications-folder-unreads | Folder unreads | exists | W5-E | M |
+| notifications-new-messages-divider | NEW divider | exists | W2-B | S |
 | notifications-new-messages-bar | New messages bars | partial | W2-D | S |
 | notifications-sidebar-unread-jump | Sidebar unread pills | missing | W2-E | S |
-| notifications-mark-read-channel | Mark channel read | partial | W2-D | S |
-| notifications-mark-read-server | Mark server read | missing | W2-E | M |
-| notifications-mark-read-folder-category | Mark folder/category read | missing | W2-E | S |
-| notifications-mark-unread | Mark unread | partial | W2-D | S |
+| notifications-mark-read-channel | Mark channel read | exists | W2-D | S |
+| notifications-mark-read-server | Mark server read | exists | W2-E | M |
+| notifications-mark-read-folder-category | Mark folder/category read | exists | W2-E | S |
+| notifications-mark-unread | Mark unread | exists | W2-D | S |
 | notifications-read-state-sync | Cross-device read state | exists | W2-D | S |
-| notifications-unread-keyboard | Unread shortcuts | missing | W4-C | M |
-| notifications-inbox | Inbox | missing | W5-C | M |
+| notifications-unread-keyboard | Unread shortcuts | partial | W4-C | M |
+| notifications-inbox | Inbox | exists | W5-C | M |
 | notifications-inbox-for-you | Inbox For You | missing | W5-C | M |
-| notifications-inbox-unreads | Inbox Unreads | missing | W5-C | M |
-| notifications-inbox-mentions | Inbox Mentions | missing | W5-C | M |
+| notifications-inbox-unreads | Inbox Unreads | exists | W5-C | M |
+| notifications-inbox-mentions | Inbox Mentions | exists | W5-C | M |
 | notifications-bookmarks | Bookmarks | partial | W5-D | S |
 | notifications-reminders | Reminders | missing | W5-D | M |
-| notifications-mobile-notifications-tab | Phone Notifications tab | missing | W5-C | M |
+| notifications-mobile-notifications-tab | Phone Notifications tab | exists | W5-C | M |
 | notifications-poll-ended | Poll result notices | missing | W5-D | M |
-| notifications-safety-automod | AutoMod | missing | W11-A | XL |
-| notifications-safety-automod-keywords | AutoMod keywords | missing | W11-A | M |
-| notifications-safety-automod-regex | AutoMod regex | missing | W11-A | M |
-| notifications-safety-automod-preset | AutoMod presets | missing | W11-A | M |
-| notifications-safety-automod-spam | AutoMod spam | missing | W11-B | L |
-| notifications-safety-automod-mention-spam | AutoMod mention spam | missing | W11-B | M |
+| notifications-safety-automod | AutoMod | exists | W11-A | XL |
+| notifications-safety-automod-keywords | AutoMod keywords | exists | W11-A | M |
+| notifications-safety-automod-regex | AutoMod regex | exists | W11-A | M |
+| notifications-safety-automod-preset | AutoMod presets | exists | W11-A | M |
+| notifications-safety-automod-spam | AutoMod spam | partial | W11-B | L |
+| notifications-safety-automod-mention-spam | AutoMod mention spam | exists | W11-B | M |
 | notifications-safety-automod-member-profile | Profile quarantine | missing | W11-B | M |
-| notifications-safety-automod-actions | AutoMod actions | missing | W11-B | S |
-| notifications-safety-automod-blocked-notice | Blocked-message notice | missing | W11-B | S |
-| notifications-safety-automod-alerts | AutoMod alerts | missing | W11-B | M |
-| notifications-safety-automod-exemptions | AutoMod exemptions | missing | W11-A | S |
-| notifications-safety-raid-protection | Raid protection | missing | W11-C | L |
-| notifications-safety-activity-alerts | Activity alerts | missing | W11-C | M |
-| notifications-safety-security-actions | Security actions | missing | W11-C | M |
-| notifications-safety-verification-level | Verification level | missing | W11-C | M |
-| notifications-safety-explicit-filter-server | Explicit filter | missing | W13-E | L |
+| notifications-safety-automod-actions | AutoMod actions | exists | W11-B | S |
+| notifications-safety-automod-blocked-notice | Blocked-message notice | exists | W11-B | S |
+| notifications-safety-automod-alerts | AutoMod alerts | exists | W11-B | M |
+| notifications-safety-automod-exemptions | AutoMod exemptions | exists | W11-A | S |
+| notifications-safety-raid-protection | Raid protection | partial | W11-C | L |
+| notifications-safety-activity-alerts | Activity alerts | exists | W11-C | M |
+| notifications-safety-security-actions | Security actions | exists | W11-C | M |
+| notifications-safety-verification-level | Verification level | exists | W11-C | M |
+| notifications-safety-explicit-filter-server | Explicit filter | partial | W13-E | L |
 | notifications-safety-mod-2fa | 2FA for moderators | missing | W13-B | S |
 | notifications-safety-risky-permissions | Risky @everyone cleanup | missing | W11-C | S |
-| notifications-safety-members-page | Members page signals | partial | W11-D | M |
-| notifications-safety-mod-view | Mod View | missing | W11-D | M |
-| notifications-safety-timeout | Timeout | partial | W2-F | S |
+| notifications-safety-members-page | Members page signals | exists | W11-D | M |
+| notifications-safety-mod-view | Mod View | exists | W11-D | M |
+| notifications-safety-timeout | Timeout | exists | W2-F | S |
 | notifications-safety-suspected-spammer | Suspected spammer | missing | W11-D | M |
 | notifications-safety-link-warnings | Link warnings | missing | W2-A | M |
 | notifications-safety-sensitive-media | Sensitive media (user) | missing | W13-E | M |
-| notifications-safety-sensitive-blur-ui | Blurred media UI | missing | W6-D | S |
+| notifications-safety-sensitive-blur-ui | Blurred media UI | partial | W6-D | S |
 | notifications-safety-age-restricted | Age-restricted gates | partial | W13-E | M |
 | notifications-safety-age-assurance | Age assurance | missing | W13-F | L |
-| notifications-safety-message-requests | Message requests | missing | W7-C | L |
+| notifications-safety-message-requests | Message requests | exists | W7-C | L |
 | notifications-safety-dm-spam-filter | DM spam filter | missing | W7-C | M |
-| notifications-safety-dm-privacy | Server DM privacy | missing | W7-C | M |
-| notifications-safety-friend-request-privacy | Friend request privacy | missing | W7-B | S |
+| notifications-safety-dm-privacy | Server DM privacy | exists | W7-C | M |
+| notifications-safety-friend-request-privacy | Friend request privacy | exists | W7-B | S |
 | notifications-safety-friend-request-warning | Unknown-sender warnings | missing | W7-B | S |
 | notifications-safety-safety-alerts | DM safety alerts | missing | W7-C | M |
-| notifications-safety-block | Block | partial | W7-F | S |
+| notifications-safety-block | Block | exists | W7-F | S |
 | notifications-safety-blocked-placeholder | Blocked messages placeholder | missing | W2-B | S |
 | notifications-safety-blocked-voice-warning | Blocked user in voice warning | missing | W8-C | S |
-| notifications-safety-ignore | Ignore | missing | W7-F | M |
-| notifications-safety-blocked-list | Blocked and ignored lists | partial | W7-F | S |
-| notifications-safety-report-message | Report message | missing | W7-F | M |
-| notifications-safety-report-profile | Report profile | missing | W7-F | S |
-| notifications-safety-report-other | Report Spaces, events, apps | missing | W7-F | S |
-| notifications-safety-report-to-mods | Report to Space moderators | missing | W11-C | M |
+| notifications-safety-ignore | Ignore | exists | W7-F | M |
+| notifications-safety-blocked-list | Blocked and ignored lists | exists | W7-F | S |
+| notifications-safety-report-message | Report message | exists | W7-F | M |
+| notifications-safety-report-profile | Report profile | exists | W7-F | S |
+| notifications-safety-report-other | Report Spaces, events, apps | partial | W7-F | S |
+| notifications-safety-report-to-mods | Report to Space moderators | exists | W11-C | M |
 | notifications-safety-account-standing | Account Standing | missing | W13-D | M |
 | notifications-safety-system-messages | Official system account | missing | W7-F | M |
-| notifications-safety-2fa | Two-factor and security keys | missing | W13-B | L |
+| notifications-safety-2fa | Two-factor and security keys | partial | W13-B | L |
 | notifications-safety-devices | Devices and sessions | partial | W13-C | S |
 | notifications-safety-login-alerts | Login alerts | missing | W13-A | M |
 | notifications-safety-family-center | Family Center | missing | W13-F | L |
@@ -1218,12 +1218,12 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | notifications-apps-authorized-apps | Authorized Apps | missing | W14-B | S |
 | notifications-apps-managed-role | Managed bot role | missing | W14-B | S |
 | notifications-apps-slash-commands | Slash commands | missing | W14-C | XL |
-| notifications-apps-builtin-commands | Built-in commands | missing | W6-F | M |
+| notifications-apps-builtin-commands | Built-in commands | exists | W6-F | M |
 | notifications-apps-command-options | Command options | missing | W14-C | L |
 | notifications-apps-context-menus | Context-menu commands | missing | W14-C | M |
 | notifications-apps-command-permissions | Command permissions | missing | W14-C | M |
 | notifications-apps-interactions | Interaction lifecycle | missing | W14-C | XL |
-| notifications-apps-ephemeral | Ephemeral messages | missing | W2-C | M |
+| notifications-apps-ephemeral | Ephemeral messages | partial | W2-C | M |
 | notifications-apps-buttons | Buttons | missing | W14-D | M |
 | notifications-apps-selects | Selects | missing | W14-D | M |
 | notifications-apps-modals | Modals | missing | W14-D | M |
@@ -1234,56 +1234,56 @@ Every gap-matrix id appears exactly once, in one workstream or in Exclusions. St
 | notifications-apps-activities | Activities | missing | W14-E | XL |
 | notifications-apps-premium | Premium apps | missing | excluded | S |
 | notifications-apps-linked-roles | Linked roles | missing | W15-C | L |
-| notifications-apps-integrations-page | Integrations page | missing | W10-F | M |
+| notifications-apps-integrations-page | Integrations page | exists | W10-F | M |
 | notifications-apps-bot-presence | Bot presence | missing | W14-F | M |
 | notifications-apps-developer-portal | Developer portal | missing | W14-A | XL |
 | notifications-apps-rich-presence | Rich Presence | missing | W14-F | L |
 | notifications-apps-social-sdk | Social SDK (JS SDK) | missing | W14-E | XL |
-| notifications-webhooks-create | Create webhooks | missing | W10-E | M |
-| notifications-webhooks-execute | Webhook execute API | missing | W10-E | L |
-| notifications-webhooks-display | Webhook rendering | missing | W10-E | S |
+| notifications-webhooks-create | Create webhooks | exists | W10-E | M |
+| notifications-webhooks-execute | Webhook execute API | exists | W10-E | L |
+| notifications-webhooks-display | Webhook rendering | exists | W10-E | S |
 | notifications-webhooks-compat | Slack/GitHub-compatible endpoints | missing | W10-E | M |
-| notifications-webhooks-security | Webhook token security | missing | W10-E | S |
-| notifications-announce-channel | Announcement channels | partial | W10-F | S |
-| notifications-announce-publish | Publish | missing | W10-F | L |
-| notifications-announce-follow | Follow | missing | W10-F | M |
-| notifications-announce-crosspost-render | Crosspost rendering | missing | W10-F | S |
+| notifications-webhooks-security | Webhook token security | exists | W10-E | S |
+| notifications-announce-channel | Announcement channels | exists | W10-F | S |
+| notifications-announce-publish | Publish | exists | W10-F | L |
+| notifications-announce-follow | Follow | exists | W10-F | M |
+| notifications-announce-crosspost-render | Crosspost rendering | exists | W10-F | S |
 | notifications-integrations-connections | Account connections | missing | W15-A | L |
 | notifications-integrations-twitch | Twitch integration | missing | W15-B | L |
 | notifications-integrations-youtube | YouTube memberships | missing | W15-B | L |
 | notifications-integrations-streaming-status | Streaming status | missing | W15-B | M |
 | notifications-integrations-spotify | Spotify | missing | W15-B | L |
-| notifications-dev-developer-mode | Developer Mode | missing | W2-D | S |
-| notifications-dev-copy-id | Copy ID | missing | W2-D | S |
+| notifications-dev-developer-mode | Developer Mode | exists | W2-D | S |
+| notifications-dev-copy-id | Copy ID | exists | W2-D | S |
 | notifications-dev-snowflakes | Time-ordered IDs (uuidv7) | partial | W16-F | S |
-| notifications-dev-message-links | Message links | partial | W2-D | S |
-| notifications-dev-channel-links | Channel links | partial | W2-A | S |
+| notifications-dev-message-links | Message links | exists | W2-D | S |
+| notifications-dev-channel-links | Channel links | exists | W2-A | S |
 | notifications-dev-mention-syntax | Raw mention syntax | partial | W2-A | M |
-| notifications-dev-timestamps | Dynamic timestamps | missing | W2-A | S |
-| notifications-dev-link-embeds | Link previews | partial | W6-E | M |
-| notifications-dev-video-embeds | Media players | missing | W6-E | M |
-| notifications-dev-rich-embeds | Rich embeds | missing | W10-E | M |
-| notifications-dev-suppress-embeds | Suppress embeds | missing | W6-E | S |
+| notifications-dev-timestamps | Dynamic timestamps | exists | W2-A | S |
+| notifications-dev-link-embeds | Link previews | exists | W6-E | M |
+| notifications-dev-video-embeds | Media players | exists | W6-E | M |
+| notifications-dev-rich-embeds | Rich embeds | exists | W10-E | M |
+| notifications-dev-suppress-embeds | Suppress embeds | exists | W6-E | S |
 | notifications-dev-server-widget | Server widget | missing | W12-F | M |
-| notifications-dev-deep-links | Deep links and invite cards | partial | W6-E | M |
+| notifications-dev-deep-links | Deep links and invite cards | exists | W6-E | M |
 | notifications-premium-nitro | Nitro mapped to free | partial | W3-E | S |
 | notifications-premium-nitro-basic | Nitro Basic (no tiers) | exists | W3-E | S |
 | notifications-premium-upload-limits | Upload limits from config | partial | W6-D | S |
-| notifications-premium-message-length | Long messages | partial | W2-C | S |
+| notifications-premium-message-length | Long messages | exists | W2-C | S |
 | notifications-premium-server-limit | Server membership cap | exists | W12-F | S |
-| notifications-premium-emoji-anywhere | Emoji and stickers anywhere | missing | W6-B | L |
-| notifications-premium-streaming-quality | Streaming quality | missing | W9-A | M |
-| notifications-premium-profile-perks | Profile perks | partial | W3-D | L |
+| notifications-premium-emoji-anywhere | Emoji and stickers anywhere | exists | W6-B | L |
+| notifications-premium-streaming-quality | Streaming quality | exists | W9-A | M |
+| notifications-premium-profile-perks | Profile perks | exists | W3-D | L |
 | notifications-premium-app-themes | App themes | partial | W1-F | M |
 | notifications-premium-super-reactions | Super Reactions | missing | W6-A | M |
-| notifications-premium-soundboard | Soundboard and entrance sounds | missing | W9-C | L |
-| notifications-premium-boosts | Boosts (dropped, top tier free) | missing | W12-D | S |
+| notifications-premium-soundboard | Soundboard and entrance sounds | partial | W9-C | L |
+| notifications-premium-boosts | Boosts (dropped, top tier free) | partial | W12-D | S |
 | notifications-premium-boost-perks | Level-3 perks for every Space | partial | W12-D | M |
 | notifications-premium-boost-unlocks | Server tags and role styles | missing | W3-F | L |
 | notifications-premium-booster-recognition | Booster recognition | missing | excluded | S |
-| notifications-premium-badges | Tenure badge | missing | W3-A | S |
+| notifications-premium-badges | Tenure badge | exists | W3-A | S |
 | notifications-premium-gifting | Gifting (suggest a cosmetic) | missing | W3-E | S |
-| notifications-premium-shop | Shop (free gallery) | missing | W3-E | L |
+| notifications-premium-shop | Shop (free gallery) | exists | W3-E | L |
 | notifications-premium-orbs-quests | Quests and Orbs | missing | W15-E | S |
 | notifications-premium-nitro-rewards | Nitro Rewards | missing | excluded | S |
 | notifications-premium-server-subscriptions | Server subscriptions (locked previews) | partial | W16-F | M |
@@ -1350,3 +1350,104 @@ Listed in the order the waves need them.
 - **Storage growth on local disk** (attachments, emoji, stickers, sounds, clips, exports, embed cache). mediaGc clauses for every new media column, export expiry, and a later move to object storage if traffic keeps growing.
 - **Schedule.** Sixteen large waves on a 16 GB box. Keep W1-W4 acceptance strict (foundations compound), ship contracts plus the most visible streams first when time is short, and budget a fix-up pass after each full test run before push and redeploy.
 
+## Remaining gaps (audit 2026-10-23)
+
+The status columns in the feature matrix were checked against the code on `claude/discord` (server `apps/server/src`, web `apps/web/src`, shared `packages/shared/src`) on 2026-10-23. 495 rows changed: 252 went from missing to exists, 39 from missing to partial and 204 from partial to exists. No row went down. The matrix now has 481 exists, 176 partial and 294 missing.
+
+How the statuses were judged:
+
+- `exists` means it works end to end: server routes or jobs where it needs them, and a web UI. Small polish gaps don't stop a row from counting as exists.
+- `partial` means a real piece is missing. That includes settings that are saved but change nothing yet: the voice channel bitrate (never applied to the audio encoder), the AFK channel (no job moves idle members), the explicit media filter (no classifier) and age-restricted channels (a flag with no gate).
+- 27 rows were left as they were because those features are being built right now: super reactions, timed polls and poll results, forwarding with a comment, the formatting toolbar, ANSI code blocks, the Accessibility page, server tags, forum post actions and media channels.
+
+Three gaps hold back several waves:
+
+- **Permissions are still 31-bit ints, and all 31 bits are taken.** READ_MESSAGE_HISTORY and PRIORITY_SPEAKER are reserved and not enforced. Thread bits, PIN_MESSAGES, SEND_TTS, USE_EXTERNAL_STICKERS and the other new Discord bits have nowhere to go until the 64-bit move (wave 8).
+- **Limits and counters are per process.** No Valkey-backed limit helper exists (`lib/clusterLimit.ts` never landed). Rate limits and the AutoMod spam counters live in each process's memory.
+- **Preferences don't sync.** There is no `user_preferences` store. Theme, text size and the other device preferences stay in localStorage, and only the rail layout syncs across devices.
+
+The waves below are ordered by how much a user would notice them. Each one lists every missing or partial row it covers.
+
+### 1. Chat feel in channels and DMs
+
+- **Goal.** Make every channel read and type like Discord: typing line, slowmode countdown, a character counter, "Today at" times, highlighted mention rows, channel intros, welcome lines with Wave, `#channel` mentions, highlighted code, a leaving-the-app link warning and keyboard actions on messages.
+- **Rows.** `messaging-typing-indicator`, `messaging-slowmode`, `servers-slowmode`, `messaging-character-limit`, `messaging-message-timestamps`, `messaging-mention-highlight`, `notifications-mention-highlight`, `messaging-channel-beginning`, `servers-channel-header`, `messaging-history-scroll`, `messaging-new-messages-bar`, `layout-chat-new-messages-bar`, `notifications-new-messages-bar`, `messaging-system-join`, `layout-dm-wave-prompt`, `messaging-mention-channels`, `servers-channel-links-mentions`, `messaging-mention-guild-navigation`, `notifications-dev-mention-syntax`, `messaging-autocomplete`, `customization-chat-emoji-autocomplete`, `messaging-markdown-code-blocks`, `messaging-link-safety`, `notifications-safety-link-warnings`, `messaging-emoji-popout`, `messaging-silent-messages`, `notifications-silent-messages`, `messaging-emoticon-conversion`, `customization-chat-emoticon-conversion`, `messaging-time-picker`, `messaging-composer-markdown-preview`, `customization-chat-rich-text-preview`, `messaging-blocked-messages`, `notifications-safety-blocked-placeholder`, `messaging-ephemeral-messages`, `notifications-apps-ephemeral`, `layout-message-keyboard-navigation`, `messaging-message-keyboard-nav`, `messaging-keyboard-shortcuts`, `layout-shortcuts-panels-chat`, `messaging-mark-read`, `notifications-unread-keyboard`, `customization-keybinds-defaults`, `customization-a11y-keyboard-navigation`, `messaging-screen-reader`, `customization-a11y-screen-reader`
+- **Size.** L (many small client items, plus SILENT and EPHEMERAL message flags on the server).
+- **Depends on.** Nothing new from outside. `@silent` needs a SILENT bit in MESSAGE_FLAGS. Highlighting adds a lazy highlighter chunk. The live preview must keep IME and spellcheck working and has to be coordinated with the formatting-toolbar work in the composer. Screen reader labels go through `features/a11y/messageRowA11y.ts`, which the Accessibility work has stubbed.
+
+### 2. GIFs and rich media
+
+- **Goal.** Add a GIF tab with search, trending and favourites to the expression picker, plus text file previews, image crop and rotate, more media viewer actions, inline direct videos and the Text & Images toggles.
+- **Rows.** `messaging-gif-picker`, `messaging-gif-favorites`, `messaging-attachment-files`, `messaging-image-editing`, `messaging-media-viewer`, `messaging-embeds-direct-media`, `messaging-embeds-social`, `messaging-embed-settings`, `customization-chat-media-display`, `customization-chat-spoiler-display`, `customization-chat-emoji-reactions-display`, `customization-chat-sticker-suggestions`, `customization-chat-tap-to-react`, `messaging-upload-limits`, `notifications-premium-upload-limits`, `messaging-media-keyboard`
+- **Size.** M to L.
+- **Depends on.** A GIF provider key (Tenor, Klipy or GIPHY) and a cached server proxy. Optional X or Meta oEmbed tokens for social embeds. Upload limits read from env through `/api/config`.
+
+### 3. Shell and navigation on desktop and phone
+
+- **Goal.** Build Discord's frame: a title bar with back/forward, Help and Inbox; voice, event and live glyphs and off-screen mention pills on the rail; unread jump pills, pinned channels and a resizable sidebar; a member list split into Online and Offline with status lines; What's New; and the phone swipe panels with a channel details sheet.
+- **Rows.** `layout-title-bar`, `layout-back-forward-navigation`, `layout-help-button`, `layout-rail-activity-badges`, `layout-rail-offscreen-mentions`, `layout-rail-download-apps`, `layout-channel-unread-jump-pills`, `notifications-sidebar-unread-jump`, `layout-channel-pinning`, `servers-pin-channels`, `layout-channel-list-resize`, `customization-appearance-channel-list-resize`, `layout-member-list`, `servers-member-list`, `layout-remember-last-location`, `layout-whats-new-changelog`, `customization-settings-whats-new`, `notifications-platform-whats-new`, `customization-settings-cog-quick-menu`, `customization-settings-client-info`, `layout-notice-banners`, `layout-loading-and-connection`, `notifications-platform-connection-state`, `layout-mobile-swipe-panels`, `layout-mobile-server-view`, `layout-mobile-launchpad`, `layout-mobile-overall`, `layout-mobile-dm-list`, `layout-tablet-layout`, `layout-responsive-breakpoints`, `messaging-share-sheet`, `notifications-platform-mobile`, `social-mobile-profile-sheet`, `messaging-search-mobile-tabs`
+- **Size.** L to XL.
+- **Depends on.** A lazy, presence-aware member list service (Valkey sorted sets) for large Spaces; the Online/Offline split can ship on today's SQL paging first. The PWA `share_target` needs a manifest entry and a service worker POST handler.
+
+### 4. DMs and friends, Discord-style
+
+- **Goal.** Make DMs stop feeling like WhatsApp. That means Discord's DM and user menus, a docked profile panel, calls inline above the chat, Discord mute durations, friend nicknames and favourites, friend-online alerts, friend invite links and spam filtering.
+- **Rows.** `layout-dm-context-menu`, `layout-dm-header-toolbar`, `social-dm-header`, `layout-dm-profile-side-panel`, `social-dm-profile-panel`, `layout-dm-call-area`, `voice-dm-call-ui`, `layout-mobile-voice-bar`, `social-dm-mute-read`, `notifications-mute`, `customization-notif-mute-durations`, `layout-user-context-menu`, `social-user-context-menu`, `servers-member-context-menu`, `layout-friend-nicknames-favorites`, `social-friend-nicknames`, `customization-profile-friend-nickname`, `social-favorite-friends`, `layout-friend-online-notifications`, `social-friend-online-notifications`, `customization-notif-friend-online`, `social-friend-invite-links`, `social-friend-request-note`, `social-friend-request-spam`, `notifications-safety-friend-request-warning`, `social-dm-spam-filter`, `messaging-spam-filter`, `customization-social-dm-spam-filter`, `notifications-safety-dm-spam-filter`, `social-dm-safety-alerts`, `notifications-safety-safety-alerts`, `layout-dm-bulk-leave-groups`, `social-group-dm-invites`, `layout-dm-list-ordering`, `layout-read-state-sync`, `social-mobile-indicator`, `social-status-reactions-replies`, `social-contact-sync`, `social-share-profile`
+- **Size.** XL.
+- **Depends on.** DM and group calls moved onto LiveKit rooms, with the mesh kept for the APK. Cluster-wide Valkey counters for the spam signals. Chat list paging and delta resync (W4-B), so long DM lists stop loading in one request.
+
+### 5. Display modes, themes and synced preferences
+
+- **Goal.** Add Compact mode, UI density, app zoom, a chat font slider, gradient and custom themes, and appearance that follows you across devices.
+- **Rows.** `layout-message-display-cozy-compact`, `messaging-display-modes`, `customization-appearance-message-display`, `customization-appearance-compact-avatars`, `layout-ui-density`, `customization-appearance-ui-density`, `customization-appearance-zoom`, `layout-chat-font-scaling-zoom`, `customization-appearance-chat-font-scaling`, `customization-appearance-color-themes`, `customization-appearance-custom-theme-editor`, `notifications-premium-app-themes`, `customization-appearance-sync-across-clients`, `social-settings-sync`, `layout-ui-refresh-2025`, `customization-appearance-app-icon`, `layout-empty-states-wumpus`, `messaging-spellcheck`, `customization-chat-spellcheck`
+- **Size.** L.
+- **Depends on.** A `user_preferences` table with `GET/PATCH /api/me/preferences` and a `me:preferences` event (the W1-F contract that never landed). Coordination with the Accessibility page builder, who owns message spacing and the accessibility toggles.
+
+### 6. Notifications, Inbox, bookmarks and reminders
+
+- **Goal.** Notifications you can act on: an Inbox For You feed, bookmarks in Spaces and Remind Me, Mark as Read and Reply on pushes, in-app banners on phones, a push timeout while the desktop is active, and finer Space notification controls.
+- **Rows.** `messaging-inbox-for-you`, `notifications-inbox-for-you`, `messaging-bookmarks`, `notifications-bookmarks`, `messaging-reminders`, `notifications-reminders`, `messaging-notification-quick-reply`, `notifications-push-quick-actions`, `notifications-in-app-banners`, `notifications-push-inactive-timeout`, `customization-notif-push-timeout`, `notifications-mobile-push`, `customization-notif-mobile-push`, `notifications-sounds`, `customization-notif-sounds`, `voice-sound-notifications`, `messaging-reaction-notifications`, `notifications-reaction-notifications`, `customization-notif-reactions`, `notifications-tts`, `customization-notif-tts`, `notifications-taskbar-flash`, `customization-notif-badge-flash`, `notifications-browser-permission-banner`, `notifications-mute-new-events`, `notifications-mobile-push-per-server`, `notifications-unread-vs-notify-split`, `notifications-dm-group-notifications`, `notifications-thread-notifications`, `customization-notif-threads-forums`, `notifications-stage-stream-notify`
+- **Size.** L.
+- **Depends on.** A leader job for reminders, Valkey keys that tell an active desktop from an idle one, and the thread follows from the forum post work under way now. An FCM service account only if native Android push is wanted.
+
+### 7. Voice and video depth
+
+- **Goal.** Finish Discord's voice settings and call polish: ping and connection info, input volume, attenuation, voice profiles, a bitrate that actually applies, an AFK mover, entrance sounds, video backgrounds, stream zoom and stream requests, and a Keybinds page.
+- **Rows.** `voice-connection-info`, `voice-devices-volume`, `customization-voice-devices`, `voice-attenuation`, `customization-voice-attenuation`, `voice-advanced-settings`, `customization-voice-advanced`, `voice-input-profiles`, `voice-channel-bitrate`, `voice-channel-region`, `voice-channel-video-quality`, `servers-afk-channel`, `voice-afk-channel`, `voice-priority-speaker`, `voice-entrance-sounds`, `customization-voice-soundboard-settings`, `notifications-premium-soundboard`, `voice-channel-effects`, `voice-video-backgrounds`, `customization-voice-video-settings`, `voice-stream-zoom-pan`, `voice-stream-request`, `voice-go-live-streamer-controls`, `voice-mobile-screen-share`, `voice-stage-start-topic`, `voice-stage-video`, `voice-blocked-ignored-in-voice`, `notifications-safety-blocked-voice-warning`, `voice-presence-in-voice`, `voice-invite-to-voice`, `voice-call-fullscreen-popout-pip`, `layout-in-app-pip`, `voice-call-feedback`, `voice-mobile-voice-ui`, `voice-e2ee`, `voice-server-boost-perks`, `voice-accessibility`, `layout-keybinds-settings`, `customization-keybinds-custom`, `voice-keybinds`
+- **Size.** XL.
+- **Depends on.** 64-bit permissions for PRIORITY_SPEAKER, which is reserved today. Track-processor and MediaPipe assets served from our own origin for backgrounds. Forwarded LiveKit ports (TCP 7881, UDP 7882-7892) before voice has to scale.
+
+### 8. Permissions and moderation depth
+
+- **Goal.** Move permissions to 64 bits and give moderators the missing tools: Read Message History, a roles page with tabs and bulk member edits, View Server As Role, Duplicate Role, private threads, prune, searchable bans, audit filters and diffs, bulk delete, AutoMod profile and spam filters, a raid CAPTCHA and 2FA for moderators.
+- **Rows.** `messaging-permission-gating`, `servers-role-permissions`, `voice-permissions`, `messaging-read-history-permission`, `servers-roles-page`, `servers-view-as-role`, `servers-duplicate-role`, `messaging-private-threads`, `servers-threads-private`, `servers-prune`, `servers-bans-list`, `servers-audit-log`, `messaging-bulk-delete`, `servers-limits`, `servers-automod-member-profile`, `notifications-safety-automod-member-profile`, `servers-automod-spam`, `notifications-safety-automod-spam`, `notifications-safety-suspected-spammer`, `notifications-safety-risky-permissions`, `servers-report-raid`, `servers-raid-protection`, `notifications-safety-raid-protection`, `servers-2fa-moderation`, `notifications-safety-mod-2fa`, `servers-new-member-badge`, `notifications-safety-report-other`, `servers-dm-spam-protection`
+- **Size.** XL.
+- **Depends on.** The 64-bit permission migration: int4 to int8 columns, BigInt helpers, decimal strings on the wire next to the old ints for the APK, and a rehearsal on a production snapshot. A CAPTCHA key (Turnstile or hCaptcha), or self-hosted ALTCHA. Cluster-wide Valkey counters for spam.
+
+### 9. Community growth and invites
+
+- **Goal.** Fill out the joining funnel: rules screening, join modes and applications, a setup checklist for new Spaces, a richer invite modal and more invite types, an invite splash, invite and server pages you can open logged out, a widget, and the extra Space profile fields.
+- **Rows.** `servers-rules-screening`, `notifications-safety-rules-screening`, `servers-access-join-modes`, `servers-member-applications`, `servers-new-server-checklist`, `servers-community-enable`, `servers-rules-and-updates-channels`, `servers-invite-modal`, `servers-temporary-membership`, `voice-temporary-membership`, `servers-role-invites`, `servers-targeted-invites`, `servers-guest-invites`, `servers-invite-splash`, `servers-invite-landing-page`, `servers-public-web-page`, `servers-widget`, `notifications-dev-server-widget`, `servers-verified-partnered`, `servers-server-profile-settings`, `servers-hubs-directory`, `servers-boosting`, `servers-boost-levels`, `notifications-premium-boosts`, `notifications-premium-boost-perks`
+- **Size.** L.
+- **Depends on.** nginx on all 3 domains passing `/servers/*`, `/widget/*` and `/template/*` to Express for OG and public pages (user action 8; `/join/*` already unfurls). A new `spaceApplications` module.
+
+### 10. Account security, privacy and content safety
+
+- **Goal.** Account recovery and safety: email with verification and password reset, login alerts, passkeys and QR login, an account switcher, disable or delete with a grace period, a Data & Privacy page with export, account standing, a sensitive-media filter with age and spoiler gates, and signed media URLs.
+- **Rows.** `social-account-email`, `customization-account-email`, `social-account-password`, `notifications-email`, `customization-notif-email`, `notifications-highlights`, `customization-notif-highlights`, `notifications-safety-login-alerts`, `social-passkey-login`, `social-qr-login`, `notifications-platform-qr-login`, `notifications-safety-2fa`, `social-account-switcher`, `customization-account-switcher`, `notifications-platform-multi-account`, `social-disable-account`, `social-delete-account`, `customization-account-removal`, `social-data-privacy`, `social-data-download`, `customization-privacy-data-usage`, `customization-privacy-data-export`, `notifications-platform-data-privacy`, `social-profile-privacy`, `customization-profile-privacy`, `social-account-standing`, `customization-account-standing`, `notifications-safety-account-standing`, `messaging-sensitive-media`, `social-sensitive-media-filter`, `customization-social-sensitive-media`, `notifications-safety-sensitive-media`, `notifications-safety-sensitive-blur-ui`, `servers-explicit-media-filter`, `notifications-safety-explicit-filter-server`, `servers-age-restricted-channel`, `servers-age-restricted-server`, `notifications-safety-age-restricted`, `messaging-spoiler-channels`, `servers-spoiler-channel`, `messaging-attachment-cdn-expiry`, `notifications-safety-system-messages`, `social-account-phone`, `customization-account-phone`, `social-devices`, `customization-account-devices`, `notifications-safety-devices`, `customization-account-overview`
+- **Size.** XL.
+- **Depends on.** SMTP credentials with SPF/DKIM/DMARC records. A WebAuthn RP ID plan for the 3 domains. An SMS provider for phone checks. A choice of NSFW classifier. A `MEDIA_SIGNING_SECRET`. Optionally, a GeoLite2 key.
+
+### Not in these waves
+
+Every other missing or partial row keeps its place in the plan:
+
+- **Apps platform and activity presence (W14).** Bots, OAuth2, slash and context-menu commands, components, the App Directory, activities and rich presence. Needs a sandbox origin with wildcard DNS.
+- **Connections, integrations and linked roles (W15-A to W15-D).** Spotify, Twitch, YouTube, game widgets and `@game`. Needs an OAuth app per provider and IGDB credentials. The Slack and GitHub webhook adapters (`notifications-webhooks-compat`) fit here too.
+- **Achievements (W15-E).** Quests and Orbs.
+- **Age assurance and Family Center (W13-F).**
+- **Localisation (W16-B/C).**
+- **The Tauri desktop shell (W16-D).** Tray, game detection, overlay and clips. Needs signing certificates.
+- **Summaries, recap and extras (W16-F).** Summaries, recap, the living-room voice layout, locked role-gated previews and uuidv7 ids. Summaries need an LLM key.
+- **Cosmetic and free-perks leftovers.** Profile frames, the legacy username badge, the favourites shelf on profiles, gifting, the Perks page, profile widgets and game profiles.
+- **The rows listed under Exclusions.**

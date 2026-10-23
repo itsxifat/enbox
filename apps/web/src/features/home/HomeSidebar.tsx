@@ -1,4 +1,4 @@
-import { Suspense, memo, useState, type ReactNode } from 'react';
+import { Suspense, memo, useId, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { Virtuoso } from 'react-virtuoso';
 import { Archive, MailQuestionMark, Plus, Sparkles, Star, Users, X } from 'lucide-react';
@@ -6,10 +6,12 @@ import { activePresenceNote, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Nameplate, StyledName } from '@/components/cosmetics';
+import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { CallsIcon, UpdatesIcon } from '@/components/icons';
 import { UserPanel } from '@/components/layout/UserPanel';
 import { useTabBadges } from '@/components/layout/useTabBadges';
 import { Badge, IconButton, Menu, type IconType, type MenuAnchor } from '@/components/ui';
+import { VirtualList, VirtualListItem } from '@/features/a11y/lists';
 import { chatMenuItems, setArchived } from '@/features/chats/chatActions';
 import { leaveGroupDm } from '@/features/groupDms/actions';
 import { GroupDmAvatar } from '@/features/groupDms/GroupDmAvatar';
@@ -107,12 +109,15 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
           <ChatAvatar chat={chat} size={32} showPresence />
         )}
         <span className="relative min-w-0 flex-1 leading-tight">
-          <StyledName
-            name={title}
-            style={peer?.nameStyle}
-            mode="full"
-            className={cn('block truncate text-[15px]', unread ? 'font-semibold' : 'font-medium')}
-          />
+          <span className="flex min-w-0 items-center gap-1">
+            <StyledName
+              name={title}
+              style={peer?.nameStyle}
+              mode="full"
+              className={cn('truncate text-[15px]', unread ? 'font-semibold' : 'font-medium')}
+            />
+            {peer ? <ServerTagPill userId={peer.id} tag={peer.spaceTag ?? null} /> : null}
+          </span>
           {sub ? <span className="block truncate text-[12px] text-subtle">{sub}</span> : null}
         </span>
         {chat.unreadCount > 0 && !active ? (
@@ -158,10 +163,12 @@ interface HeaderContext {
   /** "+": opens Select Friends under the button. */
   onCreate: (anchor: HTMLElement) => void;
   creating: boolean;
+  /** The "Direct Messages" label, which names the list of chats. */
+  listLabelId: string;
 }
 
 function HomeHeader({ context }: { context: HeaderContext }) {
-  const { badges, archivedUnread, onCreate, creating } = context;
+  const { badges, archivedUnread, onCreate, creating, listLabelId } = context;
   const requests = useIncomingFriendRequestCount();
   const messageRequests = usePendingRequestCount();
   return (
@@ -177,13 +184,17 @@ function HomeHeader({ context }: { context: HeaderContext }) {
         to="/updates"
         icon={UpdatesIcon}
         label="Updates"
-        badge={badges.updates ? <Badge dot tone="danger" /> : null}
+        badge={badges.updates ? <Badge dot tone="danger" label="New updates" /> : null}
       />
       <NavRow
         to="/calls"
         icon={CallsIcon}
         label="Calls"
-        badge={badges.calls?.count ? <Badge count={badges.calls.count} size="sm" tone="danger" /> : null}
+        badge={
+          badges.calls?.count ? (
+            <Badge count={badges.calls.count} size="sm" tone="danger" label={`${badges.calls.count} missed call${badges.calls.count === 1 ? '' : 's'}`} />
+          ) : null
+        }
       />
       <NavRow to="/collectibles" icon={Sparkles} label="Collectibles" />
       <NavRow
@@ -201,23 +212,28 @@ function HomeHeader({ context }: { context: HeaderContext }) {
         to="/archived"
         icon={Archive}
         label="Archived"
-        badge={archivedUnread ? <Badge count={archivedUnread} size="sm" tone="danger" /> : null}
+        badge={archivedUnread ? <Badge count={archivedUnread} size="sm" tone="danger" label={`${archivedUnread} unread`} /> : null}
       />
       <div className="group/head mt-4 mb-1 flex items-center justify-between pr-1 pl-3">
-        <span className="text-[12px] font-semibold tracking-wide text-muted uppercase group-hover/head:text-fg">Direct Messages</span>
+        <span id={listLabelId} className="text-[12px] font-semibold tracking-wide text-muted uppercase group-hover/head:text-fg">Direct Messages</span>
         <IconButton icon={Plus} label="Create DM" size="xs" variant="ghost" active={creating} onClick={(e) => onCreate(e.currentTarget)} />
       </div>
     </div>
   );
 }
 
-const COMPONENTS = { Header: HomeHeader, Footer: () => <div className="h-2" /> };
+const COMPONENTS = {
+  Header: HomeHeader,
+  Footer: () => <div className="h-2" />,
+  List: VirtualList,
+  Item: VirtualListItem,
+};
 
 /**
  * Home (Discord's DM sidebar, desktop): find-or-start, Friends / Updates / Calls / Message
  * Requests / Starred / Archived, then every direct and group chat by recent activity
  * (virtualised), and the user panel at the bottom. "+" opens Select Friends (a DM, or a group
- * DM with several).
+ * DM with several). The links and the chats are a `nav`; the chats a list named by its label.
  */
 export function HomeSidebar() {
   const { chatId } = useParams<{ chatId?: string }>();
@@ -226,9 +242,10 @@ export function HomeSidebar() {
   const archived = useArchivedCounts();
   const [createAt, setCreateAt] = useState<HTMLElement | null>(null);
   const toggleCreate = (el: HTMLElement) => setCreateAt((cur) => (cur ? null : el));
+  const listLabelId = useId();
 
   return (
-    <aside aria-label="Direct messages" className="card-pane flex w-[264px] shrink-0 flex-col overflow-hidden" data-testid="home-sidebar">
+    <aside aria-label="Home" className="card-pane flex w-[264px] shrink-0 flex-col overflow-hidden" data-testid="home-sidebar">
       <div className="flex h-12 shrink-0 items-center px-2.5">
         <button
           type="button"
@@ -239,16 +256,16 @@ export function HomeSidebar() {
           Find or start a conversation
         </button>
       </div>
-      <div className="min-h-0 flex-1">
+      <nav aria-label="Direct messages" className="min-h-0 flex-1">
         <Virtuoso
           data={chats}
           computeItemKey={(_, c) => c.id}
-          context={{ badges, archivedUnread: archived.unread, onCreate: toggleCreate, creating: !!createAt }}
+          context={{ badges, archivedUnread: archived.unread, onCreate: toggleCreate, creating: !!createAt, listLabelId }}
           components={COMPONENTS}
           itemContent={(_, c) => <DmRow chat={c} active={c.id === chatId} />}
           className="scrollbar-thin"
         />
-      </div>
+      </nav>
       <Suspense fallback={null}>
         {createAt ? <SelectFriendsPopover mode={CREATE_DM} anchor={createAt} onClose={() => setCreateAt(null)} /> : null}
       </Suspense>

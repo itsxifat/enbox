@@ -1,10 +1,11 @@
 /**
  * A thread beside its channel (Discord's thread panel), a card pane in place of the member
- * list: the header (thread icon, name, a forum post's tags, "…" menu with Archive / Lock /
- * Rename / Copy Link / Delete as permitted and Copy ID in Developer Mode, close ✕), the
- * starter message, then the thread's conversation — the channel's message list, typing line,
- * composer and message menu, for the thread's chat. On phones the same panel covers the
- * screen (`overlay`, rendered by the channel header's ThreadsButton).
+ * list: the header (thread icon, name, a forum post's tags, its pin / lock / closed marks, "…"
+ * menu with Follow / Archive — a post's Close — / Lock / Pin (posts) / Rename / Copy Link /
+ * Delete as permitted and Copy ID in Developer Mode, close ✕), the starter message, then the
+ * thread's conversation — the channel's message list, typing line, composer and message menu,
+ * for the thread's chat. On phones the same panel covers the screen (`overlay`, rendered by
+ * the channel header's ThreadsButton).
  *
  * `threadId === NEW_THREAD_ID` is the "New Thread" form: a name (prefilled with the starter
  * message's text), the starter message, and the first message — sending it creates the thread.
@@ -15,22 +16,9 @@
  */
 import { Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useParams } from 'react-router';
-import {
-  Archive,
-  ArchiveRestore,
-  EllipsisVertical,
-  IdCard,
-  Link2,
-  Lock,
-  LockOpen,
-  MessagesSquare,
-  Pencil,
-  SendHorizontal,
-  Trash2,
-  X,
-} from 'lucide-react';
-import type { ChatSummary, ID, Message, UpdateThreadRequest } from '@enbox/shared';
-import { DropdownMenu, EmptyState, IconButton, Input, PageSpinner, Portal, confirm, toast, type MenuEntry } from '@/components/ui';
+import { Archive, EllipsisVertical, IdCard, Link2, Lock, MessagesSquare, Pin, SendHorizontal, X } from 'lucide-react';
+import type { ChatSummary, ID, Message } from '@enbox/shared';
+import { DropdownMenu, EmptyState, IconButton, Input, PageSpinner, Portal, toast, type MenuEntry } from '@/components/ui';
 import { RowAppearanceContext } from '@/features/conversation/bubbles/appearance';
 import { ReadOnlyFooter, SelectionBar } from '@/features/conversation/Bars';
 import { Composer } from '@/features/conversation/composer/Composer';
@@ -51,7 +39,7 @@ import { useMessages } from '@/stores/messages';
 import { useSidePanel } from '@/stores/sidePanel';
 import { useSpace } from '@/stores/spaces';
 import { NEW_THREAD_ID, threadRights, threadView, useThreads } from '@/stores/threads';
-import { copyThreadLink } from './actions';
+import { copyThreadLink, deleteThreadItem, threadMenuItems } from './actions';
 import { TypingLine } from './TypingLine';
 
 const COZY = { bubbleStyle: 'cozy' as const, messageAnimation: 'fade' as const };
@@ -233,69 +221,41 @@ function OpenThread({ threadId, parentId, overlay }: { threadId: ID; parentId: I
 function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(thread.name ?? '');
-  const rights = threadRights(thread, me);
   const info = thread.thread;
   const spaceId = thread.space?.spaceId;
   // A forum's threads are its posts; a post wears tags of its forum.
   const parentType = useChats((s) => (info ? s.byId[info.parentId]?.type : undefined));
   const forum = useChats((s) => (info ? s.byId[info.parentId]?.space?.forum : undefined));
-  const noun = parentType === 'space_forum' ? 'Post' : 'Thread';
-  const tags = parentType === 'space_forum' && forum ? postTags(forum, info?.appliedTags) : [];
+  const post = parentType === 'space_forum';
+  const noun = post ? 'Post' : 'Thread';
+  const rights = threadRights(thread, me, { post });
+  const tags = post && forum ? postTags(forum, info?.appliedTags) : [];
   const devMode = useDeveloperMode();
-
-  const update = (patch: UpdateThreadRequest) =>
-    void useThreads
-      .getState()
-      .updateThread(thread.id, patch)
-      .catch((e: unknown) => toast.error(e));
 
   const save = () => {
     const next = name.trim();
     setRenaming(false);
-    if (next && next !== thread.name) update({ name: next });
+    if (next && next !== thread.name)
+      void useThreads
+        .getState()
+        .updateThread(thread.id, { name: next })
+        .catch((e: unknown) => toast.error(e));
     else setName(thread.name ?? '');
   };
 
   const items: MenuEntry[] = [
-    rights.canEdit &&
-      (info?.archived
-        ? { label: `Unarchive ${noun}`, icon: ArchiveRestore, onSelect: () => update({ archived: false }) }
-        : { label: `Archive ${noun}`, icon: Archive, onSelect: () => update({ archived: true }) }),
-    rights.canLock &&
-      (info?.locked
-        ? { label: `Unlock ${noun}`, icon: LockOpen, onSelect: () => update({ locked: false }) }
-        : { label: `Lock ${noun}`, icon: Lock, onSelect: () => update({ locked: true }) }),
-    rights.canEdit && {
-      label: noun === 'Post' ? 'Edit Post Title' : 'Edit Thread Name',
-      icon: Pencil,
-      onSelect: () => {
+    ...threadMenuItems(thread, me, {
+      post,
+      onRename: () => {
         setName(thread.name ?? '');
         setRenaming(true);
       },
-    },
+    }),
     spaceId && info
       ? { label: 'Copy Link', icon: Link2, onSelect: () => copyThreadLink(spaceId, info.parentId, thread.id) }
       : null,
     rights.canDelete && 'separator',
-    rights.canDelete && {
-      label: `Delete ${noun}`,
-      icon: Trash2,
-      danger: true,
-      onSelect: () =>
-        void confirm({
-          title: `Delete ${noun}`,
-          message: `Are you sure you want to delete ${thread.name ?? `this ${noun.toLowerCase()}`}? Its messages go with it. This can’t be undone.`,
-          confirmLabel: `Delete ${noun}`,
-          danger: true,
-        }).then(
-          (ok) =>
-            ok &&
-            void useThreads
-              .getState()
-              .deleteThread(thread.id)
-              .catch((e: unknown) => toast.error(e)),
-        ),
-    },
+    rights.canDelete && deleteThreadItem(thread, noun),
     devMode && 'separator',
     devMode && { label: `Copy ${noun} ID`, icon: IdCard, onSelect: () => void copyId(thread.id, `${noun} ID`) },
   ];
@@ -342,8 +302,9 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
       }
       badges={
         <span className="flex shrink-0 items-center gap-1 text-muted">
+          {info?.pinned ? <Pin size={15} aria-label="Pinned" /> : null}
           {info?.locked ? <Lock size={15} aria-label="Locked" /> : null}
-          {info?.archived ? <Archive size={15} aria-label="Archived" /> : null}
+          {info?.archived ? <Archive size={15} aria-label={post ? 'Closed' : 'Archived'} /> : null}
         </span>
       }
       actions={
@@ -422,6 +383,7 @@ function ThreadConversation({ chat, parent }: { chat: ChatSummary; parent: ChatS
 
   const info = chat.thread;
   const canCompose = chat.membership === 'active' && chat.permissions.canSend;
+  const post = parent?.type === 'space_forum';
   return (
     <RowAppearanceContext.Provider value={COZY}>
       {starter && parent ? (
@@ -442,7 +404,9 @@ function ThreadConversation({ chat, parent }: { chat: ChatSummary; parent: ChatS
       </div>
       {info?.archived && canCompose ? (
         <p className="shrink-0 px-4 pt-1 text-[12.5px] text-muted" data-testid="thread-archived-note">
-          This thread is archived. Sending a message will unarchive it.
+          {post
+            ? 'This post is closed. Sending a message will reopen it.'
+            : 'This thread is archived. Sending a message will unarchive it.'}
         </p>
       ) : null}
       {canCompose ? (
@@ -452,7 +416,7 @@ function ThreadConversation({ chat, parent }: { chat: ChatSummary; parent: ChatS
           className="card-inset mx-3 mt-2 mb-[max(12px,env(safe-area-inset-bottom))] shrink-0 px-4 py-3 text-center text-[14px] text-muted"
           data-testid="thread-locked-footer"
         >
-          This thread is locked. Only moderators can send messages.
+          This {post ? 'post' : 'thread'} is locked. Only moderators can send messages.
         </div>
       ) : (
         <ReadOnlyFooter chat={chat} onDeleted={closePanel} />

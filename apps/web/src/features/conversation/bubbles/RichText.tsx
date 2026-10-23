@@ -4,9 +4,10 @@
  * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions, custom Space emoji and
  * in-chat search highlights. `inline` (descriptions inside a paragraph) skips the block
  * syntax; `jumbo` (emoji-only messages) draws custom emoji at 48 px instead of 22. Links to
- * this app open in-app (bubbles/cards/internalLinks.ts), others in a new tab.
+ * this app open in-app (bubbles/cards/internalLinks.ts), others in a new tab. ```ansi code
+ * blocks show Discord's colour codes (always as text, never markup).
  */
-import { createContext, memo, useContext, useMemo, useState } from 'react';
+import { createContext, memo, useContext, useMemo, useState, type CSSProperties } from 'react';
 import type { ID } from '@enbox/shared';
 import { CustomEmoji, type CustomEmojiSize } from '@/components/emoji/CustomEmoji';
 import { cn } from '@/lib/cn';
@@ -16,9 +17,11 @@ import { useUserName } from '@/stores/users';
 import { useSpaces } from '@/stores/spaces';
 import {
   formatTimestamp,
+  parseAnsi,
   parseMarkdown,
   parseRichText,
   splitHighlight,
+  type AnsiSpan,
   type Block,
   type Inline,
   type TimestampStyle,
@@ -64,6 +67,7 @@ function RolePill({ roleId }: { roleId: ID }) {
   const color = role?.color ?? undefined;
   return (
     <span
+      data-role-mention
       className="rounded-[3px] bg-brand/20 px-0.5 font-medium text-brand-ink"
       style={color ? { color, background: `${color}26` } : undefined}
     >
@@ -139,6 +143,63 @@ function Timestamp({ unix, style }: { unix: number; style: TimestampStyle }) {
     <time dateTime={new Date(unix * 1000).toISOString()} title={full} className="rounded-[3px] bg-fg/10 px-0.5">
       {formatTimestamp(unix, style)}
     </time>
+  );
+}
+
+/**
+ * ANSI text colours 30-37 (Discord's gray, red, green, yellow, blue, pink, cyan, white) as
+ * [light theme, dark themes]: each reads on code blocks of every theme ("white" is the
+ * strongest text, dark on light themes).
+ */
+const ANSI_FG: readonly [string, string][] = [
+  ['#5f6672', '#a3a8b0'],
+  ['#c4302b', '#f67c76'],
+  ['#5a7300', '#a6bf2a'],
+  ['#876500', '#e2b53c'],
+  ['#1d6db5', '#5aaaf0'],
+  ['#bd2a70', '#f57fb3'],
+  ['#127b75', '#40c6b9'],
+  ['#1c1d21', '#ffffff'],
+];
+
+/** ANSI backgrounds 40-47 (Discord's), and whether text on them is light. */
+const ANSI_BG: readonly [string, boolean][] = [
+  ['#002b36', true], // firefly dark blue
+  ['#cb4b16', true], // orange
+  ['#586e75', true], // marble blue
+  ['#657b83', true], // greyish turquoise
+  ['#839496', false], // gray
+  ['#6c71c4', true], // indigo
+  ['#93a1a1', false], // light gray
+  ['#fdf6e3', false], // white
+];
+
+function ansiStyle(s: AnsiSpan): CSSProperties | undefined {
+  const fg = s.fg === undefined ? undefined : ANSI_FG[s.fg];
+  if (s.bg === undefined) return fg ? { color: `light-dark(${fg[0]}, ${fg[1]})` } : undefined;
+  // A background is the same in every theme: so is the text on it.
+  const [background, lightText] = ANSI_BG[s.bg]!;
+  return {
+    backgroundColor: background,
+    color: fg ? fg[lightText ? 1 : 0] : lightText ? '#fdf6e3' : '#002b36',
+  };
+}
+
+/** An ```ansi block's text in its colours (the escape codes themselves never show). */
+function AnsiCode({ code }: { code: string }) {
+  const spans = useMemo(() => parseAnsi(code), [code]);
+  return (
+    <code>
+      {spans.map((s, i) => (
+        <span
+          key={i}
+          style={ansiStyle(s)}
+          className={cn(s.bold && 'font-bold', s.underline && 'underline')}
+        >
+          {s.text}
+        </span>
+      ))}
+    </code>
   );
 }
 
@@ -263,7 +324,7 @@ function Blocks({ blocks, highlight }: { blocks: Block[]; highlight?: string | n
                 data-lang={b.lang ?? undefined}
                 className="my-1 max-w-full overflow-x-auto rounded-md border border-line bg-surface-2 p-2 font-mono text-[0.875em] leading-[1.125rem] whitespace-pre scrollbar-thin"
               >
-                <code>{b.code}</code>
+                {b.lang === 'ansi' ? <AnsiCode code={b.code} /> : <code>{b.code}</code>}
               </pre>
             );
           case 'list': {

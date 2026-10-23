@@ -28,6 +28,7 @@ import {
   applyReactionChange,
   applyReactionsCleared,
   reactorsListed,
+  superArrivalKey,
 } from '@/features/conversation/bubbles/reactions/model';
 import { hasPendingReaction } from '@/features/conversation/bubbles/reactions/pending';
 import { speakArrivedMessage } from '@/features/tts/tts';
@@ -421,17 +422,20 @@ export function handleMessagesRemoved(chatId: ID, messageIds: ID[]): void {
  * message. My own echo changes nothing — the optimistic update already applied it, and while
  * a change of mine to that emoji is in flight my echoes are skipped (reactions/pending.ts) —
  * while one from my other devices updates my reactions. Unloaded messages are ignored (they
- * arrive with their reactions).
+ * arrive with their reactions). A super reaction (`burst`) is its own kind, and one added
+ * live plays its burst on the chip (lib/arrivals).
  */
 export function handleReactionDelta(e: ReactionEvent, add: boolean): void {
   const me = useAuth.getState().user?.id;
-  if (me && e.userId === me && hasPendingReaction(e.messageId, e.emoji)) return;
+  const burst = !!e.burst;
+  if (me && e.userId === me && hasPendingReaction(e.messageId, e.emoji, burst)) return;
   const chat = useChats.getState().byId[e.chatId];
   const listed = chat ? reactorsListed(chat) : false;
+  if (add && burst) markArrival(superArrivalKey(e.messageId, e.emoji));
   useMessages
     .getState()
     .patchReactions(e.chatId, e.messageId, (m) =>
-      applyReactionChange(m, { emoji: e.emoji, userId: e.userId, add }, { me, listed }),
+      applyReactionChange(m, { emoji: e.emoji, userId: e.userId, add, burst }, { me, listed }),
     );
 }
 

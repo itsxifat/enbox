@@ -13,6 +13,10 @@
  * Permissions: VIEW_CHANNEL lists (404 otherwise); SEND_MESSAGES creates posts (Discord's
  * meaning of it in a forum), ATTACH_FILES with media; moderated tags need MANAGE_MESSAGES (it
  * stands in for MANAGE_THREADS, see modules/threads).
+ *
+ * A media channel is a forum with `forum_settings.media`: every post leads with a picture or
+ * a video (its tile in the grid). The pinned post (one per forum, `chats.thread_pinned`) leads
+ * the list.
  */
 import { and, desc, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { z } from 'zod';
@@ -36,7 +40,7 @@ import { enforceAutoMod } from '../../services/automod.js';
 import { getChatAccess, requireActiveMember } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
 import { requireOwnedMedia } from '../../services/media.js';
-import { insertMessage, toMessages } from '../../services/messages.js';
+import { insertMessage, toMessages, type CreateMessageInput } from '../../services/messages.js';
 import { ensureSpaceReadRow, requireSpaceBit } from '../../services/spaceAccess.js';
 import { gateExternalEmoji } from '../../services/spaceEmojis.js';
 import {
@@ -52,6 +56,8 @@ import {
   resolvePostTags,
 } from '../../services/threads.js';
 import { toUserPublics } from '../../services/users.js';
+import { mediaAttachmentsOf } from '../messages/service.js';
+import { autoFollowThread } from '../threads/follow.js';
 import { THREAD_CREATE_LIMIT } from '../threads/service.js';
 
 export type CreatePostBody = z.output<typeof createForumPostSchema>;
@@ -109,12 +115,13 @@ async function findRetriedPost(
  * `POST /chats/:chatId/posts` → the post's ChatSummary (201; 200 for a retry with the same
  * clientId: nothing written or emitted). One transaction under the forum's row lock: my
  * SEND_MESSAGES (ATTACH_FILES with media), the Space's verification level, the forum's
- * slowmode (one post per interval, moderators exempt), the tags (`resolvePostTags`), AutoMod
- * (title and text), then the thread and its first message (`insertMessage`; the post itself
- * is not counted as a reply).
+ * slowmode (one post per interval, moderators exempt), the tags (`resolvePostTags`), the files
+ * (up to 10 with alt text, as a media send takes them; a media channel's posts lead with a
+ * picture or a video), AutoMod (title and text), then the thread and its first message
+ * (`insertMessage`; the post itself is not counted as a reply), and I follow it.
  * Events after commit, in order: the thread registers in the room registry, `thread:upsert` →
- * the forum's room, then the first message's `message:new` & co. Rate limits: one thread
- * creation and one message send.
+ * the forum's room, the first message's `message:new` & co., then `thread:follow` → my
+ * devices. Rate limits: one thread creation and one message send.
  */
 export async function createPost(
   me: string,
@@ -131,12 +138,28 @@ export async function createPost(
     const retried = await findRetriedPost(tx, forumId, me, body.clientId);
     if (retried) return { postId: retried, created: false };
     requireSpaceBit(access, PERM.SEND_MESSAGES, 'You cannot create posts in this forum');
-    const appliedTags = resolvePostTags(forumInfoOf(forum), body.appliedTags, {
+    const info = forumInfoOf(forum);
+    const appliedTags = resolvePostTags(info, body.appliedTags, {
       moderator: hasPerm(access.space.bits, PERM.MANAGE_MESSAGES),
     });
 
     let type: MessageType = 'text';
-    if (body.mediaId) type = (await requireOwnedMedia(tx, body.mediaId, me)).kind;
+    let attachments: CreateMessageInput['attachments'];
+    if (body.mediaId) {
+      const kind = (await requireOwnedMedia(tx, body.mediaId, me)).kind;
+      attachments = await mediaAttachmentsOf(tx, me, {
+        clientId: body.clientId,
+        type: kind,
+        mediaId: body.mediaId,
+        extraMediaIds: body.extraMediaIds,
+        descriptions: body.descriptions,
+      });
+      type = kind;
+    } else if (body.extraMediaIds?.length) {
+      throw badRequest('mediaId: The first file goes in mediaId');
+    }
+    if (info.settings.media && type !== 'image' && type !== 'video')
+      throw badRequest('mediaId: Posts in this channel need a picture or a video');
     const text = body.text.trim() ? body.text : null;
     if (!text && !body.mediaId) throw badRequest('text: write something or add a file');
     // Attachments, the forum's slowmode, and which @everyone / @role mentions count.
@@ -166,6 +189,7 @@ export async function createPost(
       clientId: body.clientId,
       text: text ? await gateExternalEmoji(tx, access, text) : null,
       mediaId: body.mediaId ?? null,
+      attachments,
       spaceMentions,
       opensThread: true,
     });
@@ -176,6 +200,7 @@ export async function createPost(
       await ensureSpaceReadRow(tx, forum, me, access.space.me.member.joinedAt);
       await touchSlowmode(tx, access, me);
     }
+    await autoFollowThread(tx, post!.id, me, fx);
     return { postId: post!.id, created: true };
   });
   return { post: await postSummaryFor(me, postId), created };
@@ -202,9 +227,11 @@ const containsPattern = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)
  * forum, 404 otherwise): its open posts — or its archived ones — by last activity
  * (`sort=activity`, keyset on (last_message_at, id): the parent index) or newest first
  * (`sort=created`, on (created_at, id)); the forum's default sort when omitted. `tag` keeps
- * the posts wearing it, `q` matches titles. Each post comes with its first message (one
- * query for the page: seq 1 of each thread, null once deleted for good) and the page with the
- * users it shows (authors and the people the first messages mention).
+ * the posts wearing it, `q` matches titles. The pinned post, when it passes the filter, leads
+ * the first page (one more than `limit`) and is left out of the keyset pages. Each post comes
+ * with its first message (one query for the page: seq 1 of each thread, null once deleted for
+ * good) and the page with the users it shows (authors and the people the first messages
+ * mention).
  */
 export async function listPosts(
   me: string,
@@ -216,15 +243,27 @@ export async function listPosts(
   const sort = q.sort ?? forumInfoOf(access.chat).settings.defaultSort;
   const key = sort === 'created' ? chats.createdAt : chats.lastMessageAt;
   const cursor = parseCursor(q.before);
+  const filter = and(
+    eq(chats.parentId, forumId),
+    q.archived ? isNotNull(chats.threadArchivedAt) : isNull(chats.threadArchivedAt),
+    q.tag ? sql`${q.tag} = any(${chats.appliedTags})` : undefined,
+    q.q ? sql`${chats.name} ilike ${containsPattern(q.q)}` : undefined,
+  );
+  const columns = { id: chats.id, createdAt: chats.createdAt, lastMessageAt: chats.lastMessageAt };
+  const pinned = cursor
+    ? []
+    : await db
+        .select(columns)
+        .from(chats)
+        .where(and(filter, eq(chats.threadPinned, true)))
+        .limit(1);
   const rows = await db
-    .select({ id: chats.id, createdAt: chats.createdAt, lastMessageAt: chats.lastMessageAt })
+    .select(columns)
     .from(chats)
     .where(
       and(
-        eq(chats.parentId, forumId),
-        q.archived ? isNotNull(chats.threadArchivedAt) : isNull(chats.threadArchivedAt),
-        q.tag ? sql`${q.tag} = any(${chats.appliedTags})` : undefined,
-        q.q ? sql`${chats.name} ilike ${containsPattern(q.q)}` : undefined,
+        filter,
+        eq(chats.threadPinned, false),
         cursor
           ? sql`(${key}, ${chats.id}) < (${cursor.at}::timestamptz, ${cursor.id}::uuid)`
           : undefined,
@@ -233,7 +272,7 @@ export async function listPosts(
     .orderBy(desc(key), desc(chats.id))
     .limit(q.limit + 1);
   const page = rows.slice(0, q.limit);
-  const ids = page.map((r) => r.id);
+  const ids = [...pinned, ...page].map((r) => r.id);
   const summaries = await spaceChannelSummariesForPairs(
     db,
     ids.map((chatId) => ({ chatId, userId: me })),

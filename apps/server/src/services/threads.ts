@@ -49,7 +49,10 @@ export const THREAD_UPSERT_THROTTLE_MS = 5_000;
 // Serialization
 // ---------------------------------------------------------------------------
 
-/** `ChatSummary.thread` of a thread row (forum posts: the tags they wear). */
+/**
+ * `ChatSummary.thread` of a thread row (forum posts: the tags they wear, the pin), viewer-neutral:
+ * `following` is the viewer's (spaceSummaries.ts adds it).
+ */
 export function toThreadInfo(row: ChatRow): ThreadInfo {
   return {
     parentId: row.parentId!,
@@ -60,6 +63,7 @@ export function toThreadInfo(row: ChatRow): ThreadInfo {
     autoArchiveMinutes: row.threadAutoArchiveMinutes ?? DEFAULT_THREAD_AUTO_ARCHIVE_MINUTES,
     messageCount: row.threadMessageCount,
     appliedTags: row.appliedTags ?? [],
+    pinned: row.threadPinned,
   };
 }
 

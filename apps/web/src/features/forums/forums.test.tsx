@@ -1,12 +1,15 @@
 /**
  * Forum UI: the post list (order by activity or creation, cards with tags, preview, author,
  * counts, gallery covers), the tag filter, the guidelines, the New Post flow (tags, required
- * tags, moderated tags, the post opening beside the forum), the `?thread=` link, the Forum
- * settings tab (tags editor and options), the Forum type of the create dialog, and the
- * store's pure helpers (window of loaded pages, filters, first messages, views).
+ * tags, moderated tags, files with alt text, the post opening beside the forum), the
+ * `?thread=` link, the post menu per role (follow, close, lock, pin, edit, delete, download),
+ * the pinned post and its marks, media channels (tiles, a picture or video in every post,
+ * hidden downloads), the Forum settings tab (tags editor and options), the Forum and Media
+ * types of the create dialog, and the store's pure helpers (window of loaded pages, filters,
+ * first messages, views).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import {
   DEFAULT_FORUM_SETTINGS,
@@ -16,8 +19,12 @@ import {
   type ForumPostsPage,
   type ForumSettings,
   type ForumTag,
+  type MediaAttachment,
   type Message,
+  type ThreadInfo,
 } from '@enbox/shared';
+import { uploadAll } from '@/features/conversation/lib/sendMedia';
+import type * as SendMediaModule from '@/features/conversation/lib/sendMedia';
 import { ChannelDialog } from '@/features/spaces/dialogs/ChannelDialog';
 import { makeSpace } from '@/features/spaces/testUtils';
 import { api } from '@/lib/api';
@@ -37,11 +44,17 @@ import { useMessages } from '@/stores/messages';
 import { useSidePanel } from '@/stores/sidePanel';
 import { useSpace, useSpaces } from '@/stores/spaces';
 import { useThreads } from '@/stores/threads';
+import { useUi } from '@/stores/ui';
 import { useUsers } from '@/stores/users';
 import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
 import { ForumChannelView } from './ForumChannelView';
 import { ForumSettingsSection } from './ForumSettingsSection';
+import { useHideDownloads } from './media';
 
+vi.mock('@/features/conversation/lib/sendMedia', async (importOriginal) => ({
+  ...(await importOriginal<typeof SendMediaModule>()),
+  uploadAll: vi.fn(),
+}));
 vi.mock('@/features/search/HeaderSearch', () => ({ HeaderSearch: () => null }));
 vi.mock('@/features/inbox/InboxButton', () => ({ InboxButton: () => null }));
 vi.mock('@/features/threads/ThreadPanel', () => ({
@@ -195,9 +208,10 @@ afterEach(() => {
   useChats.setState({ byId: {}, loaded: false });
   useMessages.setState({ byChat: {} });
   useSpaces.setState({ byId: {}, order: [], channelsLoaded: {}, members: {} });
-  useThreads.setState({ lists: {}, draft: null, recent: [], starters: {} });
+  useThreads.setState({ lists: {}, draft: null, recent: [], starters: {}, followed: {} });
   useForums.setState({ lists: {}, firstMessages: {}, views: {} });
   useSidePanel.setState({ panel: null });
+  useUi.setState({ dialogs: [] });
 });
 
 describe('ForumChannelView: the post list', () => {
@@ -390,6 +404,261 @@ describe('New Post', () => {
   });
 });
 
+/** A post with more thread info (pinned, closed, locked, following). */
+const withInfo = (p: ChatSummary, info: Partial<ThreadInfo>, extra: Partial<ChatSummary> = {}): ChatSummary => ({
+  ...p,
+  ...extra,
+  thread: { ...p.thread!, ...info },
+});
+
+/** An uploaded file as the server returns it. */
+function upload(id: string, kind: 'image' | 'video', name: string, thumbnailUrl: string | null = null): MediaAttachment {
+  return {
+    id,
+    kind,
+    url: `/uploads/${name}`,
+    thumbnailUrl,
+    mimeType: kind === 'image' ? 'image/png' : 'video/mp4',
+    fileName: name,
+    size: 10,
+    width: 10,
+    height: 10,
+    animated: false,
+    frameCount: null,
+    durationMs: null,
+    waveform: null,
+  };
+}
+
+/** Open the post menu of card `i` (closing any other first). */
+function openMenu(i: number, name: string, testId = 'forum-post-card'): HTMLElement {
+  fireEvent.pointerDown(document.body);
+  fireEvent.click(within(screen.getAllByTestId(testId)[i]!).getByRole('button', { name: 'Post options' }));
+  return screen.getByRole('menu', { name: `Options for ${name}` });
+}
+
+const itemsOf = (menu: HTMLElement) => within(menu).getAllByRole('menuitem').map((m) => m.textContent ?? '');
+
+/** Choose an item of card `i`'s post menu. */
+function choose(i: number, name: string, item: string): void {
+  fireEvent.click(within(openMenu(i, name)).getByRole('menuitem', { name: item }));
+}
+
+describe('Post actions', () => {
+  const mine = () => withInfo(ALPHA, { ownerId: 'me' }, { createdBy: 'me' });
+
+  it('the card menu per role: members follow and copy the link; the author closes, renames and deletes', async () => {
+    served = [mine(), BETA];
+    seed({ posts: [] });
+    renderForum();
+    await waitFor(() => expect(titles()).toEqual(['Alpha', 'Beta']));
+    expect(itemsOf(openMenu(0, 'Alpha'))).toEqual([
+      'Open Post',
+      'Follow Post',
+      'Close Post',
+      'Edit Title',
+      'Edit Tags',
+      'Copy Link',
+      'Delete Post',
+    ]);
+    expect(itemsOf(openMenu(1, 'Beta'))).toEqual(['Open Post', 'Follow Post', 'Copy Link']);
+
+    const put = vi.spyOn(api, 'put').mockResolvedValue(withInfo(BETA, { following: true }) as never);
+    choose(1, 'Beta', 'Follow Post');
+    expect(put).toHaveBeenCalledWith('/api/threads/beta/follow');
+    await waitFor(() => expect(useChats.getState().byId.beta?.thread?.following).toBe(true));
+    expect(itemsOf(openMenu(1, 'Beta'))).toContain('Unfollow Post');
+
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue(withInfo(mine(), { archived: true }) as never);
+    choose(0, 'Alpha', 'Close Post');
+    expect(patch).toHaveBeenCalledWith('/api/threads/alpha', { archived: true });
+  });
+
+  it('Edit Title renames the post; Delete Post asks first', async () => {
+    served = [mine()];
+    seed({ posts: [] });
+    renderForum();
+    await waitFor(() => expect(titles()).toEqual(['Alpha']));
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue({ ...mine(), name: 'Alpha, again' } as never);
+    choose(0, 'Alpha', 'Edit Title');
+    const dialog = screen.getByRole('dialog', { name: 'Edit Title' });
+    fireEvent.change(within(dialog).getByLabelText('Post title'), { target: { value: '  Alpha, again ' } });
+    fireEvent.click(within(dialog).getByTestId('post-title-save'));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/api/threads/alpha', { name: 'Alpha, again' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Title' })).toBeNull());
+    expect(titles()).toEqual(['Alpha, again']);
+
+    const del = vi.spyOn(api, 'delete').mockResolvedValue(undefined as never);
+    choose(0, 'Alpha, again', 'Delete Post');
+    await waitFor(() => expect(useUi.getState().dialogs).toHaveLength(1));
+    expect(del).not.toHaveBeenCalled();
+    act(() => useUi.getState().closeDialog(useUi.getState().dialogs[0]!.id, 'confirm'));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/api/threads/alpha'));
+    await waitFor(() => expect(screen.queryAllByTestId('forum-post-card')).toHaveLength(0));
+  });
+
+  it('moderators pin and lock any post; the pinned one leads the list with its mark, closed ones wear theirs', async () => {
+    const rules = withInfo(post('rules', { name: 'Rules', created: '07:00', active: '07:00' }), { pinned: true });
+    const done = withInfo(post('done', { name: 'Done', created: '06:00', active: '13:00' }), { archived: true, locked: true });
+    served = [ALPHA, BETA, GAMMA, rules, done].map((p) => ({ ...p, spacePermissions: MOD }));
+    seed({ bits: MOD, posts: [] });
+    renderForum();
+    await waitFor(() => expect(titles()).toEqual(['Rules', 'Gamma', 'Alpha', 'Beta', 'Done']));
+    const cards = screen.getAllByTestId('forum-post-card');
+    expect(within(cards[0]!).getByTestId('post-pinned')).toHaveTextContent('Pinned');
+    expect(within(cards[1]!).queryByTestId('post-pinned')).toBeNull();
+    expect(within(cards[4]!).getByTestId('post-closed')).toHaveTextContent('Closed');
+    expect(within(cards[4]!).getByTestId('post-locked')).toBeInTheDocument();
+
+    expect(itemsOf(openMenu(1, 'Gamma'))).toEqual([
+      'Open Post',
+      'Follow Post',
+      'Close Post',
+      'Lock Post',
+      'Pin Post',
+      'Edit Title',
+      'Edit Tags',
+      'Copy Link',
+      'Delete Post',
+    ]);
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue(withInfo({ ...GAMMA, spacePermissions: MOD }, { pinned: true }) as never);
+    choose(1, 'Gamma', 'Pin Post');
+    expect(patch).toHaveBeenCalledWith('/api/threads/gamma', { pinned: true });
+    expect(itemsOf(openMenu(0, 'Rules'))).toContain('Unpin Post');
+    expect(itemsOf(openMenu(4, 'Done'))).toEqual(expect.arrayContaining(['Reopen Post', 'Unlock Post']));
+  });
+
+  it('Download saves a post’s file, unless its forum hides downloads (the viewer too)', async () => {
+    const pic = first('beta', { type: 'image', text: null, media: upload('img', 'image', 'beta.png') });
+    served = [BETA];
+    messages = [pic];
+    seed({ posts: [] });
+    const { unmount } = renderForum();
+    await waitFor(() => expect(titles()).toEqual(['Beta']));
+    expect(itemsOf(openMenu(0, 'Beta'))).toContain('Download');
+    expect(renderHook(() => useHideDownloads('beta')).result.current).toBe(false);
+    unmount();
+
+    seed({ forum: info({ media: true, hideDownloads: true }), posts: [] });
+    renderForum();
+    await waitFor(() => expect(screen.getAllByTestId('forum-media-tile')).toHaveLength(1));
+    expect(itemsOf(openMenu(0, 'Beta', 'forum-media-tile'))).not.toContain('Download');
+    expect(renderHook(() => useHideDownloads('beta')).result.current).toBe(true);
+  });
+});
+
+describe('Media channels', () => {
+  const media = () => info({ media: true, layout: 'gallery' });
+
+  it('tiles lead with the first picture or video, the title over it; no layout choice', async () => {
+    served = [ALPHA, BETA];
+    messages = [
+      first('alpha', {
+        type: 'image',
+        text: null,
+        media: upload('a1', 'image', 'alpha.png'),
+        attachments: [
+          { ...upload('a1', 'image', 'alpha.png'), description: 'A red kite' },
+          { ...upload('a2', 'image', 'alpha-2.png'), description: null },
+        ],
+      }),
+      first('beta', { type: 'video', text: 'Waves', media: upload('b1', 'video', 'beta.mp4', '/uploads/beta-poster.jpg') }),
+    ];
+    seed({ forum: media(), posts: [] });
+    renderForum();
+    await waitFor(() => expect(screen.getAllByTestId('forum-media-tile')).toHaveLength(2));
+    expect(screen.queryByTestId('forum-post-card')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Layout/ })).toBeNull();
+    const [alpha, beta] = screen.getAllByTestId('forum-media-tile');
+    expect(within(alpha!).getByTestId('forum-media-cover')).toHaveAttribute('alt', 'A red kite');
+    expect(within(alpha!).getByTestId('forum-media-cover').getAttribute('src')).toContain('/uploads/alpha.png');
+    expect(within(alpha!).getByLabelText('2 files')).toBeInTheDocument();
+    expect(within(beta!).getByTestId('forum-media-cover').getAttribute('src')).toContain('/uploads/beta-poster.jpg');
+    expect(within(beta!).getByLabelText('Video')).toBeInTheDocument();
+    expect(within(beta!).getByRole('heading', { name: 'Beta' })).toBeInTheDocument();
+    fireEvent.click(within(alpha!).getByRole('button', { name: 'Alpha' }));
+    expect(useSidePanel.getState().panel).toEqual({ kind: 'thread', threadId: 'alpha', parentId: 'f1' });
+  });
+
+  it('New Post needs a picture or a video; the files go up first, with their alt text', async () => {
+    vi.mocked(uploadAll).mockImplementation(async (files) =>
+      files.map((f, i) => upload(`up-${i}`, f.file.type.startsWith('video/') ? 'video' : 'image', f.file.name)),
+    );
+    vi.mocked(api.post).mockImplementation(async (path: string) =>
+      (path === '/api/chats/f1/posts' ? post('new1', { name: 'Sunset', created: '14:00', active: '14:00' }) : []) as never,
+    );
+    served = [];
+    seed({ forum: media(), posts: [] });
+    renderForum();
+    expect(await screen.findByText('No photos or videos yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('forum-new-post-button'));
+    const form = screen.getByRole('form', { name: 'New Post' });
+    fireEvent.change(within(form).getByLabelText('Post title'), { target: { value: 'Sunset' } });
+    fireEvent.change(within(form).getByLabelText('Post message'), { target: { value: 'At the beach' } });
+    expect(within(form).getByTestId('forum-post-submit')).toBeDisabled();
+    fireEvent.keyDown(within(form).getByLabelText('Post message'), { key: 'Enter', ctrlKey: true });
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Add a picture or a video');
+
+    // Only pictures and videos here.
+    const input = within(form).getByTestId('forum-post-file');
+    fireEvent.change(input, { target: { files: [new File(['x'], 'notes.pdf', { type: 'application/pdf' })] } });
+    expect(within(form).queryAllByTestId('forum-post-file-tile')).toHaveLength(0);
+    fireEvent.change(input, {
+      target: {
+        files: [new File(['v'], 'waves.mp4', { type: 'video/mp4' }), new File(['p'], 'sunset.png', { type: 'image/png' })],
+      },
+    });
+    expect(within(form).getAllByTestId('forum-post-file-tile')).toHaveLength(2);
+    fireEvent.change(within(form).getByLabelText('Alt text for sunset.png'), { target: { value: ' An orange sky ' } });
+    // A dropped file joins them; removing one takes it out.
+    fireEvent.drop(form, { dataTransfer: { types: ['Files'], files: [new File(['q'], 'extra.png', { type: 'image/png' })] } });
+    expect(within(form).getAllByTestId('forum-post-file-tile')).toHaveLength(3);
+    fireEvent.click(within(form).getByRole('button', { name: 'Remove extra.png' }));
+    expect(within(form).getAllByTestId('forum-post-file-tile')).toHaveLength(2);
+
+    fireEvent.click(within(form).getByTestId('forum-post-submit'));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/chats/f1/posts', {
+        name: 'Sunset',
+        text: 'At the beach',
+        appliedTags: [],
+        clientId: expect.any(String),
+        mediaId: 'up-0',
+        extraMediaIds: ['up-1'],
+        descriptions: [null, 'An orange sky'],
+      }),
+    );
+    expect(vi.mocked(uploadAll).mock.calls[0]![0].map((f) => f.file.name)).toEqual(['waves.mp4', 'sunset.png']);
+    await waitFor(() => expect(useSidePanel.getState().panel).toEqual({ kind: 'thread', threadId: 'new1', parentId: 'f1' }));
+  });
+
+  it('a forum post takes any file; pictures and videos lead', async () => {
+    vi.mocked(uploadAll).mockImplementation(async (files) =>
+      files.map((f, i) => ({ ...upload(`up-${i}`, 'image', f.file.name), kind: f.kind === 'visual' ? 'image' : 'file' }) as MediaAttachment),
+    );
+    seed({ posts: [ALPHA] });
+    renderForum();
+    fireEvent.click(screen.getByTestId('forum-new-post-button'));
+    const form = screen.getByRole('form', { name: 'New Post' });
+    fireEvent.change(within(form).getByLabelText('Post title'), { target: { value: 'Report' } });
+    fireEvent.paste(within(form).getByLabelText('Post message'), {
+      clipboardData: { files: [new File(['x'], 'notes.pdf', { type: 'application/pdf' }), new File(['p'], 'shot.png', { type: 'image/png' })] },
+    });
+    expect(within(form).getAllByTestId('forum-post-file-tile')).toHaveLength(2);
+    // Only pictures and videos get alt text.
+    expect(within(form).queryByLabelText('Alt text for notes.pdf')).toBeNull();
+    fireEvent.click(within(form).getByTestId('forum-post-submit'));
+    await waitFor(() => expect(uploadAll).toHaveBeenCalled());
+    expect(vi.mocked(uploadAll).mock.calls[0]![0].map((f) => [f.file.name, f.kind])).toEqual([
+      ['shot.png', 'visual'],
+      ['notes.pdf', 'file'],
+    ]);
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/chats/f1/posts', expect.objectContaining({ mediaId: 'up-0', extraMediaIds: ['up-1'] })),
+    );
+  });
+});
+
 describe('Forum settings', () => {
   it('the Forum tab edits tags, guidelines and options in one save', async () => {
     seed({ forum: info({}, [TAGS[0]!]), bits: MOD });
@@ -452,6 +721,48 @@ describe('Forum settings', () => {
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/spaces/s1/channels', expect.objectContaining({ type: 'space_forum', name: 'help-desk' })),
     );
+    expect(vi.mocked(api.post).mock.calls[0]![1]).not.toHaveProperty('forumSettings');
+  });
+
+  it('the create dialog offers a Media channel: a forum of pictures and videos, as a grid', async () => {
+    seed({ bits: MOD });
+    vi.mocked(api.post).mockResolvedValue(forumChat(info({ media: true, layout: 'gallery' })) as never);
+    render(<MemoryRouter><ChannelDialog spaceId="s1" onClose={() => {}} /></MemoryRouter>);
+    const media = screen.getByRole('radio', { name: /^Media/ });
+    expect(media).toHaveTextContent('Share photos and videos');
+    fireEvent.click(media);
+    expect(media).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /^Forum/ })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.change(screen.getByTestId('channel-name'), { target: { value: 'Photos' } });
+    fireEvent.click(screen.getByTestId('channel-save'));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/api/spaces/s1/channels',
+        expect.objectContaining({ type: 'space_forum', name: 'photos', forumSettings: { media: true, layout: 'gallery' } }),
+      ),
+    );
+  });
+
+  it('a media channel’s settings: hide downloads instead of a layout choice', async () => {
+    seed({ forum: info({ media: true, layout: 'gallery' }), bits: MOD });
+    const forum = useChats.getState().byId.f1!;
+    vi.spyOn(api, 'patch').mockResolvedValue({ ...forum } as never);
+    render(
+      <MemoryRouter>
+        <ChannelDialog spaceId="s1" chat={forum} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Media' }));
+    const settings = screen.getByTestId('forum-settings');
+    expect(within(settings).queryByLabelText(/Gallery/)).toBeNull();
+    fireEvent.click(within(settings).getByRole('switch', { name: 'Hide media download options' }));
+    fireEvent.click(within(settings).getByTestId('forum-settings-save'));
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith('/api/spaces/s1/channels/f1', {
+        forumTags: TAGS,
+        forumSettings: { ...DEFAULT_FORUM_SETTINGS, media: true, layout: 'gallery', hideDownloads: true },
+      }),
+    );
   });
 });
 
@@ -472,6 +783,11 @@ describe('forums store (pure)', () => {
     expect(selectForumPosts(byId, 'f1', f, loaded(null)).open.map((p) => p.name)).toEqual(['Gamma', 'Alpha', 'Beta']);
     // Another filter's pages do not cut this one.
     expect(selectForumPosts(byId, 'f1', filter({ sort: 'created' }), loaded(`${ALPHA.lastActivityAt}|${ALPHA.id}`)).open.map((p) => p.name)).toEqual(['Beta', 'Alpha', 'Gamma']);
+    // The pinned post leads, however old (the first page brought it).
+    const rules = withInfo(post('rules', { name: 'Rules', created: '07:00', active: '07:00' }), { pinned: true });
+    const pinned = selectForumPosts({ ...byId, rules }, 'f1', f, loaded(`${ALPHA.lastActivityAt}|${ALPHA.id}`));
+    expect(pinned.open.map((p) => p.name)).toEqual(['Rules', 'Gamma', 'Alpha']);
+    expect(selectForumPosts({ ...byId, rules }, 'f1', f, loaded(null)).open.map((p) => p.name)).toEqual(['Rules', 'Gamma', 'Alpha', 'Beta']);
   });
 
   it('filters by tag and title like the server', () => {

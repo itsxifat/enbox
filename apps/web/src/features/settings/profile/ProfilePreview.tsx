@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Eye } from 'lucide-react';
 import { userDisplayName } from '@enbox/shared';
 import { StyledName } from '@/components/cosmetics';
+import { TagPill } from '@/components/cosmetics/TagPill/TagPill';
 import { DecorationPreview, NameplateRow } from '@/features/collectibles/previews';
 import type { ProfileCardUser } from '@/features/profile/model';
 import { ProfileCard } from '@/features/profile/ProfileCard';
@@ -10,7 +11,7 @@ import { formatTime } from '@/lib/format';
 
 /**
  * The editor's live preview, fed by the draft: my profile card (its effect on loop), a chat
- * message (decorated avatar, name in its font) and a member-list row with the
+ * message (decorated avatar, name in its font, my server tag) and a member-list row with the
  * nameplate behind it. Wide editors keep it sticky on the right; narrow ones (phones) show it
  * as a collapsible card above the form.
  */
@@ -66,6 +67,7 @@ export function ProfilePreview({ user }: { user: ProfileCardUser }) {
                 mode="font"
                 className="truncate text-[14.5px] font-medium text-fg"
               />
+              {user.spaceTag ? <TagPill tag={user.spaceTag} /> : null}
               <span className="shrink-0 text-[11.5px] text-muted">
                 Today at {formatTime(new Date())}
               </span>

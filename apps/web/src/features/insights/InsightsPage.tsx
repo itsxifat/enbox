@@ -14,6 +14,7 @@ import {
   ChartColumn,
   Download,
   Hash,
+  Images,
   Megaphone,
   MessagesSquare,
   Minus,
@@ -331,10 +332,10 @@ function ChartCard({
   );
 }
 
-function channelIcon(type: string | undefined, isNews: boolean | undefined) {
+function channelIcon(type: string | undefined, isNews: boolean | undefined, media?: boolean) {
   if (type === 'space_voice') return Volume2;
   if (type === 'space_stage') return Podcast;
-  if (type === 'space_forum') return MessagesSquare;
+  if (type === 'space_forum') return media ? Images : MessagesSquare;
   return isNews ? Megaphone : Hash;
 }
 
@@ -346,7 +347,7 @@ function TopChannelRow({
   max: number;
 }) {
   const chat = useChats((s) => s.byId[channel.channelId]);
-  const Icon = channelIcon(chat?.type, chat?.space?.isNews);
+  const Icon = channelIcon(chat?.type, chat?.space?.isNews, chat?.space?.forum?.settings.media);
   return (
     <li className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_auto] items-center gap-3 text-[14px]">
       <span className="flex min-w-0 items-center gap-1.5">

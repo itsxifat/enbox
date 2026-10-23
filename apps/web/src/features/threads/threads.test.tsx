@@ -138,7 +138,7 @@ afterEach(() => {
   useChats.setState({ byId: {}, loaded: false });
   useMessages.setState({ byChat: {} });
   useSpaces.setState({ byId: {}, order: [], channelsLoaded: {}, members: {} });
-  useThreads.setState({ lists: {}, draft: null, recent: [], starters: {} });
+  useThreads.setState({ lists: {}, draft: null, recent: [], starters: {}, followed: {} });
   useSidePanel.setState({ panel: null });
   useConversationUi.setState({ jump: null });
 });
@@ -220,12 +220,12 @@ describe('Thread panel', () => {
     expect(within(panel).getByTestId('composer')).toHaveAttribute('data-chat-id', 't1');
   });
 
-  it('a member sees Copy Link only; a moderator can archive, lock and delete', () => {
+  it('a member can follow it and copy its link; a moderator can archive, lock and delete', () => {
     seed({ threads: [thread()] });
     seedWindow('t1', []);
     const { unmount } = inChannel(<ThreadPanel threadId="t1" parentId="general" />);
     fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Copy Link']);
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Follow Thread', 'Copy Link']);
     unmount();
 
     seed({ bits: MOD, threads: [thread({ spacePermissions: MOD })] });
@@ -233,6 +233,7 @@ describe('Thread panel', () => {
     inChannel(<ThreadPanel threadId="t1" parentId="general" />);
     fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Follow Thread',
       'Archive Thread',
       'Lock Thread',
       'Edit Thread Name',
@@ -394,6 +395,59 @@ describe('Thread panel: typing, forum tags, Developer Mode', () => {
     expect(within(tags).getAllByTestId('forum-tag').map((t) => t.textContent)).toEqual(['Idea', 'Done']);
   });
 
+  it('a forum post’s menu, per role: moderators pin, lock and close; its author closes and deletes while unlocked', () => {
+    const forum = (bits: number) =>
+      makeChat({
+        id: 'ideas',
+        type: 'space_forum',
+        name: 'ideas',
+        space: {
+          ...spaceInfo(),
+          forum: { tags: [], settings: { layout: 'list', defaultSort: 'activity', requireTag: false, defaultReaction: null, guidelines: null } },
+        },
+        spacePermissions: bits,
+      });
+    const post = (bits: number, info: Partial<ThreadInfo> = {}) =>
+      thread({ name: 'Dark mode', spacePermissions: bits }, { parentId: 'ideas', starterMessageId: null, ...info });
+    const menu = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
+      return screen.getAllByRole('menuitem').map((i) => i.textContent);
+    };
+    const open = (bits: number, info: Partial<ThreadInfo> = {}) => {
+      seed({ bits, threads: [forum(bits), post(bits, info)] });
+      seedWindow('t1', []);
+      return inChannel(<ThreadPanel threadId="t1" parentId="ideas" />, '/spaces/s1/ideas');
+    };
+
+    let view = open(MOD, { pinned: true, archived: true, following: true });
+    const header = screen.getByTestId('thread-panel-header');
+    expect(within(header).getByLabelText('Pinned')).toBeInTheDocument();
+    expect(within(header).getByLabelText('Closed')).toBeInTheDocument();
+    expect(menu()).toEqual([
+      'Unfollow Post',
+      'Reopen Post',
+      'Lock Post',
+      'Unpin Post',
+      'Edit Title',
+      'Copy Link',
+      'Delete Post',
+    ]);
+    const patch = vi.spyOn(api, 'patch').mockResolvedValue(post(MOD, { archived: true }) as never);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unpin Post' }));
+    expect(patch).toHaveBeenCalledWith('/api/threads/t1', { pinned: false });
+    view.unmount();
+
+    view = open(MEMBER, { ownerId: 'me' });
+    expect(menu()).toEqual(['Follow Post', 'Close Post', 'Edit Title', 'Copy Link', 'Delete Post']);
+    view.unmount();
+    view = open(MEMBER, { ownerId: 'me', locked: true });
+    expect(screen.getByTestId('thread-locked-footer')).toHaveTextContent('This post is locked.');
+    expect(menu()).toEqual(['Follow Post', 'Copy Link']);
+    view.unmount();
+    open(MEMBER);
+    expect(menu()).toEqual(['Follow Post', 'Copy Link']);
+  });
+
   it('a thread shows no tags', () => {
     seed({ threads: [thread()] });
     seedWindow('t1', []);
@@ -409,7 +463,11 @@ describe('Thread panel: typing, forum tags, Developer Mode', () => {
     seedWindow('t1', []);
     inChannel(<ThreadPanel threadId="t1" parentId="general" />);
     fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Copy Link', 'Copy Thread ID']);
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Follow Thread',
+      'Copy Link',
+      'Copy Thread ID',
+    ]);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Copy Thread ID' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('t1'));
   });
@@ -464,20 +522,89 @@ describe('New Thread', () => {
 });
 
 describe('Sidebar threads and links', () => {
-  it('nests my active threads under the channel, unread ones bold; a click opens it', () => {
+  const rows = () => screen.queryAllByTestId('sidebar-thread-row').map((r) => r.textContent);
+
+  it('nests my active threads under the channel, unread ones bold; a click opens it', async () => {
     seed({
       threads: [
-        thread({ id: 'mine', name: 'Mine', lastSeq: 5, lastReadSeq: 3 }, { ownerId: 'me' }),
+        thread({ id: 'mine', name: 'Mine', lastSeq: 5, lastReadSeq: 3 }, { ownerId: 'me', following: true }),
         thread({ id: 'theirs', name: 'Theirs', lastSeq: 5, lastReadSeq: 0 }),
-        thread({ id: 'done', name: 'Done' }, { ownerId: 'me', archived: true }),
+        thread({ id: 'done', name: 'Done' }, { ownerId: 'me', archived: true, following: true }),
       ],
     });
-    inChannel(<SidebarThreads channel={channel()} />);
-    const rows = screen.getAllByTestId('sidebar-thread-row');
-    expect(rows.map((r) => r.textContent)).toEqual(['Mine']);
-    expect(rows[0]).toHaveAttribute('data-unread', 'true');
-    fireEvent.click(rows[0]!);
+    // Unmounted before the stores reset (else the sidebar would load again into the next test).
+    const { unmount } = inChannel(<SidebarThreads channel={channel()} />);
+    await waitFor(() => expect(useThreads.getState().followed.s1).toEqual([]));
+    expect(rows()).toEqual(['Mine']);
+    const row = screen.getByTestId('sidebar-thread-row');
+    expect(row).toHaveAttribute('data-unread', 'true');
+    fireEvent.click(row);
     expect(useSidePanel.getState().panel).toEqual({ kind: 'thread', threadId: 'mine', parentId: 'general' });
+    unmount();
+  });
+
+  it('once the Space’s followed list is in, only what I follow; Follow and Unfollow change it at once', async () => {
+    const plans = thread({ id: 't1', name: 'Plans', createdAt: '2026-10-20T09:00:00.000Z' }, { ownerId: 'me' });
+    const ideas = thread({ id: 't2', name: 'Ideas', createdAt: '2026-10-20T10:00:00.000Z' }, { following: true });
+    seed({ threads: [plans, ideas] });
+    seedWindow('t1', []);
+    vi.mocked(api.get).mockImplementation(async (path: string) =>
+      (path === '/api/spaces/s1/followed-threads' ? { threads: [ideas] } : { threads: [], nextCursor: null }) as never,
+    );
+    const { unmount } = inChannel(
+      <>
+        <SidebarThreads channel={channel()} />
+        <ThreadPanel threadId="t1" parentId="general" />
+      </>,
+    );
+    // Until the list is in, the ones I own or read show too.
+    expect(rows()).toEqual(['Plans', 'Ideas']);
+    await waitFor(() => expect(rows()).toEqual(['Ideas']));
+    expect(api.get).toHaveBeenCalledWith('/api/spaces/s1/followed-threads');
+
+    const put = vi.spyOn(api, 'put').mockResolvedValue({ ...plans, thread: { ...plans.thread!, following: true } } as never);
+    fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Follow Thread' }));
+    expect(rows()).toEqual(['Plans', 'Ideas']);
+    expect(put).toHaveBeenCalledWith('/api/threads/t1/follow');
+    await waitFor(() => expect(useThreads.getState().followed.s1).toEqual(['t1', 't2']));
+
+    const del = vi.spyOn(api, 'delete').mockResolvedValue(undefined as never);
+    fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unfollow Thread' }));
+    expect(rows()).toEqual(['Ideas']);
+    expect(del).toHaveBeenCalledWith('/api/threads/t1/follow');
+
+    // Another device of mine follows it again (thread:follow).
+    act(() => useThreads.getState().applyFollow({ threadId: 't1', parentId: 'general', spaceId: 's1', following: true }));
+    expect(rows()).toEqual(['Plans', 'Ideas']);
+    unmount();
+  });
+
+  it('a refused follow is undone', async () => {
+    seed({ threads: [thread({ id: 't1', name: 'Plans' })] });
+    useThreads.setState({ followed: { s1: [] } });
+    vi.spyOn(api, 'put').mockRejectedValue(new Error('nope'));
+    await expect(useThreads.getState().setFollowing('t1', true)).rejects.toThrow('nope');
+    expect(useChats.getState().byId.t1?.thread?.following).toBe(false);
+    expect(useThreads.getState().followed.s1).toEqual([]);
+  });
+
+  it('a forum nests the posts I follow, never the others', async () => {
+    const forum = makeChat({ id: 'ideas', type: 'space_forum', name: 'ideas', space: spaceInfo(), spacePermissions: MEMBER });
+    seed({
+      threads: [
+        forum,
+        thread({ id: 'p1', name: 'Followed post' }, { parentId: 'ideas', starterMessageId: null, following: true }),
+        thread({ id: 'p2', name: 'Read post', lastReadSeq: 2 }, { parentId: 'ideas', starterMessageId: null, ownerId: 'me' }),
+      ],
+    });
+    const { unmount } = inChannel(<SidebarThreads channel={forum} />, '/spaces/s1/ideas');
+    expect(screen.getByRole('list', { name: 'Posts in ideas' })).toBeInTheDocument();
+    expect(rows()).toEqual(['Followed post']);
+    await waitFor(() => expect(useThreads.getState().followed.s1).toEqual([]));
+    expect(rows()).toEqual(['Followed post']);
+    unmount();
   });
 
   it('?thread= on the channel URL opens the thread beside it and leaves the URL', async () => {

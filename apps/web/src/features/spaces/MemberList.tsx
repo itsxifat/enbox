@@ -11,6 +11,7 @@ import {
   type SpaceMemberPage,
 } from '@enbox/shared';
 import { Nameplate, StyledName } from '@/components/cosmetics';
+import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { Avatar, Menu, SearchInput, Spinner, type MenuAnchor } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -66,6 +67,7 @@ export function MemberRow({ space, member, onMenu }: { space: Space; member: Spa
       <span className="relative flex min-w-0 flex-1 items-center gap-1 text-[15px] font-medium">
         <StyledName name={name} style={user?.nameStyle} role={role ? roleNameStyle(role) : null} mode="full" className="truncate" />
         <RoleIcon role={iconRole} size={16} />
+        <ServerTagPill userId={member.userId} tag={user?.spaceTag ?? null} />
       </span>
       {space.ownerId === member.userId ? <Crown size={14} className="relative shrink-0 text-warning" aria-label="Owner" /> : null}
       {member.timedOutUntil ? <Shield size={14} className="relative shrink-0 text-danger" aria-label="Timed out" /> : null}

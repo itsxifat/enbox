@@ -1,7 +1,8 @@
 /**
  * Who reacted, for the tooltip: the first reactor ids of a chip (me first) and their names
  * (Space nicknames win). Direct chats and groups have the lists; Space channels fetch the
- * first few on hover (cached briefly); broadcast channels never name anyone.
+ * first few on hover (cached briefly); broadcast channels never name anyone. A super chip
+ * names its super reactors.
  */
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -9,7 +10,7 @@ import { userDisplayName, type ChatSummary, type ID, type ReactionSummary } from
 import { useAuth } from '@/stores/auth';
 import { useSpaces } from '@/stores/spaces';
 import { useUsers } from '@/stores/users';
-import { reactorsHidden, reactorsListed } from './model';
+import { burstCountOf, normalCountOf, reactorsHidden, reactorsListed } from './model';
 import { fetchReactors } from './reactionActions';
 
 /** Names shown in a tooltip (Discord shows up to three). */
@@ -28,16 +29,18 @@ export function orderReactors(
   return (mine && me ? [me, ...rest] : rest).slice(0, n);
 }
 
-/** The first reactors of a chip (fetched in Space channels while `active`). */
+/** The first reactors of a chip (`burst`: the super one; fetched in Space channels while `active`). */
 export function useFirstReactors(
   chat: ChatSummary,
   messageId: ID,
   r: ReactionSummary,
   mine: boolean,
   active: boolean,
+  burst = false,
 ): ID[] {
   const me = useAuth((s) => s.user?.id);
-  const key = `${messageId}|${r.emoji}|${r.count}`;
+  const count = burst ? burstCountOf(r) : normalCountOf(r);
+  const key = `${messageId}|${r.emoji}|${burst ? 'burst' : 'normal'}|${count}`;
   const fetchable = active && !reactorsListed(chat) && !reactorsHidden(chat);
   const [fetched, setFetched] = useState<ID[] | null>(() => firstReactors.get(key)?.ids ?? null);
   useEffect(() => {
@@ -48,7 +51,7 @@ export function useFirstReactors(
       return;
     }
     let live = true;
-    void fetchReactors(messageId, r.emoji, { limit: TOOLTIP_NAMES })
+    void fetchReactors(messageId, r.emoji, { limit: TOOLTIP_NAMES, burst })
       .then((users) => {
         const ids = users.map((u) => u.id);
         firstReactors.set(key, { at: Date.now(), ids });
@@ -58,9 +61,10 @@ export function useFirstReactors(
     return () => {
       live = false;
     };
-  }, [fetchable, key, messageId, r.emoji]);
+  }, [fetchable, key, messageId, r.emoji, burst]);
   if (reactorsHidden(chat)) return mine && me ? [me] : [];
-  return orderReactors(reactorsListed(chat) ? r.userIds : (fetched ?? []), me, mine, TOOLTIP_NAMES);
+  const listed = burst ? (r.burstUserIds ?? []) : r.userIds;
+  return orderReactors(reactorsListed(chat) ? listed : (fetched ?? []), me, mine, TOOLTIP_NAMES);
 }
 
 /** Display names of `ids` ("You" for me; Space nicknames win). Unknown users are left out. */

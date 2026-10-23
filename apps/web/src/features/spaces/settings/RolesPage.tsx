@@ -328,7 +328,7 @@ function SortableRole({
         className={cn('flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-[15px]', selected ? 'bg-selected font-semibold' : 'hover:bg-hover')}
       >
         <span className="size-3 shrink-0 rounded-full" style={{ background: swatchOf(role) }} aria-hidden />
-        <StyledName name={role.name} role={roleNameStyle(role)} mode="full" className="truncate" />
+        <StyledName name={role.name} role={roleNameStyle(role)} mode="full" roleDisplay="names" className="truncate" />
         <RoleIcon role={role} size={16} />
         {locked ? <Lock size={13} className="ml-auto shrink-0 text-subtle" aria-label="Above your highest role" /> : null}
       </button>
@@ -517,7 +517,7 @@ function RoleEditor({ space, role, myTop }: { space: Space; role: SpaceRole; myT
             <Avatar src={me?.avatarUrl} name={me?.displayName ?? 'Member'} colorSeed={me?.id} size={36} />
             <div className="min-w-0">
               <p className="flex items-center gap-1.5">
-                <StyledName name={me?.displayName ?? 'Member'} role={draftRole} mode="full" className="truncate text-[15px] font-semibold" />
+                <StyledName name={me?.displayName ?? 'Member'} role={draftRole} mode="full" roleDisplay="names" className="truncate text-[15px] font-semibold" />
                 <RoleIcon role={draftRole} size={16} />
               </p>
               <p className="text-[13px] text-muted">How names with this role look</p>

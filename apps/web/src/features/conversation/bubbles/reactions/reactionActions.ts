@@ -1,10 +1,12 @@
 /**
  * Reaction actions (Discord model): add / remove / toggle mine with an optimistic update and
- * a rollback on error, moderator removal and clears, and paged reactor lists.
+ * a rollback on error, moderator removal and clears, and paged reactor lists. Each takes the
+ * kind (`{ burst: true }`: the super reaction, `?burst=true` on the route); the rules of
+ * adding are the same for both kinds.
  *
- * My changes to one emoji of one message run in order, and my own delta echoes are skipped
- * while they run (pending.ts). A failed request undoes only its own change (others' deltas
- * that arrived meanwhile stay).
+ * My changes to one emoji's kind on one message run in order, and my own delta echoes are
+ * skipped while they run (pending.ts). A failed request undoes only its own change (others'
+ * deltas that arrived meanwhile stay).
  */
 import {
   PERM,
@@ -15,6 +17,7 @@ import {
   type UserPublic,
 } from '@enbox/shared';
 import { api } from '@/lib/api';
+import { markArrival } from '@/lib/arrivals';
 import { getMyId } from '@/stores/auth';
 import { useEmojis } from '@/stores/emojis';
 import { useMessages, type ClientMessage } from '@/stores/messages';
@@ -25,17 +28,29 @@ import {
   applyReactionChange,
   applyReactionsCleared,
   canAddNewReaction,
+  isMyBurstReaction,
   isMyReaction,
+  myBurstReactionsOf,
   myReactionsOf,
   reactionAllowed,
   reactorsListed,
   sameReaction,
+  superArrivalKey,
   type ReactionChange,
 } from './model';
 import { enqueueReaction } from './pending';
 import { rememberReaction } from './recent';
 
 const enc = encodeURIComponent;
+
+/** The kind of reaction an action is about. */
+export interface ReactionKind {
+  /** The super reaction of the emoji. */
+  burst?: boolean;
+}
+
+/** The route suffix of a kind (normal reactions keep the plain route). */
+const kindQuery = (burst: boolean) => (burst ? '?burst=true' : '');
 
 /** Apply one change to the cached message; false when it changed nothing. */
 function patch(chat: ChatSummary, messageId: ID, change: ReactionChange): boolean {
@@ -74,67 +89,97 @@ export function canAddReaction(chat: ChatSummary, m: ClientMessage, emoji: strin
   return canAddNewReaction(chat) && customEmojiAllowed(chat, emoji);
 }
 
-export function addReaction(chat: ChatSummary, m: ClientMessage, emoji: string): Promise<void> {
+/** Add mine of that kind. A super reaction plays its burst on its chip (lib/arrivals mark). */
+export function addReaction(
+  chat: ChatSummary,
+  m: ClientMessage,
+  emoji: string,
+  opts: ReactionKind = {},
+): Promise<void> {
   const me = getMyId();
+  const burst = !!opts.burst;
   if (!me || !canAddReaction(chat, m, emoji)) return Promise.resolve();
   // Join an equivalent emoji under its stored form.
   const stored = m.reactions.find((r) => sameReaction(r.emoji, emoji))?.emoji ?? emoji;
   rememberReaction(stored);
-  if (!patch(chat, m.id, { emoji: stored, userId: me, add: true })) return Promise.resolve();
-  return enqueueReaction(m.id, stored, async () => {
-    try {
-      await api.put(`/api/messages/${m.id}/reactions/${enc(stored)}/@me`);
-    } catch (e) {
-      patch(chat, m.id, { emoji: stored, userId: me, add: false });
-      toast.error(e);
-    }
-  });
+  const change: ReactionChange = { emoji: stored, userId: me, add: true, burst };
+  if (burst) markArrival(superArrivalKey(m.id, stored));
+  if (!patch(chat, m.id, change)) return Promise.resolve();
+  return enqueueReaction(
+    m.id,
+    stored,
+    async () => {
+      try {
+        await api.put(`/api/messages/${m.id}/reactions/${enc(stored)}/@me${kindQuery(burst)}`);
+      } catch (e) {
+        patch(chat, m.id, { ...change, add: false });
+        toast.error(e);
+      }
+    },
+    burst,
+  );
 }
 
-export function removeReaction(chat: ChatSummary, m: ClientMessage, emoji: string): Promise<void> {
+export function removeReaction(
+  chat: ChatSummary,
+  m: ClientMessage,
+  emoji: string,
+  opts: ReactionKind = {},
+): Promise<void> {
   const me = getMyId();
+  const burst = !!opts.burst;
   if (!me || !canRemoveOwnReaction(chat, m)) return Promise.resolve();
-  const stored = myReactionsOf(m, me).find((e) => sameReaction(e, emoji)) ?? emoji;
-  if (!patch(chat, m.id, { emoji: stored, userId: me, add: false })) return Promise.resolve();
-  return enqueueReaction(m.id, stored, async () => {
-    try {
-      await api.delete(`/api/messages/${m.id}/reactions/${enc(stored)}/@me`);
-    } catch (e) {
-      patch(chat, m.id, { emoji: stored, userId: me, add: true });
-      toast.error(e);
-    }
-  });
+  const mine = burst ? myBurstReactionsOf(m, me) : myReactionsOf(m, me);
+  const stored = mine.find((e) => sameReaction(e, emoji)) ?? emoji;
+  const change: ReactionChange = { emoji: stored, userId: me, add: false, burst };
+  if (!patch(chat, m.id, change)) return Promise.resolve();
+  return enqueueReaction(
+    m.id,
+    stored,
+    async () => {
+      try {
+        await api.delete(`/api/messages/${m.id}/reactions/${enc(stored)}/@me${kindQuery(burst)}`);
+      } catch (e) {
+        patch(chat, m.id, { ...change, add: true });
+        toast.error(e);
+      }
+    },
+    burst,
+  );
 }
 
-/** A chip click / quick reaction: remove it when it is mine, else add it. */
+/** A chip click / quick reaction: remove mine of that kind when I have it, else add it. */
 export function toggleReaction(
   chat: ChatSummary,
   m: ClientMessage,
   emoji: string,
-  /** `burst`: toggle my super reaction of this emoji (superReactions.tsx). */
-  _opts?: { burst?: boolean },
+  opts: ReactionKind = {},
 ): Promise<void> {
-  return isMyReaction(m, getMyId(), emoji)
-    ? removeReaction(chat, m, emoji)
-    : addReaction(chat, m, emoji);
+  const me = getMyId();
+  const mine = opts.burst ? isMyBurstReaction(m, me, emoji) : isMyReaction(m, me, emoji);
+  return mine ? removeReaction(chat, m, emoji, opts) : addReaction(chat, m, emoji, opts);
 }
 
 /**
- * Moderators: remove someone's reaction. Not applied locally (Space counts can't tell a
- * duplicate): the `message:reaction-remove` delta updates the message. Resolves to success.
+ * Moderators: remove someone's reaction (of that kind). Not applied locally (Space counts
+ * can't tell a duplicate): the `message:reaction-remove` delta updates the message. Resolves
+ * to success.
  */
 export async function removeUserReaction(
   chat: ChatSummary,
   m: ClientMessage,
   emoji: string,
   userId: ID,
+  opts: ReactionKind = {},
 ): Promise<boolean> {
   if (userId === getMyId()) {
-    await removeReaction(chat, m, emoji);
+    await removeReaction(chat, m, emoji, opts);
     return true;
   }
   try {
-    await api.delete(`/api/messages/${m.id}/reactions/${enc(emoji)}/${userId}`);
+    await api.delete(
+      `/api/messages/${m.id}/reactions/${enc(emoji)}/${userId}${kindQuery(!!opts.burst)}`,
+    );
     return true;
   } catch (e) {
     toast.error(e);
@@ -162,14 +207,17 @@ export async function clearReactions(
   }
 }
 
-/** One page of who reacted with `emoji` (oldest first); the users go into the users cache. */
+/**
+ * One page of who reacted with `emoji` (`burst`: who super-reacted), oldest first; the users go
+ * into the users cache.
+ */
 export async function fetchReactors(
   messageId: ID,
   emoji: string,
-  opts: { after?: ID; limit?: number } = {},
+  opts: { after?: ID; limit?: number } & ReactionKind = {},
 ): Promise<UserPublic[]> {
   const users = await api.get<UserPublic[]>(`/api/messages/${messageId}/reactions/${enc(emoji)}`, {
-    query: { after: opts.after, limit: opts.limit },
+    query: { after: opts.after, limit: opts.limit, ...(opts.burst ? { burst: 'true' } : {}) },
   });
   if (users.length) useUsers.getState().upsertUsers(users);
   return users;

@@ -6,6 +6,7 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { BarChart3, FileText, Image as ImageIcon, Paperclip, Plus, Trash2 } from 'lucide-react';
 import {
+  DEFAULT_POLL_DURATION_HOURS,
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
@@ -26,6 +27,7 @@ import {
 import { validate } from '@/lib/forms';
 import { useMessages } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
+import { PollDurationSelect } from '@/features/conversation/bubbles/polls/PollFields';
 import { postFiles } from './postMedia';
 
 export function ChannelComposer({ chat }: { chat: ChatSummary }) {
@@ -142,12 +144,14 @@ function PollModal({
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState<string[]>(['', '']);
   const [multiple, setMultiple] = useState(false);
+  const [duration, setDuration] = useState<number>(DEFAULT_POLL_DURATION_HOURS);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setQuestion('');
     setOptions(['', '']);
     setMultiple(false);
+    setDuration(DEFAULT_POLL_DURATION_HOURS);
     setError(null);
   };
 
@@ -156,6 +160,7 @@ function PollModal({
       question: question.trim(),
       options: options.map((o) => o.trim()).filter(Boolean),
       allowMultiple: multiple,
+      durationHours: duration,
     };
     const v = validate(pollInputSchema, poll);
     if (!v.ok) {
@@ -242,6 +247,7 @@ function PollModal({
             </Button>
           ) : null}
         </fieldset>
+        <PollDurationSelect value={duration} onChange={setDuration} />
         <Switch label="Allow multiple answers" checked={multiple} onChange={setMultiple} />
         {error ? (
           <p role="alert" className="text-[13px] text-danger">

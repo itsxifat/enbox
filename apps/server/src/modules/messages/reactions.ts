@@ -14,6 +14,13 @@
  * The APK's single-reaction routes (`PUT/DELETE /messages/:messageId/reaction`, service.ts)
  * use `replaceMyReaction` / `removeMyReactions`.
  *
+ * Super reactions (Discord's burst reactions): `?burst=true` on the add, remove and reactor
+ * list routes picks the super reaction of the emoji instead of the normal one. A user may
+ * hold both kinds of one emoji; each kind is added, removed and listed on its own, while the
+ * emoji itself (either kind) counts once toward MAX_UNIQUE_REACTIONS and clearing an emoji
+ * clears both kinds. Each new super reaction also spends USER_RATE_LIMITS.superReaction.
+ * The APK routes work on normal reactions (removing all of mine removes both kinds).
+ *
  * Rules
  * - The message must be visible to me (404). Changes need an active membership (403
  *   not_member); former members still read reactor lists within their window. No reactions
@@ -32,11 +39,12 @@
  *   Spaces.
  *
  * Events (post-commit): each change is ONE `message:reaction-add` / `-remove` delta to the chat
- * room, skipping the members who can't see the message (joined after it, cleared or hid it:
- * the `messageUpdatedPayloads` rule) and a direct-chat peer who blocked the reactor; clears are
- * `message:reactions-cleared`. Broadcast channels are anonymous (a delta would name the
- * follower), so their reaction changes keep the viewer-neutral `message:updated` (counts only).
- * DMs and groups send that `message:updated` too, after the deltas, for the Android app.
+ * room (`burst: true` for a super reaction), skipping the members who can't see the message
+ * (joined after it, cleared or hid it: the `messageUpdatedPayloads` rule) and a direct-chat
+ * peer who blocked the reactor; clears are `message:reactions-cleared`. Broadcast channels are
+ * anonymous (a delta would name the follower), so their reaction changes keep the
+ * viewer-neutral `message:updated` (counts only). DMs and groups send that `message:updated`
+ * too, after the deltas, for the Android app.
  */
 import { Router } from 'express';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
@@ -52,6 +60,7 @@ import {
   isSpaceChatType,
   parseCustomEmoji,
   reactionEmojiSchema,
+  reactionKindQuerySchema,
   reactorsQuerySchema,
   type ID,
   type ReactionEvent,
@@ -61,8 +70,15 @@ import {
 import { db, type DbOrTx, type Tx } from '../../db/index.js';
 import { blocks, messageReactions, messages, type MessageRow } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
-import { HttpError, badRequest, forbidden, notFound, notMember } from '../../lib/errors.js';
-import { assertUserLimit } from '../../lib/userLimit.js';
+import {
+  HttpError,
+  badRequest,
+  forbidden,
+  notFound,
+  notMember,
+  rateLimited,
+} from '../../lib/errors.js';
+import { assertUserLimit, limitUser } from '../../lib/userLimit.js';
 import { parse } from '../../lib/validate.js';
 import {
   getChatAccess,
@@ -186,64 +202,111 @@ function assertModerator(access: ChatAccess): void {
 // Writes
 // ---------------------------------------------------------------------------
 
-/** One emoji on a message. */
+/** One emoji on a message (both kinds). */
 interface EmojiGroup {
   emoji: string;
   count: number;
-  /** `me` reacted with it. */
+  /** `me` reacted with it (a normal reaction). */
   mine: boolean;
+  /** `me` super-reacted with it. */
+  mineBurst: boolean;
 }
 
-/** The distinct emoji on a message (bounded by MAX_UNIQUE_REACTIONS). */
+/** The distinct emoji on a message, either kind (bounded by MAX_UNIQUE_REACTIONS). */
 async function emojiGroups(dbx: DbOrTx, messageId: string, me: string): Promise<EmojiGroup[]> {
-  const rows = await rawRows<{ emoji: string; n: number; mine: boolean }>(
+  const rows = await rawRows<{ emoji: string; n: number; mine: boolean; mine_burst: boolean }>(
     dbx,
-    sql`select emoji, count(*)::int as n, bool_or(user_id = ${me}::uuid) as mine
+    sql`select emoji, count(*)::int as n,
+          bool_or(user_id = ${me}::uuid and not burst) as mine,
+          bool_or(user_id = ${me}::uuid and burst) as mine_burst
         from message_reactions where message_id = ${messageId}::uuid group by emoji`,
   );
-  return rows.map((r) => ({ emoji: r.emoji, count: Number(r.n), mine: !!r.mine }));
+  return rows.map((r) => ({
+    emoji: r.emoji,
+    count: Number(r.n),
+    mine: !!r.mine,
+    mineBurst: !!r.mine_burst,
+  }));
 }
 
-/** Add my reaction (rules above). Returns the stored emoji, or null when it was mine already. */
+/**
+ * Add my reaction of one kind (rules above). Returns the stored emoji, or null when it was
+ * mine already. A new super reaction spends USER_RATE_LIMITS.superReaction (429 when spent).
+ */
 async function insertMine(
   tx: Tx,
   target: Target,
   me: string,
   emoji: string,
   groups: EmojiGroup[],
+  burst = false,
 ): Promise<string | null> {
   const same = groups.find((g) => sameReaction(g.emoji, emoji));
-  if (same?.mine) return null;
+  if (burst ? same?.mineBurst : same?.mine) return null;
   await assertMayAdd(tx, target.access, emoji, !!same);
   if (!same && groups.length >= MAX_UNIQUE_REACTIONS)
     throw badRequest(`A message can have at most ${MAX_UNIQUE_REACTIONS} different reactions`);
+  const rule = USER_RATE_LIMITS.superReaction;
+  if (burst && !limitUser(me, 'superReaction', rule.limit, rule.windowMs))
+    throw rateLimited('You have sent a lot of Super Reactions, try again later');
   const stored = same?.emoji ?? emoji;
   const rows = await tx
     .insert(messageReactions)
-    .values({ messageId: target.message.id, userId: me, emoji: stored, emojiId: emojiIdOf(stored) })
+    .values({
+      messageId: target.message.id,
+      userId: me,
+      emoji: stored,
+      emojiId: emojiIdOf(stored),
+      burst,
+    })
     .onConflictDoNothing()
     .returning({ emoji: messageReactions.emoji });
   return rows.length ? stored : null;
 }
 
-/** Delete `userId`'s reactions on a message that `match` (≤ MAX_UNIQUE_REACTIONS rows). */
+/** One stored reaction of a user: its emoji and kind. */
+interface Held {
+  emoji: string;
+  burst: boolean;
+}
+
+/**
+ * Delete `userId`'s reactions on a message that `match` (≤ 2 × MAX_UNIQUE_REACTIONS rows).
+ * Returns them oldest first.
+ */
 async function deleteUserReactions(
   tx: Tx,
   messageId: string,
   userId: string,
-  match: (emoji: string) => boolean,
-): Promise<string[]> {
-  const mine = and(eq(messageReactions.messageId, messageId), eq(messageReactions.userId, userId));
+  match: (r: Held) => boolean,
+): Promise<Held[]> {
+  const theirs = and(
+    eq(messageReactions.messageId, messageId),
+    eq(messageReactions.userId, userId),
+  );
   const rows = await tx
-    .select({ emoji: messageReactions.emoji })
+    .select({ emoji: messageReactions.emoji, burst: messageReactions.burst })
     .from(messageReactions)
-    .where(mine)
+    .where(theirs)
     .orderBy(asc(messageReactions.createdAt));
-  const doomed = rows.map((r) => r.emoji).filter(match);
-  if (doomed.length)
-    await tx.delete(messageReactions).where(and(mine, inArray(messageReactions.emoji, doomed)));
+  const doomed = rows.filter(match);
+  for (const burst of [false, true]) {
+    const emojis = doomed.filter((r) => r.burst === burst).map((r) => r.emoji);
+    if (emojis.length)
+      await tx
+        .delete(messageReactions)
+        .where(
+          and(theirs, eq(messageReactions.burst, burst), inArray(messageReactions.emoji, emojis)),
+        );
+  }
   return doomed;
 }
+
+/** `match` for one emoji of one kind. */
+const heldAs =
+  (emoji: string, burst: boolean) =>
+  (r: Held): boolean =>
+    r.burst === burst && sameReaction(r.emoji, emoji);
 
 // ---------------------------------------------------------------------------
 // Events & audit
@@ -253,7 +316,12 @@ type Delta = {
   event: 'message:reaction-add' | 'message:reaction-remove';
   emoji: string;
   userId: string;
+  /** A super reaction. */
+  burst: boolean;
 };
+
+const deltasOf = (event: Delta['event'], userId: string, held: Held[]): Delta[] =>
+  held.map((r) => ({ event, emoji: r.emoji, userId, burst: r.burst }));
 
 /**
  * Members of the room who must not hear about reactions on this message: those for whom it
@@ -299,6 +367,7 @@ async function publish(tx: Tx, fx: Effects, target: Target, deltas: Delta[]): Pr
       emoji: d.emoji,
       emojiId: emojiIdOf(d.emoji),
       userId: d.userId,
+      ...(d.burst ? { burst: true } : {}),
     };
     fx.toChat(chat.id, d.event, payload, { exceptUserIds });
   }
@@ -312,7 +381,8 @@ async function publish(tx: Tx, fx: Effects, target: Target, deltas: Delta[]): Pr
  */
 function legacyMessageUpdated(fx: Effects, target: Target, exceptUserIds: string[]): void {
   const { type } = target.access.chat;
-  if (type === 'direct' || type === 'group') fx.messageUpdated(target.message.id, { exceptUserIds });
+  if (type === 'direct' || type === 'group')
+    fx.messageUpdated(target.message.id, { exceptUserIds });
 }
 
 async function publishCleared(
@@ -358,67 +428,75 @@ function limit(userId: string): void {
   assertUserLimit(userId, 'reaction', USER_RATE_LIMITS.reaction);
 }
 
-/** `PUT /messages/:messageId/reactions/:emoji/@me`: add mine (no-op when it is already mine). */
-export async function addReaction(me: string, messageId: string, emoji: string): Promise<void> {
-  limit(me);
-  await transact(async (tx, fx) => {
-    const target = await loadTarget(tx, me, messageId, { write: true });
-    assertReactable(target.message);
-    const stored = await insertMine(tx, target, me, emoji, await emojiGroups(tx, messageId, me));
-    if (stored)
-      await publish(tx, fx, target, [{ event: 'message:reaction-add', emoji: stored, userId: me }]);
-  });
-}
-
-/** `DELETE /messages/:messageId/reactions/:emoji/@me`: remove mine (no-op without it). */
-export async function removeMyReaction(
+/**
+ * `PUT /messages/:messageId/reactions/:emoji/@me[?burst=true]`: add mine of that kind (no-op
+ * when it is already mine).
+ */
+export async function addReaction(
   me: string,
   messageId: string,
   emoji: string,
+  burst = false,
 ): Promise<void> {
   limit(me);
   await transact(async (tx, fx) => {
     const target = await loadTarget(tx, me, messageId, { write: true });
-    const removed = await deleteUserReactions(tx, messageId, me, (s) => sameReaction(s, emoji));
-    await publish(
-      tx,
-      fx,
-      target,
-      removed.map((e) => ({ event: 'message:reaction-remove', emoji: e, userId: me })),
-    );
+    assertReactable(target.message);
+    const groups = await emojiGroups(tx, messageId, me);
+    const stored = await insertMine(tx, target, me, emoji, groups, burst);
+    if (stored)
+      await publish(tx, fx, target, [
+        { event: 'message:reaction-add', emoji: stored, userId: me, burst },
+      ]);
+  });
+}
+
+/** `DELETE /messages/:messageId/reactions/:emoji/@me[?burst=true]`: remove mine (or no-op). */
+export async function removeMyReaction(
+  me: string,
+  messageId: string,
+  emoji: string,
+  burst = false,
+): Promise<void> {
+  limit(me);
+  await transact(async (tx, fx) => {
+    const target = await loadTarget(tx, me, messageId, { write: true });
+    const removed = await deleteUserReactions(tx, messageId, me, heldAs(emoji, burst));
+    await publish(tx, fx, target, deltasOf('message:reaction-remove', me, removed));
   });
 }
 
 /**
- * `DELETE /messages/:messageId/reactions/:emoji/:userId` (moderators; my own id works like
- * `@me`). Broadcast channels: 403 (reactors are anonymous there). Audited in Spaces.
+ * `DELETE /messages/:messageId/reactions/:emoji/:userId[?burst=true]` (moderators; my own id
+ * works like `@me`). Broadcast channels: 403 (reactors are anonymous there). Audited in Spaces.
  */
 export async function removeUserReaction(
   actorId: string,
   messageId: string,
   emoji: string,
   userId: string,
+  burst = false,
 ): Promise<void> {
-  if (userId === actorId) return removeMyReaction(actorId, messageId, emoji);
+  if (userId === actorId) return removeMyReaction(actorId, messageId, emoji, burst);
   limit(actorId);
   await transact(async (tx, fx) => {
     const target = await loadTarget(tx, actorId, messageId, { write: true });
     assertModerator(target.access);
     if (target.access.chat.type === 'channel')
       throw forbidden('Reactions are anonymous in channels');
-    const removed = await deleteUserReactions(tx, messageId, userId, (s) => sameReaction(s, emoji));
+    const removed = await deleteUserReactions(tx, messageId, userId, heldAs(emoji, burst));
     if (removed.length === 0) return;
-    await publish(
-      tx,
-      fx,
-      target,
-      removed.map((e) => ({ event: 'message:reaction-remove', emoji: e, userId })),
-    );
+    await publish(tx, fx, target, deltasOf('message:reaction-remove', userId, removed));
     await auditRemoval(tx, target, actorId, {
       action: 'message.reaction_remove',
       targetType: 'member',
       targetId: userId,
-      changes: { messageId, channelId: target.access.chat.id, emoji: removed[0] },
+      changes: {
+        messageId,
+        channelId: target.access.chat.id,
+        emoji: removed[0]!.emoji,
+        ...(burst ? { burst: true } : {}),
+      },
     });
   });
 }
@@ -467,9 +545,9 @@ export async function clearReactions(
 }
 
 /**
- * The APK's `PUT /messages/:messageId/reaction` (one reaction per user): my other reactions on
- * the message are removed, then this one is added under the same rules as `addReaction` (a
- * refused emoji rolls the removals back). Returns the message row.
+ * The APK's `PUT /messages/:messageId/reaction` (one reaction per user): my other normal
+ * reactions on the message are removed (super ones stay), then this one is added under the
+ * same rules as `addReaction` (a refused emoji rolls the removals back). Returns the row.
  */
 export async function replaceMyReaction(
   me: string,
@@ -480,50 +558,55 @@ export async function replaceMyReaction(
   return transact(async (tx, fx) => {
     const target = await loadTarget(tx, me, messageId, { write: true });
     assertReactable(target.message);
-    const removed = await deleteUserReactions(tx, messageId, me, (s) => !sameReaction(s, emoji));
+    const removed = await deleteUserReactions(
+      tx,
+      messageId,
+      me,
+      (r) => !r.burst && !sameReaction(r.emoji, emoji),
+    );
     const stored = await insertMine(tx, target, me, emoji, await emojiGroups(tx, messageId, me));
-    const deltas: Delta[] = removed.map((e) => ({
-      event: 'message:reaction-remove',
-      emoji: e,
-      userId: me,
-    }));
-    if (stored) deltas.push({ event: 'message:reaction-add', emoji: stored, userId: me });
+    const deltas = deltasOf('message:reaction-remove', me, removed);
+    if (stored)
+      deltas.push({ event: 'message:reaction-add', emoji: stored, userId: me, burst: false });
     await publish(tx, fx, target, deltas);
     return target.message;
   });
 }
 
-/** The APK's `DELETE /messages/:messageId/reaction`: remove all of mine (no-op without any). */
+/**
+ * The APK's `DELETE /messages/:messageId/reaction`: remove all of mine, both kinds (no-op
+ * without any).
+ */
 export async function removeMyReactions(me: string, messageId: string): Promise<MessageRow> {
   limit(me);
   return transact(async (tx, fx) => {
     const target = await loadTarget(tx, me, messageId, { write: true });
     const removed = await deleteUserReactions(tx, messageId, me, () => true);
-    await publish(
-      tx,
-      fx,
-      target,
-      removed.map((e) => ({ event: 'message:reaction-remove', emoji: e, userId: me })),
-    );
+    await publish(tx, fx, target, deltasOf('message:reaction-remove', me, removed));
     return target.message;
   });
 }
 
 /**
- * `GET /messages/:messageId/reactions/:emoji`: who reacted with exactly this emoji (the
- * chip's stored form), oldest reaction first, as UserPublic for me. Keyset cursor `after`:
- * the last user of the previous page (gone since → empty page). Direct chats leave out users
- * I blocked (as `toMessages`); broadcast channels are anonymous (403).
+ * `GET /messages/:messageId/reactions/:emoji[?burst=true]`: who reacted with exactly this
+ * emoji (the chip's stored form) and kind, oldest reaction first, as UserPublic for me.
+ * Keyset cursor `after`: the last user of the previous page (gone since → empty page). Direct
+ * chats leave out users I blocked (as `toMessages`); broadcast channels are anonymous (403).
  */
 export async function listReactors(
   me: string,
   messageId: string,
   emoji: string,
   query: { after?: string; limit: number },
+  burst = false,
 ): Promise<UserPublic[]> {
   const { access } = await loadTarget(db, me, messageId, { write: false });
   if (access.chat.type === 'channel') throw forbidden('Reactions are anonymous in channels');
-  const ofEmoji = and(eq(messageReactions.messageId, messageId), eq(messageReactions.emoji, emoji));
+  const ofEmoji = and(
+    eq(messageReactions.messageId, messageId),
+    eq(messageReactions.emoji, emoji),
+    eq(messageReactions.burst, burst),
+  );
   let cursor: { at: Date; userId: string } | null = null;
   if (query.after) {
     const [c] = await db
@@ -571,21 +654,24 @@ const userReactionParams = reactionParams.extend({ userId: idSchema });
 router.put('/messages/:messageId/reactions/:emoji/@me', async (req, res) => {
   const me = authUserId(req);
   const { messageId, emoji } = parse(reactionParams, req.params);
-  await addReaction(me, messageId, emoji);
+  const { burst } = parse(reactionKindQuerySchema, req.query);
+  await addReaction(me, messageId, emoji, burst);
   res.status(204).end();
 });
 
 router.delete('/messages/:messageId/reactions/:emoji/@me', async (req, res) => {
   const me = authUserId(req);
   const { messageId, emoji } = parse(reactionParams, req.params);
-  await removeMyReaction(me, messageId, emoji);
+  const { burst } = parse(reactionKindQuerySchema, req.query);
+  await removeMyReaction(me, messageId, emoji, burst);
   res.status(204).end();
 });
 
 router.delete('/messages/:messageId/reactions/:emoji/:userId', async (req, res) => {
   const me = authUserId(req);
   const { messageId, emoji, userId } = parse(userReactionParams, req.params);
-  await removeUserReaction(me, messageId, emoji, userId);
+  const { burst } = parse(reactionKindQuerySchema, req.query);
+  await removeUserReaction(me, messageId, emoji, userId, burst);
   res.status(204).end();
 });
 
@@ -607,5 +693,6 @@ router.get('/messages/:messageId/reactions/:emoji', async (req, res) => {
   const me = authUserId(req);
   const { messageId, emoji } = parse(reactionParams, req.params);
   const query = parse(reactorsQuerySchema, req.query);
-  res.json(await listReactors(me, messageId, emoji, query));
+  const { burst } = parse(reactionKindQuerySchema, req.query);
+  res.json(await listReactors(me, messageId, emoji, query, burst));
 });

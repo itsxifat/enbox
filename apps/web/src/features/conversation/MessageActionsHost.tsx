@@ -97,6 +97,7 @@ import { ReactionEmoji } from './bubbles/reactions/ReactionEmoji';
 import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
 import { superReactionMenuItem } from './bubbles/reactions/superReactions';
 import { pollMenuItem } from './bubbles/polls/pollMenu';
+import { useHideDownloads } from '@/features/forums/media';
 import { recentReactions } from './bubbles/reactions/recent';
 import { useChatMembersStore } from './members';
 import { Popover } from './Popover';
@@ -246,6 +247,8 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
     picker ? s.byChat[chat.id]?.items.find((x) => x.id === picker.messageId) : undefined,
   );
   const devMode = useDeveloperMode();
+  // Posts of a media channel that hides downloads (features/forums/media.ts).
+  const hideDownloads = useHideDownloads(chat.id);
   useDoubleTapReaction(chat);
   // Mark Unread on another of my devices moves the NEW line here too.
   useUnreadMarkSync(chat);
@@ -358,7 +361,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
       whatsApp && canInfo(chat, m)
         ? { label: 'Info', icon: Info, onSelect: () => useConversationUi.getState().openInfo(m) }
         : null,
-      m.media && !m.deletedAt && actionable
+      m.media && !m.deletedAt && actionable && !hideDownloads
         ? {
             label: 'Download',
             icon: Download,

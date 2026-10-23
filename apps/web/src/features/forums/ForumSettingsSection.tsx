@@ -2,8 +2,9 @@
  * The Forum section of a forum channel's settings (Discord's forum options): the post
  * guidelines (markdown, shown above the posts), the tags (up to MAX_FORUM_TAGS, each with an
  * emoji, a name and "moderators only"), the default reaction offered on every post, the
- * default sort order and layout, and whether posts must wear a tag. Saved together with one
- * channel PATCH; tag ids are made here and kept, so renaming a tag keeps it on its posts.
+ * default sort order and layout (media channels: their grid, and whether the viewer offers
+ * downloads instead), and whether posts must wear a tag. Saved together with one channel
+ * PATCH; tag ids are made here and kept, so renaming a tag keeps it on its posts.
  */
 import { Suspense, useMemo, useState } from 'react';
 import { Lock, Plus, SmilePlus, Trash2, X } from 'lucide-react';
@@ -196,6 +197,14 @@ export function ForumSettingsSection({ spaceId, chat }: { spaceId: ID; chat: Cha
         label="Require tags"
         description="People must pick at least one tag when they create a post."
       />
+      {settings.media ? (
+        <Switch
+          checked={!!settings.hideDownloads}
+          onChange={(hideDownloads) => set({ hideDownloads })}
+          label="Hide media download options"
+          description="Takes the download buttons out of the media viewer and the post menus. People can still save what they see."
+        />
+      ) : null}
 
       <Field label="Default Reaction" hint="Shown on every post card, one click to react.">
         <div className="flex items-center gap-2">
@@ -238,16 +247,18 @@ export function ForumSettingsSection({ spaceId, chat }: { spaceId: ID; chat: Cha
             { value: 'created', label: 'Creation Time', description: 'The newest posts first' },
           ]}
         />
-        <RadioGroup
-          label="Default Layout"
-          name="forum-layout"
-          value={settings.layout}
-          onChange={(layout) => set({ layout })}
-          options={[
-            { value: 'list', label: 'List', description: 'Titles with the first lines of each post' },
-            { value: 'gallery', label: 'Gallery', description: 'A grid led by each post’s image' },
-          ]}
-        />
+        {settings.media ? null : (
+          <RadioGroup
+            label="Default Layout"
+            name="forum-layout"
+            value={settings.layout}
+            onChange={(layout) => set({ layout })}
+            options={[
+              { value: 'list', label: 'List', description: 'Titles with the first lines of each post' },
+              { value: 'gallery', label: 'Gallery', description: 'A grid led by each post’s image' },
+            ]}
+          />
+        )}
       </div>
 
       <div className="flex justify-end gap-2">

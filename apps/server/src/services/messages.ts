@@ -761,12 +761,21 @@ export async function toMessages(
   const threadRefs = opts.fresh ? new Map() : await loadThreadRefs(dbx, rows, chatTypes);
 
   // Reactions & polls (skipped for fresh rows).
+  /** Per message and emoji: both kinds (`count` includes the super ones), their reactors. */
   const reactionGroups = new Map<
     string,
-    { emoji: string; count: number; first: number; userIds: string[] }[]
+    {
+      emoji: string;
+      count: number;
+      burstCount: number;
+      first: number;
+      userIds: string[];
+      burstUserIds: string[];
+    }[]
   >();
-  /** The viewer's emoji per message, oldest reaction first. */
+  /** The viewer's emoji per message, oldest reaction first (normal; super ones apart). */
   const myReactions = new Map<string, string[]>();
+  const myBurstReactions = new Map<string, string[]>();
   const optionCounts = new Map<string, Map<string, number>>();
   const optionVoters = new Map<string, Map<string, string[]>>();
   const totalVoters = new Map<string, number>();
@@ -776,9 +785,16 @@ export async function toMessages(
   const pollIds = live.filter((r) => r.type === 'poll' && r.metadata?.poll).map((r) => r.id);
 
   if (!opts.fresh && reactable.length) {
-    const groups = await rawRows<{ message_id: string; emoji: string; n: number; first: string }>(
+    const groups = await rawRows<{
+      message_id: string;
+      emoji: string;
+      n: number;
+      nb: number;
+      first: string;
+    }>(
       dbx,
-      sql`select message_id, emoji, count(*)::int as n, min(created_at) as first
+      sql`select message_id, emoji, count(*)::int as n, (count(*) filter (where burst))::int as nb,
+            min(created_at) as first
           from message_reactions where message_id = any(${uuidArray(reactable)}) group by message_id, emoji`,
     );
     for (const g of groups) {
@@ -786,8 +802,10 @@ export async function toMessages(
       list.push({
         emoji: g.emoji,
         count: Number(g.n),
+        burstCount: Number(g.nb),
         first: new Date(g.first).getTime(),
         userIds: [],
+        burstUserIds: [],
       });
       reactionGroups.set(g.message_id, list);
     }
@@ -798,19 +816,23 @@ export async function toMessages(
           messageId: messageReactions.messageId,
           emoji: messageReactions.emoji,
           userId: messageReactions.userId,
+          burst: messageReactions.burst,
         })
         .from(messageReactions)
         .where(inArray(messageReactions.messageId, named))
         .orderBy(asc(messageReactions.createdAt), asc(messageReactions.userId));
-      for (const r of rs)
-        reactionGroups
-          .get(r.messageId)
-          ?.find((g) => g.emoji === r.emoji)
-          ?.userIds.push(r.userId);
+      for (const r of rs) {
+        const g = reactionGroups.get(r.messageId)?.find((x) => x.emoji === r.emoji);
+        (r.burst ? g?.burstUserIds : g?.userIds)?.push(r.userId);
+      }
     }
     if (viewerId) {
       const mine = await dbx
-        .select({ messageId: messageReactions.messageId, emoji: messageReactions.emoji })
+        .select({
+          messageId: messageReactions.messageId,
+          emoji: messageReactions.emoji,
+          burst: messageReactions.burst,
+        })
         .from(messageReactions)
         .where(
           and(
@@ -819,8 +841,10 @@ export async function toMessages(
           ),
         )
         .orderBy(asc(messageReactions.createdAt), asc(messageReactions.emoji));
-      for (const r of mine)
-        myReactions.set(r.messageId, [...(myReactions.get(r.messageId) ?? []), r.emoji]);
+      for (const r of mine) {
+        const into = r.burst ? myBurstReactions : myReactions;
+        into.set(r.messageId, [...(into.get(r.messageId) ?? []), r.emoji]);
+      }
     }
   }
 
@@ -927,15 +951,23 @@ export async function toMessages(
       }
     }
 
-    const groups = (reactionGroups.get(row.id) ?? []).map((g) =>
-      filterBlocked ? { ...g, userIds: g.userIds.filter((u) => !blockedByViewer.has(u)) } : g,
-    );
-    // One summary per emoji in order of its first reaction (Discord: chips never jump);
-    // `emojiId` only for custom emoji tokens.
+    const groups = (reactionGroups.get(row.id) ?? []).map((g) => {
+      if (!filterBlocked) return g;
+      const userIds = g.userIds.filter((u) => !blockedByViewer.has(u));
+      const burstUserIds = g.burstUserIds.filter((u) => !blockedByViewer.has(u));
+      return {
+        ...g,
+        userIds,
+        burstUserIds,
+        count: userIds.length + burstUserIds.length,
+        burstCount: burstUserIds.length,
+      };
+    });
+    // One summary per emoji in order of its first reaction of either kind (Discord: chips
+    // never jump); `emojiId` only for custom emoji tokens, the super fields only when some.
     const reactions: ReactionSummary[] = deleted
       ? []
       : groups
-          .map((g) => (filterBlocked ? { ...g, count: g.userIds.length } : g))
           .filter((g) => g.count > 0)
           .sort((a, b) => a.first - b.first || (a.emoji < b.emoji ? -1 : a.emoji > b.emoji ? 1 : 0))
           .map((g) => {
@@ -945,6 +977,8 @@ export async function toMessages(
               ...(emojiId ? { emojiId } : {}),
               count: g.count,
               userIds: anonymousLists ? [] : g.userIds,
+              ...(g.burstCount ? { burstCount: g.burstCount } : {}),
+              ...(!anonymousLists && g.burstUserIds.length ? { burstUserIds: g.burstUserIds } : {}),
             };
           });
 
@@ -1001,6 +1035,7 @@ export async function toMessages(
       const mine = deleted ? [] : (myReactions.get(row.id) ?? []);
       message.myReactions = mine;
       message.myReaction = mine[0] ?? null;
+      message.myBurstReactions = deleted ? [] : (myBurstReactions.get(row.id) ?? []);
     }
     return message;
   });

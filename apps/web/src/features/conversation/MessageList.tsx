@@ -9,6 +9,9 @@
  *   messages that arrived while scrolled up (Discord's Jump to Present bar instead while the
  *   newest messages aren't loaded); floating day label while scrolling
  * - hides messages whose disappearing timer passed
+ * - screen readers and keyboard (features/a11y): the scroller is a list named for the chat,
+ *   rows are labelled articles; ↑/↓ and Home/End move between rows, Enter / Tab enter a row's
+ *   toolbar, Escape returns to the composer; new messages are announced politely
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type ListRange, type VirtuosoHandle } from 'react-virtuoso';
@@ -24,6 +27,9 @@ import { nameOf } from '@/stores/users';
 import { useBus } from '@/hooks/useBus';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/ui';
+import { VirtualListItem, messageListLabel } from '@/features/a11y/lists';
+import { useRowNavigation } from '@/features/a11y/rowKeys';
+import { useChatTitle } from '@/features/groupDms/title';
 import { JumpToPresentBar } from './Bars';
 import { CozyMessageRow } from './CozyMessageRow';
 import { MessageRow } from './MessageRow';
@@ -139,7 +145,7 @@ interface HeaderContext {
   disappearing: number | null;
 }
 
-const COMPONENTS = { Header: ListHeader, Footer: ListFooter };
+const COMPONENTS = { Header: ListHeader, Footer: ListFooter, Item: VirtualListItem };
 
 export const MessageList = memo(function MessageList({
   chat,
@@ -457,6 +463,18 @@ export const MessageList = memo(function MessageList({
     [chat, cozy, onJump, onJumpById],
   );
 
+  // Screen readers and the keyboard (features/a11y): a named list, ↑/↓ between rows.
+  const title = useChatTitle(chat);
+  const rowNav = useRowNavigation({
+    rowIds: () =>
+      prevRows.current.filter((r) => r.message.type !== 'system').map((r) => r.message.id),
+    reveal: (id, align) => {
+      const i = prevRows.current.findIndex((r) => r.message.id === id);
+      if (i >= 0) virtuoso.current?.scrollToIndex({ index: i, align, behavior: 'auto' });
+    },
+    scroller: () => scroller.current,
+  });
+
   if (!msgs.loaded) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -498,7 +516,12 @@ export const MessageList = memo(function MessageList({
       data-testid="message-list"
       onWheel={() => (userScrolled.current = true)}
       onTouchMove={() => (userScrolled.current = true)}
-      onKeyDown={() => (userScrolled.current = true)}
+      onKeyDown={(e) => {
+        userScrolled.current = true;
+        rowNav.onKeyDown(e);
+      }}
+      onFocus={rowNav.onFocus}
+      onPointerDown={rowNav.onPointerDown}
     >
       {rows.length === 0 && !msgs.hasMoreBefore ? (
         <div className="pointer-events-none absolute inset-x-0 top-1/4 z-[1] flex justify-center px-6">
@@ -545,6 +568,8 @@ export const MessageList = memo(function MessageList({
         rangeChanged={onRange}
         isScrolling={onScrolling}
         components={COMPONENTS}
+        role="list"
+        aria-label={messageListLabel(chat, title)}
         className="scrollbar-thin"
         style={{ height: '100%' }}
       />

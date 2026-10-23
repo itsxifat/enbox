@@ -9,6 +9,7 @@
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
+  DEFAULT_POLL_DURATION_HOURS,
   MAX_ALT_TEXT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_CAPTION_LENGTH,
@@ -84,7 +85,9 @@ import { enforceAutoMod } from '../../services/automod.js';
 import { ensureSpaceReadRow } from '../../services/spaceAccess.js';
 import { getUserRows, settingsOf, toUserPublicMap } from '../../services/users.js';
 import { toSearchResults } from '../chats/service.js';
+import { autoFollowThread } from '../threads/follow.js';
 import { removeMyReactions, replaceMyReaction } from './reactions.js';
+import { pollHasEnded, pollSendFields } from './polls.js';
 import { propagateCrosspostDelete, propagateCrosspostEdit } from '../announcements/service.js';
 
 export type SendMessageBody = z.output<typeof sendMessageSchema>;
@@ -162,9 +165,9 @@ function altTextOf(text: string | null | undefined): string | null {
  * whose kind is the message's type, then `extraMediaIds` — distinct uploads of mine of any
  * kind but voice (a voice note carries no other file) — each with its alt text
  * (`descriptions`, aligned; blank = none). Ownership and the GC lock are `requireOwnedMedia`'s,
- * file by file (404 someone else's, 400 a wrong kind).
+ * file by file (404 someone else's, 400 a wrong kind). Forum posts' first messages too.
  */
-async function mediaAttachmentsOf(
+export async function mediaAttachmentsOf(
   tx: Tx,
   me: string,
   body: Extract<SendMessageBody, { mediaId: string }>,
@@ -257,9 +260,13 @@ export async function sendMessage(
       case 'contact':
         metadata.contact = await buildContactCard(tx, me, body.contact);
         break;
-      case 'poll':
-        metadata.poll = buildPollDefinition(body.poll);
+      case 'poll': {
+        // Answer emoji (Space channels: gated like text) and the end time (./polls.ts).
+        const poll = await pollSendFields(tx, access, body.poll);
+        metadata.poll = poll.definition;
+        input.pollEndsAt = poll.endsAt;
         break;
+      }
       case 'sticker': {
         // A Space of mine's sticker (404), external ones need USE_EXTERNAL_EMOJI here (403).
         const sticker = await resolveStickerForSend(tx, me, access, body.stickerId);
@@ -302,6 +309,9 @@ export async function sendMessage(
     if (access.space) await enforceAutoMod(tx, fx, access, me, input);
     const result = await createMessage(tx, fx, input);
     if (result.created) await touchSlowmode(tx, access, me);
+    // Replying in a post or thread follows it.
+    if (result.created && access.chat.type === 'space_thread')
+      await autoFollowThread(tx, chatId, me, fx);
     return { row: result.message, created: result.created };
   });
   return { message: await toMessageFor(me, row), created };
@@ -342,14 +352,25 @@ async function attachmentInputsOf(
 
 /**
  * What a forwarded copy keeps (docs "Forward"): type, text, media — every attachment with its
- * alt text (`attachments`, the source's rows) — and a fresh location/contact/poll.
+ * alt text (`attachments`, the source's rows) — and a fresh location/contact/poll (a poll that
+ * had an end ends DEFAULT_POLL_DURATION_HOURS after the forward, else never). `forwardedFrom`:
+ * the source's own (a forward of a forward points at the first original), else the source,
+ * with `spaceId` its chat's Space (null outside Spaces).
  */
 function forwardedContent(
   src: MessageRow,
   attachments: AttachmentInput[] | undefined,
+  spaceId: string | null,
 ): Pick<
   CreateMessageInput,
-  'type' | 'text' | 'mediaId' | 'attachments' | 'stickerId' | 'metadata'
+  | 'type'
+  | 'text'
+  | 'mediaId'
+  | 'attachments'
+  | 'stickerId'
+  | 'metadata'
+  | 'forwardedFrom'
+  | 'pollEndsAt'
 > {
   const md = src.metadata ?? {};
   const metadata: MessageMetadata = {};
@@ -360,6 +381,7 @@ function forwardedContent(
       question: md.poll.question,
       options: md.poll.options.map((o) => o.text),
       allowMultiple: md.poll.allowMultiple,
+      emojis: md.poll.options.map((o) => o.emoji ?? null),
     });
   }
   return {
@@ -369,6 +391,16 @@ function forwardedContent(
     ...(src.mediaId && attachments?.length ? { attachments } : {}),
     stickerId: src.stickerId,
     metadata,
+    forwardedFrom: src.forwardedFrom ?? {
+      chatId: src.chatId,
+      messageId: src.id,
+      spaceId,
+      createdAt: src.createdAt.toISOString(),
+    },
+    pollEndsAt:
+      md.poll && src.pollEndsAt
+        ? new Date(Date.now() + DEFAULT_POLL_DURATION_HOURS * 60 * 60_000)
+        : null,
   };
 }
 
@@ -376,59 +408,111 @@ function forwardedContent(
  * `POST /messages/forward`: one transaction locking every target chat (sorted); targets need
  * `canSend`; sources must be visible to me (404), not deleted, not system/call (400). Each
  * copy is a normal send in its target chat with `client_id = <clientId>:<sourceIndex>`
- * (idempotent retries) and `forward_count = source + 1`; never reply links, status replies,
- * reactions, votes or expiry (the target's timer applies); mentions re-derived. Rate limit:
- * one `sendMessage` unit per copy (docs "Rate limits"); a forward creating more copies than
- * one window allows (`messageIds × chatIds` > USER_RATE_LIMITS.sendMessage.limit) is a
- * `400 validation_error` (it could never pass). Result: target-major, sources in request order.
+ * (idempotent retries), `forward_count = source + 1` and `forwarded_from` (the original, see
+ * `forwardedContent`); never reply links, status replies, reactions, votes or expiry (the
+ * target's timer applies); mentions re-derived. `comment`: after a chat's copies, my own text
+ * message there (`client_id = <clientId>:c`, idempotent too), checked like a send (other
+ * Spaces' emoji, embeds, AutoMod) and mentioning the normal way (@everyone and @role as my
+ * bits allow). Space channels: slowmode counts the forward as one send (retries pass).
+ * Rate limit: one `sendMessage` unit per message created, copies and comments (docs "Rate
+ * limits"); a forward creating more than one window allows is a `400 validation_error` (it
+ * could never pass). Result: the copies only, target-major, sources in request order (the
+ * comments reach clients as `message:new`); `created` = anything new (copies or comments).
  */
 export async function forwardMessages(
   me: string,
   body: ForwardBody,
 ): Promise<{ messages: Message[]; created: boolean }> {
   const rule = USER_RATE_LIMITS.sendMessage;
-  const copies = body.messageIds.length * body.chatIds.length;
-  if (copies > rule.limit)
+  const total = (body.messageIds.length + (body.comment ? 1 : 0)) * body.chatIds.length;
+  if (total > rule.limit)
     throw badRequest(`A forward can create at most ${rule.limit} messages (messages × chats)`);
-  assertUserLimit(me, 'sendMessage', rule, copies);
+  assertUserLimit(me, 'sendMessage', rule, total);
+  const commentId = `${body.clientId}:c`;
   const { rows, created } = await transact(async (tx, fx) => {
     // Unlocked membership pre-check: never queue on the row lock of a chat I can't see.
     for (const chatId of body.chatIds) await getChatAccess(tx, me, chatId);
     const locked = new Map((await lockChats(tx, body.chatIds)).map((c) => [c.id, c]));
+    const targets = new Map<string, ChatAccess>();
     for (const chatId of body.chatIds) {
       const chat = locked.get(chatId);
       if (!chat) throw notFound('Chat');
       const access = await getChatAccess(tx, me, chatId, { chat });
       assertCanSend(access);
       if (access.space) await assertSpaceVerification(tx, access, me);
+      targets.set(chatId, access);
     }
-    const sources: MessageRow[] = [];
+    const sources: { row: MessageRow; spaceId: string | null }[] = [];
     for (const id of body.messageIds) {
-      const { message } = await loadVisibleMessage(tx, me, id);
+      const { message, chat } = await loadVisibleMessage(tx, me, id);
       if (message.type === 'system' || message.type === 'call')
         throw badRequest('This message cannot be forwarded');
       if (message.deletedAt) throw badRequest('This message was deleted');
-      sources.push(message);
+      sources.push({ row: message, spaceId: chat.spaceId });
     }
     // Copies keep every file of their source with its alt text.
     const files = await attachmentInputsOf(
       tx,
-      sources.filter((s) => s.mediaId).map((s) => s.id),
+      sources.filter((s) => s.row.mediaId).map((s) => s.row.id),
+    );
+    // A retry finds what an earlier attempt created: no slowmode or AutoMod for those again.
+    const clientIds = sources.map((_, i) => `${body.clientId}:${i}`);
+    if (body.comment) clientIds.push(commentId);
+    const done = new Set(
+      (
+        await tx
+          .select({ chatId: messages.chatId, clientId: messages.clientId })
+          .from(messages)
+          .where(
+            and(
+              inArray(messages.chatId, body.chatIds),
+              eq(messages.senderId, me),
+              inArray(messages.clientId, clientIds),
+            ),
+          )
+      ).map((r) => `${r.chatId}:${r.clientId}`),
     );
     const out: MessageRow[] = [];
     let anyCreated = false;
     for (const chatId of body.chatIds) {
+      const access = targets.get(chatId)!;
+      const fresh = clientIds.some((c) => !done.has(`${chatId}:${c}`));
+      const spaceMentions =
+        access.space && fresh
+          ? spaceSendRules(access, me, { type: 'text', text: body.comment })
+          : undefined;
+      let createdHere = false;
       for (const [index, src] of sources.entries()) {
         const r = await createMessage(tx, fx, {
           chatId,
           senderId: me,
           clientId: `${body.clientId}:${index}`,
-          forwardCount: src.forwardCount + 1,
-          ...forwardedContent(src, files.get(src.id)),
+          forwardCount: src.row.forwardCount + 1,
+          ...forwardedContent(src.row, files.get(src.row.id), src.spaceId),
         });
-        anyCreated ||= r.created;
+        createdHere ||= r.created;
         out.push(r.message);
       }
+      if (body.comment) {
+        const input: CreateMessageInput = {
+          chatId,
+          senderId: me,
+          type: 'text',
+          clientId: commentId,
+          text: body.comment,
+          spaceMentions,
+        };
+        if (access.space && !done.has(`${chatId}:${commentId}`)) {
+          input.text = await gateExternalEmoji(tx, access, body.comment);
+          if (!hasPerm(access.space.bits, PERM.EMBED_LINKS))
+            input.flags = MESSAGE_FLAGS.SUPPRESS_EMBEDS;
+          await enforceAutoMod(tx, fx, access, me, input);
+        }
+        const r = await createMessage(tx, fx, input);
+        createdHere ||= r.created;
+      }
+      if (createdHere) await touchSlowmode(tx, access, me);
+      anyCreated ||= createdHere;
     }
     return { rows: out, created: anyCreated };
   });
@@ -608,8 +692,9 @@ const sameSet = (a: string[], b: string[]) =>
 
 /**
  * `PUT /messages/:messageId/vote` (docs "Polls"): under the message row lock, replace my votes
- * (empty = retract). Unknown options or several on a single-choice poll → 400. Unchanged →
- * no event. Events: `message:updated` → room. Returns the poll with `myOptionIds`.
+ * (empty = retract). Unknown options or several on a single-choice poll → 400; an ended poll
+ * (closed, or its end time passed) → 410 expired. Unchanged → no event. Events:
+ * `message:updated` → room. Returns the poll with `myOptionIds`.
  */
 export async function vote(me: string, messageId: string, optionIds: string[]): Promise<Message> {
   const row = await transact(async (tx, fx) => {
@@ -617,6 +702,7 @@ export async function vote(me: string, messageId: string, optionIds: string[]): 
     const poll = message.metadata?.poll;
     if (message.type !== 'poll' || message.deletedAt || !poll)
       throw badRequest('This message is not a poll');
+    if (pollHasEnded(message)) throw expired('This poll has ended');
     const valid = new Set(poll.options.map((o) => o.id));
     if (optionIds.some((id) => !valid.has(id))) throw badRequest('optionIds: Unknown poll option');
     if (!poll.allowMultiple && optionIds.length > 1)

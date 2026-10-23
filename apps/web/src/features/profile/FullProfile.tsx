@@ -2,10 +2,10 @@
  * The full profile (Discord's ~600px profile modal), shared by `FullProfileModal` and the
  * `/u/:username` / `/users/:userId` page: a large banner, the 120px decorated avatar (opens
  * the photo), the custom status bubble, actions (Message, calls, contact, "..." — Edit
- * Profile on mine), the styled name with badges, and tabs: About Me (bio, member since,
- * roles in a Space, my note), Mutual Spaces (opens the Space), Mutual Friends (opens their
- * popout) and Groups in common. Data: `GET /api/users/:userId/profile` (fresh on every open)
- * plus the users store for live changes.
+ * Profile on mine), the styled name with the server tag and badges, and tabs: About Me (bio,
+ * member since, roles in a Space, my note), Mutual Spaces (opens the Space), Mutual Friends
+ * (opens their popout) and Groups in common. Data: `GET /api/users/:userId/profile` (fresh on
+ * every open) plus the users store for live changes.
  */
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
@@ -24,6 +24,7 @@ import {
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { presenceBadge } from '@/components/common/UserAvatar';
 import { ProfileEffect, StyledName } from '@/components/cosmetics';
+import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { PhoneIcon, VideoIcon } from '@/components/icons';
 import {
   BadgeRow,
@@ -298,6 +299,15 @@ function FullProfileBody({
             data-testid="full-profile-name"
           >
             <StyledName name={name} style={deleted ? null : shown.nameStyle} mode="full" />
+            {/* Mine from the users store; others' come with their profile. */}
+            {!deleted ? (
+              <ServerTagPill
+                userId={user.id}
+                tag={self ? undefined : (user.spaceTag ?? null)}
+                size="md"
+                className="ml-2"
+              />
+            ) : null}
           </h2>
           {view.alias ? <p className="truncate text-[14px] text-muted">~{view.alias}</p> : null}
           {!deleted ? <p className="truncate text-[15px] text-fg">@{user.username}</p> : null}

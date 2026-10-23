@@ -2,11 +2,12 @@
  * The profile popout (Discord 2025 layout, ~300px): a themed surface (profile → accent
  * gradient with contrast-aware ink, else the plain surface), the banner (image, or the
  * profile colour), the decorated 80px avatar cutting into it with the presence badge, the
- * custom status as a thought bubble beside it, the styled name / @username / pronouns, badges,
- * the markdown bio (clamped), roles and both join dates in a Space, the mutuals line, my
- * private note and "Message @name". Others get a "..." menu (View Full Profile, contact,
- * calls, copy username / id, block) on the banner; my own card keeps availability, custom
- * status and Edit profile. The profile effect plays once on open and again on hover.
+ * custom status as a thought bubble beside it, the styled name with the server tag they wear,
+ * @username / pronouns, badges, the markdown bio (clamped), roles and both join dates in a
+ * Space, the mutuals line, my private note and "Message @name". Others get a "..." menu (View
+ * Full Profile, contact, calls, copy username / id, block) on the banner; my own card keeps
+ * availability, custom status and Edit profile. The profile effect plays once on open and
+ * again on hover.
  *
  * Rendered by ProfilePopover (popover / sheet), and in `preview` mode — no actions, effects on
  * loop — as the live preview of the profile editor (`<ProfileCard user={draft} preview />`).
@@ -29,6 +30,7 @@ import {
 } from '@enbox/shared';
 import { presenceBadge } from '@/components/common/UserAvatar';
 import { ProfileEffect, StyledName } from '@/components/cosmetics';
+import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import {
   BadgeRow,
   MemberSince,
@@ -203,6 +205,15 @@ export function ProfileCard({
               data-testid="card-name"
             >
               <StyledName name={name} style={deleted ? null : shown.nameStyle} mode="full" />
+              {/* Mine from the users store; others' (and previews) come with the user. */}
+              {!deleted ? (
+                <ServerTagPill
+                  userId={user.id}
+                  tag={self && !preview ? undefined : (user.spaceTag ?? null)}
+                  size="md"
+                  className="ml-1.5"
+                />
+              ) : null}
             </h2>
             {view.alias ? <p className="truncate text-[13.5px] text-muted">~{view.alias}</p> : null}
             {!deleted ? <p className="truncate text-[14px] text-fg">@{user.username}</p> : null}

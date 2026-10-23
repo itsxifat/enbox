@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import { Navigate, useParams } from 'react-router';
-import { Hash, Megaphone, MessagesSquare, Podcast, TextSearch, Volume2 } from 'lucide-react';
+import { Hash, Images, Megaphone, MessagesSquare, Podcast, TextSearch, Volume2 } from 'lucide-react';
 import type { ChatSummary, ID } from '@enbox/shared';
 import { Checkbox, EmptyState, PageSpinner, Switch } from '@/components/ui';
 import { useSpace, useSpaceChannels, useSpaces } from '@/stores/spaces';
@@ -19,7 +19,7 @@ import { setShowAllChannels, useShowAllChannels } from './showAll';
 function channelIcon(c: ChatSummary) {
   if (c.type === 'space_stage') return Podcast;
   if (c.type === 'space_voice') return Volume2;
-  if (c.type === 'space_forum') return MessagesSquare;
+  if (c.type === 'space_forum') return c.space?.forum?.settings.media ? Images : MessagesSquare;
   return c.space?.isNews ? Megaphone : Hash;
 }
 

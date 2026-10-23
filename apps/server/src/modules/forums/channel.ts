@@ -56,15 +56,24 @@ export function mergeForumSettings(current: ForumSettings, input: unknown): Foru
     requireTag: next.requireTag,
     defaultReaction: emojiOrNull(next.defaultReaction, 'forumSettings.defaultReaction'),
     guidelines: next.guidelines?.trim() ? next.guidelines : null,
+    media: next.media ?? false,
+    hideDownloads: next.hideDownloads ?? false,
   };
 }
 
-/** The forum columns of a new channel: its tags (none by default) and DEFAULT_FORUM_SETTINGS. */
+/**
+ * The forum columns of a new channel: its tags (none by default) and DEFAULT_FORUM_SETTINGS
+ * (a media channel's posts show as a grid unless a layout is given).
+ */
 export function newForumColumns(type: ChatType, body: ForumFields): ForumColumns {
   if (type !== 'space_forum') return {};
+  const input = parse(forumSettingsSchema, body.forumSettings ?? {});
+  const defaults: ForumSettings = input.media
+    ? { ...DEFAULT_FORUM_SETTINGS, layout: 'gallery' }
+    : DEFAULT_FORUM_SETTINGS;
   return {
     forumTags: body.forumTags === undefined ? [] : parseForumTags(body.forumTags),
-    forumSettings: mergeForumSettings(DEFAULT_FORUM_SETTINGS, body.forumSettings ?? {}),
+    forumSettings: mergeForumSettings(defaults, input),
   };
 }
 

@@ -172,7 +172,7 @@ function PreviewRow({
       <div
         className={cn(
           'group/msg relative flex items-start gap-3 px-3 hover:bg-fg/[0.04] lg:px-5',
-          row.firstInGroup ? 'mt-2.5 pt-0.5' : 'pt-px',
+          row.firstInGroup ? 'msg-group-start-cozy pt-0.5' : 'pt-px',
           reactions ? 'pb-1' : 'pb-px',
         )}
       >

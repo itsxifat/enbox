@@ -591,7 +591,10 @@ export interface ApiRoutes {
     R: { roleIds: ID[] };
   } /* change my answers: roles follow */;
   // Server tags
-  'PUT /api/spaces/:spaceId/tag': { B: SpaceTagRequest; R: SpaceTag } /* MANAGE_SPACE; space:updated */;
+  'PUT /api/spaces/:spaceId/tag': {
+    B: SpaceTagRequest;
+    R: SpaceTag;
+  } /* MANAGE_SPACE; space:updated */;
   'DELETE /api/spaces/:spaceId/tag': { R: void } /* MANAGE_SPACE; wearers' tags disappear */;
   'PUT /api/me/space-tag': { B: AdoptSpaceTagRequest; R: UserPublic } /* user:changed */;
   // Active Now and Space preview
@@ -676,7 +679,10 @@ export interface ApiRoutes {
     Q: StarredMessagesQuery;
     R: MessageSearchResult[];
   } /* newest star first; ?chatId= one chat */;
-  'POST /api/messages/forward': { B: ForwardRequest; R: Message[] };
+  'POST /api/messages/forward': {
+    B: ForwardRequest;
+    R: Message[];
+  } /* the copies, target-major; the optional comment arrives as message:new */;
   'PATCH /api/messages/:messageId': { B: EditMessageRequest; R: Message };
   'DELETE /api/messages/:messageId': { Q: DeleteMessageQuery; R: void };
   'PUT /api/messages/:messageId/reaction': { B: ReactRequest; R: Message };

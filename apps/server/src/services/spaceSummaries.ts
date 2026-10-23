@@ -24,6 +24,7 @@ import {
   messages,
   spaceCategories,
   spaces,
+  threadFollows,
   type ChatMemberRow,
   type ChatRow,
   type MessageRow,
@@ -145,6 +146,25 @@ export async function spaceChannelSummariesForPairs(
       ),
     );
   const rowOf = new Map<string, ChatMemberRow>(rows.map((r) => [pairKey(r.chatId, r.userId), r]));
+  // Threads: the ones each viewer follows (`ThreadInfo.following`), one query for the batch.
+  const threadIds = uniq(
+    visible.filter((v) => v.chat.type === 'space_thread').map((v) => v.chat.id),
+  );
+  const follows = new Set(
+    threadIds.length
+      ? (
+          await dbx
+            .select({ threadId: threadFollows.threadId, userId: threadFollows.userId })
+            .from(threadFollows)
+            .where(
+              and(
+                inArray(threadFollows.threadId, threadIds),
+                inArray(threadFollows.userId, uniq(visible.map((v) => v.userId))),
+              ),
+            )
+        ).map((r) => pairKey(r.threadId, r.userId))
+      : [],
+  );
 
   const stats = await rawRows<PairStats & { chat_id: string; user_id: string }>(
     dbx,
@@ -257,7 +277,7 @@ export async function spaceChannelSummariesForPairs(
       space: toSpaceChannelInfo(chat, overwrites.get(chat.id) ?? []),
       spacePermissions: bits,
       notifyLevel: row?.notifyLevel ?? null,
-      ...(thread ? { thread: toThreadInfo(chat) } : {}),
+      ...(thread ? { thread: { ...toThreadInfo(chat), following: follows.has(key) } } : {}),
     });
   }
   return out;

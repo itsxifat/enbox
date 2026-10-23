@@ -9,7 +9,9 @@
  *   videoInputDevice, outputVolume, voiceInputMode, pttShortcut, pttReleaseDelayMs,
  *   inputSensitivityAuto, inputSensitivityDb, userAudio), fontSize, wallpaperPattern, sounds,
  *   desktopNotifications, reduceMotion, autoplayAnimatedMedia, showNameStyles, chatTheme, bubbleStyle,
- *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur, developerMode }
+ *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur, developerMode, and the
+ *   Accessibility ones: saturation, saturateRoleColors, contrast, underlineLinks, roleColors,
+ *   stickerAnimation, animateEmoji, superReactionAnimations, showSendButton, messageGroupSpacing }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
  * Actions: `setTheme(t)`, `setPref(key, value)`, `pushToast`, `dismissToast`
@@ -23,8 +25,11 @@
  *
  * Call `initTheme()` once at startup (main.tsx) to apply the theme, font size, the device
  * chat appearance (`data-bubble-style` / `data-msg-anim` / `data-wallpaper-preset` + the preset
- * variables, see features/appearance/presets.ts) and the `data-reduce-motion` /
- * `data-autoplay-media` attributes (the CSS-only cosmetics animations read them).
+ * variables, see features/appearance/presets.ts), the `data-reduce-motion` /
+ * `data-autoplay-media` attributes (the CSS-only cosmetics animations read them) and the
+ * Accessibility ones (`--saturation`, `data-contrast` (resolved, following the OS on 'system'),
+ * `data-underline-links`, `data-role-colors`, `data-saturate-roles`, `data-sticker-animation`,
+ * `data-animate-emoji`, `--msg-group-gap`; index.css "Accessibility").
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -473,6 +478,34 @@ function applyAppearance(s: Pick<UiState, 'theme' | 'resolvedTheme' | 'prefs'>):
   root.dataset.reduceMotion = s.prefs.reduceMotion;
   // Cosmetics (components/cosmetics/cosmetics.css): decorations play always / on hover / never.
   root.dataset.autoplayMedia = s.prefs.autoplayAnimatedMedia;
+  // Accessibility (features/settings/accessibility): the "Accessibility" rules of index.css.
+  const p = s.prefs;
+  root.style.setProperty('--saturation', String(clampSaturation(p.saturation)));
+  root.dataset.saturateRoles = String(p.saturateRoleColors);
+  root.dataset.contrast = resolveContrast(p.contrast);
+  root.dataset.underlineLinks = String(p.underlineLinks);
+  root.dataset.roleColors = p.roleColors;
+  root.dataset.stickerAnimation = p.stickerAnimation;
+  root.dataset.animateEmoji = String(p.animateEmoji);
+  const gap = MESSAGE_GROUP_SPACINGS.includes(p.messageGroupSpacing)
+    ? p.messageGroupSpacing
+    : DEFAULT_PREFS.messageGroupSpacing;
+  root.style.setProperty('--msg-group-gap', `${gap}px`);
+}
+
+/** The OS asks for more contrast (or runs a forced-colours theme): High contrast on 'system'. */
+const MORE_CONTRAST_QUERIES = ['(prefers-contrast: more)', '(forced-colors: active)'];
+
+/** The contrast in use: 'on' / 'off', or the OS setting for 'system'. */
+export function resolveContrast(pref: ContrastPref): 'on' | 'off' {
+  if (pref !== 'system') return pref;
+  if (typeof window === 'undefined' || !window.matchMedia) return 'off';
+  return MORE_CONTRAST_QUERIES.some((q) => window.matchMedia(q).matches) ? 'on' : 'off';
+}
+
+/** Saturation as applied: 0..1 (1 for anything unusable). */
+export function clampSaturation(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
 }
 
 let themeInitialized = false;
@@ -489,4 +522,9 @@ export function initTheme(): void {
     const { theme } = useUi.getState();
     if (theme === 'system') useUi.setState({ resolvedTheme: resolveTheme('system') });
   });
+  for (const query of MORE_CONTRAST_QUERIES)
+    window.matchMedia?.(query).addEventListener('change', () => {
+      const s = useUi.getState();
+      if (s.prefs.contrast === 'system') applyAppearance(s);
+    });
 }

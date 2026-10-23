@@ -149,7 +149,7 @@ function SuggestionCell({
   onPick: (sticker: SpaceSticker) => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const playing = useStickerPlayback(ref, sticker.animated, 'self');
+  const playing = useStickerPlayback(ref, sticker.animated, 'self', 'sticker');
   return (
     <button
       ref={ref}

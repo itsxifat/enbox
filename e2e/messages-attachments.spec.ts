@@ -64,7 +64,11 @@ test('create a poll and see votes live', async ({ browser }) => {
     'aria-checked',
     'true',
   );
-  await expect(poll).toContainText('1 voter');
+  await bobPoll.getByRole('button', { name: 'Vote' }).click();
+  // Results show once you voted; the author peeks with Show results.
+  await expect(bobPoll.getByRole('list', { name: 'Results' })).toBeVisible();
+  await expect(poll.getByTestId('poll-status')).toContainText('1 vote');
+  await poll.getByRole('button', { name: 'Show results' }).click();
   await poll.getByRole('button', { name: 'View votes' }).click();
   await expect(a.page.getByRole('dialog', { name: 'Poll details' })).toContainText('Bob Poll');
   await a.context.close();

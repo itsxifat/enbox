@@ -7,7 +7,8 @@
  *   renames, archiving and tag edits reach it unchanged (stores/threads.ts, realtime/). The
  *   list shown is computed from the chats store (`selectForumPosts`) within the window of the
  *   pages loaded for the current filter: keyset pages of `GET /chats/:id/posts`, open posts
- *   first, then archived ones. New posts and posts with new replies show up at once.
+ *   first (the pinned one on top), then archived ones. New posts and posts with new replies
+ *   show up at once.
  * - `firstMessages`: each post's own message (seq 1) from the pages and from my new posts;
  *   a live post that arrived by socket shows its `lastMessage` while it has no replies.
  * - Views: sort and layout are remembered per forum on this device; the tag filter and the
@@ -23,11 +24,13 @@ import {
   type ForumPostsPage,
   type ForumSettings,
   type ID,
+  type MediaAttachment,
   type Message,
 } from '@enbox/shared';
 import { applyReactionChange, isMyReaction, myReactionsOf, sameReaction } from '@/features/conversation/bubbles/reactions/model';
+import { isVisualMedia } from '@/features/conversation/lib/mediaProcessing';
+import { uploadAll, type AttachmentFile } from '@/features/conversation/lib/sendMedia';
 import { api } from '@/lib/api';
-import { probeMedia, stripImageBlob } from '@/lib/media';
 import { registerSessionReset, sessionEpoch } from '@/lib/session';
 import { storage } from '@/lib/storage';
 import { getMyId } from './auth';
@@ -74,12 +77,19 @@ export interface ForumList {
   archived: ForumSection;
 }
 
+/** A file of a post being written, with its alt text. */
+export interface NewPostFile {
+  file: File;
+  description?: string;
+}
+
 /** A post being written. */
 export interface NewPostInput {
   name: string;
   text: string;
   appliedTags: string[];
-  image?: File | null;
+  /** Up to MAX_ATTACHMENTS_PER_MESSAGE files; pictures and videos lead (the post's cover). */
+  files?: NewPostFile[];
   /** Kept across retries of the same post (idempotent on the server). */
   clientId: string;
 }
@@ -94,7 +104,7 @@ export interface ForumsState {
   setView(forumId: ID, patch: Partial<ForumView>): void;
   /** Load the first (or, with `more`, the next) page of a forum's open or archived posts. */
   loadPosts(forumId: ID, filter: ForumFilter, opts?: { archived?: boolean; more?: boolean }): Promise<void>;
-  /** Create a post (uploading its image first); the post lands in the chats store. */
+  /** Create a post (uploading its files first); the post lands in the chats store. */
   createPost(forumId: ID, input: NewPostInput): Promise<ChatSummary>;
   /** The card's default reaction: add mine, or take it back. */
   toggleReaction(post: ChatSummary, message: Message, emoji: string): Promise<void>;
@@ -148,21 +158,30 @@ export function sortPosts(posts: readonly ChatSummary[], sort: ForumSort): ChatS
   });
 }
 
-/** Posts no further down than the last loaded one (when more pages remain). */
+/**
+ * Posts no further down than the last loaded one (when more pages remain), the pinned post
+ * first: the server's first page leads with it and its pages leave it out.
+ */
 function within(sorted: ChatSummary[], section: ForumSection | undefined, sort: ForumSort): ChatSummary[] {
-  if (!section?.loaded || !section.cursor) return sorted;
+  const pinned = sorted.filter((p) => p.thread?.pinned);
+  const rest = sorted.filter((p) => !p.thread?.pinned);
+  if (!section?.loaded || !section.cursor) return [...pinned, ...rest];
   const [at = '', id = ''] = section.cursor.split('|');
   const atMs = Date.parse(at);
-  return sorted.filter((p) => {
-    const ms = Date.parse(sortAt(p, sort));
-    return ms > atMs || (ms === atMs && p.id >= id);
-  });
+  return [
+    ...pinned,
+    ...rest.filter((p) => {
+      const ms = Date.parse(sortAt(p, sort));
+      return ms > atMs || (ms === atMs && p.id >= id);
+    }),
+  ];
 }
 
 /**
  * The posts a forum shows for `filter`: its open posts, then — once those are all loaded and
- * the archived ones were asked for — its archived posts; each part sorted and cut at the
- * last loaded page. Before the first page arrives, the posts the store already has. Pure.
+ * the archived ones were asked for — its archived posts; each part sorted (its pinned post
+ * first) and cut at the last loaded page. Before the first page arrives, the posts the store
+ * already has. Pure.
  */
 export function selectForumPosts(
   byId: Record<ID, ChatSummary>,
@@ -229,6 +248,25 @@ function saveViews(views: Record<ID, Partial<ForumView>>): void {
 
 const enc = encodeURIComponent;
 
+/** Upload a post's files in order (photos and videos re-encoded, with posters), like a send's. */
+async function uploadPostFiles(files: NewPostFile[]): Promise<MediaAttachment[]> {
+  let failure: unknown = null;
+  const items: AttachmentFile[] = files.map((f, i) => ({
+    id: String(i),
+    file: f.file,
+    kind: isVisualMedia(f.file) ? 'visual' : f.file.type.startsWith('audio/') ? 'audio' : 'file',
+  }));
+  const done = await uploadAll(items, new AbortController().signal, {
+    onProgress: () => undefined,
+    onUploaded: () => undefined,
+    onFailed: (_id, e) => {
+      failure ??= e;
+    },
+  });
+  if (!done) throw failure ?? new Error('Could not upload the files');
+  return done;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -290,18 +328,19 @@ export const useForums = create<ForumsState>((set, get) => ({
   },
 
   async createPost(forumId, input) {
-    let mediaId: string | undefined;
-    if (input.image) {
-      const meta = await probeMedia(input.image, 'image');
-      const media = await api.upload(await stripImageBlob(input.image), meta, undefined, { fileName: input.image.name });
-      mediaId = media.id;
-    }
+    const picked = input.files ?? [];
+    const files = [...picked.filter((f) => isVisualMedia(f.file)), ...picked.filter((f) => !isVisualMedia(f.file))];
+    const uploaded = files.length ? await uploadPostFiles(files) : [];
+    const [lead, ...rest] = uploaded;
+    const alt = files.map((f) => f.description?.trim() || null);
     const body: CreateForumPostRequest = {
       name: input.name.trim(),
       text: input.text,
       appliedTags: input.appliedTags,
       clientId: input.clientId,
-      ...(mediaId ? { mediaId } : {}),
+      ...(lead ? { mediaId: lead.id } : {}),
+      ...(rest.length ? { extraMediaIds: rest.map((m) => m.id) } : {}),
+      ...(alt.some((d) => d !== null) ? { descriptions: alt } : {}),
     };
     const post = await api.post<ChatSummary>(`/api/chats/${forumId}/posts`, body);
     useThreads.getState().upsertThread(post);

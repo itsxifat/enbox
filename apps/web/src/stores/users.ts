@@ -13,6 +13,8 @@
  *                                cached ids are skipped unless force. Use it for ids found in
  *                                messages (`referencedUserIds(message)`).
  * - `invalidateUser(id)`         refetch if cached (on `user:changed`, batched), else no-op
+ * - `applySpaceTag(spaceId, tag)` a Space's tag changed (`space:updated { tag }`; null: removed
+ *                                or the Space is gone): the cached users wearing it follow
  * - `setPresence(p)`             apply a `presence:update`
  * - `subscribePresence(ids)`     ref-counted `presence:subscribe` (ack seeds presence). New ids
  *                                are coalesced into one emit per flush (≤ MAX_USERS_BATCH ids),
@@ -40,6 +42,7 @@ import {
   type ID,
   type Presence,
   type PresenceNote,
+  type SpaceTag,
   type UserPublic,
 } from '@enbox/shared';
 import { api } from '@/lib/api';
@@ -55,6 +58,7 @@ export interface UsersState {
   fetchUser(id: ID, opts?: { force?: boolean }): Promise<UserPublic>;
   fetchUsers(ids: Iterable<ID>, opts?: { force?: boolean }): Promise<void>;
   invalidateUser(id: ID): Promise<void>;
+  applySpaceTag(spaceId: ID, tag: SpaceTag | null): void;
   setPresence(p: Presence): void;
   subscribePresence(ids: ID[]): Promise<void>;
   unsubscribePresence(ids: ID[]): void;
@@ -185,6 +189,18 @@ export const useUsers = create<UsersState>((set, get) => ({
     await get()
       .fetchUsers([id], { force: true })
       .catch(() => undefined);
+  },
+
+  applySpaceTag(spaceId, tag) {
+    set((s) => {
+      let byId = s.byId;
+      for (const u of Object.values(s.byId)) {
+        if (u.spaceTag?.spaceId !== spaceId) continue;
+        if (byId === s.byId) byId = { ...s.byId };
+        byId[u.id] = { ...u, spaceTag: tag ? { ...tag, spaceId } : null };
+      }
+      return byId === s.byId ? s : { byId };
+    });
   },
 
   setPresence(p) {

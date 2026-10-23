@@ -1,11 +1,12 @@
 /**
  * Discord's reaction chips under a message: one chip per emoji with its count (custom emoji
- * as 16 px images), mine outlined in the brand colour on a tint. Click toggles mine; hover
+ * as 16 px images), mine outlined in the brand colour on a tint, and before it the emoji's
+ * super chip when it has super reactions (SuperReactionChip.tsx). Click toggles mine; hover
  * shows who reacted; right-click or a long press opens the Reactions list on that emoji. A
- * "+" chip (on row hover; always on touch) opens the emoji picker when I may add new emoji.
- * Counts pop when they change (not under reduced motion).
+ * "+" chip (on row hover; always on touch) opens the emoji picker, with its Super Reaction
+ * switch, when I may add new emoji. Counts pop when they change (not under reduced motion).
  */
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { SmilePlus } from 'lucide-react';
 import type { ChatSummary, ReactionSummary } from '@enbox/shared';
 import { useLongPress } from '@/features/chats/useLongPress';
@@ -15,12 +16,21 @@ import { useAuth } from '@/stores/auth';
 import type { ClientMessage } from '@/stores/messages';
 import { canReact } from '../../actions';
 import { useSelecting } from '../../state';
-import { canAddNewReaction, isMyReaction, reactionKey, reactionLabel } from './model';
+import {
+  burstCountOf,
+  canAddNewReaction,
+  isMyBurstReaction,
+  isMyReaction,
+  normalCountOf,
+  reactionKey,
+  reactionLabel,
+} from './model';
 import { ReactionEmoji } from './ReactionEmoji';
 import { ReactionPickerPopover } from './ReactionPicker';
 import { canAddReaction, canRemoveOwnReaction, toggleReaction } from './reactionActions';
 import { ReactionsModal } from './ReactionsModal';
 import { ReactionTooltip } from './ReactionTooltip';
+import { SuperReactionChip } from './SuperReactionChip';
 
 /** Hover this long before the tooltip shows. */
 const TOOLTIP_DELAY_MS = 300;
@@ -32,6 +42,12 @@ function focusVisible(el: Element): boolean {
   } catch {
     return false;
   }
+}
+
+/** One chip: an emoji and a kind. */
+interface ChipRef {
+  emoji: string;
+  burst: boolean;
 }
 
 export function ReactionChips({
@@ -47,27 +63,28 @@ export function ReactionChips({
   const touch = useIsTouch();
   // Select mode: a click on the row selects it, the chips stand still.
   const selecting = useSelecting(chat.id);
-  const [list, setList] = useState<string | null>(null);
+  const [list, setList] = useState<ChipRef | null>(null);
   const [picker, setPicker] = useState<HTMLElement | null>(null);
-  const [tip, setTip] = useState<{ emoji: string; anchor: HTMLElement } | null>(null);
+  const [tip, setTip] = useState<(ChipRef & { anchor: HTMLElement }) | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
   if (m.deletedAt || (!m.reactions.length && !list)) return null;
 
-  const hover = (emoji: string, anchor: HTMLElement | null) => {
+  const hover = (chip: ChipRef, anchor: HTMLElement | null) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     if (!anchor) return setTip(null);
-    timer.current = setTimeout(() => setTip({ emoji, anchor }), TOOLTIP_DELAY_MS);
+    timer.current = setTimeout(() => setTip({ ...chip, anchor }), TOOLTIP_DELAY_MS);
   };
-  const openList = (emoji: string) => {
-    hover(emoji, null);
-    setList(emoji);
+  const openList = (chip: ChipRef) => {
+    hover(chip, null);
+    setList(chip);
   };
   const quickOnly = chat.type === 'channel' && chat.channelSettings?.reactions === 'quick';
   const canPick = canReact(chat, m) && canAddNewReaction(chat) && !quickOnly;
   const tipped = tip ? m.reactions.find((r) => r.emoji === tip.emoji) : undefined;
+  const tipCount = tip && tipped ? (tip.burst ? burstCountOf(tipped) : normalCountOf(tipped)) : 0;
 
   return (
     <div
@@ -81,20 +98,43 @@ export function ReactionChips({
       data-testid="reactions"
     >
       {m.reactions.map((r) => {
+        const normal = { emoji: r.emoji, burst: false };
+        const supers = { emoji: r.emoji, burst: true };
         const mine = isMyReaction(m, me, r.emoji);
+        const mineBurst = isMyBurstReaction(m, me, r.emoji);
+        const may = (own: boolean) =>
+          own ? canRemoveOwnReaction(chat, m) : canAddReaction(chat, m, r.emoji);
         return (
-          <ReactionChip
-            key={reactionKey(r.emoji)}
-            r={r}
-            mine={mine}
-            enabled={mine ? canRemoveOwnReaction(chat, m) : canAddReaction(chat, m, r.emoji)}
-            onToggle={() => {
-              hover(r.emoji, null);
-              void toggleReaction(chat, m, r.emoji);
-            }}
-            onOpenList={() => openList(r.emoji)}
-            onHover={(anchor) => hover(r.emoji, anchor)}
-          />
+          <Fragment key={reactionKey(r.emoji)}>
+            {burstCountOf(r) > 0 ? (
+              <SuperReactionChip
+                messageId={m.id}
+                r={r}
+                mine={mineBurst}
+                enabled={may(mineBurst)}
+                onToggle={() => {
+                  hover(supers, null);
+                  void toggleReaction(chat, m, r.emoji, { burst: true });
+                }}
+                onOpenList={() => openList(supers)}
+                onHover={(anchor) => hover(supers, anchor)}
+              />
+            ) : null}
+            {normalCountOf(r) > 0 ? (
+              <ReactionChip
+                r={r}
+                count={normalCountOf(r)}
+                mine={mine}
+                enabled={may(mine)}
+                onToggle={() => {
+                  hover(normal, null);
+                  void toggleReaction(chat, m, r.emoji);
+                }}
+                onOpenList={() => openList(normal)}
+                onHover={(anchor) => hover(normal, anchor)}
+              />
+            ) : null}
+          </Fragment>
         );
       })}
       {canPick ? (
@@ -118,20 +158,30 @@ export function ReactionChips({
       <ReactionPickerPopover
         chat={chat}
         anchor={picker}
+        modeSwitch
         onClose={() => setPicker(null)}
-        onPick={(emoji) => void toggleReaction(chat, m, emoji)}
+        onPick={(emoji, { burst }) => void toggleReaction(chat, m, emoji, { burst })}
       />
-      {tip && tipped ? (
+      {tip && tipped && tipCount > 0 ? (
         <ReactionTooltip
           chat={chat}
           m={m}
           r={tipped}
-          mine={isMyReaction(m, me, tipped.emoji)}
+          burst={tip.burst}
+          mine={
+            tip.burst ? isMyBurstReaction(m, me, tipped.emoji) : isMyReaction(m, me, tipped.emoji)
+          }
           anchor={tip.anchor}
         />
       ) : null}
       {list !== null ? (
-        <ReactionsModal chat={chat} m={m} initialEmoji={list} onClose={() => setList(null)} />
+        <ReactionsModal
+          chat={chat}
+          m={m}
+          initialEmoji={list.emoji}
+          initialBurst={list.burst}
+          onClose={() => setList(null)}
+        />
       ) : null}
     </div>
   );
@@ -139,6 +189,7 @@ export function ReactionChips({
 
 function ReactionChip({
   r,
+  count,
   mine,
   enabled,
   onToggle,
@@ -146,6 +197,8 @@ function ReactionChip({
   onHover,
 }: {
   r: ReactionSummary;
+  /** Its normal reactions (`r.count` includes the super ones). */
+  count: number;
   mine: boolean;
   enabled: boolean;
   onToggle: () => void;
@@ -156,14 +209,14 @@ function ReactionChip({
   const reduced = useReducedMotion();
   // Bumped when the count changes after mount: re-keys the count so its pop replays.
   const [bump, setBump] = useState(0);
-  const prev = useRef(r.count);
+  const prev = useRef(count);
   useEffect(() => {
-    if (prev.current === r.count) return;
-    prev.current = r.count;
+    if (prev.current === count) return;
+    prev.current = count;
     if (!reduced) setBump((n) => n + 1);
-  }, [r.count, reduced]);
+  }, [count, reduced]);
 
-  const label = `${reactionLabel(r.emoji)}, ${r.count} ${r.count === 1 ? 'reaction' : 'reactions'}${
+  const label = `${reactionLabel(r.emoji)}, ${count} ${count === 1 ? 'reaction' : 'reactions'}${
     mine ? ', including yours' : ''
   }`;
   return (
@@ -205,7 +258,7 @@ function ReactionChip({
     >
       <ReactionEmoji emoji={r.emoji} size={16} />
       <span key={bump} className={cn('font-semibold tabular-nums', bump > 0 && 'animate-icon-pop')}>
-        {r.count}
+        {count}
       </span>
     </button>
   );

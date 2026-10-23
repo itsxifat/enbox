@@ -131,7 +131,7 @@ function StickerCard({
   onEdit: () => void;
 }) {
   const ref = useRef<HTMLLIElement>(null);
-  const playing = useStickerPlayback(ref, sticker.animated, 'self');
+  const playing = useStickerPlayback(ref, sticker.animated, 'self', 'sticker');
   const [busy, setBusy] = useState(false);
 
   const remove = async () => {

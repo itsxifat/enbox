@@ -4,8 +4,9 @@
  * - Main Profile: the form on the left, a sticky live preview on the right (on phones a
  *   collapsible preview card above the form). Every field edits a draft (`useProfileDraft`);
  *   nothing saves until Save Changes, which sends one `PATCH /api/me` with only the changed
- *   fields. While there are unsaved changes the bar at the bottom offers Reset / Save, and
- *   leaving (another page, the other tab, closing the tab) is blocked and shakes the bar.
+ *   fields (the Server Tag pick saves on its own, `ServerTagField`). While there are unsaved
+ *   changes the bar at the bottom offers Reset / Save, and leaving (another page, the other
+ *   tab, closing the tab) is blocked and shakes the bar.
  * - Per-server Profiles: a Space picker and that Space's profile editor.
  */
 import { useState } from 'react';
@@ -18,6 +19,7 @@ import {
   cosmeticName,
   type UserSelf,
 } from '@enbox/shared';
+import { useWornTag } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { IN_APP_NAV } from '@/components/layout/navigation';
 import { Button, Input, Tabs, Textarea, toast } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -31,6 +33,7 @@ import { AvatarField, BannerField } from './MediaFields';
 import { NameStyleField } from './NameStyleField';
 import { PerServerProfiles, SPACE_PROFILE_UNSAVED } from './PerServerProfiles';
 import { PreviewPanel } from './ProfilePreview';
+import { ServerTagField } from './ServerTagField';
 import { UnsavedChangesBar, UnsavedChangesGuard } from './UnsavedChangesBar';
 import { useProfileDraft, type ProfileDraftApi } from './useProfileDraft';
 
@@ -116,7 +119,9 @@ function ProfilesEditor({ me }: { me: UserSelf }) {
 function MainProfile({ me, d }: { me: UserSelf; d: ProfileDraftApi }) {
   const { draft, set } = d;
   const [picker, setPicker] = useState<PickerKind | null>(null);
-  const user = draftCardUser(me, draft);
+  // The server tag saves on its own (ServerTagField); the preview shows the one I wear.
+  const spaceTag = useWornTag(me.id);
+  const user = { ...draftCardUser(me, draft), spaceTag };
   const pronouns = draft.pronouns.trim();
   const pickerValue =
     picker === 'decoration'
@@ -227,6 +232,8 @@ function MainProfile({ me, d }: { me: UserSelf; d: ProfileDraftApi }) {
           value={draft.nameStyle}
           onChange={(s) => set('nameStyle', s)}
         />
+
+        <ServerTagField me={me} />
 
         <BannerField me={me} draft={draft} set={set} />
 

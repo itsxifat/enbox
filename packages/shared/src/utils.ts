@@ -641,9 +641,11 @@ export function systemEventText(
     return `Unusual join activity: ${event.joins} members joined in ${minutes} minute${minutes === 1 ? '' : 's'}`;
   }
   if (event.kind === 'poll_result') {
-    const who = event.authorId ? `${nameOf(event.authorId)}'s` : 'A';
+    const author = event.authorId ? nameOf(event.authorId) : null;
+    const who = author === null ? 'A' : author === 'You' ? 'Your' : `${author}'s`;
     const top = event.winners[0];
-    if (!top || event.totalVoters === 0) return `${who} poll ${event.question} has closed. No one voted.`;
+    if (!top || event.totalVoters === 0)
+      return `${who} poll ${event.question} has closed. No one voted.`;
     if (event.winners.length > 1) return `${who} poll ${event.question} has closed. It's a tie.`;
     const pct = Math.round((top.votes / event.totalVoters) * 100);
     return `${who} poll ${event.question} has closed. Winning answer: ${top.emoji ? `${top.emoji} ` : ''}${top.text} (${pct}%)`;

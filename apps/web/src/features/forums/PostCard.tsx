@@ -1,27 +1,28 @@
 /**
- * A post of the forum list (Discord's post cards). List: its tags, title, the author and the
- * first two lines of the post, then the default reaction with its count (a click reacts), the
- * reply count and the age of the last activity — or of the post, when sorted by creation —
- * with the post's image as a thumbnail. Gallery: the image (or the start of the text) leads.
- * The whole card opens the post beside the forum: its title is the button, stretched over the
- * card; the reaction stays clickable on top.
+ * A post of the forum list (Discord's post cards). List: its marks (pinned, closed, locked)
+ * and tags, title, the author and the first two lines of the post, then the default reaction
+ * with its count (a click reacts), the reply count and the age of the last activity — or of
+ * the post, when sorted by creation — with the post's image as a thumbnail. Gallery: the image
+ * (or the start of the text) leads. A media channel's tile (`media`): the post's first picture
+ * or video fills a square, its title shows on hover. The whole card opens the post beside the
+ * forum: its title is the button, stretched over the card; the reaction and the "…" menu
+ * (PostMenu.tsx) stay clickable on top.
  */
-import { EllipsisVertical, Link2, MessageSquare, MessagesSquare, Tag as TagIcon } from 'lucide-react';
+import { Images, MessageSquare, Play } from 'lucide-react';
 import { PERM, hasPerm, type ChatSummary, type ForumInfo, type Message, type ReactionSummary } from '@enbox/shared';
 import { EmojiGlyph } from '@/components/emoji/CustomEmoji';
 import { UserAvatar } from '@/components/common/UserAvatar';
-import { DropdownMenu, IconButton, toast, type MenuEntry } from '@/components/ui';
 import { RichText } from '@/features/conversation/bubbles/RichText';
+import { visualFiles } from '@/features/conversation/bubbles/attachments';
 import { isMyReaction, sameReaction } from '@/features/conversation/bubbles/reactions/model';
-import { copyThreadLink } from '@/features/threads/actions';
-import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
 import { useForums, useFirstMessage, type ForumLayout, type ForumSort } from '@/stores/forums';
 import { useSpaceAuthor } from '@/stores/spaces';
-import { threadRights, useThreads } from '@/stores/threads';
 import { useUserName } from '@/stores/users';
-import { MAX_POST_TAGS, postTags, shortAgo } from './format';
+import { postTags, shortAgo } from './format';
+import { coverSrc, postCover } from './media';
+import { PostMarks, PostMenu } from './PostMenu';
 import { TagPill } from './tags';
 
 export interface PostCardProps {
@@ -29,6 +30,8 @@ export interface PostCardProps {
   forum: ForumInfo;
   sort: ForumSort;
   layout: ForumLayout;
+  /** A media channel's tile (the layout does not apply). */
+  media?: boolean;
   /** Open in the side panel. */
   active: boolean;
   onOpen: () => void;
@@ -123,65 +126,63 @@ function Meta({ post, forum, first, sort }: { post: ChatSummary; forum: ForumInf
   );
 }
 
-/**
- * The card's "…" menu: Open Post, Edit Tags (the author while the post is unlocked, or a
- * moderator; moderated tags only for moderators) and Copy Link.
- */
-function PostMenu({ post, forum, onOpen }: { post: ChatSummary; forum: ForumInfo; onOpen: () => void }) {
-  const me = useAuth((s) => s.user?.id);
-  const rights = threadRights(post, me);
-  const worn = post.thread?.appliedTags ?? [];
-  const known = postTags(forum, worn).map((t) => t.id);
-  const spaceId = post.space?.spaceId;
-  const parentId = post.thread?.parentId;
-  const setTags = (ids: string[]) =>
-    void useThreads
-      .getState()
-      .updateThread(post.id, { appliedTags: forum.tags.filter((t) => ids.includes(t.id)).map((t) => t.id) })
-      .catch((e: unknown) => toast.error(e));
-  const items: MenuEntry[] = [
-    { label: 'Open Post', icon: MessagesSquare, onSelect: onOpen },
-    rights.canEdit && forum.tags.length > 0 && {
-      label: 'Edit Tags',
-      icon: TagIcon,
-      submenu: forum.tags.map((t) => {
-        const on = known.includes(t.id);
-        return {
-          label: (
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              {t.emoji ? <EmojiGlyph emoji={t.emoji} size={16} /> : null}
-              <span className="truncate">{t.name}</span>
-            </span>
-          ),
-          checked: on,
-          keepOpen: true,
-          disabled: (t.moderated && !rights.moderator) || (!on && known.length >= MAX_POST_TAGS),
-          onSelect: () => setTags(on ? known.filter((x) => x !== t.id) : [...known, t.id]),
-        };
-      }),
-    },
-    spaceId && parentId
-      ? { label: 'Copy Link', icon: Link2, onSelect: () => copyThreadLink(spaceId, parentId, post.id) }
-      : null,
-  ];
+/** A media channel's tile: the post's first picture or video, its title on hover. */
+function MediaTile({
+  post,
+  forum,
+  first,
+  active,
+  onOpen,
+}: Pick<PostCardProps, 'post' | 'forum' | 'active' | 'onOpen'> & { first: Message | null }) {
+  const cover = postCover(first);
+  const src = coverSrc(cover);
+  const files = first && !first.deletedAt ? visualFiles(first).length : 0;
+  const count = post.thread?.messageCount ?? 0;
   return (
-    <DropdownMenu
-      aria-label={`Options for ${post.name ?? 'post'}`}
-      items={items}
-      trigger={(p) => (
-        <IconButton
-          {...p}
-          icon={EllipsisVertical}
-          label="Post options"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            'relative z-10 shrink-0',
-            !p.active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
-          )}
-        />
+    <article
+      className={cn('group relative aspect-square min-w-0 overflow-hidden rounded-xl bg-surface-2', active && 'ring-2 ring-brand')}
+      data-testid="forum-media-tile"
+      data-post-id={post.id}
+      aria-current={active ? 'true' : undefined}
+    >
+      {src ? (
+        <img src={src} alt={cover?.description ?? ''} loading="lazy" decoding="async" className="size-full object-cover" data-testid="forum-media-cover" />
+      ) : (
+        <div className="flex size-full items-center justify-center text-subtle">
+          <Images size={32} aria-hidden />
+        </div>
       )}
-    />
+      {cover?.kind === 'video' ? (
+        <span className="pointer-events-none absolute top-1/2 left-1/2 flex size-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white">
+          <Play size={20} aria-label="Video" />
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={post.name ?? 'Post'}
+        className="absolute inset-0 z-[1] rounded-[inherit] outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand"
+      />
+      <PostMarks post={post} className="pointer-events-none absolute top-2 left-2 z-[2]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-10 text-white opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+        <h3 className="line-clamp-2 text-[14px] leading-5 font-bold">{post.name}</h3>
+        <p className="mt-0.5 flex items-center gap-2 text-[12px] text-white/80">
+          <span className="inline-flex items-center gap-1" aria-label={`${count} ${count === 1 ? 'reply' : 'replies'}`}>
+            <MessageSquare size={13} aria-hidden />
+            {count.toLocaleString()}
+          </span>
+          {files > 1 ? (
+            <span className="inline-flex items-center gap-1" aria-label={`${files} files`}>
+              <Images size={13} aria-hidden />
+              {files}
+            </span>
+          ) : null}
+        </p>
+      </div>
+      <div className="absolute top-2 right-2 z-10">
+        <PostMenu post={post} forum={forum} first={first} onOpen={onOpen} overMedia />
+      </div>
+    </article>
   );
 }
 
@@ -200,20 +201,23 @@ function TitleButton({ post, onOpen, className }: { post: ChatSummary; onOpen: (
   );
 }
 
-export function PostCard({ post, forum, sort, layout, active, onOpen }: PostCardProps) {
+export function PostCard({ post, forum, sort, layout, media = false, active, onOpen }: PostCardProps) {
   const first = useFirstMessage(post);
   const tags = postTags(forum, post.thread?.appliedTags);
-  const image = first && !first.deletedAt && first.media?.kind === 'image' ? first.media : null;
-  const src = image ? mediaUrl(image.thumbnailUrl ?? image.url) : undefined;
+  const src = coverSrc(postCover(first));
   const unread = post.lastReadSeq > 0 && post.lastSeq > post.lastReadSeq;
   const ownerId = post.thread?.ownerId ?? post.createdBy;
-  const tagRow = tags.length ? (
-    <div className="flex flex-wrap gap-1" aria-label="Tags">
-      {tags.map((t) => (
-        <TagPill key={t.id} tag={t} />
-      ))}
-    </div>
-  ) : null;
+  if (media) return <MediaTile post={post} forum={forum} first={first} active={active} onOpen={onOpen} />;
+  const marked = !!(post.thread?.pinned || post.thread?.archived || post.thread?.locked);
+  const tagRow =
+    tags.length || marked ? (
+      <div className="flex flex-wrap gap-1" aria-label="Tags">
+        <PostMarks post={post} />
+        {tags.map((t) => (
+          <TagPill key={t.id} tag={t} />
+        ))}
+      </div>
+    ) : null;
 
   if (layout === 'gallery')
     return (
@@ -239,7 +243,7 @@ export function PostCard({ post, forum, sort, layout, active, onOpen }: PostCard
             <h3 className={cn('line-clamp-2 min-w-0 flex-1 text-[15px] leading-5 text-fg', unread ? 'font-extrabold' : 'font-bold')}>
               <TitleButton post={post} onOpen={onOpen} />
             </h3>
-            <PostMenu post={post} forum={forum} onOpen={onOpen} />
+            <PostMenu post={post} forum={forum} first={first} onOpen={onOpen} />
           </div>
           <div className="mt-auto flex min-w-0 items-center gap-1.5 pt-1 text-[13px]">
             {ownerId ? <UserAvatar userId={ownerId} size={20} decorated={false} /> : null}
@@ -271,7 +275,7 @@ export function PostCard({ post, forum, sort, layout, active, onOpen }: PostCard
             {unread ? <span aria-label="New replies" className="size-2 shrink-0 rounded-full bg-brand" /> : null}
             <TitleButton post={post} onOpen={onOpen} className="min-w-0 truncate" />
           </h3>
-          <PostMenu post={post} forum={forum} onOpen={onOpen} />
+          <PostMenu post={post} forum={forum} first={first} onOpen={onOpen} />
         </div>
         <div className="flex min-w-0 items-start gap-1.5">
           {ownerId ? <UserAvatar userId={ownerId} size={20} decorated={false} className="mt-px shrink-0" /> : null}

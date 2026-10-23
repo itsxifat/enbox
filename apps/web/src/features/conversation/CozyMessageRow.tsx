@@ -9,7 +9,7 @@ import { memo } from 'react';
 import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
-import { messageRowA11y } from '@/features/a11y/messageRowA11y';
+import { useMessageRowA11y } from '@/features/a11y/messageRowA11y';
 import { ThreadStarterCard } from '@/features/threads/ThreadStarterCard';
 import { PublishPill } from '@/features/announcements/PublishPill';
 import {
@@ -47,6 +47,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
   const enter = useEnterAnimation(row.key);
   // Discord shows your own name, not "You".
   const myName = useAuth((s) => s.user?.displayName ?? 'You');
+  const a11y = useMessageRowA11y(m, chat, mine);
 
   if (m.type === 'system') {
     return (
@@ -73,14 +74,15 @@ export const CozyMessageRow = memo(function CozyMessageRow({
       data-mine={mine || undefined}
       data-type={m.type}
       data-cozy
-      {...messageRowA11y(m)}
+      {...a11y}
     >
       {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
       {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}
       <div
         className={cn(
           'group/msg relative flex items-start gap-3 px-3 transition-colors duration-700 lg:px-5',
-          row.firstInGroup ? 'mt-2.5 pt-0.5' : 'pt-px',
+          // The space above a group follows Settings ▸ Accessibility ▸ Message spacing.
+          row.firstInGroup ? 'msg-group-start-cozy pt-0.5' : 'pt-px',
           hasReactions ? 'pb-1' : 'pb-px',
           'hover:bg-fg/[0.04]',
           selecting && 'cursor-pointer',

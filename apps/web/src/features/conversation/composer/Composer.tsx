@@ -11,6 +11,10 @@
  * progress on its tile, then the message is sent; a failed upload keeps the tray (Retry).
  * A Shift-drop sends right away. Phones keep the full-screen preview with a caption for
  * photo/video picks and the camera. Space channels need ATTACH_FILES for any of it.
+ *
+ * Formatting (formatting/): Ctrl/Cmd+B, I, U and Shift+X wrap or unwrap the selection (or put
+ * markers around the caret; Ctrl/Cmd+I in an empty box stays the Inbox's), and selecting text
+ * on desktop floats a toolbar over it (Alt+F10 reaches it). Edits keep the undo stack.
  */
 import {
   Suspense,
@@ -90,6 +94,10 @@ import {
   type TrayUpload,
 } from './AttachmentTray';
 import { CameraDialog, ContactPickerDialog, LocationDialog, PollDialog } from './AttachDialogs';
+import { applyTextEdit } from './formatting/applyEdit';
+import { FormattingToolbar, type ToolbarFormat } from './formatting/FormattingToolbar';
+import { makeLink, toggleInline, toggleQuote, type TextEdit } from './formatting/markdown';
+import { shortcutFormat } from './formatting/shortcuts';
 import { MediaPreviewDialog } from './MediaPreviewDialog';
 import { MentionSuggestions } from './MentionSuggestions';
 import { VoiceRecorderBar } from './VoiceRecorderBar';
@@ -120,6 +128,7 @@ function autosize(el: HTMLTextAreaElement | null) {
 export function Composer({ chat }: { chat: ChatSummary }) {
   const meId = useAuth((s) => s.user?.id);
   const enterToSend = useUi((s) => s.prefs.enterToSend);
+  const showSendPref = useUi((s) => s.prefs.showSendButton);
   const sounds = useUi((s) => s.prefs.sounds);
   const touch = useIsTouch();
   const desktop = useIsDesktop();
@@ -195,6 +204,11 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   } | null>(null);
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+  // The formatting toolbar's selection (null = hidden), and one closed with Escape.
+  const [fmt, setFmt] = useState<{ start: number; end: number } | null>(null);
+  const fmtBar = useRef<HTMLDivElement>(null);
+  const fmtClosed = useRef<string | null>(null);
+  const fmtApplying = useRef(false);
 
   const typing = useMemo(() => createTypingEmitter(chat.id), [chat.id]);
   useEffect(() => () => typing.dispose(), [typing]);
@@ -228,6 +242,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   // Entering/leaving edit mode swaps the composer content.
   const editingId = editing?.id;
   useEffect(() => {
+    setFmt(null);
     if (!editingId) {
       if (stash.current) {
         setText(stash.current.text);
@@ -318,6 +333,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
 
   const onChange = (value: string, caret: number) => {
     setText(value);
+    // Typing ends the selection; a format applied by the toolbar sets its own.
+    if (!fmtApplying.current) setFmt(null);
     setCmdIdx(0);
     if (cmdDismissed !== null && value !== cmdDismissed) setCmdDismissed(null);
     refs.current = pruneRefs(value, refs.current);
@@ -354,6 +371,58 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     });
   };
 
+  // ---- formatting --------------------------------------------------------
+
+  /** The toolbar follows the selection (desktop): a range shows it, a caret hides it. */
+  const syncFormatBar = (el: HTMLTextAreaElement) => {
+    if (touch) return;
+    const { selectionStart: start, selectionEnd: end } = el;
+    if (start === end) {
+      fmtClosed.current = null;
+      setFmt(null);
+    } else if (fmtClosed.current !== `${start}:${end}`) {
+      setFmt((cur) => (cur?.start === start && cur.end === end ? cur : { start, end }));
+    }
+  };
+
+  /** One undoable change of the field (onChange follows), then the toolbar for what it selects. */
+  const applyEdit = (edit: TextEdit) => {
+    const el = ta.current;
+    if (!el) return;
+    fmtApplying.current = true;
+    try {
+      applyTextEdit(el, edit);
+    } finally {
+      fmtApplying.current = false;
+    }
+    fmtClosed.current = null;
+    setFmt(!touch && edit.selStart < edit.selEnd ? { start: edit.selStart, end: edit.selEnd } : null);
+  };
+
+  const applyFormat = (format: ToolbarFormat) => {
+    const el = ta.current;
+    if (!el) return;
+    const { value, selectionStart: start, selectionEnd: end } = el;
+    applyEdit(
+      format === 'quote' ? toggleQuote(value, start, end) : toggleInline(value, start, end, format),
+    );
+  };
+
+  const applyLink = (url: string) => {
+    const el = ta.current;
+    if (el) applyEdit(makeLink(el.value, el.selectionStart, el.selectionEnd, url));
+  };
+
+  /** Escape (closed for this selection) or Tab from the toolbar: back to the field. */
+  const leaveFormatBar = (close: boolean) => {
+    const el = ta.current;
+    if (close && fmt) {
+      fmtClosed.current = `${fmt.start}:${fmt.end}`;
+      setFmt(null);
+    }
+    el?.focus({ preventScroll: true });
+  };
+
   /**
    * After sending something that doesn't consume the typed text (documents, audio files,
    * location, contact, poll): the reply was used, but the text and its draft stay.
@@ -368,6 +437,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   /** After sending the typed text itself (as a message, or as captions). */
   const clearAfterSend = () => {
     setText('');
+    setFmt(null);
     refs.current = [];
     useDrafts.getState().clearDraft(chat.id);
     clearAfterAttachmentSend();
@@ -445,6 +515,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const cancelEdit = () => useConversationUi.getState().setEditing(chat.id, null);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Ctrl/Cmd+B, I, U, Shift+X; an empty box leaves Ctrl/Cmd+I to the Inbox.
+    const format = e.nativeEvent.isComposing ? null : shortcutFormat(e);
+    if (format && (format !== 'italic' || text)) {
+      e.preventDefault();
+      applyFormat(format);
+      return;
+    }
+    if (fmt && e.altKey && e.key === 'F10') {
+      e.preventDefault();
+      fmtBar.current?.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus();
+      return;
+    }
     if (commands.length) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -489,7 +571,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       return;
     }
     if (e.key === 'Escape') {
-      if (editing) cancelEdit();
+      if (fmt) leaveFormatBar(true);
+      else if (editing) cancelEdit();
       else if (emojiOpen) setEmojiOpen(false);
       else if (reply) useConversationUi.getState().setReply(chat.id, null);
       else return;
@@ -850,10 +933,11 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   };
 
   const hasText = text.trim().length > 0;
-  // Discord: Enter sends on desktop (no send button); touch keyboards and "Enter = new line"
-  // keep the button. Files waiting in the tray always show it (not while they are being sent).
+  // Discord: Enter sends on desktop (no send button unless "Show send button" is on); touch
+  // keyboards and "Enter = new line" keep the button. Files waiting in the tray always show
+  // it (not while they are being sent).
   const showSend =
-    (hasText && (touch || !enterToSend)) ||
+    (hasText && (touch || !enterToSend || showSendPref)) ||
     (tray.length > 0 && trayStatus !== 'sending') ||
     !!editing ||
     (voice?.locked ?? false);
@@ -887,6 +971,19 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       />
 
       <AutoModBlockedNotice chatId={chat.id} />
+      {fmt && !voice ? (
+        <FormattingToolbar
+          ref={fmtBar}
+          field={ta}
+          value={text}
+          start={fmt.start}
+          end={fmt.end}
+          onFormat={applyFormat}
+          onLink={applyLink}
+          onLeave={leaveFormatBar}
+          onBlurAway={() => setFmt(null)}
+        />
+      ) : null}
       {editing ? (
         <div className="mb-2 flex items-center gap-2 rounded-xl bg-surface-2 py-1.5 pr-1 pl-3 animate-slide-down">
           <Pencil size={16} className="shrink-0 text-brand-ink" aria-hidden />
@@ -969,9 +1066,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
                 onClick={(e) =>
                   updateMention(e.currentTarget.value, e.currentTarget.selectionStart)
                 }
-                onBlur={() => {
+                onSelect={(e) => syncFormatBar(e.currentTarget)}
+                onBlur={(e) => {
                   typing.stop();
                   setTimeout(() => setMention(null), 150);
+                  // Into the formatting toolbar (Alt+F10, its link field) keeps it.
+                  if (!fmtBar.current?.contains(e.relatedTarget as Node | null)) setFmt(null);
                 }}
                 onPaste={onPaste}
                 placeholder={editing ? 'Edit message' : placeholder}
@@ -1197,6 +1297,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       />
       <PollDialog
         open={dialog === 'poll'}
+        chat={chat}
         onClose={() => setDialog(null)}
         onSend={(poll) => {
           setDialog(null);

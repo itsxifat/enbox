@@ -71,6 +71,7 @@ describe('users: profiles, lookups, search, common groups', () => {
         profileEffect: null,
         nameplate: null,
         nameStyle: null,
+        spaceTag: null,
         phone: null,
         online: false,
         presenceState: 'offline',

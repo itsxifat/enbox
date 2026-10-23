@@ -1,9 +1,9 @@
 /**
  * A sticker message (`Message.sticker`: an `image` message whose media is the sticker's
  * picture): the picture at 160×160, object-contain, with no frame and no viewer; its alt is
- * the sticker's name. An animated one follows the device pref like animated emoji (playing
- * while its message row is hovered on 'hover', StickerImage.tsx), its poster standing in
- * meanwhile. A click opens a small popout: the sticker large, its name, the description when
+ * the sticker's name. An animated one follows the device pref "Sticker animations" (playing
+ * while its message row is hovered or focused on 'interaction', StickerImage.tsx), its poster
+ * standing in meanwhile. A click opens a small popout: the sticker large, its name, the description when
  * known and, when I am in its Space, "From <Space>" with the Space's icon.
  */
 import { useRef, useState, type ReactNode } from 'react';
@@ -22,7 +22,7 @@ export function StickerBody({ m, meta }: { m: ClientMessage; meta?: ReactNode })
   const media = m.media;
   const ref = useRef<HTMLButtonElement>(null);
   const animated = !!media && (media.animated || media.mimeType === 'image/gif');
-  const playing = useStickerPlayback(ref, animated, 'row');
+  const playing = useStickerPlayback(ref, animated, 'row', 'sticker');
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <div className="flex flex-col items-start" data-testid="sticker-body">
@@ -82,7 +82,7 @@ function StickerPopout({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const playing = useStickerPlayback(ref, animated, 'open');
+  const playing = useStickerPlayback(ref, animated, 'open', 'sticker');
   const space = useSpaces((s) => (sticker.spaceId ? s.byId[sticker.spaceId] : undefined));
   const description = useStickers(
     (s) => findSticker(s, sticker.id, sticker.spaceId)?.description ?? null,

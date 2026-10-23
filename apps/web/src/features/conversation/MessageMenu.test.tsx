@@ -120,6 +120,7 @@ describe('message menu', () => {
     openMenu(channel(), message());
     expect(menuItems()).toEqual([
       'Add Reaction',
+      'Add Super Reaction',
       'Reply',
       'Forward',
       'Create Thread',
@@ -134,6 +135,7 @@ describe('message menu', () => {
     openMenu(channel(), message({ senderId: 'me' }));
     expect(menuItems()).toEqual([
       'Add Reaction',
+      'Add Super Reaction',
       'Edit Message',
       'Reply',
       'Forward',
@@ -150,6 +152,7 @@ describe('message menu', () => {
     openMenu(channel(MOD), message());
     expect(menuItems()).toEqual([
       'Add Reaction',
+      'Add Super Reaction',
       'Reply',
       'Forward',
       'Create Thread',

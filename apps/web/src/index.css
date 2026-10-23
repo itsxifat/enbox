@@ -22,60 +22,65 @@
  *   danger, success, warning (+ -soft), unread, unread-muted, tick-read, online, overlay
  *   warning-ink  warning-colored text on warning-soft
  *   danger-fill  filled danger surfaces under white text (danger is for red text/icons)
+ *
+ * Colours are `oklch()` with the chroma scaled by `--saturation` (0..1, Settings ▸
+ * Accessibility, set on <html> by stores/ui.ts); at 1 each is the hex in its comment. Pure greys
+ * stay hex. Pictures and video never change; names follow it with `data-saturate-roles`.
+ * `html[data-contrast='on']` (High contrast, below the themes) strengthens text and lines.
  */
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   /* Discord "Light". */
-  --app: #e3e5e8;
+  --app: oklch(0.9212 calc(0.0046 * var(--saturation, 1)) 258.33); /* #e3e5e8 */
   --surface: #ffffff;
-  --surface-2: #f2f3f5;
+  --surface-2: oklch(0.964 calc(0.0029 * var(--saturation, 1)) 264.54); /* #f2f3f5 */
   --elevated: #ffffff;
-  --hover: rgb(116 127 141 / 0.08);
-  --selected: #e3e5ea;
-  --line: #e3e5e8;
-  --line-strong: #d4d7dc;
+  --hover: oklch(0.5922 calc(0.0251 * var(--saturation, 1)) 254.48 / 0.08); /* rgb(116 127 141 / 0.08) */
+  --selected: oklch(0.9218 calc(0.0071 * var(--saturation, 1)) 268.54); /* #e3e5ea */
+  --line: oklch(0.9212 calc(0.0046 * var(--saturation, 1)) 258.33); /* #e3e5e8 */
+  --line-strong: oklch(0.8783 calc(0.0076 * var(--saturation, 1)) 260.73); /* #d4d7dc */
 
-  --fg: #2e3035;
-  --muted: #5c5e66;
-  --subtle: #6d6f78;
+  --fg: oklch(0.3092 calc(0.0094 * var(--saturation, 1)) 268.36); /* #2e3035 */
+  --muted: oklch(0.4829 calc(0.013 * var(--saturation, 1)) 274.69); /* #5c5e66 */
+  --subtle: oklch(0.543 calc(0.0141 * var(--saturation, 1)) 275.91); /* #6d6f78 */
 
-  --brand: #6d5dfc;
-  --brand-strong: #5a48e8;
-  --brand-ink: #5646e6;
-  --brand-soft: #eeebff;
+  --brand: oklch(0.5863 calc(0.2269 * var(--saturation, 1)) 281.34); /* #6d5dfc */
+  --brand-strong: oklch(0.524 calc(0.2294 * var(--saturation, 1)) 280.02); /* #5a48e8 */
+  --brand-ink: oklch(0.5164 calc(0.2298 * var(--saturation, 1)) 279.15); /* #5646e6 */
+  --brand-soft: oklch(0.9483 calc(0.0269 * var(--saturation, 1)) 292.77); /* #eeebff */
   --on-brand: #ffffff;
 
-  --bubble-out: #eeebff;
-  --bubble-out-meta: #5c5e66;
-  --bubble-in: #f2f3f5;
-  --bubble-in-meta: #6d6f78;
+  --bubble-out: oklch(0.9483 calc(0.0269 * var(--saturation, 1)) 292.77); /* #eeebff */
+  --bubble-out-meta: oklch(0.4829 calc(0.013 * var(--saturation, 1)) 274.69); /* #5c5e66 */
+  --bubble-in: oklch(0.964 calc(0.0029 * var(--saturation, 1)) 264.54); /* #f2f3f5 */
+  --bubble-in-meta: oklch(0.543 calc(0.0141 * var(--saturation, 1)) 275.91); /* #6d6f78 */
   --wallpaper: #ffffff;
   --wallpaper-ink: transparent;
 
-  --danger: #da373c;
-  --danger-soft: #fbe5e6;
-  --success: #248046;
-  --success-soft: #e0f3e7;
-  --warning: #c27c0e;
-  --warning-soft: #fcf1dc;
+  --danger: oklch(0.5884 calc(0.1993 * var(--saturation, 1)) 24.39); /* #da373c */
+  --danger-soft: oklch(0.9399 calc(0.0241 * var(--saturation, 1)) 14.44); /* #fbe5e6 */
+  --success: oklch(0.532 calc(0.1238 * var(--saturation, 1)) 151.57); /* #248046 */
+  --success-soft: oklch(0.9468 calc(0.0256 * var(--saturation, 1)) 158.2); /* #e0f3e7 */
+  --warning: oklch(0.6449 calc(0.1369 * var(--saturation, 1)) 69.5); /* #c27c0e */
+  --warning-soft: oklch(0.9612 calc(0.0301 * var(--saturation, 1)) 83.63); /* #fcf1dc */
   /* Warning-colored TEXT on warning-soft (the offline banner). */
-  --warning-ink: #8a5a08;
+  --warning-ink: oklch(0.5081 calc(0.1058 * var(--saturation, 1)) 72.32); /* #8a5a08 */
   /* Filled danger surfaces under white text (Delete / Log out buttons, danger badges). */
-  --danger-fill: #da373c;
-  --unread: #6d5dfc;
-  --unread-muted: #6d6f78;
-  --tick-read: #00a8fc;
-  --online: #23a55a;
-  --idle: #f0b232;
-  --dnd: #f23f43;
-  --link: #006ce7;
-  --mention-bg: rgb(250 168 26 / 0.1);
-  --mention-bar: #f0b232;
+  --danger-fill: oklch(0.5884 calc(0.1993 * var(--saturation, 1)) 24.39); /* #da373c */
+  --unread: oklch(0.5863 calc(0.2269 * var(--saturation, 1)) 281.34); /* #6d5dfc */
+  --unread-muted: oklch(0.543 calc(0.0141 * var(--saturation, 1)) 275.91); /* #6d6f78 */
+  --tick-read: oklch(0.701 calc(0.1664 * var(--saturation, 1)) 242.02); /* #00a8fc */
+  --online: oklch(0.637 calc(0.1551 * var(--saturation, 1)) 152.26); /* #23a55a */
+  --idle: oklch(0.8011 calc(0.1515 * var(--saturation, 1)) 80.55); /* #f0b232 */
+  --dnd: oklch(0.6373 calc(0.215 * var(--saturation, 1)) 24.73); /* #f23f43 */
+  --link: oklch(0.5555 calc(0.2042 * var(--saturation, 1)) 257.84); /* #006ce7 */
+  --mention-bg: oklch(0.7927 calc(0.1639 * var(--saturation, 1)) 72.94 / 0.1); /* rgb(250 168 26 / 0.1) */
+  --mention-bar: oklch(0.8011 calc(0.1515 * var(--saturation, 1)) 80.55); /* #f0b232 */
   --overlay: rgb(0 0 0 / 0.6);
 
-  --shadow-color: 220 8% 20%;
+  --shadow-color: 220 calc(8% * var(--saturation, 1)) 20%; /* 220 8% 20% */
   --chat-font-size: 15px;
 
   /* Layout cards (see "Layout cards" at the end of this file). */
@@ -89,52 +94,52 @@
 
 /* Discord "Dark" (the default). `data-theme` on <html> picks Ash or Onyx below. */
 .dark {
-  --app: #111113;
-  --surface: #1a1a1e;
-  --surface-2: #242429;
-  --elevated: #222226;
+  --app: oklch(0.1785 calc(0.0041 * var(--saturation, 1)) 285.98); /* #111113 */
+  --surface: oklch(0.2195 calc(0.0077 * var(--saturation, 1)) 285.74); /* #1a1a1e */
+  --surface-2: oklch(0.2624 calc(0.0093 * var(--saturation, 1)) 285.74); /* #242429 */
+  --elevated: oklch(0.2536 calc(0.0075 * var(--saturation, 1)) 285.86); /* #222226 */
   --hover: rgb(255 255 255 / 0.04);
-  --selected: #2c2c32;
-  --line: #29292f;
-  --line-strong: #393940;
+  --selected: oklch(0.2955 calc(0.0108 * var(--saturation, 1)) 285.72); /* #2c2c32 */
+  --line: oklch(0.2834 calc(0.0109 * var(--saturation, 1)) 285.68); /* #29292f */
+  --line-strong: oklch(0.3473 calc(0.0121 * var(--saturation, 1)) 285.75); /* #393940 */
 
-  --fg: #dfe0e2;
-  --muted: #abadb3;
-  --subtle: #8d8f97;
+  --fg: oklch(0.9065 calc(0.0029 * var(--saturation, 1)) 264.54); /* #dfe0e2 */
+  --muted: oklch(0.7478 calc(0.0088 * var(--saturation, 1)) 271.3); /* #abadb3 */
+  --subtle: oklch(0.6509 calc(0.012 * var(--saturation, 1)) 274.8); /* #8d8f97 */
 
-  --brand: #6d5dfc;
-  --brand-strong: #7f71ff;
-  --brand-ink: #a89eff;
-  --brand-soft: #25214a;
+  --brand: oklch(0.5863 calc(0.2269 * var(--saturation, 1)) 281.34); /* #6d5dfc */
+  --brand-strong: oklch(0.6345 calc(0.2035 * var(--saturation, 1)) 283.41); /* #7f71ff */
+  --brand-ink: oklch(0.7467 calc(0.1378 * var(--saturation, 1)) 287.29); /* #a89eff */
+  --brand-soft: oklch(0.2761 calc(0.0735 * var(--saturation, 1)) 284.94); /* #25214a */
   --on-brand: #ffffff;
 
-  --bubble-out: #3b3192;
-  --bubble-out-meta: #c3bdf0;
-  --bubble-in: #242429;
-  --bubble-in-meta: #9a9ca3;
-  --wallpaper: #1a1a1e;
+  --bubble-out: oklch(0.3873 calc(0.153 * var(--saturation, 1)) 281.17); /* #3b3192 */
+  --bubble-out-meta: oklch(0.8204 calc(0.0713 * var(--saturation, 1)) 290.12); /* #c3bdf0 */
+  --bubble-in: oklch(0.2624 calc(0.0093 * var(--saturation, 1)) 285.74); /* #242429 */
+  --bubble-in-meta: oklch(0.6933 calc(0.0104 * var(--saturation, 1)) 273.3); /* #9a9ca3 */
+  --wallpaper: oklch(0.2195 calc(0.0077 * var(--saturation, 1)) 285.74); /* #1a1a1e */
   --wallpaper-ink: transparent;
 
-  --danger: #f2555a;
-  --danger-soft: #3b1d20;
-  --success: #23a55a;
-  --success-soft: #16301f;
-  --warning: #f0b232;
-  --warning-soft: #33280f;
-  --warning-ink: #f0b232;
-  --danger-fill: #da373c;
+  --danger: oklch(0.6625 calc(0.1926 * var(--saturation, 1)) 22.29); /* #f2555a */
+  --danger-soft: oklch(0.2732 calc(0.047 * var(--saturation, 1)) 14.28); /* #3b1d20 */
+  --success: oklch(0.637 calc(0.1551 * var(--saturation, 1)) 152.26); /* #23a55a */
+  --success-soft: oklch(0.2826 calc(0.0451 * var(--saturation, 1)) 153.79); /* #16301f */
+  --warning: oklch(0.8011 calc(0.1515 * var(--saturation, 1)) 80.55); /* #f0b232 */
+  --warning-soft: oklch(0.2831 calc(0.0423 * var(--saturation, 1)) 85.72); /* #33280f */
+  --warning-ink: oklch(0.8011 calc(0.1515 * var(--saturation, 1)) 80.55); /* #f0b232 */
+  --danger-fill: oklch(0.5884 calc(0.1993 * var(--saturation, 1)) 24.39); /* #da373c */
   --unread: #ffffff;
-  --unread-muted: #5f6169;
-  --tick-read: #00a8fc;
-  --online: #23a55a;
-  --idle: #f0b232;
-  --dnd: #f23f43;
-  --link: #00a8fc;
-  --mention-bg: rgb(250 168 26 / 0.08);
-  --mention-bar: #f0b232;
+  --unread-muted: oklch(0.4936 calc(0.0129 * var(--saturation, 1)) 274.7); /* #5f6169 */
+  --tick-read: oklch(0.701 calc(0.1664 * var(--saturation, 1)) 242.02); /* #00a8fc */
+  --online: oklch(0.637 calc(0.1551 * var(--saturation, 1)) 152.26); /* #23a55a */
+  --idle: oklch(0.8011 calc(0.1515 * var(--saturation, 1)) 80.55); /* #f0b232 */
+  --dnd: oklch(0.6373 calc(0.215 * var(--saturation, 1)) 24.73); /* #f23f43 */
+  --link: oklch(0.701 calc(0.1664 * var(--saturation, 1)) 242.02); /* #00a8fc */
+  --mention-bg: oklch(0.7927 calc(0.1639 * var(--saturation, 1)) 72.94 / 0.08); /* rgb(250 168 26 / 0.08) */
+  --mention-bar: oklch(0.8011 calc(0.1515 * var(--saturation, 1)) 80.55); /* #f0b232 */
   --overlay: rgb(0 0 0 / 0.7);
 
-  --shadow-color: 240 10% 2%;
+  --shadow-color: 240 calc(10% * var(--saturation, 1)) 2%; /* 240 10% 2% */
   --card-shadow:
     0 1px 2px hsl(var(--shadow-color) / 0.5), 0 6px 20px -6px hsl(var(--shadow-color) / 0.6);
 
@@ -143,37 +148,81 @@
 
 /* Discord "Ash": the classic grey dark theme. */
 .dark[data-theme='ash'] {
-  --app: #1e1f22;
-  --surface: #313338;
-  --surface-2: #383a40;
-  --elevated: #2b2d31;
-  --hover: rgb(78 80 88 / 0.3);
-  --selected: #404249;
-  --line: #3f4147;
-  --line-strong: #4e5058;
-  --fg: #dbdee1;
-  --muted: #b5bac1;
-  --subtle: #949ba4;
-  --brand-soft: #312a63;
-  --bubble-in: #383a40;
-  --wallpaper: #313338;
-  --unread-muted: #6d6f78;
+  --app: oklch(0.2395 calc(0.0059 * var(--saturation, 1)) 271.17); /* #1e1f22 */
+  --surface: oklch(0.3211 calc(0.0093 * var(--saturation, 1)) 268.38); /* #313338 */
+  --surface-2: oklch(0.3488 calc(0.0108 * var(--saturation, 1)) 271.1); /* #383a40 */
+  --elevated: oklch(0.2967 calc(0.0078 * var(--saturation, 1)) 264.45); /* #2b2d31 */
+  --hover: oklch(0.4323 calc(0.0134 * var(--saturation, 1)) 274.64 / 0.3); /* rgb(78 80 88 / 0.3) */
+  --selected: oklch(0.3798 calc(0.0122 * var(--saturation, 1)) 273.09); /* #404249 */
+  --line: oklch(0.3756 calc(0.0106 * var(--saturation, 1)) 271.13); /* #3f4147 */
+  --line-strong: oklch(0.4323 calc(0.0134 * var(--saturation, 1)) 274.64); /* #4e5058 */
+  --fg: oklch(0.8992 calc(0.0052 * var(--saturation, 1)) 247.88); /* #dbdee1 */
+  --muted: oklch(0.7871 calc(0.0114 * var(--saturation, 1)) 256.71); /* #b5bac1 */
+  --subtle: oklch(0.6867 calc(0.0155 * var(--saturation, 1)) 254.64); /* #949ba4 */
+  --brand-soft: oklch(0.3259 calc(0.097 * var(--saturation, 1)) 285.26); /* #312a63 */
+  --bubble-in: oklch(0.3488 calc(0.0108 * var(--saturation, 1)) 271.1); /* #383a40 */
+  --wallpaper: oklch(0.3211 calc(0.0093 * var(--saturation, 1)) 268.38); /* #313338 */
+  --unread-muted: oklch(0.543 calc(0.0141 * var(--saturation, 1)) 275.91); /* #6d6f78 */
 }
 
 /* Discord "Onyx": near-black for OLED screens. */
 .dark[data-theme='onyx'] {
   --app: #000000;
-  --surface: #0b0b0d;
-  --surface-2: #17171a;
-  --elevated: #141417;
+  --surface: oklch(0.1505 calc(0.0042 * var(--saturation, 1)) 285.88); /* #0b0b0d */
+  --surface-2: oklch(0.2059 calc(0.0059 * var(--saturation, 1)) 285.87); /* #17171a */
+  --elevated: oklch(0.1926 calc(0.006 * var(--saturation, 1)) 285.82); /* #141417 */
   --hover: rgb(255 255 255 / 0.035);
-  --selected: #1f1f23;
-  --line: #1c1c20;
-  --line-strong: #2b2b30;
-  --fg: #e3e4e6;
-  --brand-soft: #1d1840;
-  --bubble-in: #17171a;
-  --wallpaper: #0b0b0d;
+  --selected: oklch(0.241 calc(0.0076 * var(--saturation, 1)) 285.82); /* #1f1f23 */
+  --line: oklch(0.2282 calc(0.0077 * var(--saturation, 1)) 285.78); /* #1c1c20 */
+  --line-strong: oklch(0.2911 calc(0.009 * var(--saturation, 1)) 285.83); /* #2b2b30 */
+  --fg: oklch(0.9187 calc(0.0029 * var(--saturation, 1)) 264.54); /* #e3e4e6 */
+  --brand-soft: oklch(0.2404 calc(0.0733 * var(--saturation, 1)) 285.15); /* #1d1840 */
+  --bubble-in: oklch(0.2059 calc(0.0059 * var(--saturation, 1)) 285.87); /* #17171a */
+  --wallpaper: oklch(0.1505 calc(0.0042 * var(--saturation, 1)) 285.88); /* #0b0b0d */
+}
+
+/*
+ * High contrast (Settings ▸ Accessibility ▸ Contrast; `data-contrast` on <html>, 'on' also when
+ * it follows `prefers-contrast: more`): text and lines further from the surfaces — darker in
+ * Light, brighter in the dark themes — and an outline on cards (see the end of this file).
+ */
+html[data-contrast='on']:not(.dark) {
+  --fg: oklch(0.1228 calc(0.0029 * var(--saturation, 1)) 285.97); /* #060607 */
+  --muted: oklch(0.3092 calc(0.0094 * var(--saturation, 1)) 268.36); /* #2e3035 */
+  --subtle: oklch(0.4323 calc(0.0134 * var(--saturation, 1)) 274.64); /* #4e5058 */
+  --line: oklch(0.7789 calc(0.0091 * var(--saturation, 1)) 264.51); /* #b4b7bd */
+  --line-strong: oklch(0.6126 calc(0.0129 * var(--saturation, 1)) 264.47); /* #80848c */
+  --hover: oklch(0.5922 calc(0.0251 * var(--saturation, 1)) 254.48 / 0.16); /* rgb(116 127 141 / 0.16) */
+  --selected: oklch(0.8783 calc(0.0076 * var(--saturation, 1)) 260.73); /* #d4d7dc */
+  --brand-ink: oklch(0.432 calc(0.2193 * var(--saturation, 1)) 276.73); /* #3d2dc4 */
+  --link: oklch(0.4544 calc(0.1713 * var(--saturation, 1)) 258.41); /* #0050b3 */
+  --danger: oklch(0.501 calc(0.1784 * var(--saturation, 1)) 24.75); /* #b3242a */
+  --bubble-out-meta: oklch(0.3565 calc(0.0107 * var(--saturation, 1)) 271.11); /* #3a3c42 */
+  --bubble-in-meta: oklch(0.3565 calc(0.0107 * var(--saturation, 1)) 271.11); /* #3a3c42 */
+  --unread-muted: oklch(0.4323 calc(0.0134 * var(--saturation, 1)) 274.64); /* #4e5058 */
+}
+html.dark[data-contrast='on'] {
+  --fg: #ffffff;
+  --muted: oklch(0.8976 calc(0.0042 * var(--saturation, 1)) 271.37); /* #dcdde0 */
+  --subtle: oklch(0.8143 calc(0.0087 * var(--saturation, 1)) 271.31); /* #c0c2c8 */
+  --line: oklch(0.4232 calc(0.0131 * var(--saturation, 1)) 285.83); /* #4d4d55 */
+  --line-strong: oklch(0.5623 calc(0.0153 * var(--saturation, 1)) 285.9); /* #74747e */
+  --hover: rgb(255 255 255 / 0.1);
+  --selected: oklch(0.355 calc(0.012 * var(--saturation, 1)) 285.77); /* #3b3b42 */
+  --brand-ink: oklch(0.8398 calc(0.0848 * var(--saturation, 1)) 288.94); /* #c8c2ff */
+  --link: oklch(0.7793 calc(0.1322 * var(--saturation, 1)) 234.76); /* #52c4ff */
+  --danger: oklch(0.7355 calc(0.1623 * var(--saturation, 1)) 20.05); /* #ff7a7e */
+  --bubble-out-meta: oklch(0.9247 calc(0.0393 * var(--saturation, 1)) 291.94); /* #e6e2ff */
+  --bubble-in-meta: oklch(0.833 calc(0.0086 * var(--saturation, 1)) 271.31); /* #c6c8ce */
+  --unread-muted: oklch(0.7128 calc(0.0104 * var(--saturation, 1)) 273.3); /* #a0a2a9 */
+}
+/* Ash's lighter surfaces need lighter lines. */
+html.dark[data-theme='ash'][data-contrast='on'] {
+  --muted: oklch(0.9212 calc(0.0046 * var(--saturation, 1)) 258.33); /* #e3e5e8 */
+  --subtle: oklch(0.8443 calc(0.0077 * var(--saturation, 1)) 260.73); /* #c9ccd1 */
+  --line: oklch(0.4892 calc(0.0133 * var(--saturation, 1)) 269.41); /* #5d6068 */
+  --line-strong: oklch(0.6129 calc(0.0144 * var(--saturation, 1)) 266.64); /* #80848d */
+  --selected: oklch(0.4388 calc(0.0137 * var(--saturation, 1)) 269.37); /* #4f525a */
 }
 
 @theme inline {
@@ -235,17 +284,17 @@
     'Noto Color Emoji';
 
   /* Brand scale (static; use semantic tokens above for theme-aware UI). */
-  --color-violet-50: #f3f1ff;
-  --color-violet-100: #e7e3ff;
-  --color-violet-200: #d0c9ff;
-  --color-violet-300: #afa3fe;
-  --color-violet-400: #8e80fd;
-  --color-violet-500: #6d5dfc;
-  --color-violet-600: #5a48e8;
-  --color-violet-700: #4a39c7;
-  --color-violet-800: #3c2fa0;
-  --color-violet-900: #2f267d;
-  --color-violet-950: #1d1650;
+  --color-violet-50: oklch(0.9637 calc(0.0187 * var(--saturation, 1)) 292.61); /* #f3f1ff */
+  --color-violet-100: oklch(0.9274 calc(0.0379 * var(--saturation, 1)) 292.2); /* #e7e3ff */
+  --color-violet-200: oklch(0.8595 calc(0.0747 * var(--saturation, 1)) 290.68); /* #d0c9ff */
+  --color-violet-300: oklch(0.761 calc(0.129 * var(--saturation, 1)) 289); /* #afa3fe */
+  --color-violet-400: oklch(0.6707 calc(0.1793 * var(--saturation, 1)) 285.6); /* #8e80fd */
+  --color-violet-500: oklch(0.5863 calc(0.2269 * var(--saturation, 1)) 281.34); /* #6d5dfc */
+  --color-violet-600: oklch(0.524 calc(0.2294 * var(--saturation, 1)) 280.02); /* #5a48e8 */
+  --color-violet-700: oklch(0.4604 calc(0.2085 * var(--saturation, 1)) 279.76); /* #4a39c7 */
+  --color-violet-800: oklch(0.3978 calc(0.1736 * var(--saturation, 1)) 280.2); /* #3c2fa0 */
+  --color-violet-900: oklch(0.3394 calc(0.1407 * var(--saturation, 1)) 280.48); /* #2f267d */
+  --color-violet-950: oklch(0.2513 calc(0.1014 * var(--saturation, 1)) 281.72); /* #1d1650 */
 
   --breakpoint-xs: 26rem;
 
@@ -351,6 +400,16 @@
 @utility scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
+}
+/*
+ * Above the first row of a sender group: `--msg-group-gap` (Settings ▸ Accessibility ▸ Message
+ * spacing, 0-24px, on <html>) scaled so the default 16px keeps the rows' original spacing.
+ */
+@utility msg-group-start-cozy {
+  margin-top: calc(var(--msg-group-gap, 16px) * 0.625);
+}
+@utility msg-group-start-bubble {
+  padding-top: calc(3px + var(--msg-group-gap, 16px) * 0.1875);
 }
 
 @layer base {
@@ -516,4 +575,92 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+/*
+ * Accessibility
+ * -------------
+ * Settings ▸ Accessibility mirrors its device prefs on <html> (stores/ui.ts applyAppearance):
+ * `data-underline-links`, `data-saturate-roles`, `data-contrast`, `data-role-colors`,
+ * `data-sticker-animation`, `data-animate-emoji` and the `--saturation` / `--msg-group-gap`
+ * variables. Unlayered, so these beat the utility classes on the elements.
+ */
+html[data-underline-links='true'] a.text-link {
+  text-decoration-line: underline;
+}
+/* Names (StyledName), role dots and role mentions wear the UI saturation too when asked. */
+html[data-saturate-roles='true'] :is(.cos-name, .cos-role-dot, [data-role-mention]) {
+  filter: saturate(var(--saturation, 1));
+}
+/* "Don't show" role colours: a role mention (its colour is inline) looks like any mention. */
+html[data-role-colors='hidden'] [data-role-mention] {
+  color: var(--brand-ink) !important;
+  background-color: color-mix(in srgb, var(--brand) 20%, transparent) !important;
+}
+
+/* A message row with keyboard focus (features/a11y: ↑/↓ move between rows). */
+[role='article'][data-message-id]:focus-visible {
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+/* "Skip to content" (features/a11y/SkipToContent): above the app while it has focus. */
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  transform: translateY(calc(-100% - 24px));
+}
+.skip-link:focus {
+  transform: none;
+}
+/* The region it jumps to takes focus without a ring around the whole pane. */
+:is(main, section)[tabindex='-1']:focus {
+  outline: none;
+}
+
+/* High contrast: a wider focus ring and outlined cards. */
+html[data-contrast='on'] :focus-visible {
+  outline-width: 3px;
+}
+html[data-contrast='on'] :is(.card-pane, .card-inset):not(:focus-visible) {
+  outline: 1px solid var(--line-strong);
+  outline-offset: -1px;
+}
+
+/*
+ * Forced colours (Windows contrast themes): backgrounds and shadows are dropped there, so
+ * focus, cards, buttons and on/selected states get system-coloured lines instead.
+ */
+@media (forced-colors: active) {
+  :is(.card-pane, .card-inset) {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  button,
+  [role='button'],
+  [role='switch'] {
+    border: 1px solid ButtonText;
+  }
+  :is([aria-checked='true'], [aria-selected='true'], [aria-pressed='true'], [aria-current='page']) {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  /* After the outlines above, so focus always wins. */
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+  [role='switch'] > span {
+    forced-color-adjust: none;
+    background-color: ButtonText;
+  }
+  [role='switch'][aria-checked='true'] {
+    forced-color-adjust: none;
+    background-color: Highlight;
+  }
+  [role='switch'][aria-checked='true'] > span {
+    background-color: HighlightText;
+  }
 }

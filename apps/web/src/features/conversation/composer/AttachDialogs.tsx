@@ -2,14 +2,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, LocateFixed, MapPin, Plus, RefreshCw, SwitchCamera, Trash2 } from 'lucide-react';
 import {
+  DEFAULT_POLL_DURATION_HOURS,
   POLL_MAX_OPTIONS,
   POLL_OPTION_MAX_LENGTH,
   POLL_QUESTION_MAX_LENGTH,
   locationSchema,
   pollInputSchema,
   userDisplayName,
+  type ChatSummary,
   type Contact,
   type LocationPayload,
+  type SendMessageRequest,
 } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import {
@@ -27,6 +30,7 @@ import {
 import { api, errorMessage } from '@/lib/api';
 import { toast } from '@/stores/ui';
 import { MapPreview, ShowMapButton } from '../bubbles/CardBodies';
+import { AnswerEmojiButton, PollDurationSelect } from '../bubbles/polls/PollFields';
 
 // ---------------------------------------------------------------------------
 // Location
@@ -285,44 +289,64 @@ export function ContactPickerDialog({
 // Poll
 // ---------------------------------------------------------------------------
 
+type PollRequest = Extract<SendMessageRequest, { type: 'poll' }>['poll'];
+type PollAnswer = { text: string; emoji: string | null };
+const NO_ANSWER: PollAnswer = { text: '', emoji: null };
+
+/**
+ * Create poll: the question, up to POLL_MAX_OPTIONS answers each with an optional emoji, the
+ * duration (24 hours by default) and Allow multiple answers. `chat` (the chat it goes to)
+ * puts its Space's custom emoji first in the emoji picker.
+ */
 export function PollDialog({
   open,
   onClose,
   onSend,
+  chat,
 }: {
   open: boolean;
   onClose: () => void;
-  onSend: (poll: { question: string; options: string[]; allowMultiple: boolean }) => void;
+  onSend: (poll: PollRequest) => void;
+  chat?: Pick<ChatSummary, 'space' | 'spacePermissions'>;
 }) {
   const [question, setQuestion] = useState('');
-  const [options, setOptions] = useState<string[]>(['', '']);
+  const [answers, setAnswers] = useState<PollAnswer[]>([NO_ANSWER, NO_ANSWER]);
   const [multiple, setMultiple] = useState(false);
+  const [duration, setDuration] = useState<number>(DEFAULT_POLL_DURATION_HOURS);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setQuestion('');
-      setOptions(['', '']);
+      setAnswers([NO_ANSWER, NO_ANSWER]);
       setMultiple(false);
+      setDuration(DEFAULT_POLL_DURATION_HOURS);
       setError(null);
     }
   }, [open]);
 
-  const setOption = (i: number, v: string) => {
-    setOptions((cur) => {
-      const next = cur.map((o, j) => (j === i ? v : o));
+  const setAnswer = (i: number, patch: Partial<PollAnswer>) => {
+    setAnswers((cur) => {
+      const next = cur.map((a, j) => (j === i ? { ...a, ...patch } : a));
       // Keep one empty slot at the end (WhatsApp style).
-      if (i === next.length - 1 && v.trim() && next.length < POLL_MAX_OPTIONS) next.push('');
+      if (i === next.length - 1 && next[i]!.text.trim() && next.length < POLL_MAX_OPTIONS)
+        next.push(NO_ANSWER);
       return next;
     });
   };
 
   const submit = () => {
-    const filled = options.map((o) => o.trim()).filter(Boolean);
+    const filled = answers
+      .map((a) => ({ text: a.text.trim(), emoji: a.emoji }))
+      .filter((a) => a.text);
+    // Emoji only when some answer has one (aligned with the answers).
+    const emojis = filled.some((a) => a.emoji) ? filled.map((a) => a.emoji) : undefined;
     const parsed = pollInputSchema.safeParse({
       question: question.trim(),
-      options: filled,
+      options: filled.map((a) => a.text),
       allowMultiple: multiple,
+      emojis,
+      durationHours: duration,
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
@@ -339,6 +363,8 @@ export function PollDialog({
       question: parsed.data.question,
       options: parsed.data.options,
       allowMultiple: parsed.data.allowMultiple,
+      durationHours: duration,
+      ...(emojis ? { emojis } : {}),
     });
   };
 
@@ -368,40 +394,47 @@ export function PollDialog({
         />
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1.5 text-sm font-medium text-fg">Options</legend>
-          {options.map((o, i) => (
+          {answers.map((a, i) => (
             <div key={i} className="flex items-center gap-1.5">
+              <AnswerEmojiButton
+                index={i}
+                emoji={a.emoji}
+                onChange={(emoji) => setAnswer(i, { emoji })}
+                chat={chat}
+              />
               <Input
-                value={o}
-                onChange={(e) => setOption(i, e.target.value)}
+                value={a.text}
+                onChange={(e) => setAnswer(i, { text: e.target.value })}
                 placeholder={`Option ${i + 1}`}
                 aria-label={`Option ${i + 1}`}
                 maxLength={POLL_OPTION_MAX_LENGTH}
                 containerClassName="flex-1"
               />
-              {options.length > 2 && (o || i < options.length - 1) ? (
+              {answers.length > 2 && (a.text || i < answers.length - 1) ? (
                 <IconButton
                   icon={Trash2}
                   label={`Remove option ${i + 1}`}
                   size="sm"
-                  onClick={() => setOptions((cur) => cur.filter((_, j) => j !== i))}
+                  onClick={() => setAnswers((cur) => cur.filter((_, j) => j !== i))}
                 />
               ) : (
                 <span className="size-8" />
               )}
             </div>
           ))}
-          {options.length < POLL_MAX_OPTIONS && options[options.length - 1]?.trim() ? (
+          {answers.length < POLL_MAX_OPTIONS && answers[answers.length - 1]?.text.trim() ? (
             <Button
               variant="ghost"
               size="sm"
               leftIcon={Plus}
-              onClick={() => setOptions((c) => [...c, ''])}
+              onClick={() => setAnswers((c) => [...c, NO_ANSWER])}
               className="self-start"
             >
               Add option
             </Button>
           ) : null}
         </fieldset>
+        <PollDurationSelect value={duration} onChange={setDuration} />
         <Switch checked={multiple} onChange={setMultiple} label="Allow multiple answers" />
         {error ? (
           <p role="alert" className="text-[13px] text-danger">

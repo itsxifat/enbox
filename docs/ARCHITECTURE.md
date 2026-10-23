@@ -591,6 +591,16 @@ validation_error` (it could never pass).
   (server-side reuse is allowed), and location/contact/poll definition (fresh, no votes).
   Never reply links, status replies, reactions or expiry (the target's timer applies).
   `forward_count = source + 1`; ≥ FORWARDED_MANY_TIMES_THRESHOLD shows "Forwarded many times".
+- `forwarded_from` (`Message.forwardedFrom`): the original's chat, message, Space and time; a
+  forward of a forward keeps pointing at the first original. Clients show names only for chats
+  they know, and the jump works only for people who can see the original. A copied poll with
+  an end gets a fresh one (`DEFAULT_POLL_DURATION_HOURS` after the forward), else none.
+- `comment` (≤ FORWARD_COMMENT_MAX_LENGTH): after each target's copies, my own text message
+  with `client_id = <clientId>:c` through the normal send checks (AutoMod, mention rights,
+  embeds). It counts toward the rate limit ((messages + 1) × chats). The response is the
+  copies only, target-major; comments arrive as `message:new`.
+- Slowmode applies to forwards into Space channels: one forward is one send per channel
+  (retries pass; MANAGE_MESSAGES/MANAGE_CHANNELS bypass).
 
 ### Edit
 
@@ -615,6 +625,16 @@ Mentions are re-derived; `edited_at` set; `message:updated`.
 - Polls: option ids are stable; votes replace the user's previous votes (single-choice → at
   most one id; empty = retract) under a message row lock. `voteCount` per option;
   channels: `voterIds = []`. `Poll.myOptionIds` in REST responses.
+- Poll ends (`poll_ends_at`, from `durationHours`; null = never): votes after the end → 410
+  `expired`. End Poll Now (`POST /messages/:id/poll/end`: the sender, MANAGE_MESSAGES in a
+  Space channel, or a broadcast channel's admins) and the leader job `poll-close` (every
+  30 s, `FOR UPDATE SKIP LOCKED` batches) share one close: `poll_closed_at`, the poll's
+  `message:updated`, then one `poll_result` system message (winners = most votes; ties give
+  several). Deleted polls close silently.
+- Super reactions (`message_reactions.burst`, `?burst=true`): one of each kind per user and
+  emoji; distinct emoji of either kind count toward MAX_UNIQUE_REACTIONS; `count` is the
+  total, `burstCount`/`burstUserIds` the super part; `USER_RATE_LIMITS.superReaction` counts
+  only stored adds.
 - `Message.myReaction` and `Poll.myOptionIds` are present in viewer-specific REST responses
   (history, reaction/vote responses); broadcasts omit them and clients keep cached values
   (models.ts header). Stars: private, no events.

@@ -7,8 +7,9 @@
  *
  * Animated emoji show their still until hovered — the emoji itself or the closest
  * `[data-animate-avatars]` ancestor (message rows) — unless the device pref
- * `autoplayAnimatedMedia` is 'always' (they play) or 'never'. Reduced motion and a hidden or
- * unfocused app always show the still (the rules of animated avatars, components/ui/Avatar).
+ * `autoplayAnimatedMedia` is 'always' (they play) or 'never'. "Play animated emoji" off
+ * (`animateEmoji`, Settings ▸ Accessibility), reduced motion and a hidden or unfocused app
+ * always show the still (the rules of animated avatars, components/ui/Avatar).
  */
 import { memo, useEffect, useRef, useState, type RefObject } from 'react';
 import { parseCustomEmoji, type ID } from '@enbox/shared';
@@ -38,7 +39,7 @@ export const CustomEmoji = memo(function CustomEmoji(props: CustomEmojiProps) {
 });
 
 function AnimatedEmoji(props: CustomEmojiProps) {
-  const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
+  const autoplay = useUi((s) => (s.prefs.animateEmoji ? s.prefs.autoplayAnimatedMedia : 'never'));
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
   const canAnimate = autoplay !== 'never' && !reduceMotion && appVisible;

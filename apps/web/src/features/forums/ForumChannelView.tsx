@@ -2,9 +2,10 @@
  * A forum channel (Discord's forum view): the header, the post guidelines (collapsible
  * markdown), a top bar — "Search or create a post...", New Post, the sort and layout
  * choices — the tag filter row, the inline New Post form, then the posts as a list or a
- * gallery, newest activity (or newest) first, open posts before archived ones, loaded page by
- * page. A post opens in the thread panel beside the forum (on phones over it), so the forum
- * stays behind it; `?thread=<postId>` on the forum's URL opens one.
+ * gallery, the pinned post first, then newest activity (or newest) first, open posts before
+ * closed ones, loaded page by page. A media channel shows its posts as a grid of pictures and
+ * videos (no layout choice). A post opens in the thread panel beside the forum (on phones over
+ * it), so the forum stays behind it; `?thread=<postId>` on the forum's URL opens one.
  */
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -14,6 +15,7 @@ import {
   Bell,
   BookOpen,
   ChevronDown,
+  Images,
   LayoutGrid,
   List,
   MessagesSquare,
@@ -45,6 +47,7 @@ import {
   type ForumView,
 } from '@/stores/forums';
 import { useSidePanel } from '@/stores/sidePanel';
+import { isMediaForum } from './media';
 import { NewPostComposer } from './NewPostComposer';
 import { PostCard } from './PostCard';
 import { TagToggle } from './tags';
@@ -68,7 +71,11 @@ function ForumHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
       {desktop ? null : (
         <IconButton icon={ArrowLeft} label="Back" variant="ghost" onClick={() => navigate(`/spaces/${space.id}`)} />
       )}
-      <MessagesSquare size={22} className="shrink-0 text-muted" aria-hidden />
+      {isMediaForum(chat) ? (
+        <Images size={22} className="shrink-0 text-muted" aria-hidden />
+      ) : (
+        <MessagesSquare size={22} className="shrink-0 text-muted" aria-hidden />
+      )}
       <h1 className="min-w-0 flex-1 truncate text-[16px] font-bold text-fg">{chat.name}</h1>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <IconButton icon={Bell} label="Notification settings" variant="ghost" onClick={() => setDialog('notifications')} />
@@ -207,10 +214,15 @@ function PostGrid({
   openId: ID | null;
   forumId: ID;
 }) {
+  const media = !!info.settings.media;
   return (
     <ul
       className={cn(
-        view.layout === 'gallery' ? 'grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3' : 'flex flex-col gap-2',
+        media
+          ? 'grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2'
+          : view.layout === 'gallery'
+            ? 'grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3'
+            : 'flex flex-col gap-2',
       )}
       aria-label="Posts"
     >
@@ -221,6 +233,7 @@ function PostGrid({
             forum={info}
             sort={view.sort}
             layout={view.layout}
+            media={media}
             active={p.id === openId}
             onOpen={() => openThread(p.id, forumId)}
           />
@@ -303,6 +316,8 @@ export function ForumChannelView({ chat, space }: { chat: ChatSummary; space: Sp
   const filtered = !!tag || !!search;
   const nothing = open.length === 0 && archived.length === 0;
   const guidelines = info.settings.guidelines?.trim();
+  const media = !!info.settings.media;
+  const EmptyIcon = media ? Images : MessagesSquare;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="forum-view" data-forum-id={chat.id}>
@@ -330,13 +345,15 @@ export function ForumChannelView({ chat, space }: { chat: ChatSummary; space: Sp
               </Button>
             ) : null}
             <ChoiceChip label="Sort" icon={ArrowDownWideNarrow} value={sort} options={SORT_LABELS} onChange={(v) => setView({ sort: v })} />
-            <ChoiceChip
-              label="Layout"
-              icon={view.layout === 'gallery' ? LayoutGrid : List}
-              value={view.layout}
-              options={LAYOUT_LABELS}
-              onChange={(v) => setView({ layout: v })}
-            />
+            {media ? null : (
+              <ChoiceChip
+                label="Layout"
+                icon={view.layout === 'gallery' ? LayoutGrid : List}
+                value={view.layout}
+                options={LAYOUT_LABELS}
+                onChange={(v) => setView({ layout: v })}
+              />
+            )}
           </div>
           {info.tags.length ? (
             <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 scrollbar-none" role="group" aria-label="Filter by tag">
@@ -353,7 +370,7 @@ export function ForumChannelView({ chat, space }: { chat: ChatSummary; space: Sp
             !settled ? (
               list?.open.error ? (
                 <EmptyState
-                  icon={MessagesSquare}
+                  icon={EmptyIcon}
                   title="Couldn’t load the posts"
                   description={list.open.error}
                   action={
@@ -373,7 +390,7 @@ export function ForumChannelView({ chat, space }: { chat: ChatSummary; space: Sp
               )
             ) : filtered ? (
               <EmptyState
-                icon={MessagesSquare}
+                icon={EmptyIcon}
                 title="No posts match"
                 description={search ? `Nothing found for “${search}”.` : 'No post wears this tag yet.'}
                 action={
@@ -384,9 +401,13 @@ export function ForumChannelView({ chat, space }: { chat: ChatSummary; space: Sp
               />
             ) : (
               <EmptyState
-                icon={MessagesSquare}
-                title="There are no posts yet"
-                description="Start the first conversation here: each post gets its own replies."
+                icon={EmptyIcon}
+                title={media ? 'No photos or videos yet' : 'There are no posts yet'}
+                description={
+                  media
+                    ? 'Share the first photo or video here: each post gets its own replies.'
+                    : 'Start the first conversation here: each post gets its own replies.'
+                }
                 action={
                   canPost && !composer ? (
                     <Button size="sm" leftIcon={Plus} onClick={startPost}>

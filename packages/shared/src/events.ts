@@ -134,6 +134,7 @@ export type SpaceInfoChanges = Partial<
     | 'isDiscoverable'
     | 'roles'
     | 'categories'
+    | 'tag'
   >
 >;
 

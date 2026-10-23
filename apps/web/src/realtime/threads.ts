@@ -6,12 +6,15 @@
  *   place in the Threads popout and the starter message's card; my read state stays and my
  *   permissions are recomputed (stores/threads.ts).
  * - `thread:deleted`: the thread, its messages and the card go; the panel on it closes.
+ * - `thread:follow` (my devices): I followed or unfollowed a post or thread (its summary and
+ *   the Space's followed list; the sidebar follows).
  * - A channel's overwrites changed (`chat:updated { space }`): its threads take them (they
  *   are the parent's) and my bits in them are recomputed. Registered after the chats and
  *   Spaces handlers, so it runs once the channel itself is updated.
  * - A channel was deleted (`chat:removed`): its threads go with it.
  * Resync on every `ready`: the thread open in the panel and its latest page (other windows
- * were discarded by the chats resync); the popout lists reload when opened.
+ * were discarded by the chats resync) and the followed lists loaded; the popout lists reload
+ * when opened.
  */
 import type { ID } from '@enbox/shared';
 import type { AppSocket, ReadyInfo } from '@/lib/socket';
@@ -48,6 +51,7 @@ export function dropThreadsOf(parentId: ID): void {
 export function registerThreadHandlers(socket: AppSocket): void {
   socket.on('thread:upsert', ({ thread }) => useThreads.getState().upsertThread(thread, { neutral: true }));
   socket.on('thread:deleted', ({ threadId, parentId }) => useThreads.getState().removeThread(threadId, parentId));
+  socket.on('thread:follow', (e) => useThreads.getState().applyFollow(e));
   socket.on('chat:updated', ({ chatId, changes }) => {
     if (changes.space) syncThreadsOfChannel(chatId);
   });
@@ -56,11 +60,15 @@ export function registerThreadHandlers(socket: AppSocket): void {
 
 export async function resyncThreads(_info: ReadyInfo): Promise<void> {
   useThreads.setState({ lists: {} });
+  // What I follow may have changed meanwhile: the loaded lists reload in place.
+  const jobs: Promise<unknown>[] = Object.keys(useThreads.getState().followed).map((spaceId) =>
+    useThreads.getState().loadFollowed(spaceId, { force: true }),
+  );
   const panel = useSidePanel.getState().panel;
-  if (panel?.kind !== 'thread' || panel.threadId === NEW_THREAD_ID) return;
-  const id = panel.threadId;
-  await Promise.allSettled([
-    useChats.getState().refreshChat(id),
-    useMessages.getState().loadLatest(id, { fresh: true }),
-  ]);
+  if (panel?.kind === 'thread' && panel.threadId !== NEW_THREAD_ID)
+    jobs.push(
+      useChats.getState().refreshChat(panel.threadId),
+      useMessages.getState().loadLatest(panel.threadId, { fresh: true }),
+    );
+  await Promise.allSettled(jobs);
 }

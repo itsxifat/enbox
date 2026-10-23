@@ -171,8 +171,9 @@ describe('StickerPicker', () => {
     expect(pick).toHaveBeenCalledWith(WAVE);
   });
 
-  it('a click sends a sticker; arrows move between stickers; animated ones play on hover', async () => {
+  it('a click sends a sticker; arrows move between stickers; animated ones play on hover ("On hover")', async () => {
     useStickers.setState({ groups: GROUPS });
+    useUi.getState().setPref('stickerAnimation', 'interaction');
     const pick = vi.fn();
     render(<StickerPicker chat={dm} onPick={pick} />);
     const party = screen.getByRole('button', { name: 'Party' });

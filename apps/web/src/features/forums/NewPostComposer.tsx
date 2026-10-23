@@ -1,20 +1,20 @@
 /**
  * The New Post form, inline at the top of the forum (Discord): the title, the post's message,
- * one image (the usual upload path) and the forum's tags (a dropdown of chips; required when
- * the forum says so, moderated ones for moderators only). "Post" creates the thread and its
- * first message in one request and opens the post beside the forum.
+ * its files (up to MAX_ATTACHMENTS: the picker, a drop on the form or a paste; pictures and
+ * videos get alt text and lead the post) and the forum's tags (a dropdown of chips; required
+ * when the forum says so, moderated ones for moderators only). A media channel takes pictures
+ * and videos only, and every post needs one. "Post" uploads the files, then creates the thread
+ * and its first message in one request and opens the post beside the forum.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { ImagePlus, X } from 'lucide-react';
-import {
-  PERM,
-  hasPerm,
-  type ChatSummary,
-  type ForumInfo,
-} from '@enbox/shared';
+import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { FileText, ImagePlus, Paperclip, Play, X } from 'lucide-react';
+import { MAX_ALT_TEXT_LENGTH, PERM, hasPerm, type ChatSummary, type ForumInfo } from '@enbox/shared';
 import { Button, IconButton, Input, Textarea, toast } from '@/components/ui';
+import { MAX_ATTACHMENTS, NO_UPLOAD_PERMISSION, TOO_MANY_ATTACHMENTS, dragHasFiles } from '@/features/conversation/dropzone/files';
+import { isVisualMedia } from '@/features/conversation/lib/mediaProcessing';
 import { openThread } from '@/features/threads/actions';
 import { newClientId } from '@/lib/ids';
+import { cn } from '@/lib/cn';
 import { createObjectUrl, revokeObjectUrl } from '@/lib/media';
 import { useForums } from '@/stores/forums';
 import { MAX_POST_TAGS, postTags } from './format';
@@ -33,6 +33,17 @@ export interface NewPostComposerProps {
   onClose: () => void;
 }
 
+/** A file of the post being written: its preview (pictures and videos) and alt text. */
+interface PostFile {
+  id: string;
+  file: File;
+  visual: boolean;
+  url: string | null;
+  description: string;
+}
+
+let nextFileId = 0;
+
 function previewUrl(file: File): string | null {
   try {
     return createObjectUrl(file);
@@ -41,31 +52,117 @@ function previewUrl(file: File): string | null {
   }
 }
 
+function FileTile({
+  item,
+  onRemove,
+  onDescribe,
+}: {
+  item: PostFile;
+  onRemove: () => void;
+  onDescribe: (description: string) => void;
+}) {
+  const video = item.file.type.startsWith('video/');
+  return (
+    <li className="flex w-36 shrink-0 flex-col gap-1.5" data-testid="forum-post-file-tile">
+      <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-surface">
+        {item.visual && item.url && !video ? (
+          <img src={item.url} alt={item.description || item.file.name} className="size-full object-cover" />
+        ) : item.visual && item.url ? (
+          <video src={item.url} muted playsInline preload="metadata" className="size-full object-cover" aria-label={item.file.name} />
+        ) : (
+          <div className="flex size-full flex-col items-center justify-center gap-1 p-2 text-muted">
+            <FileText size={26} aria-hidden />
+            <span className="w-full truncate text-center text-[12px]">{item.file.name}</span>
+          </div>
+        )}
+        {video ? (
+          <span className="pointer-events-none absolute bottom-1.5 left-1.5 flex size-6 items-center justify-center rounded-full bg-black/55 text-white">
+            <Play size={12} aria-hidden />
+          </span>
+        ) : null}
+        <IconButton
+          icon={X}
+          label={`Remove ${item.file.name}`}
+          size="sm"
+          variant="glass"
+          className="absolute top-1 right-1"
+          onClick={onRemove}
+        />
+      </div>
+      {item.visual ? (
+        <input
+          aria-label={`Alt text for ${item.file.name}`}
+          value={item.description}
+          maxLength={MAX_ALT_TEXT_LENGTH}
+          placeholder="Alt text"
+          onChange={(e) => onDescribe(e.target.value)}
+          className="h-8 w-full rounded-lg bg-surface-2 px-2 text-[13px] text-fg outline-none placeholder:text-subtle focus-visible:outline-2 focus-visible:outline-brand"
+        />
+      ) : null}
+    </li>
+  );
+}
+
 export function NewPostComposer({ forum, info, initialTitle = '', onClose }: NewPostComposerProps) {
   const [title, setTitle] = useState(initialTitle);
   const [text, setText] = useState('');
   const [tags, setTags] = useState<string[]>([]);
-  const [image, setImage] = useState<File | null>(null);
+  const [files, setFiles] = useState<PostFile[]>([]);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // One id per post being written: a retry after a lost reply cannot post it twice.
   const clientId = useRef(newClientId());
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const urls = useRef(new Set<string>());
   const bits = forum.spacePermissions ?? 0;
   const moderator = hasPerm(bits, PERM.MANAGE_MESSAGES);
   const canAttach = hasPerm(bits, PERM.ATTACH_FILES);
+  const media = !!info.settings.media;
   const required = info.settings.requireTag && info.tags.length > 0;
   const picked = postTags(info, tags);
-  const url = useMemo(() => (image ? previewUrl(image) : null), [image]);
-  useEffect(() => () => revokeObjectUrl(url), [url]);
+  const hasVisual = files.some((f) => f.visual);
+  // The previews go with the form.
+  useEffect(() => {
+    const live = urls.current;
+    return () => live.forEach((u) => revokeObjectUrl(u));
+  }, []);
 
-  const ready = title.trim().length > 0 && (text.trim().length > 0 || !!image);
+  const ready = title.trim().length > 0 && (media ? hasVisual : text.trim().length > 0 || files.length > 0);
+
+  const addFiles = (list: File[]) => {
+    if (!list.length || busy) return;
+    if (!canAttach) return void toast.error(NO_UPLOAD_PERMISSION);
+    const accepted = media ? list.filter(isVisualMedia) : list;
+    if (accepted.length < list.length) toast.error('Only pictures and videos can be posted here');
+    if (!accepted.length) return;
+    if (files.length + accepted.length > MAX_ATTACHMENTS) toast.error(TOO_MANY_ATTACHMENTS);
+    const room = accepted.slice(0, Math.max(0, MAX_ATTACHMENTS - files.length));
+    const added = room.map((file): PostFile => {
+      const visual = isVisualMedia(file);
+      const url = visual ? previewUrl(file) : null;
+      if (url) urls.current.add(url);
+      return { id: `post-file-${++nextFileId}`, file, visual, url, description: '' };
+    });
+    setFiles((cur) => [...cur, ...added]);
+    setError(null);
+  };
+
+  const removeFile = (id: string) => {
+    const gone = files.find((f) => f.id === id);
+    if (gone?.url) {
+      revokeObjectUrl(gone.url);
+      urls.current.delete(gone.url);
+    }
+    setFiles((cur) => cur.filter((f) => f.id !== id));
+  };
 
   const submit = async () => {
     if (busy) return;
     if (!title.trim()) return setError('Give your post a title.');
-    if (!text.trim() && !image) return setError('Write a message or add an image.');
+    if (media && !hasVisual) return setError('Add a picture or a video: every post here shows one.');
+    if (!text.trim() && !files.length) return setError('Write a message or add a file.');
     if (required && picked.length === 0) return setError('This forum requires at least one tag.');
     setError(null);
     setBusy(true);
@@ -74,7 +171,7 @@ export function NewPostComposer({ forum, info, initialTitle = '', onClose }: New
         name: title,
         text,
         appliedTags: picked.map((t) => t.id),
-        image,
+        files: files.map((f) => ({ file: f.file, description: f.description })),
         clientId: clientId.current,
       });
       onClose();
@@ -83,6 +180,25 @@ export function NewPostComposer({ forum, info, initialTitle = '', onClose }: New
       toast.error(e);
       setBusy(false);
     }
+  };
+
+  const onPaste = (e: ClipboardEvent<HTMLElement>) => {
+    const pasted = Array.from(e.clipboardData.files);
+    if (!pasted.length) return;
+    e.preventDefault();
+    addFiles(pasted);
+  };
+  // A drop on the form is ours (refused with a toast without ATTACH_FILES), never the browser's.
+  const onDragOver = (e: DragEvent<HTMLFormElement>) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    if (canAttach) setDragging(true);
+  };
+  const onDrop = (e: DragEvent<HTMLFormElement>) => {
+    setDragging(false);
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    addFiles(Array.from(e.dataTransfer.files));
   };
 
   const onTitleKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -103,11 +219,16 @@ export function NewPostComposer({ forum, info, initialTitle = '', onClose }: New
   return (
     <form
       aria-label="New Post"
-      className="card-inset flex flex-col gap-3 p-4"
+      className={cn('card-inset flex flex-col gap-3 p-4 transition-shadow', dragging && 'ring-2 ring-brand')}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
+      onDragOver={onDragOver}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={onDrop}
       data-testid="forum-new-post"
     >
       <Input
@@ -118,6 +239,7 @@ export function NewPostComposer({ forum, info, initialTitle = '', onClose }: New
         autoFocus
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={onTitleKey}
+        onPaste={onPaste}
         data-testid="forum-post-title"
       />
       <Textarea
@@ -128,27 +250,25 @@ export function NewPostComposer({ forum, info, initialTitle = '', onClose }: New
         rows={3}
         autoResize
         maxRows={12}
-        placeholder="Enter a message"
+        placeholder={media ? 'Add a caption (optional)' : 'Enter a message'}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onTextKey}
+        onPaste={onPaste}
         data-testid="forum-post-text"
       />
-      {image ? (
-        <div className="relative w-fit">
-          {url ? (
-            <img src={url} alt={image.name} className="max-h-40 max-w-64 rounded-lg object-cover" />
-          ) : (
-            <span className="block rounded-lg bg-surface px-3 py-2 text-[13px] text-muted">{image.name}</span>
-          )}
-          <IconButton
-            icon={X}
-            label="Remove image"
-            size="sm"
-            variant="ghost"
-            className="absolute -top-2 -right-2 bg-elevated shadow-elevated"
-            onClick={() => setImage(null)}
-          />
-        </div>
+      {files.length ? (
+        <ul className="flex gap-2 overflow-x-auto pb-1" aria-label="Files">
+          {files.map((f) => (
+            <FileTile
+              key={f.id}
+              item={f}
+              onRemove={() => removeFile(f.id)}
+              onDescribe={(description) =>
+                setFiles((cur) => cur.map((x) => (x.id === f.id ? { ...x, description } : x)))
+              }
+            />
+          ))}
+        </ul>
       ) : null}
       {picked.length ? (
         <div className="flex flex-wrap gap-1" aria-label="Selected tags">
@@ -165,18 +285,24 @@ export function NewPostComposer({ forum, info, initialTitle = '', onClose }: New
       <div className="flex flex-wrap items-center gap-2">
         {canAttach ? (
           <>
-            <IconButton icon={ImagePlus} label="Add an image" variant="ghost" onClick={() => fileRef.current?.click()} />
+            <IconButton
+              icon={media ? ImagePlus : Paperclip}
+              label={media ? 'Add pictures or videos' : 'Add files'}
+              variant="ghost"
+              disabled={files.length >= MAX_ATTACHMENTS}
+              onClick={() => fileRef.current?.click()}
+            />
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              multiple
+              accept={media ? 'image/*,video/*' : undefined}
               hidden
-              aria-label="Image file"
+              aria-label={media ? 'Pictures or videos' : 'Files'}
               onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
+                const list = Array.from(e.target.files ?? []);
                 e.target.value = '';
-                if (f && !f.type.startsWith('image/')) return void toast.error('Choose an image');
-                setImage(f);
+                addFiles(list);
               }}
               data-testid="forum-post-file"
             />

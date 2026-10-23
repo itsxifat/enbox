@@ -110,9 +110,15 @@ describe('StickerBody', () => {
     expect(screen.queryByRole('button', { name: 'Open photo' })).toBeNull();
   });
 
-  it('animated: its poster until the row is hovered on "hover"; "always" plays, "never" and reduced motion never do', () => {
-    const { unmount } = inRow(message());
+  it('animated: "Sticker animations" plays always (the default), on row hover with its poster meanwhile, or never; reduced motion never', () => {
     const img = () => screen.getByRole('img', { name: 'Wave' });
+    const first = inRow(message());
+    expect(img().getAttribute('src')).toMatch(/wave\.gif$/);
+    expect(img()).toHaveAttribute('data-animated', 'playing');
+    first.unmount();
+
+    useUi.getState().setPref('stickerAnimation', 'interaction');
+    const { unmount } = inRow(message());
     expect(img().getAttribute('src')).toMatch(/wave-poster\.webp$/);
     expect(img()).toHaveAttribute('data-animated', 'still');
     fireEvent.pointerEnter(screen.getByTestId('row'));
@@ -122,7 +128,9 @@ describe('StickerBody', () => {
     expect(img().getAttribute('src')).toMatch(/wave-poster\.webp$/);
     unmount();
 
-    useUi.getState().setPref('autoplayAnimatedMedia', 'always');
+    // "Play GIFs and animated avatars" does not decide for stickers.
+    useUi.getState().setPref('stickerAnimation', 'always');
+    useUi.getState().setPref('autoplayAnimatedMedia', 'never');
     const second = inRow(message());
     expect(img()).toHaveAttribute('data-animated', 'playing');
     second.unmount();
@@ -133,7 +141,7 @@ describe('StickerBody', () => {
     third.unmount();
 
     useUi.getState().setPref('reduceMotion', 'off');
-    useUi.getState().setPref('autoplayAnimatedMedia', 'never');
+    useUi.getState().setPref('stickerAnimation', 'never');
     inRow(message());
     fireEvent.pointerEnter(screen.getByTestId('row'));
     expect(img()).toHaveAttribute('data-animated', 'still');

@@ -27,6 +27,7 @@ import {
   defaultThreadName,
   mergeNeutralThread,
   threadPermissions,
+  threadRights,
   threadView,
   useSidebarThreads,
   useThreads,
@@ -109,8 +110,9 @@ afterEach(() => {
   useChats.setState({ byId: {} });
   useMessages.setState({ byChat: {} });
   useSpaces.setState({ byId: {}, order: [], channelsLoaded: {} });
-  useThreads.setState({ lists: {}, draft: null, recent: [], starters: {} });
+  useThreads.setState({ lists: {}, draft: null, recent: [], starters: {}, followed: {} });
   useSidePanel.setState({ panel: null });
+  vi.restoreAllMocks();
 });
 
 describe('thread permissions', () => {
@@ -196,6 +198,63 @@ describe('thread:upsert', () => {
     registerThreadHandlers(socket);
     fire('chat:removed', { chatId: 'general' });
     expect(useChats.getState().byId.t1).toBeUndefined();
+  });
+});
+
+describe('following', () => {
+  it('a neutral upsert keeps whether I follow it (it carries no such thing)', () => {
+    const cached = thread({}, { following: true, pinned: false });
+    const incoming = thread({ name: 'Renamed' }, { pinned: true });
+    expect(mergeNeutralThread(cached, incoming).thread).toMatchObject({ following: true, pinned: true });
+    expect(mergeNeutralThread(undefined, incoming).thread?.following).toBeUndefined();
+  });
+
+  it('loads a Space’s followed list once; thread:follow keeps it and the summaries in step', async () => {
+    const followed = thread({ id: 'f1' }, { following: true, ownerId: 'x' });
+    const get = vi.spyOn(api, 'get').mockImplementation(async (path) =>
+      path === '/api/spaces/s1/followed-threads' ? { threads: [followed] } : thread({ id: 'late' }, { following: true }),
+    );
+    await Promise.all([useThreads.getState().loadFollowed('s1'), useThreads.getState().loadFollowed('s1')]);
+    await useThreads.getState().loadFollowed('s1');
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(useThreads.getState().followed.s1).toEqual(['f1']);
+    expect(useChats.getState().byId.f1?.thread?.following).toBe(true);
+
+    useChats.getState().upsertChat(thread());
+    const { socket, fire } = fakeSocket();
+    registerThreadHandlers(socket);
+    fire('thread:follow', { threadId: 't1', parentId: 'general', spaceId: 's1', following: true });
+    expect(useThreads.getState().followed.s1).toEqual(['t1', 'f1']);
+    expect(useChats.getState().byId.t1?.thread?.following).toBe(true);
+    fire('thread:follow', { threadId: 'f1', parentId: 'general', spaceId: 's1', following: false });
+    expect(useThreads.getState().followed.s1).toEqual(['t1']);
+    expect(useChats.getState().byId.f1?.thread?.following).toBe(false);
+    // Followed elsewhere, not loaded here: fetched.
+    fire('thread:follow', { threadId: 'late', parentId: 'general', spaceId: 's1', following: true });
+    await vi.waitFor(() => expect(useChats.getState().byId.late?.thread?.following).toBe(true));
+    expect(get).toHaveBeenCalledWith('/api/chats/late');
+  });
+
+  it('my REST summaries say whether I follow (a thread I just started: yes)', () => {
+    useThreads.setState({ followed: { s1: [] } });
+    useThreads.getState().upsertThread(thread({}, { following: true }));
+    expect(useThreads.getState().followed.s1).toEqual(['t1']);
+    useThreads.getState().upsertThread(thread({}, { following: false }));
+    expect(useThreads.getState().followed.s1).toEqual([]);
+  });
+
+  it('post rights: moderators pin; the author deletes their own post while it is unlocked', () => {
+    const mine = thread({}, { ownerId: 'me' });
+    expect(threadRights(mine, 'me', { post: true })).toMatchObject({ canEdit: true, canPin: false, canDelete: true });
+    expect(threadRights(mine, 'me')).toMatchObject({ canDelete: false });
+    expect(threadRights(thread({}, { ownerId: 'me', locked: true }), 'me', { post: true })).toMatchObject({
+      canEdit: false,
+      canDelete: false,
+    });
+    expect(threadRights(thread({}, { ownerId: 'x' }), 'me', { post: true })).toMatchObject({ canEdit: false, canDelete: false });
+    const mod = thread({ spacePermissions: MEMBER | PERM.MANAGE_MESSAGES }, { ownerId: 'x' });
+    expect(threadRights(mod, 'me', { post: true })).toMatchObject({ canPin: true, canLock: true, canDelete: true });
+    expect(threadRights(mod, 'me')).toMatchObject({ canPin: false });
   });
 });
 

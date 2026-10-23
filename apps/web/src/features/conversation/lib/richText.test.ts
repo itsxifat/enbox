@@ -5,6 +5,7 @@ import {
   formatTimestamp,
   inlineToPlain,
   linkify,
+  parseAnsi,
   parseMarkdown,
   parseRichText,
   plainCustomEmoji,
@@ -177,6 +178,48 @@ describe('custom emoji tokens', () => {
   it('plainCustomEmoji turns tokens into :name:', () => {
     expect(plainCustomEmoji(`hi ${blob} ${party}`)).toBe('hi :blob: :party_2:');
     expect(plainCustomEmoji('no tokens')).toBe('no tokens');
+  });
+});
+
+describe('parseAnsi (```ansi blocks)', () => {
+  const E = '\u001b';
+
+  it('reads bold, underline, text and background colours, and resets', () => {
+    expect(parseAnsi(`plain ${E}[1;31mbold red${E}[0m ${E}[4;44mlined${E}[0m`)).toEqual([
+      { text: 'plain ' },
+      { text: 'bold red', bold: true, fg: 1 },
+      { text: ' ' },
+      { text: 'lined', underline: true, bg: 4 },
+    ]);
+  });
+
+  it('keeps the style until it changes; codes add up across sequences', () => {
+    expect(parseAnsi(`${E}[32mgreen${E}[1m bold too${E}[47m on white${E}[m back`)).toEqual([
+      { text: 'green', fg: 2 },
+      { text: ' bold too', fg: 2, bold: true },
+      { text: ' on white', fg: 2, bold: true, bg: 7 },
+      { text: ' back' },
+    ]);
+    expect(parseAnsi(`${E}[30ma${E}[37mb`)).toEqual([
+      { text: 'a', fg: 0 },
+      { text: 'b', fg: 7 },
+    ]);
+  });
+
+  it('drops unknown codes and other sequences, never showing them', () => {
+    expect(parseAnsi(`${E}[3;9;91mx${E}[2J${E}[?25l y ${E}z`)).toEqual([{ text: 'x y z' }]);
+    expect(parseAnsi(`${E}[38;5;196mstill plain`)).toEqual([{ text: 'still plain' }]);
+  });
+
+  it('leaves the text as it is: markup stays text', () => {
+    const spans = parseAnsi(`${E}[31m<img src=x onerror=alert(1)>`);
+    expect(spans).toEqual([{ text: '<img src=x onerror=alert(1)>', fg: 1 }]);
+  });
+
+  it('is the language of a code block', () => {
+    expect(parseMarkdown('```ansi\n\u001b[31mred\n```')).toEqual([
+      { b: 'code', lang: 'ansi', code: '\u001b[31mred' },
+    ]);
   });
 });
 

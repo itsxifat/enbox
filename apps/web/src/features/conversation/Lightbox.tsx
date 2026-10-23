@@ -43,6 +43,7 @@ import { useChat } from '@/stores/chats';
 import { useMessages, type ClientMessage } from '@/stores/messages';
 import { useUserName } from '@/stores/users';
 import { mentionName } from '@/features/chats/preview';
+import { useHideDownloads } from '@/features/forums/media';
 import { canForward } from './actions';
 import { visualFiles } from './bubbles/attachments';
 import { useConversationUi } from './state';
@@ -96,6 +97,8 @@ function LightboxInner({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chat = useChat(chatId);
+  // Media channels may hide downloads (forums/media.ts).
+  const hideDownloads = useHideDownloads(chatId);
   const loaded = useMessages((s) => s.byChat[chatId]?.items);
   // Opened on a message with several photos and videos: browse those (else the chat's).
   const [scoped] = useState(() => {
@@ -299,15 +302,17 @@ function LightboxInner({
               >
                 <ExternalLink size={20} aria-hidden />
               </a>
-              <a
-                href={src}
-                download={item.media.fileName ?? true}
-                className="flex size-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur hover:bg-black/50"
-                aria-label="Download"
-                title="Download"
-              >
-                <ArrowDownToLine size={22} aria-hidden />
-              </a>
+              {hideDownloads ? null : (
+                <a
+                  href={src}
+                  download={item.media.fileName ?? true}
+                  className="flex size-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur hover:bg-black/50"
+                  aria-label="Download"
+                  title="Download"
+                >
+                  <ArrowDownToLine size={22} aria-hidden />
+                </a>
+              )}
             </>
           ) : (
             <div className="flex-1" />

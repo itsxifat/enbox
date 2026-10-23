@@ -1,0 +1,53 @@
+/*
+ * Super reaction chips (SuperReactionChip.tsx): a gradient border and a soft glow in the
+ * emoji's two colours (`--sr-a`, `--sr-b`, set inline), a tinted fill when it is mine, a
+ * sparkle on the emoji, and the emoji's pop while its burst plays (`data-bursting`). In the
+ * components layer, so utilities still win. The sparkle twinkles on hover only where the chip
+ * may animate (`data-animate`: not under reduced motion, nor with the animations pref off).
+ */
+@layer components {
+  .super-chip {
+    --sr-fill: var(--surface-2);
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--sr-fill), var(--sr-fill)) padding-box,
+      linear-gradient(135deg, var(--sr-a), var(--sr-b)) border-box;
+    box-shadow: 0 0 6px -1px color-mix(in srgb, var(--sr-a) 50%, transparent);
+    transition: box-shadow 160ms ease-out;
+  }
+  .super-chip[aria-pressed='true'] {
+    --sr-fill: color-mix(in srgb, var(--sr-a) 20%, var(--surface-2));
+    box-shadow: 0 0 9px 0 color-mix(in srgb, var(--sr-a) 60%, transparent);
+  }
+  .super-chip:hover {
+    box-shadow: 0 0 11px 1px color-mix(in srgb, var(--sr-a) 55%, transparent);
+  }
+
+  .super-chip-sparkle {
+    position: absolute;
+    top: -4px;
+    right: -5px;
+    color: var(--sr-b);
+    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--sr-a) 70%, transparent));
+  }
+  .super-chip[data-animate]:hover .super-chip-sparkle {
+    animation: super-twinkle 900ms ease-in-out infinite;
+  }
+
+  .super-chip-emoji[data-bursting] {
+    animation: super-pop 520ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  }
+}
+
+@keyframes super-twinkle {
+  50% {
+    transform: scale(0.7) rotate(18deg);
+    opacity: 0.7;
+  }
+}
+
+@keyframes super-pop {
+  35% {
+    transform: scale(1.45);
+  }
+}

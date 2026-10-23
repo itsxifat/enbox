@@ -1,11 +1,21 @@
-/** Forward messages to up to MAX_FORWARD_TARGETS chats (search, multi-select). */
+/**
+ * Forward messages to up to MAX_FORWARD_TARGETS chats (search, multi-select), with an
+ * optional message sent after them in each chat (`comment`; Enter in it forwards).
+ */
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Check } from 'lucide-react';
-import { MAX_FORWARD_TARGETS, chatTitle, type ChatSummary, type Message } from '@enbox/shared';
+import {
+  FORWARD_COMMENT_MAX_LENGTH,
+  MAX_FORWARD_TARGETS,
+  chatTitle,
+  type ChatSummary,
+  type ForwardRequest,
+  type Message,
+} from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { ICON_STROKE_BOLD, SendIcon } from '@/components/icons';
-import { EmptyState, IconButton, ListItem, Modal, SearchInput } from '@/components/ui';
+import { EmptyState, IconButton, Input, ListItem, Modal, SearchInput } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
@@ -40,6 +50,7 @@ function ForwardDialogInner({
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [comment, setComment] = useState('');
   const [sending, setSending] = useState(false);
   const all = useSortedChats({ kind: 'all', query });
   const archived = useSortedChats({ kind: 'chats', archived: true, query });
@@ -66,14 +77,18 @@ function ForwardDialogInner({
     });
 
   const send = async () => {
-    if (!selected.length) return;
+    if (!selected.length || sending) return;
     setSending(true);
     try {
-      const copies = await api.post<Message[]>('/api/messages/forward', {
+      const note = comment.trim();
+      const body: ForwardRequest = {
         clientId: newClientId().slice(0, 36),
         messageIds,
         chatIds: selected,
-      });
+        ...(note ? { comment: note } : {}),
+      };
+      // The copies come back; the message after them arrives like any other.
+      const copies = await api.post<Message[]>('/api/messages/forward', body);
       for (const c of copies) useMessages.getState().upsertMessage(c);
       toast.success(
         messageIds.length > 1 ? `${messageIds.length} messages forwarded` : 'Message forwarded',
@@ -127,7 +142,7 @@ function ForwardDialogInner({
         autoFocus
         aria-label="Search chats"
       />
-      <div className="-mx-6 mt-2 max-h-[52dvh] min-h-40 overflow-y-auto scrollbar-thin">
+      <div className="-mx-6 mt-2 max-h-[46dvh] min-h-40 overflow-y-auto scrollbar-thin">
         {chats.length ? (
           chats.map((c) => {
             const on = selected.includes(c.id);
@@ -165,6 +180,20 @@ function ForwardDialogInner({
           <EmptyState compact title="No chats found" description="Try another name." />
         )}
       </div>
+      <Input
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || e.nativeEvent.isComposing || !selected.length) return;
+          e.preventDefault();
+          void send();
+        }}
+        placeholder="Add an optional message"
+        aria-label="Add an optional message"
+        maxLength={FORWARD_COMMENT_MAX_LENGTH}
+        variant="filled"
+        containerClassName="mt-3"
+      />
     </Modal>
   );
 }

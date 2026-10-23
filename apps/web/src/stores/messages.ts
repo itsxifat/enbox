@@ -356,12 +356,17 @@ function optimisticFromRequest(req: SendInput): Partial<ClientMessage> {
           options: req.poll.options.map((option, i) => ({
             id: `local-${i}`,
             text: option,
+            emoji: req.poll.emojis?.[i] ?? null,
             voteCount: 0,
             voterIds: [],
           })),
           allowMultiple: req.poll.allowMultiple ?? false,
           totalVoters: 0,
           myOptionIds: [],
+          endsAt: req.poll.durationHours
+            ? new Date(Date.now() + req.poll.durationHours * 3_600_000).toISOString()
+            : null,
+          closedAt: null,
         }
       : null;
   return {

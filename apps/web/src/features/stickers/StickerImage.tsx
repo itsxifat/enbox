@@ -4,16 +4,17 @@
  * shows a still — its poster when known (`stillUrl`: a message's media thumbnail), else its
  * first frame drawn into a canvas once it scrolls into view (`SpaceSticker` carries no poster).
  *
- * `useStickerPlayback` decides `playing` with the rules of animated emoji and avatars: the
- * device pref `autoplayAnimatedMedia` ('always' plays, 'never' doesn't, 'hover' plays while
- * hovered or focused), and reduced motion or a hidden or unfocused app always show the still.
+ * `useStickerPlayback` decides `playing` with the rules of animated emoji and avatars: a device
+ * pref — `stickerAnimation` for stickers (Settings ▸ Accessibility), `autoplayAnimatedMedia`
+ * for other animated pictures — plays always, never, or while hovered or focused; reduced
+ * motion or a hidden or unfocused app always show the still.
  */
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useAppVisible } from '@/hooks/useAppVisible';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { useUi } from '@/stores/ui';
+import { useUi, type AutoplayAnimatedMedia, type StickerAnimation } from '@/stores/ui';
 
 /**
  * What "hover" means for a sticker: 'row' the closest `[data-animate-avatars]` ancestor (a
@@ -22,12 +23,24 @@ import { useUi } from '@/stores/ui';
  */
 export type StickerPlayback = 'row' | 'self' | 'open';
 
+/** Which pref decides: 'sticker' (`stickerAnimation`) or 'media' (`autoplayAnimatedMedia`). */
+export type PlaybackPref = 'sticker' | 'media';
+
+const STICKER_AUTOPLAY: Record<StickerAnimation, AutoplayAnimatedMedia> = {
+  always: 'always',
+  interaction: 'hover',
+  never: 'never',
+};
+
 export function useStickerPlayback(
   ref: RefObject<HTMLElement | null>,
   animated: boolean,
   mode: StickerPlayback = 'self',
+  pref: PlaybackPref = 'media',
 ): boolean {
-  const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
+  const autoplay = useUi((s) =>
+    pref === 'sticker' ? STICKER_AUTOPLAY[s.prefs.stickerAnimation] : s.prefs.autoplayAnimatedMedia,
+  );
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible();
   const canAnimate = animated && autoplay !== 'never' && !reduceMotion && appVisible;

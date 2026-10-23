@@ -14,7 +14,7 @@
  * Presence: `buildPresence` is the single place deriving `Presence` (state/note rules and the
  * invisible invariants, docs "PresenceState rules").
  */
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   DELETED_ACCOUNT_NAME,
@@ -29,6 +29,7 @@ import {
   type UserPublic,
   type UserSelf,
   type UserSettings,
+  type UserSpaceTag,
 } from '@enbox/shared';
 import type { DbOrTx, Tx } from '../db/index.js';
 import {
@@ -39,6 +40,7 @@ import {
   media,
   pushSubscriptions,
   sessions,
+  spaces,
   statuses,
   userBackupCodes,
   userIgnores,
@@ -63,6 +65,8 @@ export type UserWithAvatar = UserRow & {
   bannerKey: string | null;
   bannerThumbnailKey: string | null;
   bannerAnimated: boolean;
+  /** The server tag they wear (a third left join: only while that Space has a tag). */
+  spaceTag: UserSpaceTag | null;
 };
 
 /** The banner's media row, aliased so it can be joined next to the avatar's. */
@@ -121,10 +125,14 @@ export async function getUserRows(
       bannerKey: banner.storageKey,
       bannerThumbnailKey: banner.thumbnailKey,
       bannerAnimated: banner.animated,
+      tag: spaces.tag,
+      tagBadge: spaces.tagBadge,
+      tagColor: spaces.tagColor,
     })
     .from(users)
     .leftJoin(media, eq(media.id, users.avatarMediaId))
     .leftJoin(banner, eq(banner.id, users.bannerMediaId))
+    .leftJoin(spaces, and(eq(spaces.id, users.tagSpaceId), isNotNull(spaces.tag)))
     .where(inArray(users.id, list));
   for (const r of rows)
     out.set(r.user.id, {
@@ -135,6 +143,10 @@ export async function getUserRows(
       bannerKey: r.bannerKey,
       bannerThumbnailKey: r.bannerThumbnailKey,
       bannerAnimated: r.bannerAnimated ?? false,
+      spaceTag:
+        r.user.tagSpaceId && r.tag && r.tagBadge && r.tagColor
+          ? { spaceId: r.user.tagSpaceId, tag: r.tag, badge: r.tagBadge, color: r.tagColor }
+          : null,
     });
   return out;
 }
@@ -494,6 +506,7 @@ export function buildUserPublic(
       profileEffect: null,
       nameplate: null,
       nameStyle: null,
+      spaceTag: null,
       phone: null,
       online: null,
       presenceState: null,
@@ -536,6 +549,7 @@ export function buildUserPublic(
     profileEffect: hiddenByBlock ? null : subject.profileEffect,
     nameplate: hiddenByBlock ? null : subject.nameplate,
     nameStyle: hiddenByBlock ? null : subject.nameStyle,
+    spaceTag: hiddenByBlock ? null : subject.spaceTag,
     phone,
     online: presence.online,
     presenceState: presence.state,
@@ -724,6 +738,7 @@ export async function scrubDeletedUser(
       nameplate: null,
       nameStyle: null,
       railLayout: [],
+      tagSpaceId: null,
       availability: 'online',
       availabilityUntil: null,
       presenceNoteText: null,

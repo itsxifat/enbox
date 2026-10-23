@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { NAME_EFFECTS, NAME_FONTS, type NameStyle } from '@enbox/shared';
 import { ChatAnimationsPage } from '@/features/settings/ChatsSettingsPage';
@@ -113,6 +113,50 @@ describe('StyledName', () => {
     const n = name();
     expect(n).not.toHaveAttribute('data-font');
     expect(n).not.toHaveAttribute('data-effect');
+  });
+});
+
+describe('Role colours (Settings ▸ Accessibility)', () => {
+  const ROLE = { color: '#3498db' };
+  const dot = (el: HTMLElement) => el.querySelector<HTMLElement>('.cos-role-dot');
+
+  it("in names by default; 'dot' puts a dot after the plain name; 'hidden' shows none", () => {
+    const { container } = render(<StyledName name="Ada" role={ROLE} mode="font" />);
+    expect(name(container)).toHaveAttribute('data-role', 'solid');
+    expect(dot(container)).toBeNull();
+
+    act(() => useUi.getState().setPref('roleColors', 'dot'));
+    expect(name(container)).toHaveTextContent('Ada');
+    expect(name(container)).not.toHaveAttribute('data-role');
+    expect(name(container).style.color).toBe('');
+    expect(name(container).nextElementSibling).toBe(dot(container));
+    expect(dot(container)).toHaveAttribute('aria-hidden', 'true');
+    expect(dot(container)).toHaveAttribute('data-role', 'solid');
+    expect(dot(container)!.style.background).toContain('rgb(52, 152, 219)');
+
+    act(() => useUi.getState().setPref('roleColors', 'hidden'));
+    expect(name(container)).not.toHaveAttribute('data-role');
+    expect(dot(container)).toBeNull();
+  });
+
+  it("without the role's colour the name wears the user's own style; gradients keep theirs on the dot", () => {
+    useUi.getState().setPref('roleColors', 'hidden');
+    const { container } = render(<StyledName name="Ada" style={NEON} role={ROLE} mode="full" />);
+    expect(name(container)).toHaveAttribute('data-effect', 'neon');
+    useUi.getState().setPref('roleColors', 'dot');
+    const { container: g } = render(
+      <StyledName name="Ada" role={{ color: '#ff0000', colorSecondary: '#00ff00', colorStyle: 'gradient' }} />,
+    );
+    expect(dot(g)).toHaveAttribute('data-role', 'gradient');
+  });
+
+  it('a role editor can ask for the colours in names whatever the pref; names without a role colour have no dot', () => {
+    useUi.getState().setPref('roleColors', 'hidden');
+    const { container } = render(<StyledName name="Ada" role={ROLE} roleDisplay="names" />);
+    expect(name(container)).toHaveAttribute('data-role', 'solid');
+    useUi.getState().setPref('roleColors', 'dot');
+    const { container: plain } = render(<StyledName name="Bo" role={{ color: null }} />);
+    expect(dot(plain)).toBeNull();
   });
 });
 

@@ -2,10 +2,10 @@
  * The sticker picker (the composer's popover; import it through `LazyStickerPicker`): a search
  * box (name, related emoji, description), one section per Space with its icon in a left rail
  * — the chat's own Space first, other Spaces only where USE_EXTERNAL_EMOJI allows
- * (groups.ts) — and a 4-column grid per section. Animated stickers play on hover (the
- * device pref decides, StickerImage.tsx). A click, or Enter on a search with results, sends
- * the sticker (`onPick`); arrow keys move between stickers, Down from the search box enters
- * the grid. My groups load on first open (stores/stickers.ts).
+ * (groups.ts) — and a 4-column grid per section. Animated stickers play by the device pref
+ * "Sticker animations" (always, on hover, never; StickerImage.tsx). A click, or Enter on a
+ * search with results, sends the sticker (`onPick`); arrow keys move between stickers, Down
+ * from the search box enters the grid. My groups load on first open (stores/stickers.ts).
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Sticker as StickerIcon } from 'lucide-react';
@@ -212,7 +212,7 @@ function Section({
 
 function Cell({ sticker, onPick }: { sticker: SpaceSticker; onPick: (s: SpaceSticker) => void }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const playing = useStickerPlayback(ref, sticker.animated, 'self');
+  const playing = useStickerPlayback(ref, sticker.animated, 'self', 'sticker');
   return (
     <button
       ref={ref}

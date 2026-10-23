@@ -3,11 +3,12 @@
  * Channel messages, reads, typing and pins arrive as the usual chat/message events (the
  * server resolves a space channel's room to the members who can see it).
  */
-import { LARGE_SPACE_THRESHOLD, type ID } from '@enbox/shared';
+import { LARGE_SPACE_THRESHOLD, type ID, type SpaceTag } from '@enbox/shared';
 import { sendEvent, type AppSocket, type ReadyInfo } from '@/lib/socket';
 import { useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
 import { useSpaces } from '@/stores/spaces';
+import { useUsers } from '@/stores/users';
 
 /** The space channel this device has open (re-sent after every `ready`). */
 let focusedChannel: ID | null = null;
@@ -49,15 +50,23 @@ export function registerSpaceHandlers(socket: AppSocket): void {
       spaces().refetchChannels(space.id, { jitterMs: 500 });
   });
 
-  socket.on('space:removed', ({ spaceId }) => {
+  socket.on('space:removed', ({ spaceId, reason }) => {
     const chatIds = Object.values(useChats.getState().byId)
       .filter((c) => c.space?.spaceId === spaceId)
       .map((c) => c.id);
     spaces().removeSpace(spaceId);
     for (const id of chatIds) useMessages.getState().dropChat(id);
+    // A deleted Space's tag is gone from its wearers too.
+    if (reason === 'deleted') useUsers.getState().applySpaceTag(spaceId, null);
   });
 
-  socket.on('space:updated', ({ spaceId, changes }) => spaces().applySpaceUpdate(spaceId, changes));
+  socket.on('space:updated', ({ spaceId, changes }) => {
+    spaces().applySpaceUpdate(spaceId, changes);
+    // Its server tag changed or went (`tag` is not in SpaceInfoChanges yet): its cached
+    // wearers follow.
+    if ('tag' in changes)
+      useUsers.getState().applySpaceTag(spaceId, (changes.tag as SpaceTag | null) ?? null);
+  });
 
   socket.on('space:channels-changed', ({ spaceId }) =>
     spaces().refetchChannels(spaceId, { jitterMs: jitterFor(spaceId) }),

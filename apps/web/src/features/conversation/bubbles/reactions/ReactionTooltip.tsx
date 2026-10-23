@@ -1,12 +1,14 @@
 /**
- * The chip tooltip (Discord): the emoji large and "Ann, Bo and 3 others reacted with :x:".
- * Floats above the chip in a portal (message rows clip overflow), never takes the pointer.
+ * The chip tooltip (Discord): the emoji large and "Ann, Bo and 3 others reacted with :x:";
+ * a super chip's says "Super Reaction" above its own reactors. Floats above the chip in a
+ * portal (message rows clip overflow), never takes the pointer.
  */
 import { useLayoutEffect, useRef, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import type { ChatSummary, ReactionSummary } from '@enbox/shared';
 import { Portal, placePopover } from '@/components/ui';
 import type { ClientMessage } from '@/stores/messages';
-import { reactorsSentence } from './model';
+import { burstCountOf, normalCountOf, reactorsSentence } from './model';
 import { useFirstReactors, useReactorNames } from './names';
 import { ReactionEmoji } from './ReactionEmoji';
 
@@ -16,16 +18,19 @@ export function ReactionTooltip({
   r,
   mine,
   anchor,
+  burst = false,
 }: {
   chat: ChatSummary;
   m: ClientMessage;
   r: ReactionSummary;
   mine: boolean;
   anchor: HTMLElement;
+  /** The super chip's tooltip. */
+  burst?: boolean;
 }) {
-  const ids = useFirstReactors(chat, m.id, r, mine, true);
+  const ids = useFirstReactors(chat, m.id, r, mine, true, burst);
   const names = useReactorNames(ids, chat.space?.spaceId);
-  const text = reactorsSentence(names, r.count, r.emoji);
+  const text = reactorsSentence(names, burst ? burstCountOf(r) : normalCountOf(r), r.emoji);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
@@ -53,7 +58,15 @@ export function ReactionTooltip({
         style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? undefined : 'hidden' }}
       >
         <ReactionEmoji emoji={r.emoji} size={32} />
-        <span className="min-w-0">{text}</span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          {burst ? (
+            <span className="flex items-center gap-1 text-[12px] font-semibold text-brand-ink">
+              <Sparkles size={12} aria-hidden />
+              Super Reaction
+            </span>
+          ) : null}
+          <span>{text}</span>
+        </span>
       </div>
     </Portal>
   );

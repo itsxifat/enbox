@@ -12,6 +12,7 @@ import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { lazyNamed } from '@/lib/lazy';
 import { useSettingsLayer } from '@/features/settings/SettingsLayer';
 import { AppChrome } from '@/features/chrome/AppChrome';
+import { SkipToContent } from '@/features/a11y/SkipToContent';
 import { BottomTabs } from './BottomTabs';
 import { ConnectionBanner } from './ConnectionBanner';
 import { SpaceRail } from '@/features/spaces/SpaceRail';
@@ -54,7 +55,8 @@ function phoneFriendsRedirect(location: Location): string | null {
  * The call overlay (agent 4) floats above everything; the profile card host renders the
  * card opened through the bus (`profile:open`) from anywhere in the app; KeyboardShortcuts
  * owns Ctrl+K (Quick Switcher) and the other app-wide keys; AppChrome (features/chrome) keeps
- * the tab title and badges current and shows the Streamer Mode bar.
+ * the tab title and badges current and shows the Streamer Mode bar. "Skip to content"
+ * (features/a11y) is the first tab stop.
  */
 export function AppShell() {
   const desktop = useIsDesktop();
@@ -77,6 +79,8 @@ export function AppShell() {
         aria-hidden={layer.open || undefined}
         data-testid="app-base"
       >
+        {/* The first tab stop: straight to the open chat or page. */}
+        <SkipToContent />
         {/* Tab title, favicon and app badges, Streamer Mode (its banner sits here). */}
         <AppChrome />
         <ReportDialogHost />

@@ -258,6 +258,7 @@ describe('services/users', () => {
       profileEffect: null,
       nameplate: null,
       nameStyle: null,
+      spaceTag: null,
       phone: null,
       online: null,
       presenceState: null,

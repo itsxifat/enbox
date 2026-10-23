@@ -92,7 +92,7 @@ import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
 import { SuperReactToolButton } from './bubbles/reactions/superReactions';
 import { ToolButton } from './ToolButton';
 import { ForwardSource } from './forward/ForwardSource';
-import { messageRowA11y } from '@/features/a11y/messageRowA11y';
+import { useMessageRowA11y } from '@/features/a11y/messageRowA11y';
 import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { recentReactions } from './bubbles/reactions/recent';
 import {
@@ -234,11 +234,15 @@ export function SenderAvatar({
   );
 }
 
+/**
+ * "Forwarded" over a forwarded copy (Discord): the label, then what follows it in the bubble
+ * (BubbleHeader's source line, the content) behind a left accent bar.
+ */
 export function ForwardedLabel({ count }: { count: number }) {
   const many = count >= FORWARDED_MANY_TIMES_THRESHOLD;
   const Icon = many ? FastForward : Forward;
   return (
-    <span className="flex items-center gap-1 px-1 pt-0.5 text-[12px] text-muted italic">
+    <span className="flex items-center gap-1 px-1 pt-0.5 pb-0.5 text-[12px] text-muted italic [&~*]:ml-1 [&~*]:border-l-[3px] [&~*]:border-line-strong [&~*]:pl-1.5">
       <Icon size={14} aria-hidden />
       {many ? 'Forwarded many times' : 'Forwarded'}
     </span>
@@ -531,6 +535,7 @@ export function RowToolbar({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [superPicker, setSuperPicker] = useState(false);
   const [recent, setRecent] = useState(() => recentReactions(3));
   const shift = useShiftHeld(hovered || focused);
 
@@ -576,8 +581,8 @@ export function RowToolbar({
       className={cn(
         'sr-only focus-within:not-sr-only lg:not-sr-only',
         'transition-opacity lg:opacity-0 lg:group-hover/msg:opacity-100 lg:focus-within:opacity-100',
-        (menuOpen || picker) && 'lg:opacity-100',
-        (anchored || picker) && 'not-sr-only',
+        (menuOpen || picker || superPicker) && 'lg:opacity-100',
+        (anchored || picker || superPicker) && 'not-sr-only',
         className,
       )}
       ref={toolbarRef}
@@ -670,7 +675,9 @@ export function RowToolbar({
             }}
           />
         ) : null}
-        {reactable ? <SuperReactToolButton chat={chat} m={m} /> : null}
+        {reactable ? (
+          <SuperReactToolButton chat={chat} m={m} onOpenChange={setSuperPicker} />
+        ) : null}
         {canReply(chat, m) ? (
           <ToolButton icon={Reply} label="Reply" onClick={() => startReply(chat, m)} />
         ) : null}
@@ -897,6 +904,7 @@ export const MessageRow = memo(function MessageRow({
   const { selecting, selected, dx } = x;
   const { bubbleStyle } = useRowAppearance();
   const enter = useEnterAnimation(row.key);
+  const a11y = useMessageRowA11y(m, chat, mine);
 
   if (m.type === 'system') {
     return (
@@ -927,7 +935,7 @@ export const MessageRow = memo(function MessageRow({
       data-seq={m.seq}
       data-mine={mine || undefined}
       data-type={m.type}
-      {...messageRowA11y(m)}
+      {...a11y}
     >
       {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
       {row.unreadDivider ? <UnreadDivider count={row.unreadDivider} /> : null}
@@ -935,7 +943,7 @@ export const MessageRow = memo(function MessageRow({
         className={cn(
           'group/msg relative flex items-start px-2 transition-colors duration-700 sm:px-3 lg:px-[6%]',
           mine ? 'justify-end' : 'justify-start',
-          row.firstInGroup ? 'pt-1.5' : 'pt-[3px]',
+          row.firstInGroup ? 'msg-group-start-bubble' : 'pt-[3px]',
           hasReactions ? 'pb-4' : 'pb-0',
           selecting && 'cursor-pointer',
           selected && 'bg-brand/12',

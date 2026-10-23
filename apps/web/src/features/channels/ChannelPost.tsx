@@ -45,6 +45,9 @@ import type { ClientMessage } from '@/stores/messages';
 import { isActionable, retry, setStarred } from '@/features/conversation/actions';
 import { nameOf } from '@/stores/users';
 import { deletePost, editPost, reactToPost, voteInPoll } from './channelApi';
+import { pollEnded, timeLeftLabel, votesLabel } from '@/features/conversation/bubbles/polls/model';
+import { pollMenuItem } from '@/features/conversation/bubbles/polls/pollMenu';
+import { ReactionEmoji } from '@/features/conversation/bubbles/reactions/ReactionEmoji';
 import { ReactionPicker } from './ReactionPicker';
 
 export interface PostContext {
@@ -109,6 +112,7 @@ export const ChannelPost = memo(function ChannelPost({
       onSelect: () => void setStarred([m], !m.starred),
     },
     canEdit && { label: 'Edit', icon: Pencil, onSelect: () => setEditing(true) },
+    (!!chat && pollMenuItem(chat, m, me)) || false,
     canDelete && {
       label: 'Delete for everyone',
       icon: Trash2,
@@ -417,6 +421,7 @@ function ContactCard({ m }: { m: Message }) {
 
 function PollView({ m, canVote }: { m: Message; canVote: boolean }) {
   const poll = m.poll!;
+  const ended = pollEnded(poll);
   const mine = new Set(poll.myOptionIds ?? []);
   const max = Math.max(1, ...poll.options.map((o) => o.voteCount));
   const vote = (id: string) => {
@@ -439,7 +444,7 @@ function PollView({ m, canVote }: { m: Message; canVote: boolean }) {
             <li key={o.id}>
               <button
                 type="button"
-                disabled={!canVote || !!m.deletedAt}
+                disabled={!canVote || ended || !!m.deletedAt}
                 onClick={() => vote(o.id)}
                 role={poll.allowMultiple ? 'checkbox' : 'radio'}
                 aria-checked={selected}
@@ -458,7 +463,10 @@ function PollView({ m, canVote }: { m: Message; canVote: boolean }) {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="text-[14.5px]">{o.text}</span>
+                    <span className="flex items-center gap-1.5 text-[14.5px]">
+                      {o.emoji ? <ReactionEmoji emoji={o.emoji} size={18} /> : null}
+                      {o.text}
+                    </span>
                     <span className="text-[12.5px] font-medium text-muted tabular-nums">
                       {o.voteCount}
                     </span>
@@ -481,8 +489,9 @@ function PollView({ m, canVote }: { m: Message; canVote: boolean }) {
           );
         })}
       </ul>
-      <p className="mt-2 text-center text-[12.5px] text-muted">
-        {poll.totalVoters} {poll.totalVoters === 1 ? 'vote' : 'votes'}
+      <p className="mt-2 text-center text-[12.5px] text-muted" data-testid="poll-status">
+        {votesLabel(poll.totalVoters)}
+        {ended ? ' · Poll closed' : poll.endsAt ? ` · ${timeLeftLabel(poll.endsAt)}` : ''}
       </p>
     </div>
   );

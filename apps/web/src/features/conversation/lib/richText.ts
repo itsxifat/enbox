@@ -9,7 +9,7 @@
  * (http(s)://, www., e-mail), `\` escapes, and mention tokens (`@{uuid}`, `@{everyone}`,
  * `@{here}`, `@{role:uuid}`) and custom emoji tokens (`<:name:id>`, `<a:name:id>`) anywhere —
  * also inside formatting. Code spans and blocks show tokens raw; `\<:name:id>` is the raw
- * token as text (Discord's escape).
+ * token as text (Discord's escape). ```ansi blocks take Discord's colour codes (`parseAnsi`).
  */
 import { CUSTOM_EMOJI_TOKEN_RE, customEmojiToken, parseRichMentions, type ID } from '@enbox/shared';
 
@@ -385,6 +385,69 @@ function parseList(lines: string[], specials: Special[]): Block {
 export function parseMarkdown(text: string): Block[] {
   const { text: safe, specials } = protectMentions(text);
   return parseBlocks(safe, specials);
+}
+
+// ---------------------------------------------------------------------------
+// ANSI code blocks
+// ---------------------------------------------------------------------------
+
+/** A run of an ```ansi block in one style; colours are 0-7 (codes 30-37 and 40-47). */
+export interface AnsiSpan {
+  text: string;
+  bold?: boolean;
+  underline?: boolean;
+  fg?: number;
+  bg?: number;
+}
+
+/** An escape sequence (`ESC [ params intermediates final`), or a lone ESC. */
+// eslint-disable-next-line no-control-regex -- matching ESC is the point
+const ANSI_SEQUENCE_RE = /\u001b(?:\[([\x30-\x3f]*)[\x20-\x2f]*([\x40-\x7e]))?/g;
+
+/**
+ * Discord's ANSI subset: `ESC[…m` with 0 reset, 1 bold, 4 underline, 30-37 text and 40-47
+ * background colours (several codes per sequence: `ESC[1;31m`). Unknown codes and other
+ * sequences are dropped; the text itself is never interpreted (it renders as text).
+ */
+export function parseAnsi(code: string): AnsiSpan[] {
+  const out: AnsiSpan[] = [];
+  let style: Omit<AnsiSpan, 'text'> = {};
+  let last = 0;
+  const push = (text: string) => {
+    if (!text) return;
+    const prev = out[out.length - 1];
+    if (
+      prev &&
+      prev.bold === style.bold &&
+      prev.underline === style.underline &&
+      prev.fg === style.fg &&
+      prev.bg === style.bg
+    )
+      prev.text += text;
+    else out.push({ text, ...style });
+  };
+  for (const m of code.matchAll(ANSI_SEQUENCE_RE)) {
+    const at = m.index ?? 0;
+    push(code.slice(last, at));
+    last = at + m[0].length;
+    if (m[2] !== 'm') continue;
+    const next = { ...style };
+    for (const p of (m[1] ?? '').split(';')) {
+      const n = p === '' ? 0 : Number(p);
+      if (n === 0) {
+        delete next.bold;
+        delete next.underline;
+        delete next.fg;
+        delete next.bg;
+      } else if (n === 1) next.bold = true;
+      else if (n === 4) next.underline = true;
+      else if (n >= 30 && n <= 37) next.fg = n - 30;
+      else if (n >= 40 && n <= 47) next.bg = n - 40;
+    }
+    style = next;
+  }
+  push(code.slice(last));
+  return out;
 }
 
 // ---------------------------------------------------------------------------

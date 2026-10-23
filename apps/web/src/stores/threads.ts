@@ -11,6 +11,9 @@
  *   the Space, the parent channel's overwrites and the lock.
  * - The panel beside the channel is `useSidePanel()` `{ kind: 'thread', threadId, parentId }`;
  *   `NEW_THREAD_ID` as the thread id opens the draft.
+ * - Following: `thread.following` of my summaries (kept across neutral merges) and the ids I
+ *   follow per Space (`followed`, loaded when its sidebar shows; `thread:follow` keeps both in
+ *   step). Once a Space's list is in, its sidebar nests the threads and posts I follow.
  */
 import { useMemo } from 'react';
 import { create } from 'zustand';
@@ -21,10 +24,12 @@ import {
   type ChatPermissions,
   type ChatSummary,
   type CreateThreadRequest,
+  type FollowedThreads,
   type ID,
   type Message,
   type MessageThreadRef,
   type Space,
+  type ThreadFollowEvent,
   type ThreadsPage,
   type UpdateThreadRequest,
 } from '@enbox/shared';
@@ -66,8 +71,16 @@ export interface ThreadsState {
   recent: ID[];
   /** Starter messages seen when opening a thread (the parent's window may not hold them). */
   starters: Record<ID, Message>;
+  /** The posts and threads I follow, per Space id (absent until loaded). */
+  followed: Record<ID, ID[]>;
 
   loadThreads(parentId: ID, opts?: { archived?: boolean; more?: boolean }): Promise<void>;
+  /** What I follow in a Space (`GET /spaces/:id/followed-threads`): once, unless `force`. */
+  loadFollowed(spaceId: ID, opts?: { force?: boolean }): Promise<void>;
+  /** Follow or unfollow a post or thread (at once; undone when the server refuses). */
+  setFollowing(threadId: ID, following: boolean): Promise<void>;
+  /** `thread:follow`: one of my devices followed or unfollowed something. */
+  applyFollow(e: ThreadFollowEvent): void;
   /** A thread summary from REST (viewer-specific) or `thread:upsert` (`neutral`). */
   upsertThread(thread: ChatSummary, opts?: { neutral?: boolean }): void;
   removeThread(threadId: ID, parentId: ID): void;
@@ -134,16 +147,17 @@ export function threadRefOf(thread: ChatSummary): MessageThreadRef {
 
 /**
  * Merge a `thread:upsert` (viewer-neutral) into the cached thread: its shared fields win, my
- * read state, mute and preview stay. An unknown thread starts with nothing read (like the
- * server's read position without a read row) and no count. Pure.
+ * read state, mute, preview and following stay. An unknown thread starts with nothing read
+ * (like the server's read position without a read row) and no count. Pure.
  */
 export function mergeNeutralThread(cached: ChatSummary | undefined, incoming: ChatSummary): ChatSummary {
   if (!cached) return { ...incoming, lastReadSeq: 0, unreadCount: 0, unreadMentionCount: 0 };
   const newer = incoming.lastActivityAt > cached.lastActivityAt;
+  const following = cached.thread?.following;
   return {
     ...cached,
     name: incoming.name,
-    thread: incoming.thread,
+    thread: incoming.thread && following !== undefined ? { ...incoming.thread, following } : incoming.thread,
     space: incoming.space,
     createdBy: incoming.createdBy,
     memberCount: incoming.memberCount,
@@ -213,13 +227,32 @@ function placeInLists(lists: Record<ID, ThreadList>, thread: ChatSummary): Recor
   return { ...lists, [parentId]: next };
 }
 
+/**
+ * Followed or not: the thread's summary (when loaded) and its Space's followed ids (when
+ * loaded) say so.
+ */
+function markFollowing(threadId: ID, spaceId: ID | undefined, following: boolean): void {
+  const chats = useChats.getState();
+  const info = chats.byId[threadId]?.thread;
+  if (info && !!info.following !== following) chats.patchChat(threadId, { thread: { ...info, following } });
+  if (!spaceId) return;
+  useThreads.setState((s) => {
+    const ids = s.followed[spaceId];
+    if (!ids || ids.includes(threadId) === following) return s;
+    return { followed: { ...s.followed, [spaceId]: following ? [threadId, ...ids] : ids.filter((id) => id !== threadId) } };
+  });
+}
+
 let loadSeq = 0;
+/** `loadFollowed` requests in flight, per Space. */
+const followLoads = new Map<ID, Promise<void>>();
 
 export const useThreads = create<ThreadsState>((set, get) => ({
   lists: {},
   draft: null,
   recent: loadRecent(),
   starters: {},
+  followed: {},
 
   async loadThreads(parentId, opts = {}) {
     const archived = !!opts.archived;
@@ -256,12 +289,52 @@ export const useThreads = create<ThreadsState>((set, get) => ({
     }
   },
 
+  async loadFollowed(spaceId, opts = {}) {
+    const inFlight = followLoads.get(spaceId);
+    if (inFlight) return inFlight;
+    if (get().followed[spaceId] && !opts.force) return;
+    const epoch = sessionEpoch();
+    const p = api
+      .get<FollowedThreads>(`/api/spaces/${spaceId}/followed-threads`)
+      .then((res) => {
+        if (epoch !== sessionEpoch()) return;
+        intoChats(res.threads, false);
+        set((s) => ({ followed: { ...s.followed, [spaceId]: res.threads.map((t) => t.id) } }));
+      })
+      .finally(() => followLoads.delete(spaceId));
+    followLoads.set(spaceId, p);
+    return p;
+  },
+
+  async setFollowing(threadId, following) {
+    const info = useChats.getState().byId[threadId];
+    const spaceId = info?.space?.spaceId;
+    const was = !!info?.thread?.following;
+    markFollowing(threadId, spaceId, following);
+    try {
+      if (following) get().upsertThread(await api.put<ChatSummary>(`/api/threads/${threadId}/follow`));
+      else await api.delete(`/api/threads/${threadId}/follow`);
+    } catch (e) {
+      markFollowing(threadId, spaceId, was);
+      throw e;
+    }
+  },
+
+  applyFollow(e) {
+    markFollowing(e.threadId, e.spaceId, e.following);
+    // Followed on another device: a thread this one has not loaded yet.
+    if (e.following && !useChats.getState().byId[e.threadId]) void useChats.getState().refreshChat(e.threadId).catch(() => undefined);
+  },
+
   upsertThread(thread, opts = {}) {
     if (thread.type !== 'space_thread' || !thread.thread) return;
     intoChats([thread], !!opts.neutral);
     const fresh = useChats.getState().byId[thread.id] ?? thread;
     patchStarter(fresh);
     set((s) => ({ lists: placeInLists(s.lists, fresh) }));
+    // My summaries say whether I follow it (a post or thread I just made: yes).
+    if (!opts.neutral && thread.thread.following !== undefined)
+      markFollowing(thread.id, thread.space?.spaceId, thread.thread.following);
   },
 
   removeThread(threadId, parentId) {
@@ -362,7 +435,8 @@ export const useThreads = create<ThreadsState>((set, get) => ({
 
 registerSessionReset(() => {
   loadSeq = 0;
-  useThreads.setState({ lists: {}, draft: null, starters: {}, recent: loadRecent() });
+  followLoads.clear();
+  useThreads.setState({ lists: {}, draft: null, starters: {}, recent: loadRecent(), followed: {} });
 });
 
 // ---------------------------------------------------------------------------
@@ -382,15 +456,20 @@ export function useChannelThreads(parentId: ID | null | undefined, opts: { archi
 }
 
 /**
- * The threads the sidebar nests under a channel (Discord: the active threads I joined or
- * viewed): mine, the ones I posted in or read (a read position), recently opened ones and the
- * one open in the panel. Oldest first, like Discord's list under the channel.
+ * The threads the sidebar nests under a channel (Discord: the active threads I joined), oldest
+ * first like Discord's list: the ones I follow and the one open in the panel. Until the Space's
+ * followed list is in, a text channel's threads not known either way (a summary without
+ * `following`) also show when I own, read (a read position) or recently opened them.
  */
 export function useSidebarThreads(parentId: ID): ChatSummary[] {
   const byId = useChats((s) => s.byId);
   const recent = useThreads((s) => s.recent);
   const me = useAuth((s) => s.user?.id);
   const openId = useSidePanel((s) => (s.panel?.kind === 'thread' ? s.panel.threadId : null));
+  const parent = byId[parentId];
+  const spaceId = parent?.space?.spaceId;
+  const followedIn = useThreads((s) => (spaceId ? s.followed[spaceId] !== undefined : false));
+  const guess = !followedIn && parent?.type !== 'space_forum';
   return useMemo(() => {
     const recentSet = new Set(recent);
     return Object.values(byId)
@@ -398,21 +477,31 @@ export function useSidebarThreads(parentId: ID): ChatSummary[] {
         (c) =>
           c.thread?.parentId === parentId &&
           !c.thread.archived &&
-          (c.id === openId || recentSet.has(c.id) || (!!me && c.thread.ownerId === me) || c.lastReadSeq > 0),
+          (c.id === openId ||
+            !!c.thread.following ||
+            (guess &&
+              c.thread.following === undefined &&
+              (recentSet.has(c.id) || (!!me && c.thread.ownerId === me) || c.lastReadSeq > 0))),
       )
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
-  }, [byId, recent, me, openId, parentId]);
+  }, [byId, recent, me, openId, parentId, guess]);
 }
 
-/** Whether I may manage a thread (MANAGE_MESSAGES), or edit it as its creator while unlocked. */
-export function threadRights(thread: ChatSummary, me: ID | undefined) {
+/**
+ * What I may do with a thread: manage it (MANAGE_MESSAGES: lock, pin a post), edit it as its
+ * creator while unlocked (rename, tags, archive — a post: close and reopen) and delete it
+ * (moderators; a forum post's author too while it is unlocked, `post`).
+ */
+export function threadRights(thread: ChatSummary, me: ID | undefined, opts: { post?: boolean } = {}) {
   const bits = thread.spacePermissions ?? 0;
   const moderator = hasPerm(bits, PERM.MANAGE_MESSAGES);
   const owner = !!me && thread.thread?.ownerId === me;
+  const canEdit = moderator || (owner && !thread.thread?.locked);
   return {
     moderator,
-    canEdit: moderator || (owner && !thread.thread?.locked),
+    canEdit,
     canLock: moderator,
-    canDelete: moderator || hasPerm(bits, PERM.MANAGE_CHANNELS),
+    canPin: moderator && !!opts.post,
+    canDelete: moderator || hasPerm(bits, PERM.MANAGE_CHANNELS) || (!!opts.post && canEdit),
   };
 }

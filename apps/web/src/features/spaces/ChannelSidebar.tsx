@@ -18,6 +18,7 @@ import {
   ChevronsDownUp,
   CopyPlus,
   Hash,
+  Images,
   Link2,
   Megaphone,
   MessagesSquare,
@@ -166,7 +167,8 @@ function ChannelRow({
   const muted = isChannelMuted(chat);
   // Stages connect like voice channels (as a listener) and list their people the same way.
   const voice = chat.type === 'space_voice' || chat.type === 'space_stage';
-  const Icon = chat.type === 'space_stage' ? Podcast : voice ? Volume2 : chat.type === 'space_forum' ? MessagesSquare : chat.space?.isNews ? Megaphone : Hash;
+  const forumIcon = chat.space?.forum?.settings.media ? Images : MessagesSquare;
+  const Icon = chat.type === 'space_stage' ? Podcast : voice ? Volume2 : chat.type === 'space_forum' ? forumIcon : chat.space?.isNews ? Megaphone : Hash;
   const canManage = hasPerm(chat.spacePermissions, PERM.MANAGE_CHANNELS);
   const canInvite = hasPerm(chat.spacePermissions, PERM.CREATE_INVITE);
   const label = chat.name ?? 'channel';
@@ -379,7 +381,8 @@ function DragPreview({ data }: { data: DragData }) {
       </div>
     );
   const t = data.chat.type;
-  const Icon = t === 'space_stage' ? Podcast : t === 'space_voice' ? Volume2 : t === 'space_forum' ? MessagesSquare : data.chat.space?.isNews ? Megaphone : Hash;
+  const forumIcon = data.chat.space?.forum?.settings.media ? Images : MessagesSquare;
+  const Icon = t === 'space_stage' ? Podcast : t === 'space_voice' ? Volume2 : t === 'space_forum' ? forumIcon : data.chat.space?.isNews ? Megaphone : Hash;
   return (
     <div className="flex h-9 w-60 items-center gap-1.5 rounded-lg bg-elevated px-2 text-[15px] font-semibold text-fg shadow-elevated">
       <Icon size={18} className="shrink-0 opacity-70" aria-hidden />

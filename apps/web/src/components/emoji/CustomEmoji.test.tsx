@@ -87,6 +87,20 @@ describe('CustomEmoji', () => {
     view.unmount();
   });
 
+  it('animated: "Play animated emoji" off keeps the still, on "always" and while hovered too', () => {
+    useUi.setState({ prefs: { ...DEFAULT_PREFS, autoplayAnimatedMedia: 'always', animateEmoji: false } });
+    render(
+      <div data-animate-avatars data-testid="row">
+        <CustomEmoji id={ID} name="party" animated />
+      </div>,
+    );
+    expect(screen.getByRole('img')).toHaveAttribute('data-animated', 'still');
+    fireEvent.pointerEnter(screen.getByTestId('row'));
+    expect(screen.getByRole('img')).toHaveAttribute('data-animated', 'still');
+    act(() => useUi.getState().setPref('animateEmoji', true));
+    expect(screen.getByRole('img')).toHaveAttribute('data-animated', 'playing');
+  });
+
   it('EmojiGlyph renders tokens as images and unicode as text', () => {
     render(
       <>

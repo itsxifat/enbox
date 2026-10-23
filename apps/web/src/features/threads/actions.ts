@@ -1,14 +1,34 @@
 /**
  * Thread entry points shared by the message menu, the starter card, the sidebar and the
- * Threads popout: open a thread in the panel, start one from a message, copy its link.
+ * Threads popout: open a thread in the panel, start one from a message, copy its link; and
+ * the "…" menu items a thread's panel and a forum's post cards share.
  */
-import { MessagesSquare } from 'lucide-react';
-import { PERM, hasPerm, type ChatSummary, type ID, type Message } from '@enbox/shared';
-import type { MenuEntry } from '@/components/ui';
-import { toast } from '@/stores/ui';
+import {
+  Archive,
+  ArchiveRestore,
+  BellOff,
+  BellPlus,
+  Lock,
+  LockOpen,
+  MessagesSquare,
+  Pencil,
+  Pin,
+  PinOff,
+  Trash2,
+} from 'lucide-react';
+import {
+  PERM,
+  hasPerm,
+  type ChatSummary,
+  type ID,
+  type Message,
+  type UpdateThreadRequest,
+} from '@enbox/shared';
+import type { MenuEntry, MenuItem } from '@/components/ui';
+import { confirm, toast } from '@/stores/ui';
 import { copyText } from '@/features/groups/shared/share';
 import type { ClientMessage } from '@/stores/messages';
-import { useThreads } from '@/stores/threads';
+import { threadRights, useThreads } from '@/stores/threads';
 
 /** Whether a thread can be started from this message (a confirmed one of a text channel I can write in). */
 export function canStartThread(chat: ChatSummary, m: ClientMessage): boolean {
@@ -54,4 +74,83 @@ export function copyThreadLink(spaceId: ID, parentId: ID, threadId: ID): void {
   void copyText(threadLink(spaceId, parentId, threadId)).then((ok) =>
     ok ? toast.success('Link copied') : toast.error('Could not copy'),
   );
+}
+
+function updateThread(threadId: ID, patch: UpdateThreadRequest): void {
+  void useThreads
+    .getState()
+    .updateThread(threadId, patch)
+    .catch((e: unknown) => toast.error(e));
+}
+
+/**
+ * The "…" menu items a thread and a forum post share, as my rights allow (`threadRights`):
+ * Follow / Unfollow, Archive / Unarchive (a post: Close / Reopen), Lock / Unlock, Pin / Unpin
+ * (posts) and the rename (`onRename`: Edit Thread Name, a post's Edit Title). Failures toast.
+ */
+export function threadMenuItems(
+  thread: ChatSummary,
+  me: ID | undefined,
+  opts: { post: boolean; onRename: () => void },
+): MenuEntry[] {
+  const { post } = opts;
+  const noun = post ? 'Post' : 'Thread';
+  const rights = threadRights(thread, me, { post });
+  const info = thread.thread;
+  const following = !!info?.following;
+  return [
+    thread.membership === 'active' && {
+      label: `${following ? 'Unfollow' : 'Follow'} ${noun}`,
+      icon: following ? BellOff : BellPlus,
+      onSelect: () =>
+        void useThreads
+          .getState()
+          .setFollowing(thread.id, !following)
+          .catch((e: unknown) => toast.error(e)),
+    },
+    rights.canEdit &&
+      (info?.archived
+        ? {
+            label: post ? 'Reopen Post' : 'Unarchive Thread',
+            icon: ArchiveRestore,
+            onSelect: () => updateThread(thread.id, { archived: false }),
+          }
+        : {
+            label: post ? 'Close Post' : 'Archive Thread',
+            icon: Archive,
+            onSelect: () => updateThread(thread.id, { archived: true }),
+          }),
+    rights.canLock &&
+      (info?.locked
+        ? { label: `Unlock ${noun}`, icon: LockOpen, onSelect: () => updateThread(thread.id, { locked: false }) }
+        : { label: `Lock ${noun}`, icon: Lock, onSelect: () => updateThread(thread.id, { locked: true }) }),
+    rights.canPin &&
+      (info?.pinned
+        ? { label: 'Unpin Post', icon: PinOff, onSelect: () => updateThread(thread.id, { pinned: false }) }
+        : { label: 'Pin Post', icon: Pin, onSelect: () => updateThread(thread.id, { pinned: true }) }),
+    rights.canEdit && { label: post ? 'Edit Title' : 'Edit Thread Name', icon: Pencil, onSelect: opts.onRename },
+  ];
+}
+
+/** Delete Thread / Delete Post, after a confirmation (its messages go with it). */
+export function deleteThreadItem(thread: ChatSummary, noun: 'Post' | 'Thread'): MenuItem {
+  return {
+    label: `Delete ${noun}`,
+    icon: Trash2,
+    danger: true,
+    onSelect: () =>
+      void confirm({
+        title: `Delete ${noun}`,
+        message: `Are you sure you want to delete ${thread.name ?? `this ${noun.toLowerCase()}`}? Its messages go with it. This can’t be undone.`,
+        confirmLabel: `Delete ${noun}`,
+        danger: true,
+      }).then(
+        (ok) =>
+          ok &&
+          void useThreads
+            .getState()
+            .deleteThread(thread.id)
+            .catch((e: unknown) => toast.error(e)),
+      ),
+  };
 }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import {
   Check,
   Hash,
+  Images,
   Megaphone,
   MessagesSquare,
   Minus,
@@ -69,10 +70,11 @@ export function slowmodeLabel(s: number): string {
 type ChannelTab = 'overview' | 'forum' | 'permissions' | 'invites';
 
 /**
- * Create (no `chat`) or edit a channel. Editing has Discord's tabs: Overview (name, topic,
- * slowmode, age restriction; voice: user limit and bitrate; Delete Channel), Forum (forums:
- * guidelines, tags and post options), Permissions (overwrites) and Invites (this channel's,
- * revocable).
+ * Create (no `chat`) or edit a channel. Creating offers each kind (a Media channel is a forum
+ * of pictures and videos). Editing has Discord's tabs: Overview (name, topic, slowmode, age
+ * restriction; voice: user limit and bitrate; Delete Channel), Forum — Media for a media
+ * channel — (guidelines, tags and post options), Permissions (overwrites) and Invites (this
+ * channel's, revocable).
  */
 export function ChannelDialog({
   spaceId,
@@ -98,7 +100,9 @@ export function ChannelDialog({
           aria-label="Channel settings"
           items={[
             { value: 'overview', label: 'Overview' },
-            ...(chat.type === 'space_forum' ? [{ value: 'forum' as const, label: 'Forum' }] : []),
+            ...(chat.type === 'space_forum'
+              ? [{ value: 'forum' as const, label: chat.space?.forum?.settings.media ? 'Media' : 'Forum' }]
+              : []),
             { value: 'permissions', label: 'Permissions' },
             { value: 'invites', label: 'Invites' },
           ]}
@@ -145,6 +149,8 @@ function Overview({
   const [isPrivate, setPrivate] = useState(false);
   // Announcement channels are text channels with Publish and Follow.
   const [isNews, setNews] = useState(!!chat?.space?.isNews);
+  // Media channels are forums of pictures and videos.
+  const [isMedia, setMedia] = useState(!!chat?.space?.forum?.settings.media);
   // Browse Channels: out of members' sidebars until they show it.
   const [optIn, setOptIn] = useState(!!chat?.space?.optIn);
   const [busy, setBusy] = useState(false);
@@ -153,9 +159,16 @@ function Overview({
   const voice = type === 'space_voice' || stage;
   const shown = voice ? name.trim() : normalizeTextChannelName(name);
   const forum = type === 'space_forum';
-  /** The create dialog's type choice ("Announcement" is a text channel with isNews). */
-  const picked = (v: typeof type | 'news') =>
-    v === 'news' ? type === 'space_text' && isNews : type === v && !(v === 'space_text' && isNews);
+  /**
+   * The create dialog's type choice ("Announcement" is a text channel with isNews, "Media" a
+   * forum of pictures and videos).
+   */
+  const picked = (v: typeof type | 'news' | 'media') =>
+    v === 'news'
+      ? type === 'space_text' && isNews
+      : v === 'media'
+        ? forum && isMedia
+        : type === v && !(v === 'space_text' && isNews) && !(v === 'space_forum' && isMedia);
 
   const save = async () => {
     if (!shown) return;
@@ -183,6 +196,7 @@ function Overview({
           categoryId: cat,
           ...(type === 'space_text' || stage ? { topic: topic.trim() || undefined } : {}),
           ...(type === 'space_text' && isNews ? { isNews: true } : {}),
+          ...(forum && isMedia ? { forumSettings: { media: true, layout: 'gallery' as const } } : {}),
           ...(optIn ? { optIn: true } : {}),
           privateRoleIds: isPrivate ? [] : undefined,
         });
@@ -239,6 +253,12 @@ function Overview({
                 sub: 'Organized posts, each with its own replies',
               },
               {
+                v: 'media',
+                icon: Images,
+                title: 'Media',
+                sub: 'Share photos and videos',
+              },
+              {
                 v: 'news',
                 icon: Megaphone,
                 title: 'Announcement',
@@ -258,8 +278,9 @@ function Overview({
               role="radio"
               aria-checked={picked(o.v)}
               onClick={() => {
-                setType(o.v === 'news' ? 'space_text' : o.v);
+                setType(o.v === 'news' ? 'space_text' : o.v === 'media' ? 'space_forum' : o.v);
                 setNews(o.v === 'news');
+                setMedia(o.v === 'media');
               }}
               className={cn(
                 'flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
@@ -284,7 +305,9 @@ function Overview({
           id="ch-name"
           value={name}
           maxLength={CHANNEL_NAME_MAX_LENGTH}
-          placeholder={stage ? 'Town Hall' : voice ? 'Lounge' : forum ? 'new-forum' : 'new-channel'}
+          placeholder={
+            stage ? 'Town Hall' : voice ? 'Lounge' : forum ? (isMedia ? 'photos' : 'new-forum') : 'new-channel'
+          }
           onChange={(e) => setName(e.target.value)}
           autoFocus
           data-testid="channel-name"

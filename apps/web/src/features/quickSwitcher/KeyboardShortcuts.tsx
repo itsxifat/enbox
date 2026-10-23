@@ -149,6 +149,11 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Send', 'Enter'],
       ['New line', 'Shift Enter'],
       ['Upload without the tray', 'Hold Shift while dropping'],
+      ['Bold', `${MOD} B`],
+      ['Italic', `${MOD} I`],
+      ['Underline', `${MOD} U`],
+      ['Strikethrough', `${MOD} Shift X`],
+      ['Formatting toolbar (text selected)', 'Alt F10'],
     ],
   },
   {
