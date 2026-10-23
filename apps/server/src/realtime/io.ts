@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import { and, eq, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
-import { rooms } from '@enbox/shared';
+import { SPACE_CHAT_TYPES, rooms } from '@enbox/shared';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { chatMembers, chats, users } from '../db/schema.js';
@@ -60,7 +60,8 @@ async function visibleChatIds(userId: string): Promise<string[]> {
         eq(chatMembers.userId, userId),
         isNull(chatMembers.leftAt),
         eq(chatMembers.hidden, false),
-        notInArray(chats.type, ['space_text', 'space_voice', 'space_thread', 'space_forum']),
+        // Space chats use virtual rooms resolved by spaceRegistry (computed visibility).
+        notInArray(chats.type, [...SPACE_CHAT_TYPES]),
       ),
     );
   return rows.map((r) => r.chatId);

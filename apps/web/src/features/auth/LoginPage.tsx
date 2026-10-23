@@ -1,15 +1,19 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { AlertCircle } from 'lucide-react';
-import { loginSchema, parseLoginIdentifier } from '@enbox/shared';
+import { loginSchema, parseLoginIdentifier, type MfaChallenge } from '@enbox/shared';
 import { Button, Input } from '@/components/ui';
 import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { validate, type FieldErrors } from '@/lib/forms';
-import { useAuth } from '@/stores/auth';
+import { isMfaChallenge, useAuth } from '@/stores/auth';
 import { AuthLayout } from './AuthLayout';
+import { MfaStep } from './MfaStep';
 import { PasswordInput } from './PasswordInput';
 
-/** /login — username or phone + password. Redirects to `?next=` via <PublicOnly/>. */
+/**
+ * /login — username or phone + password, then (two-factor on) the code step. Redirects to
+ * `?next=` via <PublicOnly/>.
+ */
 export function LoginPage() {
   const login = useAuth((s) => s.login);
   const [params] = useSearchParams();
@@ -18,6 +22,7 @@ export function LoginPage() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState<MfaChallenge | null>(null);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,8 +40,13 @@ export function LoginPage() {
     setErrors({});
     setBusy(true);
     try {
-      await login(r.data);
-      // <PublicOnly/> redirects to `next` once the store is authenticated.
+      const res = await login(r.data);
+      // Two-factor on: no session yet, the code step takes over.
+      if (isMfaChallenge(res)) {
+        setChallenge(res);
+        setBusy(false);
+      }
+      // Otherwise <PublicOnly/> redirects to `next` once the store is authenticated.
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setFormError(err.message || 'Incorrect username, phone number or password.');
@@ -53,6 +63,22 @@ export function LoginPage() {
 
   const next = params.get('next');
   const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : '/register';
+
+  if (challenge) {
+    // Back on the password step the password is asked again (the ticket is gone).
+    const backToLogin = (message: string | null) => {
+      setChallenge(null);
+      setPassword('');
+      setFormError(message);
+    };
+    return (
+      <MfaStep
+        challenge={challenge}
+        onBack={() => backToLogin(null)}
+        onExpired={(message) => backToLogin(message)}
+      />
+    );
+  }
 
   return (
     <AuthLayout
@@ -79,7 +105,8 @@ export function LoginPage() {
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          autoFocus
+          // Back from the code step the identifier is kept: the password is next.
+          autoFocus={!identifier}
           placeholder="username or +1 555 123 4567"
           value={identifier}
           onChange={(e) => setIdentifier(e.target.value)}
@@ -89,6 +116,7 @@ export function LoginPage() {
           label="Password"
           name="password"
           autoComplete="current-password"
+          autoFocus={!!identifier}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           error={errors.password}

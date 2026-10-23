@@ -18,17 +18,18 @@ import {
   ChevronsDownUp,
   CopyPlus,
   Hash,
-  IdCard,
   Link2,
   MessagesSquare,
   Pencil,
   PlusCircle,
+  Podcast,
   Settings,
   Trash2,
   UserPlus,
   Volume2,
 } from 'lucide-react';
 import {
+  isVoiceChannelType,
   PERM,
   hasPerm,
   type ChatSummary,
@@ -76,7 +77,7 @@ import { CategoryDialog } from './dialogs/CategoryDialog';
 import { ChannelDialog } from './dialogs/ChannelDialog';
 import { CloneChannelDialog } from './dialogs/CloneChannelDialog';
 import { InviteDialog } from './dialogs/InviteDialog';
-import { copyId, muteEntry, notifyLevelEntries, spaceNotifyLevel, tidy, useSpaceMenu } from './menus';
+import { copyIdItem, muteEntry, notifyLevelEntries, spaceNotifyLevel, tidy, useSpaceMenu } from './menus';
 import {
   categoryMoveItems,
   channelMoveItems,
@@ -159,8 +160,9 @@ function ChannelRow({
 }) {
   const unread = isChannelUnread(chat);
   const muted = isChannelMuted(chat);
-  const voice = chat.type === 'space_voice';
-  const Icon = voice ? Volume2 : chat.type === 'space_forum' ? MessagesSquare : Hash;
+  // Stages connect like voice channels (as a listener) and list their people the same way.
+  const voice = chat.type === 'space_voice' || chat.type === 'space_stage';
+  const Icon = chat.type === 'space_stage' ? Podcast : voice ? Volume2 : chat.type === 'space_forum' ? MessagesSquare : Hash;
   const canManage = hasPerm(chat.spacePermissions, PERM.MANAGE_CHANNELS);
   const canInvite = hasPerm(chat.spacePermissions, PERM.CREATE_INVITE);
   const label = chat.name ?? 'channel';
@@ -331,8 +333,9 @@ function dropFor(
   if (!hit) return null;
   const over = hit.data;
   if (a.kind === 'voice') {
-    // Onto another voice channel I may move people into.
-    if (over.kind !== 'channel' || over.chat.type !== 'space_voice' || over.chat.id === a.state.channelId) return null;
+    // Onto another voice channel (or Stage: they land in its audience) I may move people into.
+    const voiceLike = over.kind === 'channel' && (over.chat.type === 'space_voice' || over.chat.type === 'space_stage');
+    if (over.kind !== 'channel' || !voiceLike || over.chat.id === a.state.channelId) return null;
     const bits = over.chat.spacePermissions;
     return hasPerm(bits, PERM.MOVE_MEMBERS) && hasPerm(bits, PERM.CONNECT) ? { kind: 'voice', channelId: over.chat.id } : null;
   }
@@ -370,7 +373,8 @@ function DragPreview({ data }: { data: DragData }) {
         {data.label}
       </div>
     );
-  const Icon = data.chat.type === 'space_voice' ? Volume2 : data.chat.type === 'space_forum' ? MessagesSquare : Hash;
+  const t = data.chat.type;
+  const Icon = t === 'space_stage' ? Podcast : t === 'space_voice' ? Volume2 : t === 'space_forum' ? MessagesSquare : Hash;
   return (
     <div className="flex h-9 w-60 items-center gap-1.5 rounded-lg bg-elevated px-2 text-[15px] font-semibold text-fg shadow-elevated">
       <Icon size={18} className="shrink-0 opacity-70" aria-hidden />
@@ -479,7 +483,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
   /** Move Up / Move Down: past the neighbour of the same kind in its category (text always sorts before voice). */
   const move = (c: ChatSummary, dir: -1 | 1) => {
     const g = groups.find((x) => x.channels.some((y) => y.id === c.id));
-    const row = (g?.channels ?? []).filter((x) => (x.type === 'space_voice') === (c.type === 'space_voice'));
+    const row = (g?.channels ?? []).filter((x) => isVoiceChannelType(x.type) === isVoiceChannelType(c.type));
     const next = row[row.findIndex((x) => x.id === c.id) + dir];
     if (next) applyChannelMove(channelMoveItems(groups, c.id, { kind: dir < 0 ? 'before' : 'after', channelId: next.id }));
   };
@@ -526,7 +530,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
 
   const removeChannel = (c: ChatSummary) =>
     void confirm({
-      title: `Delete ${c.type === 'space_voice' ? '' : '#'}${c.name}?`,
+      title: `Delete ${c.type === 'space_voice' || c.type === 'space_stage' ? '' : '#'}${c.name}?`,
       message: 'Its messages are deleted for everyone. This cannot be undone.',
       confirmLabel: 'Delete Channel',
       danger: true,
@@ -580,7 +584,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
       canManage && manageChannels && { label: 'Move Down', icon: ArrowDown, onSelect: () => move(c, 1) },
       canManage && { label: 'Delete Channel', icon: Trash2, danger: true, onSelect: () => removeChannel(c) },
       'separator',
-      { label: 'Copy Channel ID', icon: IdCard, onSelect: () => copyId(c.id, 'Channel') },
+      copyIdItem(c.id, 'Channel'),
     ]);
   };
 
@@ -633,7 +637,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
           ),
       },
       'separator',
-      { label: 'Copy Category ID', icon: IdCard, onSelect: () => copyId(category.id, 'Category') },
+      copyIdItem(category.id, 'Category'),
     ]);
   };
 

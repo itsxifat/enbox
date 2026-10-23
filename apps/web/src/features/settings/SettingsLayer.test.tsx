@@ -252,7 +252,13 @@ describe('User Settings layer (desktop)', () => {
       'Devices',
     ]);
     const app = within(nav).getByRole('group', { name: 'App Settings' });
-    expect(names(app)).toEqual(['Chats', 'Voice & Video', 'Notifications', 'Storage & Data']);
+    expect(names(app)).toEqual([
+      'Chats',
+      'Voice & Video',
+      'Notifications',
+      'Storage & Data',
+      'Streamer Mode',
+    ]);
     expect(within(app).getByRole('button', { name: 'Keybinds' })).toBeInTheDocument();
     expect(within(nav).getByRole('button', { name: 'Log Out' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'My Account' })).toHaveAttribute(

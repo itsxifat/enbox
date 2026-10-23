@@ -1,6 +1,12 @@
-/** Invite-link helpers: absolute join URL, copy and native share (with copy fallback). */
+/**
+ * Invite-link helpers: absolute join URL, copy and native share (with copy fallback), and
+ * how a link shows on screen under Streamer Mode ▸ Hide Invite Links.
+ */
 import { toast } from '@/components/ui';
 import { publicOrigin } from '@/lib/serverConfig';
+import { INVITE_HIDDEN_TEXT, useStreamerHides } from '@/stores/streamer';
+
+export { INVITE_HIDDEN_TEXT };
 
 /**
  * Absolute `/join/:code` URL on the canonical origin (the server's PUBLIC_URL once
@@ -8,6 +14,16 @@ import { publicOrigin } from '@/lib/serverConfig';
  */
 export function inviteUrl(code: string): string {
   return `${publicOrigin()}/join/${code}`;
+}
+
+/** Streamer Mode hides invite links and codes on screen (copy and share keep the real link). */
+export function useHideInvites(): boolean {
+  return useStreamerHides('invites');
+}
+
+/** The invite link as displayed: `inviteUrl(code)`, or INVITE_HIDDEN_TEXT while hidden. */
+export function shownInviteUrl(code: string, hidden: boolean): string {
+  return hidden ? INVITE_HIDDEN_TEXT : inviteUrl(code);
 }
 
 /** Copy text to the clipboard (with a textarea fallback for insecure contexts). */

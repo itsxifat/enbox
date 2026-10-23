@@ -1,8 +1,8 @@
 /**
  * Discord's Space menus: the header dropdown of the channel sidebar and the right-click menu
  * of a Space in the rail share one hook (`useSpaceMenu`) that builds the items from my
- * permissions and owns the dialogs they open. Mute / notification submenu builders are shared
- * with the channel and category menus (ChannelSidebar).
+ * permissions and owns the dialogs they open. Mute / notification submenu builders and the
+ * Developer Mode "Copy … ID" item are shared with the channel, category and member menus.
  */
 import { Suspense, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
@@ -34,6 +34,7 @@ import { lazyNamed } from '@/lib/lazy';
 import { useMe } from '@/stores/auth';
 import { useEvents } from '@/stores/events';
 import { isSpaceMuted } from '@/stores/spaces';
+import { useUi } from '@/stores/ui';
 import { leaveSpace, markSpaceRead, updateMyMember } from './actions';
 import { CategoryDialog } from './dialogs/CategoryDialog';
 import { ChannelDialog } from './dialogs/ChannelDialog';
@@ -52,6 +53,14 @@ const ServerProfileDialog = lazyNamed(
 /** Copy an id to the clipboard ("Copy Space ID" etc.). */
 export function copyId(id: ID, what: string): void {
   void copyText(id).then((ok) => (ok ? toast.success(`${what} ID copied`) : toast.error('Could not copy')));
+}
+
+/**
+ * Developer Mode's "Copy <what> ID" item (Discord): only while Developer Mode is on (Settings
+ * ▸ Chats ▸ Advanced). Menus are built as they open, so the setting is read then unless given.
+ */
+export function copyIdItem(id: ID, what: string, devMode = useUi.getState().prefs.developerMode): MenuEntry {
+  return devMode && { label: `Copy ${what} ID`, icon: IdCard, onSelect: () => copyId(id, what) };
 }
 
 /**
@@ -126,6 +135,7 @@ export interface SpaceMenu {
 export function useSpaceMenu(space: Space | undefined): SpaceMenu {
   const navigate = useNavigate();
   const me = useMe();
+  const devMode = useUi((s) => s.prefs.developerMode);
   const [dialog, setDialog] = useState<SpaceDialog | null>(null);
   const close = () => setDialog(null);
 
@@ -201,7 +211,7 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
     onSelect: () => save({ hideMutedChannels: !space.me.hideMutedChannels }),
   };
   const leaveItem: MenuEntry = { label: 'Leave Space', icon: LogOut, danger: true, onSelect: () => void leave() };
-  const copy: MenuEntry = { label: 'Copy Space ID', icon: IdCard, onSelect: () => copyId(space.id, 'Space') };
+  const copy = copyIdItem(space.id, 'Space', devMode);
   const settings = canOpenSpaceSettings(space);
 
   const headerItems = (): MenuEntry[] =>

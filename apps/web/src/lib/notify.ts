@@ -8,8 +8,12 @@
  *
  * `showNotification` only shows when the app is hidden/unfocused (unless `force`), and
  * prefers the service worker registration (required on Android). Same `tag` replaces an
- * existing notification instead of stacking.
+ * existing notification instead of stacking. Clicking one focuses the window and opens `url`.
+ *
+ * Streamer Mode (stores/streamer.ts) silences both here: Disable Notifications shows none,
+ * Disable Sounds plays no sound and no ringtone.
  */
+import { streamerHides } from '@/stores/streamer';
 import { bus } from './bus';
 import { registerSessionReset } from './session';
 
@@ -85,6 +89,7 @@ export async function showNotification(
   opts: { force?: boolean } = {},
 ): Promise<boolean> {
   if (notificationPermission() !== 'granted') return false;
+  if (streamerHides('notifications')) return false;
   if (!opts.force && isAppFocused()) return false;
   const options: NotificationOptions = {
     body: n.body,
@@ -234,8 +239,9 @@ const SOUNDS: Record<SoundName, { tones: Tone[]; volume: number }> = {
   },
 };
 
-/** Play a short UI sound (no-op until audio is unlocked by a user gesture). */
+/** Play a short UI sound (no-op until audio is unlocked by a user gesture, or in Streamer Mode). */
 export function playSound(name: SoundName): void {
+  if (streamerHides('sounds')) return;
   const s = SOUNDS[name];
   playTones(s.tones, s.volume);
 }
@@ -254,10 +260,15 @@ const LOOPS: Record<LoopName, { tones: Tone[]; period: number; volume: number }>
   ringback: { period: 4, volume: 0.15, tones: [{ freqs: [440, 480], at: 0, dur: 1.4 }] },
 };
 
-/** Start a looping tone (ringtone / ringback). Returns a stop function. */
+/**
+ * Start a looping tone (ringtone / ringback). Returns a stop function. Each beat checks
+ * Streamer Mode, so turning Disable Sounds on mid-ring silences it.
+ */
 export function startLoop(name: LoopName): () => void {
   const loop = LOOPS[name];
-  const tick = () => playTones(loop.tones, loop.volume);
+  const tick = () => {
+    if (!streamerHides('sounds')) playTones(loop.tones, loop.volume);
+  };
   tick();
   const id = window.setInterval(tick, loop.period * 1000);
   let stopped = false;

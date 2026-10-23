@@ -8,7 +8,7 @@ import { PaneHeader } from '@/components/layout/PaneHeader';
 import { Skeleton, confirm, toast } from '@/components/ui';
 import { errorMessage } from '@/lib/api';
 import { InfoPage, InfoRow, InfoSection } from './InfoLayout';
-import { copyLink, inviteUrl, shareLink } from './share';
+import { copyLink, inviteUrl, shareLink, shownInviteUrl, useHideInvites } from './share';
 
 export interface InviteLinkViewProps {
   title?: string;
@@ -39,6 +39,8 @@ export function InviteLinkView({
   const [code, setCode] = useState<string | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  // Streamer Mode: the link stays off screen (and out of the status bar); Copy and Share work.
+  const hideInvites = useHideInvites();
 
   useEffect(() => {
     if (initial) {
@@ -92,12 +94,12 @@ export function InviteLinkView({
               <p className="truncate text-[16px] font-semibold text-fg">{name}</p>
               {code ? (
                 <a
-                  href={url}
+                  href={hideInvites ? undefined : url}
                   onClick={(e) => e.preventDefault()}
                   className="mt-0.5 block text-[14px] break-all text-brand-ink select-all"
                   data-testid="invite-link"
                 >
-                  {url}
+                  {shownInviteUrl(code, hideInvites)}
                 </a>
               ) : error ? (
                 <p className="mt-0.5 text-[14px] text-danger">{error}</p>

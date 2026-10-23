@@ -8,7 +8,10 @@ describe('User Settings nav', () => {
   it('groups the existing sections the Discord way, Keybinds and a red Log Out included', () => {
     expect(labels()).toEqual([
       ['User Settings', ['My Account', 'Profiles', 'Privacy & Safety', 'Devices']],
-      ['App Settings', ['Chats', 'Voice & Video', 'Notifications', 'Keybinds', 'Storage & Data']],
+      [
+        'App Settings',
+        ['Chats', 'Voice & Video', 'Notifications', 'Keybinds', 'Storage & Data', 'Streamer Mode'],
+      ],
       [null, ['Help', 'Log Out']],
     ]);
     const logout = SETTINGS_NAV[2]!.items[1]!;

@@ -25,7 +25,7 @@ import {
 import { db, type DbOrTx } from '../../db/index.js';
 import { blocks, chats, contacts, spaceMembers, users, type UserRow } from '../../db/schema.js';
 import { authCtx, authUserId } from '../../http/auth.js';
-import { badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
+import { HttpError, badRequest, conflict, forbidden, notFound } from '../../lib/errors.js';
 import { authLimiter } from '../../lib/rateLimit.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
 import { parse, storableDate } from '../../lib/validate.js';
@@ -49,6 +49,7 @@ import {
 import { readReceiptsChanged } from '../../services/watermarks.js';
 import { checkPassword, isUniqueViolation } from '../auth/service.js';
 import { dropFriendRequests } from '../friends/service.js';
+import { assertCodeAttempt, consumeSecondFactor, invalidCode } from '../mfa/service.js';
 import { deleteAccount } from './account.js';
 import { userChangedEffect } from './fanout.js';
 import { reevaluatePresence } from './presence.js';
@@ -428,6 +429,13 @@ router.delete('/me', authLimiter, async (req, res) => {
   const body = parse(deleteAccountSchema, req.body ?? {});
   const row = await requireUser(db, userId);
   if (!(await checkPassword(row, body.password))) throw forbidden('Incorrect password');
+  // Two-factor on: a stolen session plus the password isn't enough to delete the account.
+  if (row.totpSecret) {
+    if (!body.code)
+      throw new HttpError(400, 'invalid_code', 'Enter a two-factor code to delete your account');
+    assertCodeAttempt(userId);
+    if (!(await consumeSecondFactor(db, row, body.code))) throw invalidCode();
+  }
   await deleteAccount(userId);
   res.status(204).end();
 });

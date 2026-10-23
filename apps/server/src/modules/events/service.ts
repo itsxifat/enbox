@@ -352,7 +352,9 @@ async function assertVoiceChannel(
     .where(eq(chats.id, channelId))
     .limit(1);
   if (!chat || chat.spaceId !== access.ctx.spaceId) throw invalid('channelId', 'Unknown channel');
-  if (chat.type !== 'space_voice') throw invalid('channelId', 'Pick a voice channel');
+  // Voice events happen in a voice channel or on a Stage.
+  if (chat.type !== 'space_voice' && chat.type !== 'space_stage')
+    throw invalid('channelId', 'Pick a voice channel');
   const overwrites = (await loadChannelOverwrites(tx, [channelId])).get(channelId) ?? [];
   const bits = channelBits(access.ctx, userId, access.me, 'space_voice', overwrites, access.base);
   if (!hasPerm(bits, PERM.VIEW_CHANNEL)) throw invalid('channelId', 'Unknown channel');

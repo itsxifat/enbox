@@ -285,7 +285,7 @@ export async function spaceChannelSummaries(
   );
   const key = (c: ChatSummary) => [
     c.space!.categoryId ? (cats.get(c.space!.categoryId) ?? 0) : -1,
-    c.type === 'space_voice' ? 1 : 0,
+    c.type === 'space_voice' || c.type === 'space_stage' ? 1 : 0,
     c.space!.position,
   ];
   return [...map.values()].sort((a, b) => {

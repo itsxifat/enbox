@@ -61,6 +61,7 @@ import { useUi } from '@/stores/ui';
 import { useUser, useUserName } from '@/stores/users';
 import { useSpaceAuthor } from '@/stores/spaces';
 import { useLongPress } from '@/features/chats/useLongPress';
+import { StickerBody } from '@/features/stickers/StickerBody';
 import {
   canEdit,
   canPinMessage,
@@ -249,7 +250,11 @@ export function rowShape(m: ClientMessage, showSender: boolean) {
     (m.forwardCount > 0 && !deleted) ||
     (!!m.replyTo && !deleted) ||
     (!!m.statusReply && !deleted);
-  const visual = !deleted && (m.type === 'image' || m.type === 'video') && !!m.media;
+  // Several files of any kind render through MediaBody too (the mosaic, then file cards).
+  const visual =
+    !deleted &&
+    !!m.media &&
+    (m.type === 'image' || m.type === 'video' || (m.attachments?.length ?? 0) > 1);
   const caption = !deleted && m.text ? m.text : null;
   return { deleted, emojiCount, bare, hasHeader, visual, caption };
 }
@@ -780,15 +785,18 @@ export function MessageContent({
       </div>
     );
   }
+  // A sticker: its picture, frameless, with its own popout (no viewer).
+  if (m.sticker) return <StickerBody m={m} meta={<Meta m={m} mine={mine} chat={chat} />} />;
   if (visual) {
     const r = hasHeader ? 'rounded-md' : caption ? 'rounded-md' : 'rounded-[6px]';
     return (
       <>
         <MediaBody
           m={m}
+          mine={mine}
           rounded={r}
-          onOpen={() =>
-            useConversationUi.getState().openViewer({ chatId: chat.id, messageId: m.id })
+          onOpen={(index) =>
+            useConversationUi.getState().openViewer({ chatId: chat.id, messageId: m.id, index })
           }
           onRetry={() => retry(chat.id, m)}
         >
@@ -931,6 +939,8 @@ export const MessageRow = memo(function MessageRow({
   const showAvatar = isGroupish && !mine;
   const shape = rowShape(m, showSender);
   const { deleted, bare, hasHeader, visual } = shape;
+  // Stickers sit on the background like jumbo emoji (a quote or forward header keeps the bubble).
+  const frameless = bare || (!deleted && !!m.sticker && !hasHeader);
   const hasReactions = m.reactions.length > 0 && !deleted;
   const tail = bubbleStyle === 'classic' || bubbleStyle === 'cozy';
 
@@ -990,13 +1000,13 @@ export const MessageRow = memo(function MessageRow({
             className={cn(
               'msg-bubble relative min-w-0 max-w-full [touch-action:pan-y]',
               enter,
-              !bare && bubbleChrome(bubbleStyle, mine, row.firstInGroup),
-              !bare && (mine ? 'bg-bubble-out' : 'bg-bubble-in'),
-              !bare && (visual && !hasHeader ? 'p-[3px]' : 'px-1 pt-0.5 pb-0'),
-              m.failed && !bare && 'ring-1 ring-danger/60',
+              !frameless && bubbleChrome(bubbleStyle, mine, row.firstInGroup),
+              !frameless && (mine ? 'bg-bubble-out' : 'bg-bubble-in'),
+              !frameless && (visual && !hasHeader ? 'p-[3px]' : 'px-1 pt-0.5 pb-0'),
+              m.failed && !frameless && 'ring-1 ring-danger/60',
             )}
           >
-            {!bare && tail && row.firstInGroup ? <Tail mine={mine} /> : null}
+            {!frameless && tail && row.firstInGroup ? <Tail mine={mine} /> : null}
             {showSender ? <SenderName userId={m.senderId!} selecting={selecting} coloured /> : null}
             <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
             <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />

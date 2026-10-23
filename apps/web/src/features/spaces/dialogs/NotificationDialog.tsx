@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Folder, Hash, Volume2, X } from 'lucide-react';
+import { Folder, Hash, Podcast, Volume2, X } from 'lucide-react';
 import {
+  isVoiceChannelType,
   SPACE_MUTE_DURATIONS,
   isMuted,
   type ChatSummary,
@@ -151,7 +152,7 @@ function SpaceNotifications({ space: initial, onClose }: { space: Space; onClose
                   .filter((c) => !listed.has(c.id))
                   .map((c) => (
                     <option key={c.id} value={`channel:${c.id}`}>
-                      {c.type === 'space_voice' ? '' : '#'}
+                      {isVoiceChannelType(c.type) ? '' : '#'}
                       {c.name}
                     </option>
                   ))}
@@ -174,7 +175,9 @@ function SpaceNotifications({ space: initial, onClose }: { space: Space; onClose
 }
 
 function OverrideRowView({ row, spaceLevel, onClear }: { row: OverrideRow; spaceLevel: NotifyLevel; onClear: () => void }) {
-  const Icon = row.kind === 'category' ? Folder : row.channels[0]?.type === 'space_voice' ? Volume2 : Hash;
+  const first = row.channels[0]?.type;
+  const Icon =
+    row.kind === 'category' ? Folder : first === 'space_stage' ? Podcast : first === 'space_voice' ? Volume2 : Hash;
   const choices: { value: NotifyLevel | null; label: string }[] = [
     { value: null, label: `Default (${NOTIFY_LABELS[spaceLevel]})` },
     ...LEVELS.map((l) => ({ value: l, label: NOTIFY_LABELS[l] })),
@@ -229,7 +232,7 @@ function ChannelNotifications({ space, chat, onClose }: { space: Space; chat: Ch
     <Modal
       open
       onClose={onClose}
-      title={`Notifications for ${chat.type === 'space_voice' ? '' : '#'}${chat.name}`}
+      title={`Notifications for ${isVoiceChannelType(chat.type) ? '' : '#'}${chat.name}`}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

@@ -23,7 +23,7 @@
  *   pushes reach a recipient whose effective availability is `dnd` when the push is decided
  *   (`dismiss` is unaffected).
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   CALL_RING_TIMEOUT_MS,
   PUSH_MESSAGE_TTL_SEC,
@@ -146,7 +146,21 @@ export async function onMessageCreated({
   const [msg] = await toMessages(db, null, [message]);
   if (!msg) return;
   const senderId = message.senderId;
-  const refIds = uniq([senderId, ...msg.mentions]);
+  // A group DM without a name is titled with its other members' names (as each viewer sees them).
+  const unnamedGroupDm = chat.type === 'group' && chat.isGroupDm && !chat.name;
+  // The member list's order (owner first, then who joined first), so the title matches the app's.
+  const groupDmMemberIds = unnamedGroupDm
+    ? (
+        await db
+          .select({ userId: chatMembers.userId, role: chatMembers.role })
+          .from(chatMembers)
+          .where(and(eq(chatMembers.chatId, chat.id), isNull(chatMembers.leftAt)))
+          .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.userId))
+      )
+        .sort((a, b) => Number(b.role === 'owner') - Number(a.role === 'owner'))
+        .map((r) => r.userId)
+    : [];
+  const refIds = uniq([senderId, ...msg.mentions, ...groupDmMemberIds]);
   const [publics, groupIcon] = await Promise.all([
     toUserPublicsForPairs(
       db,
@@ -166,9 +180,14 @@ export async function onMessageCreated({
       : GENERIC_BODY;
     const direct = chat.type === 'direct';
     const icon = direct ? (sender?.avatarUrl ?? null) : groupIcon;
+    const others = groupDmMemberIds.filter((id) => id !== viewerId);
     const payload: PushPayload = {
       type: 'message',
-      title: direct ? senderName : (chat.name ?? 'Group'),
+      title: direct
+        ? senderName
+        : unnamedGroupDm
+          ? (others.length ? others : [viewerId]).map(nameOf).join(', ')
+          : (chat.name ?? 'Group'),
       body: direct || !s.notificationPreviews ? preview : `${senderName}: ${preview}`,
       tag: `chat:${chat.id}`,
       url: `/chats/${chat.id}`,

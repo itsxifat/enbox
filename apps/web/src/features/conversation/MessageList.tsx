@@ -53,6 +53,22 @@ export interface UnreadSnapshot {
   count: number;
 }
 
+/**
+ * The NEW line sits right after my read position: above the first message past `afterSeq`
+ * (system messages aside), mine included — Mark Unread on my own message puts my read position
+ * just before it (`buildRows` alone skips my messages). Placed on rows built without a divider,
+ * so the grouping around it is the one `buildRows` gives a divider. Pure (unit-tested).
+ */
+export function withUnreadDivider(rows: Row[], unread: UnreadSnapshot | null): Row[] {
+  if (!unread || unread.count <= 0) return rows;
+  const at = rows.findIndex((r) => r.message.seq > unread.afterSeq && r.message.type !== 'system');
+  if (at < 0) return rows;
+  const out = rows.slice();
+  out[at] = { ...rows[at]!, unreadDivider: unread.count, firstInGroup: true };
+  if (at > 0 && !rows[at]!.firstInGroup) out[at - 1] = { ...rows[at - 1]!, lastInGroup: true };
+  return out;
+}
+
 type Align = 'start' | 'center' | 'end';
 
 interface Track {
@@ -182,12 +198,7 @@ export const MessageList = memo(function MessageList({
   const rows = useMemo(() => {
     const next = reuseRows(
       prevRows.current,
-      buildRows(items, {
-        meId: me,
-        unreadAfterSeq: unread?.afterSeq,
-        unreadCount: unread?.count,
-        hasMoreBefore: msgs.hasMoreBefore,
-      }),
+      withUnreadDivider(buildRows(items, { meId: me, hasMoreBefore: msgs.hasMoreBefore }), unread),
     );
     prevRows.current = next;
     return next;

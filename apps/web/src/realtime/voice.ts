@@ -5,16 +5,19 @@ import { useAuth } from '@/stores/auth';
 import { useVoice } from '@/stores/voice';
 
 /**
- * `voice:state` keeps everyone's voice states current; `voice:disconnected` ends mine;
- * `voice:moved` (a moderator dragged me) swaps my media room for the new channel's.
+ * `voice:state` keeps everyone's voice states current (Stage roles and hands included; the
+ * voice engine follows my own role); `voice:disconnected` ends mine; `voice:moved` (a
+ * moderator dragged me) swaps my media room for the new channel's.
  */
 export function registerVoiceHandlers(socket: AppSocket): void {
   socket.on('voice:state', (p) => {
-    const before = useVoice.getState().byUser[p.userId]?.channelId;
+    const prev = useVoice.getState().byUser[p.userId];
+    const before = prev?.channelId;
     useVoice.getState().applyState(p);
-    // Discord's join/leave chime for my own channel.
+    // Discord's join/leave chime for my own channel; a Stage audience comes and goes quietly.
     const mine = useVoice.getState().connection;
     if (!mine || mine.status !== 'connected' || p.userId === useAuth.getState().user?.id) return;
+    if ((p.state ?? prev)?.suppressed) return;
     if (p.state && p.state.channelId === mine.channelId && before !== mine.channelId) playSound('sent');
     else if (!p.state && p.channelId === mine.channelId && before === mine.channelId) playSound('end');
   });

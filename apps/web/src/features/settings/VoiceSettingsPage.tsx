@@ -1,9 +1,10 @@
 import { AudioLines, AudioWaveform, Gauge, Speaker } from 'lucide-react';
 import { voiceIsolationAvailable } from '@/features/calls/voice';
 import { useUi } from '@/stores/ui';
+import { SoundboardVolumeSetting } from '@/features/soundboard/SoundboardVolumeSetting';
 import { SettingsGroup, SettingsScroller, SwitchRow } from './ui';
 
-/** Settings → Voice and video: microphone processing for calls (device preferences). */
+/** Settings → Voice and video: microphone processing for calls and the soundboard volume (device preferences). */
 export function VoiceSettingsPage() {
   const prefs = useUi((s) => s.prefs);
   const set = useUi.getState().setPref;
@@ -47,6 +48,9 @@ export function VoiceSettingsPage() {
           checked={prefs.autoGainControl}
           onChange={(v) => set('autoGainControl', v)}
         />
+      </SettingsGroup>
+      <SettingsGroup title="Soundboard" footer="Sounds people play in your voice channel, on this device.">
+        <SoundboardVolumeSetting />
       </SettingsGroup>
     </SettingsScroller>
   );

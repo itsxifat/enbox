@@ -97,12 +97,16 @@ export function userDisplayName(
 }
 
 /** Title for a chat row/header. Pass `meId` to label the "Message yourself" chat. */
-export function chatTitle(chat: Pick<ChatSummary, 'type' | 'name' | 'peer'>, meId?: ID): string {
+export function chatTitle(
+  chat: Pick<ChatSummary, 'type' | 'name' | 'peer' | 'isGroupDm'>,
+  meId?: ID,
+): string {
   if (chat.type === 'direct') {
     const title = userDisplayName(chat.peer);
     return meId && chat.peer?.id === meId ? `${title} (You)` : title;
   }
-  return chat.name ?? 'Untitled';
+  // Unnamed group DMs show their members' names where the members are loaded (web: useChatTitle).
+  return chat.name ?? (chat.isGroupDm ? 'Group DM' : 'Untitled');
 }
 
 /** Wording kind of a chat (announcement groups speak about the "community"). */
@@ -116,15 +120,26 @@ export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): 
 // Chat type predicates (use these instead of comparing `type` to string literals)
 // ---------------------------------------------------------------------------
 
-/** A text or voice channel of a Space, or a thread of one. */
+/**
+ * Every Space chat type. Server queries that keep Space chats out of the chat list or the
+ * real chat rooms use this list, so a new channel type can't slip past their visibility checks.
+ */
+export const SPACE_CHAT_TYPES = [
+  'space_text',
+  'space_voice',
+  'space_thread',
+  'space_forum',
+  'space_stage',
+] as const satisfies readonly SpaceChannelType[];
+
+/** A channel of a Space (text, voice, forum, Stage), or a thread of one. */
 export function isSpaceChatType(type: ChatType): type is SpaceChannelType {
-  return (
-    type === 'space_text' ||
-    type === 'space_voice' ||
-    type === 'space_thread' ||
-    type === 'space_forum' ||
-    type === 'space_stage'
-  );
+  return (SPACE_CHAT_TYPES as readonly ChatType[]).includes(type);
+}
+
+/** A channel people join to talk: voice channels and Stages. */
+export function isVoiceChannelType(type: ChatType): boolean {
+  return type === 'space_voice' || type === 'space_stage';
 }
 
 /** A thread (a `space_thread` under a text channel). */
@@ -175,7 +190,13 @@ const NO_PERMISSIONS: ChatPermissions = Object.freeze({
 
 export type ChatPermissionInput = Pick<
   ChatSummary,
-  'type' | 'isAnnouncement' | 'myRole' | 'membership' | 'groupSettings' | 'channelSettings'
+  | 'type'
+  | 'isAnnouncement'
+  | 'isGroupDm'
+  | 'myRole'
+  | 'membership'
+  | 'groupSettings'
+  | 'channelSettings'
 > & {
   peer: Pick<UserPublic, 'id' | 'isBlocked' | 'isDeleted'> | null;
   /** Space channels: the viewer's bits in the channel (permissions.ts). */
@@ -191,7 +212,8 @@ export function spaceChannelPermissions(bits: number, type: SpaceChannelType): C
   const manageMessages = hasPerm(bits, PERM.MANAGE_MESSAGES);
   return {
     ...NO_PERMISSIONS,
-    canSend: (type === 'space_text' || type === 'space_thread') && hasPerm(bits, PERM.SEND_MESSAGES),
+    canSend:
+      (type === 'space_text' || type === 'space_thread') && hasPerm(bits, PERM.SEND_MESSAGES),
     canEditInfo: hasPerm(bits, PERM.MANAGE_CHANNELS),
     canPin: manageMessages,
     canInvite: hasPerm(bits, PERM.CREATE_INVITE),
@@ -255,6 +277,22 @@ export function computeChatPermissions(chat: ChatPermissionInput, viewerId: ID):
     };
   }
 
+  if (chat.isGroupDm) {
+    // Group DMs: everyone talks, renames, pins, calls and adds friends; only the owner removes
+    // members. No invite links, no admins, and nobody deletes other people's messages.
+    return {
+      ...NO_PERMISSIONS,
+      canSend: true,
+      canEditInfo: true,
+      canAddMembers: true,
+      canRemoveMembers: chat.myRole === 'owner',
+      canPin: true,
+      canCall: true,
+      canLeave: true,
+      canViewMembers: true,
+    };
+  }
+
   const gs = chat.groupSettings ?? DEFAULT_GROUP_SETTINGS;
   const canSend = !gs.onlyAdminsCanSend || admin;
   const canEditInfo = !gs.onlyAdminsCanEditInfo || admin;
@@ -288,12 +326,13 @@ const EDITABLE_TYPES = new Set<Message['type']>([
  * the sender in direct/group chats, any channel admin for channel posts.
  */
 export function canEditMessage(
-  message: Pick<Message, 'type' | 'senderId' | 'deletedAt' | 'createdAt'>,
+  message: Pick<Message, 'type' | 'senderId' | 'deletedAt' | 'createdAt' | 'sticker'>,
   chat: Pick<ChatSummary, 'type' | 'permissions'>,
   viewerId: ID,
   now: number = Date.now(),
 ): boolean {
-  if (message.deletedAt || !EDITABLE_TYPES.has(message.type)) return false;
+  // A sticker message is an `image` with no caption to edit.
+  if (message.deletedAt || message.sticker || !EDITABLE_TYPES.has(message.type)) return false;
   if (now - Date.parse(message.createdAt) > EDIT_WINDOW_MS) return false;
   return chat.type === 'channel'
     ? chat.permissions.canSend
@@ -689,6 +728,12 @@ export function messagePreviewText(
       : 'This message was deleted';
   }
   const caption = message.text ? renderMentions(message.text, nameOf).trim() : '';
+  if (message.sticker) return `🖼️ Sticker: ${message.sticker.name}`;
+  const files = message.attachments?.length ?? 0;
+  if (files > 1) {
+    const photos = message.attachments!.every((a) => a.kind === 'image');
+    return `${photos ? '📷' : '📎'} ${caption || `${files} ${photos ? 'photos' : 'files'}`}`;
+  }
   switch (message.type) {
     case 'text':
       return caption;

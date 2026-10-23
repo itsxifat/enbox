@@ -9,7 +9,8 @@ import { joinVoice, leaveVoice, updateVoice } from './service.js';
 /**
  * Voice socket handlers: `voice:join` (ack: LiveKit URL + token), `voice:leave`,
  * `voice:update` (my flags). A socket that disconnects leaves its voice channel; the client
- * rejoins after `ready` (the media connection survives short socket drops).
+ * rejoins after `ready` (the media connection survives short socket drops; a Stage speaker
+ * gets the seat back, see `leaveVoice`). Stage hands and seats are REST (routes.ts).
  */
 export const registerVoiceSocket: SocketRegistrar = (_io, socket) => {
   socket.on(
@@ -38,7 +39,8 @@ export const registerVoiceSocket: SocketRegistrar = (_io, socket) => {
   );
 
   socket.on('disconnect', () => {
-    void leaveVoice(socket.data.userId, socket.id).catch((err: unknown) =>
+    // Dropped, not left: a Stage speaker coming back soon keeps the seat.
+    void leaveVoice(socket.data.userId, socket.id, { socketGone: true }).catch((err: unknown) =>
       logger.error({ err }, 'voice leave on disconnect failed'),
     );
   });

@@ -11,6 +11,7 @@ import { HeaderSearch } from '@/features/search/HeaderSearch';
 import { ThreadsButton } from '@/features/threads/ThreadsButton';
 import { VoiceChannelView } from '@/features/voice/VoiceChannelView';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { lazyNamed } from '@/lib/lazy';
 import { focusSpaceChannel } from '@/realtime/spaces';
 import { useChat, useChats } from '@/stores/chats';
 import { useSpace, useSpaces } from '@/stores/spaces';
@@ -19,6 +20,9 @@ import { ChannelDialog } from './dialogs/ChannelDialog';
 import { NotificationDialog } from './dialogs/NotificationDialog';
 import { MemberList } from './MemberList';
 import { useSpacesUi } from './ui';
+
+/** Stage channels (features/voice): split out, loaded when one is opened. */
+const StageChannelView = lazyNamed(() => import('@/features/voice/StageChannelView'), 'StageChannelView');
 
 function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
   const desktop = useIsDesktop();
@@ -108,6 +112,7 @@ export function SpaceChannelPane() {
   }
   if (chat.space?.spaceId !== space.id) return <Navigate to={`/spaces/${chat.space?.spaceId ?? ''}/${chat.id}`} replace />;
   if (chat.type === 'space_voice') return <VoiceChannelView chat={chat} space={space} />;
+  if (chat.type === 'space_stage') return <StageChannelView chat={chat} space={space} />;
   if (chat.type === 'space_forum') return <ForumChannelView key={chat.id} chat={chat} space={space} />;
   const seq = Number(params.get('m'));
   const target = Number.isInteger(seq) && seq > 0 ? { seq, messageId: params.get('mid') ?? undefined } : null;

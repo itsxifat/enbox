@@ -11,6 +11,7 @@ import { PageSpinner } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { lazyNamed } from '@/lib/lazy';
 import { useSettingsLayer } from '@/features/settings/SettingsLayer';
+import { AppChrome } from '@/features/chrome/AppChrome';
 import { BottomTabs } from './BottomTabs';
 import { ConnectionBanner } from './ConnectionBanner';
 import { SpaceRail } from '@/features/spaces/SpaceRail';
@@ -51,7 +52,8 @@ function phoneFriendsRedirect(location: Location): string | null {
  * Phone: [section] + the floating bottom tabs (Servers, Messages, Notifications, You).
  * The call overlay (agent 4) floats above everything; the profile card host renders the
  * card opened through the bus (`profile:open`) from anywhere in the app; KeyboardShortcuts
- * owns Ctrl+K (Quick Switcher) and the other app-wide keys.
+ * owns Ctrl+K (Quick Switcher) and the other app-wide keys; AppChrome (features/chrome) keeps
+ * the tab title and badges current and shows the Streamer Mode bar.
  */
 export function AppShell() {
   const desktop = useIsDesktop();
@@ -74,6 +76,8 @@ export function AppShell() {
         aria-hidden={layer.open || undefined}
         data-testid="app-base"
       >
+        {/* Tab title, favicon and app badges, Streamer Mode (its banner sits here). */}
+        <AppChrome />
         <ConnectionBanner />
         <UNSAFE_LocationContext.Provider value={base.location}>
           <UNSAFE_RouteContext.Provider value={base.route}>

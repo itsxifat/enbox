@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { TriangleAlert } from 'lucide-react';
-import { Button, Checkbox, confirm, toast } from '@/components/ui';
+import { Button, Checkbox, Input, confirm, toast } from '@/components/ui';
 import { PasswordInput } from '@/features/auth/PasswordInput';
 import { ApiError, api, errorMessage } from '@/lib/api';
 import { useAuth, useMe } from '@/stores/auth';
@@ -15,18 +15,28 @@ const CONSEQUENCES = [
   'Messages you already sent stay visible to others as "Deleted account"',
 ];
 
-/** Settings → Account → Delete account (password + explicit acknowledgement). */
+/**
+ * Settings → Account → Delete account (password + explicit acknowledgement; with two-factor on,
+ * also a code from the authenticator app or a backup code).
+ */
 export function DeleteAccountPage() {
   const me = useMe();
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const mfa = !!me?.mfaEnabled;
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!password) {
       setError('Enter your password to confirm');
+      return;
+    }
+    if (mfa && !code.trim()) {
+      setCodeError('Enter a 6-digit code or a backup code');
       return;
     }
     const ok = await confirm({
@@ -39,13 +49,15 @@ export function DeleteAccountPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.delete('/api/me', { password });
+      await api.delete('/api/me', mfa ? { password, code: code.trim() } : { password });
       await useAuth.getState().logout({ remote: false });
       toast.info('Your account was deleted');
     } catch (err) {
       setBusy(false);
       if (err instanceof ApiError && err.code === 'forbidden')
         setError(err.message || 'Incorrect password');
+      else if (err instanceof ApiError && err.code === 'invalid_code')
+        setCodeError(err.message || 'Invalid two-factor code');
       else setError(errorMessage(err));
     }
   };
@@ -88,6 +100,25 @@ export function DeleteAccountPage() {
             }}
             error={error ?? undefined}
           />
+          {mfa ? (
+            <Input
+              label="Authentication or backup code"
+              name="code"
+              autoComplete="one-time-code"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={12}
+              placeholder="6-digit code or xxxx-xxxx"
+              className="font-mono tracking-wide"
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value);
+                setCodeError(null);
+              }}
+              error={codeError ?? undefined}
+            />
+          ) : null}
           <Checkbox checked={ack} onChange={setAck} label="I understand this can't be undone" />
           <Button
             type="submit"

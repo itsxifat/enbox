@@ -12,7 +12,11 @@ import { SERVER_RATE_LIMITS, assertUserLimit, limitUser } from '../../lib/userLi
 import { emitToChat, emitToRooms } from '../../realtime/emit.js';
 import { socketHandler } from '../../realtime/handler.js';
 import { onBeforeReady } from '../../realtime/hooks.js';
-import { loadedChannelBits, loadedSpaceOf } from '../../realtime/spaceRegistry.js';
+import {
+  loadedChannelBits,
+  loadedSpaceOf,
+  loadedThreadParent,
+} from '../../realtime/spaceRegistry.js';
 import type { SocketRegistrar } from '../../realtime/types.js';
 import { getChatAccess } from '../../services/chats.js';
 import { transact } from '../../services/effects.js';
@@ -70,17 +74,21 @@ export const registerChatsSocket: SocketRegistrar = (_io, socket) => {
     socketHandler(socket, typingPayloadSchema, async ({ chatId, state }, { userId }) => {
       if (!allowTyping(socket.id, chatId, state)) return;
       if (!(await canRelayTyping(userId, chatId))) return;
-      // Space channels: only the devices that have the channel open (`space:focus`).
-      if (loadedSpaceOf(chatId))
+      // Space channels: only the devices that have the channel open (`space:focus`). A
+      // thread's panel sits beside its parent channel, which is what those devices focus.
+      if (loadedSpaceOf(chatId)) {
+        const parentId = loadedThreadParent(chatId);
         emitToRooms(
-          [rooms.chatFocus(chatId)],
+          parentId
+            ? [rooms.chatFocus(chatId), rooms.chatFocus(parentId)]
+            : [rooms.chatFocus(chatId)],
           'chat:typing',
           { chatId, userId, state },
           {
             exceptUserIds: [userId],
           },
         );
-      else
+      } else
         emitToChat(chatId, 'chat:typing', { chatId, userId, state }, { exceptUserIds: [userId] });
     }),
   );

@@ -295,6 +295,8 @@ export const changePasswordSchema = z.object({
 
 export const deleteAccountSchema = z.object({
   password: z.string().min(1).max(256),
+  /** Two-factor on: a code from the authenticator app or an unused backup code. */
+  code: z.string().trim().min(1).max(20).optional(),
 });
 
 export const updateProfileSchema = z.object({
@@ -882,7 +884,7 @@ const forumChannelFields = {
 };
 
 export const createSpaceChannelSchema = z.object({
-  type: z.enum(['space_text', 'space_voice', 'space_forum']),
+  type: z.enum(['space_text', 'space_voice', 'space_forum', 'space_stage']),
   name: channelNameSchema,
   categoryId: idSchema.nullable().optional(),
   topic: nullableTrimmed(CHANNEL_TOPIC_MAX_LENGTH).optional(),

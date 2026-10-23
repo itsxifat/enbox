@@ -1,10 +1,18 @@
 /** Shared rules for file uploads in a conversation (drop overlay, composer tray). */
-import { PERM, chatTitle, hasPerm, type ChatSummary } from '@enbox/shared';
+import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  PERM,
+  chatTitle,
+  hasPerm,
+  type ChatSummary,
+} from '@enbox/shared';
 
 export const NO_UPLOAD_PERMISSION = 'You do not have permission to upload files here';
 
-/** Files per send (each one becomes its own message). */
-export const MAX_ATTACHMENTS = 10;
+/** Files per send: they all go in one message. */
+export const MAX_ATTACHMENTS = MAX_ATTACHMENTS_PER_MESSAGE;
+
+export const TOO_MANY_ATTACHMENTS = `You can only upload ${MAX_ATTACHMENTS} files at a time`;
 
 /** Whether the viewer may attach files here (Space channels: the computed ATTACH_FILES bit). */
 export function canAttachFiles(chat: Pick<ChatSummary, 'space' | 'spacePermissions'>): boolean {

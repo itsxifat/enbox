@@ -10,7 +10,10 @@
  * Actions
  * - `bootstrap()`          token → GET /api/me. 401 → anonymous. Network/server error →
  *                          authenticated with the cached user, else keeps retrying.
- * - `login(req)`           POST /api/auth/login → authenticated (returns the user)
+ * - `login(req)`           POST /api/auth/login → authenticated (returns the user), or — with
+ *                          two-factor on — an `MfaChallenge` and no session yet (see
+ *                          `isMfaChallenge`): finish with `loginMfa({ ticket, code })`
+ * - `loginMfa(req)`        POST /api/auth/login/mfa → authenticated (returns the user)
  * - `register(req)`        POST /api/auth/register → authenticated
  * - `logout({ remote })`   best-effort POST /api/auth/logout (+ push unsubscribe) unless
  *                          `remote: false`, then disconnects the socket and resets every
@@ -21,7 +24,14 @@
  * Helpers: `useMe()` (UserSelf | null), `getMe()`, `getMyId()`.
  */
 import { create } from 'zustand';
-import type { AuthResponse, LoginRequest, RegisterRequest, UserSelf } from '@enbox/shared';
+import type {
+  AuthResponse,
+  LoginMfaRequest,
+  LoginRequest,
+  MfaChallenge,
+  RegisterRequest,
+  UserSelf,
+} from '@enbox/shared';
 import { ApiError, api, setApiToken, setUnauthorizedHandler } from '@/lib/api';
 import { deviceName } from '@/lib/device';
 import { disablePush } from '@/lib/push';
@@ -39,7 +49,9 @@ export interface AuthState {
   bootError: string | null;
 
   bootstrap(): Promise<void>;
-  login(req: LoginRequest): Promise<UserSelf>;
+  /** The user, or a challenge when the account has two-factor on (then call `loginMfa`). */
+  login(req: LoginRequest): Promise<UserSelf | MfaChallenge>;
+  loginMfa(req: LoginMfaRequest): Promise<UserSelf>;
   register(req: RegisterRequest): Promise<UserSelf>;
   logout(opts?: { remote?: boolean }): Promise<void>;
   setUser(user: UserSelf): void;
@@ -48,6 +60,11 @@ export interface AuthState {
 
 let bootstrapping: Promise<void> | null = null;
 let loggingOut: Promise<void> | null = null;
+
+/** `login()`'s answer for an account with two-factor on: no session yet, ask for a code. */
+export function isMfaChallenge(res: UserSelf | AuthResponse | MfaChallenge): res is MfaChallenge {
+  return (res as Partial<MfaChallenge>).mfaRequired === true;
+}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -125,11 +142,17 @@ export const useAuth = create<AuthState>((set, get) => {
     },
 
     async login(req) {
-      const res = await api.post<AuthResponse>(
+      const res = await api.post<AuthResponse | MfaChallenge>(
         '/api/auth/login',
         { ...req, deviceName: req.deviceName ?? deviceName() },
         { auth: false },
       );
+      // Two-factor on: the ticket carries the device name to the second step.
+      return isMfaChallenge(res) ? res : startSession(res);
+    },
+
+    async loginMfa(req) {
+      const res = await api.post<AuthResponse>('/api/auth/login/mfa', req, { auth: false });
       return startSession(res);
     },
 

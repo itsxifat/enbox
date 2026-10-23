@@ -6,10 +6,11 @@
  * slide up locks).
  *
  * Files (paste, drop anywhere over the conversation — see dropzone/ — and "+" picks) wait
- * in the attachment tray and go with the next send: the text becomes the first file's
- * caption, each file its own message, up to MAX_ATTACHMENTS at a time. A Shift-drop uploads
- * right away. Phones keep the full-screen preview with captions for photo/video picks and
- * the camera. Space channels need ATTACH_FILES for any of it.
+ * in the attachment tray and go with the next send as ONE message (Discord: up to
+ * MAX_ATTACHMENTS, the text its caption, alt text per photo): every file uploads with its
+ * progress on its tile, then the message is sent; a failed upload keeps the tray (Retry).
+ * A Shift-drop sends right away. Phones keep the full-screen preview with a caption for
+ * photo/video picks and the camera. Space channels need ATTACH_FILES for any of it.
  */
 import {
   Suspense,
@@ -27,7 +28,6 @@ import { Check, Mic, Pencil, PlusCircle, Smile, X, Camera, Keyboard } from 'luci
 import {
   MAX_CAPTION_LENGTH,
   MAX_MESSAGE_LENGTH,
-  chatTitle,
   MAX_UPLOAD_BYTES,
   formatBytes,
   userDisplayName,
@@ -38,7 +38,6 @@ import { IconButton, Spinner } from '@/components/ui';
 import { useBus } from '@/hooks/useBus';
 import { useIsDesktop, useIsTouch } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
-import { readAudioDuration } from '@/lib/media';
 import { playSound } from '@/lib/notify';
 import { useAuth } from '@/stores/auth';
 import { useMessages, type ClientMessage } from '@/stores/messages';
@@ -47,9 +46,12 @@ import { mentionName } from '@/features/chats/preview';
 import { getDraft, useDrafts } from '@/features/chats/drafts';
 import { useSpaceMentionCandidates, type MentionCandidate } from '@/features/spaces/mentions';
 import { AutoModBlockedNotice } from '@/features/spaces/automod/AutoModBlockedNotice';
+import { StickerButton } from '@/features/stickers/StickerButton';
+import { sendSticker } from '@/features/stickers/send';
 import { useSpaces } from '@/stores/spaces';
 import { canEdit, previewOf, saveEdit } from '../actions';
 import { ReplyQuote } from '../bubbles/Quote';
+import { useChatTitle } from '@/features/groupDms/title';
 import { LazyEmojiPicker } from '../lazy';
 import {
   activeMentionQuery,
@@ -62,10 +64,14 @@ import {
   type MentionQuery,
   type MentionRef,
 } from '../lib/composerMentions';
-import { MAX_ATTACHMENTS, NO_UPLOAD_PERMISSION, canAttachFiles } from '../dropzone/files';
-import { prepareEach, prepareVisualMedia } from '../lib/mediaProcessing';
+import {
+  MAX_ATTACHMENTS,
+  NO_UPLOAD_PERMISSION,
+  TOO_MANY_ATTACHMENTS,
+  canAttachFiles,
+} from '../dropzone/files';
 import { VoiceRecording, recordingSupported } from '../lib/recorder';
-import { enqueueMedia, sendMedia, type MediaSendInput } from '../lib/sendMedia';
+import { sendAttachments, sendMedia, uploadAll, type AttachmentLead } from '../lib/sendMedia';
 import { sendQueued } from '../lib/outbox';
 import { createTypingEmitter } from '../lib/typing';
 import { useChatMembers } from '../members';
@@ -73,7 +79,15 @@ import { useConversationUi } from '../state';
 import { applyCommand, commandQuery, matchCommands, type SlashCommand } from '../commands/commands';
 import { CommandSuggestions } from '../commands/CommandSuggestions';
 import { AttachMenu, type AttachKind } from './AttachMenu';
-import { AttachmentTray, trayFile, trayItem, type TrayItem } from './AttachmentTray';
+import {
+  AttachmentTray,
+  trayFile,
+  trayItem,
+  type TrayEdit,
+  type TrayItem,
+  type TrayStatus,
+  type TrayUpload,
+} from './AttachmentTray';
 import { CameraDialog, ContactPickerDialog, LocationDialog, PollDialog } from './AttachDialogs';
 import { MediaPreviewDialog } from './MediaPreviewDialog';
 import { MentionSuggestions } from './MentionSuggestions';
@@ -85,8 +99,11 @@ const NO_COMMANDS: SlashCommand[] = [];
 
 type Dialog = 'location' | 'contact' | 'poll' | 'camera' | null;
 
-/** What goes on the first message of a batch of uploads (the rest carry neither). */
-type Lead = Pick<MediaSendInput, 'caption' | 'replyToId' | 'replyTo' | 'mentionRepliedAuthor'>;
+/** What goes with the tray's files: the caption and the reply. */
+type Lead = AttachmentLead;
+
+/** Files can't be added while the tray's files are being sent. */
+const TRAY_BUSY = 'Wait until your files are sent';
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -109,6 +126,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const editing = useConversationUi((s) => s.editing[chat.id]);
   const focusToken = useConversationUi((s) => s.focusToken);
   const members = useChatMembers(chat);
+  // Unnamed group DMs: their members' names.
+  const title = useChatTitle(chat);
   const listId = useId();
   const isSpace = chat.type === 'space_text' || chat.type === 'space_thread';
   const mentionable = chat.type === 'group' || isSpace;
@@ -153,6 +172,13 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     trayRef.current = next;
     setTrayState(next);
   };
+  // The tray's send in flight: its files upload (progress on their tiles), then go as one
+  // message with the caption and reply it started with — held here, the field is free for the
+  // next message meanwhile. Set while `trayStatus` is 'sending'.
+  const [trayStatus, setTrayStatus] = useState<TrayStatus>('idle');
+  const batch = useRef<{ lead: Lead; controller: AbortController } | null>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
   const canAttach = canAttachFiles(chat);
   const ta = useRef<HTMLTextAreaElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
@@ -382,7 +408,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       });
       return;
     }
-    if (trayRef.current.length) {
+    // While the tray's files are on their way, typed text goes as a message of its own.
+    if (trayRef.current.length && !batch.current) {
       sendWithAttachments(encoded);
       return;
     }
@@ -480,26 +507,26 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     return files.filter((f) => f.size <= MAX_UPLOAD_BYTES);
   };
 
-  const sendVisual = async (items: { file: File; caption: string }[]) => {
+  /** The phone preview's Send: its photos and videos join the tray and go with its caption. */
+  const sendPreview = ({
+    caption,
+    items,
+  }: {
+    caption: string;
+    items: { file: File; description: string }[];
+  }) => {
     setPreview(null);
-    const r = replyFields(reply);
-    const captions = items.map((it) => encodeMentions(it.caption, refs.current));
-    clearAfterSend();
-    // One file at a time (decoding every picked photo at once runs phones out of memory).
-    // Each bubble appears when its file is ready, and uploads run in order while the next
-    // file is being processed.
-    let uploads = Promise.resolve();
-    let first = true;
-    await prepareEach(
-      items,
-      (p, _item, i) => {
-        const job = enqueueMedia(chat.id, { ...p, ...(first ? r : {}), caption: captions[i] });
-        first = false;
-        uploads = uploads.then(job).catch(() => undefined);
-      },
-      (item) => toast.error(`Couldn’t process “${item.file.name}”`),
-    );
-    await uploads;
+    if (batch.current) {
+      toast.info(TRAY_BUSY, { id: 'tray-busy' });
+      return;
+    }
+    const list = capped(items, MAX_ATTACHMENTS - trayRef.current.length);
+    if (!list.length) return;
+    setTray([
+      ...trayRef.current,
+      ...list.map((it) => ({ ...trayItem(it.file), description: it.description.trim() })),
+    ]);
+    sendWithAttachments(encodeMentions(caption, refs.current).trim());
   };
 
   /** Space channels without ATTACH_FILES: say so and refuse. */
@@ -510,87 +537,145 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   };
 
   /** At most `room` of the files; the rest is refused with a toast. */
-  const capped = (files: File[], room: number) => {
+  const capped = <T,>(files: T[], room: number): T[] => {
     if (files.length <= room) return files;
-    toast.error(`You can upload up to ${MAX_ATTACHMENTS} files at a time`, {
-      id: 'attach-limit',
-    });
+    toast.error(TOO_MANY_ATTACHMENTS, { id: 'attach-limit' });
     return files.slice(0, Math.max(0, room));
   };
 
   const addToTray = (files: File[]) => {
     if (!files.length || attachDenied()) return;
+    if (batch.current) {
+      toast.info(TRAY_BUSY, { id: 'tray-busy' });
+      return;
+    }
     const list = capped(tooBig(files), MAX_ATTACHMENTS - trayRef.current.length);
     if (!list.length) return;
     setTray([...trayRef.current, ...list.map(trayItem)]);
     if (!touch) requestAnimationFrame(() => ta.current?.focus({ preventScroll: true }));
   };
 
-  const removeFromTray = (id: string) => setTray(trayRef.current.filter((i) => i.id !== id));
-
-  const editTrayItem = (id: string, patch: Partial<Pick<TrayItem, 'name' | 'spoiler'>>) =>
-    setTray(trayRef.current.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-
-  /**
-   * Upload files in order, one message each, `lead` (caption, reply) on the first. Photos and
-   * videos are processed one at a time (decoding several at once runs phones out of memory):
-   * each bubble appears when its file is ready, while the uploads before it run in order.
-   */
-  const uploadItems = async (items: TrayItem[], lead: Lead) => {
-    let uploads = Promise.resolve();
-    let pending: Lead | null = lead;
-    for (const item of items) {
-      const file = trayFile(item);
-      let input: MediaSendInput;
-      if (item.kind === 'visual') {
-        try {
-          input = await prepareVisualMedia(file);
-        } catch {
-          toast.error(`Couldn’t process “${file.name}”`);
-          continue;
-        }
-      } else {
-        input = {
-          kind: item.kind,
-          blob: file,
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          durationMs:
-            item.kind === 'audio'
-              ? await readAudioDuration(file).catch(() => undefined)
-              : undefined,
-        };
-      }
-      const job = enqueueMedia(chat.id, { ...input, ...pending });
-      pending = null;
-      uploads = uploads.then(job).catch(() => undefined);
-    }
-    // Nothing could be sent: the typed text still goes, on its own.
-    if (pending?.caption)
-      void sendQueued(
-        chat.id,
-        {
-          type: 'text',
-          text: pending.caption,
-          replyToId: pending.replyToId,
-          ...(pending.mentionRepliedAuthor === false ? { mentionRepliedAuthor: false } : {}),
-        },
-        { optimistic: pending.replyTo ? { replyTo: pending.replyTo } : undefined },
-      );
-    await uploads;
+  const removeFromTray = (id: string) => {
+    const next = trayRef.current.filter((i) => i.id !== id);
+    setTray(next);
+    if (!next.length) setTrayStatus('idle');
   };
 
-  /** Enter / Send with files in the tray: the text and every file. */
+  const editTrayItem = (id: string, patch: TrayEdit) =>
+    setTray(
+      trayRef.current.map((i) => {
+        if (i.id !== id) return i;
+        const next: TrayItem = { ...i, ...patch };
+        // Renamed or (un)marked as a spoiler: the file goes up again under its new name.
+        if (
+          (patch.name !== undefined && patch.name !== i.name) ||
+          (patch.spoiler !== undefined && patch.spoiler !== i.spoiler)
+        )
+          delete next.upload;
+        return next;
+      }),
+    );
+
+  const moveTrayItem = (from: number, to: number) => {
+    const next = trayRef.current.slice();
+    const [item] = next.splice(from, 1);
+    if (!item) return;
+    next.splice(to, 0, item);
+    setTray(next);
+  };
+
+  const patchUpload = (id: string, upload: TrayUpload) =>
+    setTray(trayRef.current.map((i) => (i.id === id ? { ...i, upload } : i)));
+
+  /**
+   * A cancelled or failed send's caption and reply come back to the composer (the caption
+   * before whatever was typed meanwhile), so the next Enter sends them with the files.
+   */
+  const restoreLead = (lead: Lead) => {
+    if (lead.caption) {
+      const d = decodeMentions(lead.caption, mentionName, roleName);
+      const typed = textRef.current;
+      setText(typed.trim() ? `${d.text}\n${typed}` : d.text);
+      refs.current = [...d.refs, ...refs.current];
+    }
+    const ui = useConversationUi.getState();
+    if (!lead.replyToId || ui.reply[chat.id]) return;
+    const m = useMessages.getState().byChat[chat.id]?.items.find((x) => x.id === lead.replyToId);
+    if (!m) return;
+    ui.setReply(chat.id, m);
+    if (lead.mentionRepliedAuthor === false) setPingOff(m.id);
+  };
+
+  /**
+   * Send the tray (see `batch`): upload what is not up yet, each tile showing its progress,
+   * then send ONE message of every file. A failure keeps the tray, the failed tiles marked
+   * (Retry = send again: only what is missing goes up), with the caption back in the field.
+   */
+  const runBatch = async (lead: Lead) => {
+    const chatId = chat.id;
+    const b = { lead, controller: new AbortController() };
+    batch.current = b;
+    setTrayStatus('sending');
+    const items = trayRef.current;
+    setTray(items.map((i) => (i.upload?.media ? i : { ...i, upload: { progress: 0 } })));
+    let error: unknown = null;
+    const media = await uploadAll(
+      items.map((i) => ({ id: i.id, file: trayFile(i), kind: i.kind, media: i.upload?.media })),
+      b.controller.signal,
+      {
+        onProgress: (id, progress) => patchUpload(id, { progress }),
+        onUploaded: (id, m) => patchUpload(id, { progress: 1, media: m }),
+        onFailed: (id, e) => {
+          error ??= e;
+          patchUpload(id, { progress: 0, failed: true });
+        },
+      },
+    );
+    if (batch.current !== b) return; // cancelled meanwhile
+    batch.current = null;
+    if (!media) {
+      setTrayStatus('failed');
+      restoreLead(lead);
+      toast.error(error ?? 'Couldn’t upload your files', { id: 'tray-upload' });
+      return;
+    }
+    setTray([]);
+    setTrayStatus('idle');
+    void sendAttachments(
+      chatId,
+      items.map((it, i) => ({
+        media: media[i]!,
+        description: it.kind === 'visual' ? it.description : null,
+      })),
+      lead,
+    );
+  };
+
+  /** Cancel the tray's send: back to editing (finished uploads are kept), the caption back. */
+  const cancelBatch = () => {
+    const b = batch.current;
+    if (!b) return;
+    batch.current = null;
+    b.controller.abort();
+    setTrayStatus('idle');
+    setTray(
+      trayRef.current.map((i) => ({
+        ...i,
+        upload: i.upload?.media ? { progress: 1, media: i.upload.media } : undefined,
+      })),
+    );
+    restoreLead(b.lead);
+  };
+
+  /** Enter / Send with files in the tray: ONE message of the text and every file. */
   const sendWithAttachments = (encoded: string) => {
     if (attachDenied()) return;
     if (encoded.length > MAX_MESSAGE_LENGTH) {
       toast.error(`Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters`);
       return;
     }
-    const items = trayRef.current;
     const r = replyFields(reply);
     const ping = pingFlag(reply);
-    setTray([]);
     clearAfterSend();
     if (sounds) playSound('sent');
     let lead: Lead = { ...r, ...ping, caption: encoded || undefined };
@@ -603,18 +688,26 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       );
       lead = {};
     }
-    void uploadItems(items, lead);
+    void runBatch(lead);
   };
 
-  /** Shift-drop: upload right away; the typed text stays. */
+  /**
+   * Shift-drop: the files go right away, in one message (the typed text stays). With files
+   * already waiting the drop joins them, like a plain one.
+   */
   const uploadNow = (files: File[]) => {
     if (!files.length || attachDenied()) return;
+    if (batch.current || trayRef.current.length) {
+      addToTray(files);
+      return;
+    }
     const list = capped(tooBig(files), MAX_ATTACHMENTS);
     if (!list.length) return;
+    setTray(list.map(trayItem));
     const r = replyFields(reply);
     const ping = pingFlag(reply);
     clearAfterAttachmentSend();
-    void uploadItems(list.map(trayItem), { ...r, ...ping });
+    void runBatch({ ...r, ...ping });
   };
 
   useBus('composer:files', ({ chatId, files, direct }) => {
@@ -745,18 +838,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
 
   const hasText = text.trim().length > 0;
   // Discord: Enter sends on desktop (no send button); touch keyboards and "Enter = new line"
-  // keep the button. Files waiting in the tray always show it.
+  // keep the button. Files waiting in the tray always show it (not while they are being sent).
   const showSend =
     (hasText && (touch || !enterToSend)) ||
-    tray.length > 0 ||
+    (tray.length > 0 && trayStatus !== 'sending') ||
     !!editing ||
     (voice?.locked ?? false);
   const showMic = !showSend && (!hasText || !!voice);
   const placeholder = chat.space
     ? `Message #${chat.name ?? 'channel'}`
     : chat.type === 'direct'
-      ? `Message @${chatTitle(chat)}`
-      : `Message ${chatTitle(chat)}`;
+      ? `Message @${title}`
+      : `Message ${title}`;
 
   return (
     <div
@@ -833,8 +926,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
             <AttachmentTray
               items={tray}
               touch={touch}
+              status={trayStatus}
               onRemove={removeFromTray}
               onChange={editTrayItem}
+              onReorder={moveTrayItem}
+              onRetry={editing ? undefined : send}
+              onCancel={cancelBatch}
               className="border-b border-line px-2.5"
             />
             <div className="flex min-h-11 items-end">
@@ -888,6 +985,22 @@ export function Composer({ chat }: { chat: ChatSummary }) {
                     if (!attachDenied()) setDialog('camera');
                   }}
                   className="m-1 mr-0 shrink-0 sm:hidden"
+                />
+              ) : null}
+              {!editing ? (
+                <StickerButton
+                  chat={chat}
+                  text={text}
+                  className={cn('m-1 mr-0 shrink-0', hasText && 'max-sm:hidden')}
+                  onPick={(sticker, fromText) => {
+                    // Sent at once (a reply when replying); a suggestion replaces the typed emoji.
+                    const r = replyFields(reply);
+                    const ping = pingFlag(reply);
+                    if (fromText) clearAfterSend();
+                    else clearAfterAttachmentSend();
+                    if (sounds) playSound('sent');
+                    void sendSticker(chat.id, sticker, { ...r, ...ping });
+                  }}
                 />
               ) : null}
               <IconButton
@@ -1023,7 +1136,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           files={preview}
           initialCaption={text}
           onClose={() => setPreview(null)}
-          onSend={(items) => void sendVisual(items)}
+          onSend={sendPreview}
         />
       ) : null}
       <LocationDialog

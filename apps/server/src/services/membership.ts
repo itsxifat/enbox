@@ -324,9 +324,10 @@ export async function changeRole(
 
 /**
  * Explicit ownership transfer (docs): `from` must be the active owner (403), `to` an active
- * member/follower (404). Demotes the old owner to admin in one statement, THEN promotes the
- * new one (per-row unique owner index). Registers the optional `owner_transferred` system
- * message → room, then `chat:upsert` → old and new owner. Caller adds `fx.membersChanged`.
+ * member/follower (404). Demotes the old owner to admin (group DMs, which have no admins: to
+ * member) in one statement, THEN promotes the new one (per-row unique owner index). Registers
+ * the optional `owner_transferred` system message → room, then `chat:upsert` → old and new
+ * owner. Caller adds `fx.membersChanged`.
  */
 export async function transferOwnership(
   tx: Tx,
@@ -344,7 +345,7 @@ export async function transferOwnership(
     await postSystemMessage(tx, fx, chat, input.systemEvent);
   await tx
     .update(chatMembers)
-    .set({ role: 'admin' })
+    .set({ role: chat.isGroupDm ? 'member' : 'admin' })
     .where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.userId, input.fromUserId)));
   await tx
     .update(chatMembers)

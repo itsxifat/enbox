@@ -8,7 +8,13 @@
  * message per pair (lateral), unread/mention counts, and `toMessages` for the last messages.
  */
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
-import type { ChatInfoChanges, ChatSummary, Message, UserPublic } from '@enbox/shared';
+import {
+  SPACE_CHAT_TYPES,
+  type ChatInfoChanges,
+  type ChatSummary,
+  type Message,
+  type UserPublic,
+} from '@enbox/shared';
 import { db, type DbOrTx } from '../db/index.js';
 import {
   chatMembers,
@@ -34,8 +40,8 @@ interface Entry {
   avatarKey: string | null;
 }
 
-/** Space chats (channels, forums and threads): computed access, never in the chat list. */
-const SPACE_TYPES = ['space_text', 'space_voice', 'space_thread', 'space_forum'] as const;
+/** Space chats (channels, forums, Stages and threads): computed access, never in the chat list. */
+const SPACE_TYPES = SPACE_CHAT_TYPES;
 
 /** The space channels among these chat ids (one query). */
 async function spaceChatIds(dbx: DbOrTx, chatIds: readonly string[]): Promise<Set<string>> {
@@ -286,6 +292,7 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       peer,
       communityId: chat.communityId,
       isAnnouncement: chat.isAnnouncement,
+      isGroupDm: chat.type === 'group' && chat.isGroupDm,
       memberCount,
       groupSettings: chat.type === 'group' ? chat.groupSettings : null,
       channelSettings: chat.type === 'channel' ? chat.channelSettings : null,

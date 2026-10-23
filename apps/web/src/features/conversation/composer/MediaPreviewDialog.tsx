@@ -1,21 +1,36 @@
 /**
- * Photos & videos preview before sending: large preview, per-item caption, thumbnails strip
- * (add more / remove), send. Images are re-encoded and videos get a poster on send.
+ * Photos & videos preview before sending (phones): large preview, alt text per item, the
+ * caption (the message's text), thumbnails strip (add more / remove), send — they all go as
+ * one message, through the composer's tray. Images are re-encoded and videos get a poster on
+ * send.
  */
 import { useEffect, useRef, useState } from 'react';
 import { ImagePlus, Play, X } from 'lucide-react';
-import { MAX_CAPTION_LENGTH, chatTitle, type ChatSummary } from '@enbox/shared';
+import {
+  MAX_ALT_TEXT_LENGTH,
+  MAX_CAPTION_LENGTH,
+  chatTitle,
+  type ChatSummary,
+} from '@enbox/shared';
 import { SendIcon } from '@/components/icons';
 import { IconButton, Portal, useFocusTrap, useOverlay, useScrollLock } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
 import { toast } from '@/stores/ui';
+import { MAX_ATTACHMENTS, TOO_MANY_ATTACHMENTS } from '../dropzone/files';
 import { isVisualMedia } from '../lib/mediaProcessing';
 
 export interface PreviewItem {
   id: string;
   file: File;
+  /** Alt text ('' = none). */
+  description: string;
+}
+
+/** What the preview sends: one message of the items, with the caption. */
+export interface PreviewSend {
   caption: string;
+  items: { file: File; description: string }[];
 }
 
 /**
@@ -49,18 +64,20 @@ export function MediaPreviewDialog({
   files: File[];
   initialCaption?: string;
   onClose: () => void;
-  onSend: (items: { file: File; caption: string }[]) => void;
+  onSend: (send: PreviewSend) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const addRef = useRef<HTMLInputElement>(null);
   const me = useAuth((s) => s.user?.id);
   const [items, setItems] = useState<PreviewItem[]>(() =>
-    files.map((file, i) => ({
+    files.slice(0, MAX_ATTACHMENTS).map((file, i) => ({
       id: `${i}-${file.name}-${file.size}`,
       file,
-      caption: i === 0 ? (initialCaption ?? '') : '',
+      description: '',
     })),
   );
+  const [caption, setCaption] = useState(initialCaption ?? '');
+  const [altOpen, setAltOpen] = useState(false);
   const [current, setCurrent] = useState(0);
   useOverlay(true, onClose);
   useScrollLock(true);
@@ -72,17 +89,24 @@ export function MediaPreviewDialog({
   useEffect(() => {
     if (!items.length) onClose();
   }, [items.length, onClose]);
+  useEffect(() => {
+    if (files.length > MAX_ATTACHMENTS) toast.error(TOO_MANY_ATTACHMENTS, { id: 'attach-limit' });
+  }, [files.length]);
   if (!item) return null;
 
   const add = (list: FileList | null) => {
     const picked = Array.from(list ?? []).filter(isVisualMedia);
     if (!picked.length) return;
+    const room = MAX_ATTACHMENTS - items.length;
+    if (picked.length > room) toast.error(TOO_MANY_ATTACHMENTS, { id: 'attach-limit' });
+    const added = picked.slice(0, Math.max(0, room));
+    if (!added.length) return;
     setItems((cur) => [
       ...cur,
-      ...picked.map((file, i) => ({
+      ...added.map((file, i) => ({
         id: `${Date.now()}-${i}-${file.name}`,
         file,
-        caption: '',
+        description: '',
       })),
     ]);
     setCurrent(items.length);
@@ -95,12 +119,18 @@ export function MediaPreviewDialog({
     setCurrent((c) => Math.max(0, Math.min(c > idx ? c - 1 : c, next.length - 1)));
   };
 
+  const describe = (description: string) =>
+    setItems((cur) => cur.map((x) => (x.id === item.id ? { ...x, description } : x)));
+
   const send = () => {
-    if (items.some((i) => i.caption.length > MAX_CAPTION_LENGTH)) {
+    if (caption.length > MAX_CAPTION_LENGTH) {
       toast.error(`Captions can be up to ${MAX_CAPTION_LENGTH} characters`);
       return;
     }
-    onSend(items.map((i) => ({ file: i.file, caption: i.caption })));
+    onSend({
+      caption,
+      items: items.map((i) => ({ file: i.file, description: i.description })),
+    });
   };
 
   const video = item.file.type.startsWith('video/');
@@ -138,7 +168,7 @@ export function MediaPreviewDialog({
             <img
               key={item.id}
               src={urls[item.id]}
-              alt="Selected"
+              alt={item.description || 'Selected'}
               className="max-h-full max-w-full rounded-lg object-contain"
             />
           )}
@@ -154,7 +184,7 @@ export function MediaPreviewDialog({
                   aria-label={`Item ${i + 1}`}
                   aria-current={i === current || undefined}
                   className={cn(
-                    'block size-14 overflow-hidden rounded-lg bg-white/10',
+                    'relative block size-14 overflow-hidden rounded-lg bg-white/10',
                     i === current ? 'ring-2 ring-brand' : 'opacity-70 hover:opacity-100',
                   )}
                 >
@@ -171,6 +201,14 @@ export function MediaPreviewDialog({
                   ) : (
                     <img src={urls[it.id]} alt="" className="size-full object-cover" />
                   )}
+                  {it.description.trim() ? (
+                    <span
+                      className="absolute bottom-0.5 left-0.5 rounded-[3px] bg-black/70 px-0.5 text-[9px] leading-3 font-bold"
+                      aria-hidden
+                    >
+                      ALT
+                    </span>
+                  ) : null}
                 </button>
                 {items.length > 1 ? (
                   <button
@@ -184,14 +222,16 @@ export function MediaPreviewDialog({
                 ) : null}
               </span>
             ))}
-            <button
-              type="button"
-              onClick={() => addRef.current?.click()}
-              aria-label="Add more"
-              className="flex size-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-white/30 text-white/70 hover:border-white/60 hover:text-white"
-            >
-              <ImagePlus size={22} aria-hidden />
-            </button>
+            {items.length < MAX_ATTACHMENTS ? (
+              <button
+                type="button"
+                onClick={() => addRef.current?.click()}
+                aria-label="Add more"
+                className="flex size-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-white/30 text-white/70 hover:border-white/60 hover:text-white"
+              >
+                <ImagePlus size={22} aria-hidden />
+              </button>
+            ) : null}
             <input
               ref={addRef}
               type="file"
@@ -204,14 +244,39 @@ export function MediaPreviewDialog({
               }}
             />
           </div>
+          {altOpen ? (
+            <textarea
+              key={item.id}
+              value={item.description}
+              onChange={(e) => describe(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  setAltOpen(false);
+                }
+              }}
+              rows={1}
+              maxLength={MAX_ALT_TEXT_LENGTH}
+              placeholder="Describe it for people who can’t see it"
+              aria-label="Description (alt text)"
+              className="max-h-24 min-h-10 w-full resize-none rounded-2xl bg-white/10 px-4 py-2 text-[14px] text-white outline-none placeholder:text-white/50 focus:bg-white/15 focus:ring-2 focus:ring-brand/50"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAltOpen(true)}
+              className="flex w-fit items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-[13px] font-medium text-white/85 hover:bg-white/15"
+            >
+              <span className="rounded-[4px] bg-white/20 px-1 text-[10px] font-bold tracking-wide">
+                ALT
+              </span>
+              {item.description.trim() ? 'Edit alt text' : 'Add alt text'}
+            </button>
+          )}
           <div className="flex items-end gap-2">
             <textarea
-              value={item.caption}
-              onChange={(e) =>
-                setItems((cur) =>
-                  cur.map((x) => (x.id === item.id ? { ...x, caption: e.target.value } : x)),
-                )
-              }
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();

@@ -18,6 +18,7 @@ import { useMessages, type ChatMessages } from '@/stores/messages';
 import { useSidePanel } from '@/stores/sidePanel';
 import { useSpaces } from '@/stores/spaces';
 import { NEW_THREAD_ID, useThreads } from '@/stores/threads';
+import { DEFAULT_PREFS, useUi } from '@/stores/ui';
 import { useUsers } from '@/stores/users';
 import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
 import { threadMessageAction } from './actions';
@@ -25,6 +26,7 @@ import { SidebarThreads } from './SidebarThreads';
 import { ThreadPanel } from './ThreadPanel';
 import { ThreadsButton, ThreadsPopout } from './ThreadsButton';
 import { ThreadStarterCard } from './ThreadStarterCard';
+import { typingText } from './TypingLine';
 
 vi.mock('@/features/conversation/MessageList', () => ({
   MessageList: ({ chat, initialTarget }: { chat: ChatSummary; initialTarget: { seq: number } | null }) => (
@@ -329,6 +331,87 @@ describe('Thread panel', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'go' }));
     expect(useSidePanel.getState().panel).toBeNull();
+  });
+});
+
+describe('Thread panel: typing, forum tags, Developer Mode', () => {
+  afterEach(() => {
+    useChats.getState().clearTyping();
+    useUi.setState({ prefs: { ...DEFAULT_PREFS } });
+  });
+
+  it('shows who is typing in the thread (Space nicknames first), and only in that thread', () => {
+    seed({ threads: [thread()] });
+    seedWindow('t1', []);
+    useUsers.setState((s) => ({ byId: { ...s.byId, bob: makeUser({ id: 'bob', displayName: 'Bob' }) } }));
+    inChannel(<ThreadPanel threadId="t1" parentId="general" />);
+    expect(screen.queryByTestId('typing-line')).toBeNull();
+
+    act(() => useChats.getState().setTyping('general', 'bob', 'typing'));
+    expect(screen.queryByTestId('typing-line')).toBeNull();
+    act(() => useChats.getState().setTyping('t1', 'owner', 'typing'));
+    expect(screen.getByTestId('typing-line')).toHaveTextContent('Olive is typing…');
+    act(() => useChats.getState().setTyping('t1', 'bob', 'typing'));
+    expect(screen.getByTestId('typing-line')).toHaveTextContent('Olive and Bob are typing…');
+    act(() => useChats.getState().setTyping('t1', 'owner', 'idle'));
+    act(() => useSpaces.setState({ members: { s1: { bob: { userId: 'bob', nickname: 'Bobby', roleIds: [] } as never } } }));
+    act(() => useChats.getState().setTyping('t1', 'bob', 'typing'));
+    expect(screen.getByTestId('typing-line')).toHaveTextContent('Bobby is typing…');
+    act(() => useChats.getState().setTyping('t1', 'bob', 'idle'));
+    expect(screen.queryByTestId('typing-line')).toBeNull();
+  });
+
+  it('typing wording', () => {
+    expect(typingText(['Ann'])).toBe('Ann is typing…');
+    expect(typingText(['Ann', 'Bo', 'Cy'])).toBe('Ann, Bo and Cy are typing…');
+    expect(typingText(['Ann', 'Bo', 'Cy', 'Di'])).toBe('Several people are typing…');
+    expect(typingText([])).toBe('');
+  });
+
+  it('a forum post shows the tags it wears in the panel header', () => {
+    const forum = makeChat({
+      id: 'ideas',
+      type: 'space_forum',
+      name: 'ideas',
+      space: {
+        ...spaceInfo(),
+        forum: {
+          tags: [
+            { id: 'bug', name: 'Bug', emoji: null, moderated: false },
+            { id: 'idea', name: 'Idea', emoji: null, moderated: false },
+            { id: 'done', name: 'Done', emoji: null, moderated: true },
+          ],
+          settings: { layout: 'list', defaultSort: 'activity', requireTag: false, defaultReaction: null, guidelines: null },
+        },
+      },
+      spacePermissions: MEMBER,
+    });
+    seed({ threads: [forum, thread({ name: 'Dark mode' }, { parentId: 'ideas', starterMessageId: null, appliedTags: ['done', 'idea', 'gone'] })] });
+    seedWindow('t1', []);
+    inChannel(<ThreadPanel threadId="t1" parentId="ideas" />, '/spaces/s1/ideas');
+    const tags = within(screen.getByTestId('thread-panel-header')).getByTestId('thread-post-tags');
+    // The forum's order; a deleted tag's id is skipped.
+    expect(within(tags).getAllByTestId('forum-tag').map((t) => t.textContent)).toEqual(['Idea', 'Done']);
+  });
+
+  it('a thread shows no tags', () => {
+    seed({ threads: [thread()] });
+    seedWindow('t1', []);
+    inChannel(<ThreadPanel threadId="t1" parentId="general" />);
+    expect(screen.queryByTestId('thread-post-tags')).toBeNull();
+  });
+
+  it('Developer Mode adds Copy Thread ID, which copies the id', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    useUi.getState().setPref('developerMode', true);
+    seed({ threads: [thread()] });
+    seedWindow('t1', []);
+    inChannel(<ThreadPanel threadId="t1" parentId="general" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Thread options' }));
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Copy Link', 'Copy Thread ID']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy Thread ID' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('t1'));
   });
 });
 

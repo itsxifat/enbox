@@ -10,7 +10,7 @@ import {
   type SpaceMemberPage,
 } from '@enbox/shared';
 import { Avatar, Button, EmptyState, IconButton, SearchInput, Spinner, toast, type MenuAnchor } from '@/components/ui';
-import { inviteUrl } from '@/features/groups/shared/share';
+import { shownInviteUrl, useHideInvites } from '@/features/groups/shared/share';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { api } from '@/lib/api';
 import { useSpaces } from '@/stores/spaces';
@@ -102,6 +102,7 @@ export function MembersPage({ space }: { space: Space }) {
 
 export function InvitesPage({ space }: { space: Space }) {
   const { data, error, setData } = useLoad(() => api.get<SpaceInvite[]>(`/api/spaces/${space.id}/invites`), [space.id]);
+  const hideInvites = useHideInvites();
   if (error) return <p className="text-danger">{error}</p>;
   if (!data) return <Spinner />;
   if (data.length === 0) return <EmptyState title="No active invites" description="Invite people from the Space menu → Invite People." />;
@@ -110,7 +111,7 @@ export function InvitesPage({ space }: { space: Space }) {
       {data.map((inv) => (
         <div key={inv.code} className="flex items-center gap-3 rounded-lg px-3 py-2">
           <div className="min-w-0 flex-1">
-            <p className="truncate font-mono text-[13px]">{inviteUrl(inv.code)}</p>
+            <p className="truncate font-mono text-[13px]">{shownInviteUrl(inv.code, hideInvites)}</p>
             <p className="text-[13px] text-muted">
               {inv.uses}
               {inv.maxUses ? ` / ${inv.maxUses}` : ''} uses · {inv.expiresAt ? `expires ${new Date(inv.expiresAt).toLocaleString()}` : 'never expires'}
@@ -205,6 +206,12 @@ const ACTIONS: Record<string, string> = {
   'emoji.create': 'added an emoji',
   'emoji.update': 'renamed an emoji',
   'emoji.delete': 'deleted an emoji',
+  'sticker.create': 'added a sticker',
+  'sticker.update': 'edited a sticker',
+  'sticker.delete': 'deleted a sticker',
+  'sound.create': 'added a soundboard sound',
+  'sound.update': 'edited a soundboard sound',
+  'sound.delete': 'deleted a soundboard sound',
   'automod.rule.create': 'created an AutoMod rule',
   'automod.rule.update': 'updated an AutoMod rule',
   'automod.rule.delete': 'deleted an AutoMod rule',

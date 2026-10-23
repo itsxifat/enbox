@@ -13,7 +13,7 @@ import {
   Users,
   Volume2,
 } from 'lucide-react';
-import { userDisplayName, type Space, type SpaceEvent } from '@enbox/shared';
+import { isVoiceChannelType, userDisplayName, type Space, type SpaceEvent } from '@enbox/shared';
 import { Avatar, Button, DropdownMenu, IconButton, type MenuEntry } from '@/components/ui';
 import { tidy } from '@/features/spaces/menus';
 import { mediaUrl } from '@/lib/api';
@@ -98,7 +98,7 @@ export function EventCard({ event, space, highlighted, preview, onEdit }: EventC
   const channel = useChats((s) => (event.channelId ? s.byId[event.channelId] : undefined));
   const canManage = canManageEvent(space, event, meId);
   const live = event.status === 'active';
-  const joinable = live && event.entityType === 'voice' && channel?.type === 'space_voice';
+  const joinable = live && event.entityType === 'voice' && !!channel && isVoiceChannelType(channel.type);
   const creatorName = event.creatorId ? userDisplayName(creator) : 'Deleted User';
   return (
     <article

@@ -18,6 +18,13 @@ export interface ActionTarget {
   mode: 'menu' | 'sheet' | 'react';
 }
 
+export interface ViewerTarget {
+  chatId: ID;
+  messageId: ID;
+  /** Which of the message's photos and videos (messages with several files); default 0. */
+  index?: number;
+}
+
 export interface JumpRequest {
   chatId: ID;
   seq: number;
@@ -39,8 +46,8 @@ interface ConversationUiState {
   action: ActionTarget | null;
   /** In-chat search query (highlighted in bubbles); null = search closed. */
   search: Record<ID, string | null | undefined>;
-  /** Media viewer (lightbox) opened on a message. */
-  viewer: { chatId: ID; messageId: ID } | null;
+  /** Media viewer (lightbox) opened on a message (on its `index`-th photo or video, default 0). */
+  viewer: ViewerTarget | null;
   /** Forward dialog for these messages (in list order). */
   forward: ClientMessage[] | null;
   /** Message info sheet. */
@@ -57,7 +64,7 @@ interface ConversationUiState {
   focusComposer(): void;
   openActions(target: ActionTarget | null): void;
   setSearch(chatId: ID, query: string | null): void;
-  openViewer(v: { chatId: ID; messageId: ID } | null): void;
+  openViewer(v: ViewerTarget | null): void;
   openForward(messages: ClientMessage[] | null): void;
   openInfo(m: ClientMessage | null): void;
 }

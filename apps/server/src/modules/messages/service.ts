@@ -6,9 +6,11 @@
  * domain primitives of services/messages.ts; this module adds the route-level rules
  * (permissions, windows, content validation, rate limits).
  */
-import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
+  MAX_ALT_TEXT_LENGTH,
+  MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_CAPTION_LENGTH,
   USER_RATE_LIMITS,
   canDeleteForEveryone,
@@ -16,6 +18,7 @@ import {
   extractMentionIds,
   isSpaceChatType,
   type ChatType,
+  type MediaKind,
   type Message,
   type MessageInfo,
   type MessagePage,
@@ -30,6 +33,7 @@ import { db, type Tx } from '../../db/index.js';
 import {
   chatMembers,
   chats,
+  messageAttachments,
   messages,
   pollVotes,
   starredMessages,
@@ -72,6 +76,7 @@ import {
   touchSlowmode,
 } from '../../services/spaceRules.js';
 import { gateExternalEmoji } from '../../services/spaceEmojis.js';
+import { resolveStickerForSend } from '../stickers/service.js';
 import { enforceAutoMod } from '../../services/automod.js';
 import { ensureSpaceReadRow } from '../../services/spaceAccess.js';
 import { getUserRows, settingsOf, toUserPublicMap } from '../../services/users.js';
@@ -136,6 +141,46 @@ function captionOf(text: string | undefined): string | null {
   return text && text.trim() ? text : null;
 }
 
+/** Kinds of the files after the first one (any upload but a voice note). */
+const EXTRA_MEDIA_KINDS: readonly MediaKind[] = ['image', 'video', 'audio', 'file'];
+
+/** Alt text as stored: trimmed, blank → null, ≤ MAX_ALT_TEXT_LENGTH. */
+function altTextOf(text: string | null | undefined): string | null {
+  const t = text?.trim();
+  if (!t) return null;
+  if (t.length > MAX_ALT_TEXT_LENGTH)
+    throw badRequest(`descriptions: Alt text is limited to ${MAX_ALT_TEXT_LENGTH} characters`);
+  return t;
+}
+
+/**
+ * The files of a media send (Discord: up to MAX_ATTACHMENTS_PER_MESSAGE), in order: `mediaId`,
+ * whose kind is the message's type, then `extraMediaIds` — distinct uploads of mine of any
+ * kind but voice (a voice note carries no other file) — each with its alt text
+ * (`descriptions`, aligned; blank = none). Ownership and the GC lock are `requireOwnedMedia`'s,
+ * file by file (404 someone else's, 400 a wrong kind).
+ */
+async function mediaAttachmentsOf(
+  tx: Tx,
+  me: string,
+  body: Extract<SendMessageBody, { mediaId: string }>,
+): Promise<NonNullable<CreateMessageInput['attachments']>> {
+  const extras = body.extraMediaIds ?? [];
+  if (extras.length && body.type === 'voice')
+    throw badRequest('extraMediaIds: Voice messages carry no other files');
+  const ids = [body.mediaId, ...extras];
+  if (ids.length > MAX_ATTACHMENTS_PER_MESSAGE)
+    throw badRequest(`extraMediaIds: At most ${MAX_ATTACHMENTS_PER_MESSAGE} files per message`);
+  if (new Set(ids).size !== ids.length)
+    throw badRequest('extraMediaIds: Each file can be attached only once');
+  const descriptions = body.descriptions ?? [];
+  if (descriptions.length > ids.length) throw badRequest('descriptions: At most one per file');
+  const alt = ids.map((_, i) => altTextOf(descriptions[i]));
+  await requireOwnedMedia(tx, body.mediaId, me, { kinds: [body.type] });
+  for (const id of extras) await requireOwnedMedia(tx, id, me, { kinds: EXTRA_MEDIA_KINDS });
+  return ids.map((mediaId, i) => ({ mediaId, description: alt[i] ?? null }));
+}
+
 /**
  * Replies mention their author in groups and Space channels (`mentionRepliedAuthor`, default
  * on); direct chats notify anyway and broadcast channels have no reply pings.
@@ -148,7 +193,8 @@ function pingsRepliedAuthor(type: ChatType, flag: boolean | undefined): boolean 
  * `POST /chats/:chatId/messages` (docs "Send"): per-user rate limit; active member (404 /
  * 403 not_member) — an existing (chat, sender, clientId) returns the original message (200,
  * nothing written or emitted); `canSend` (403 blocked / forbidden); media uploaded by me with
- * `kind === type`; contact cards filled server-side; polls with fresh stable option ids;
+ * `kind === type`, plus up to 9 more files with alt text (`mediaAttachmentsOf`); contact cards
+ * filled server-side; polls with fresh stable option ids;
  * reply targets (same chat or reply privately) and status replies validated. The rest (seq,
  * expiry, mentions, withheld recipients, unhide, marks, fan-out) is `createMessage`.
  */
@@ -158,8 +204,8 @@ export async function sendMessage(
   body: SendMessageBody,
 ): Promise<{ message: Message; created: boolean }> {
   assertUserLimit(me, 'sendMessage', USER_RATE_LIMITS.sendMessage);
-  // TODO(stickers): the stickers stream sends these as `image` messages of the sticker.
-  if (body.type === 'sticker') throw badRequest('Stickers are not available yet');
+  // A sticker is an `image` message showing its picture (old clients see the image).
+  const type = body.type === 'sticker' ? 'image' : body.type;
   const { row, created } = await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
     const [existing] = await tx
@@ -176,8 +222,12 @@ export async function sendMessage(
     if (existing) return { row: existing, created: false };
     assertCanSend(access);
     // Space channels: attach/poll bits, slowmode, and which @everyone/@role mentions count.
+    // A sticker is not a file (no ATTACH_FILES): checked like text, its own rule is below.
     const spaceMentions = access.space
-      ? spaceSendRules(access, me, { type: body.type, text: 'text' in body ? body.text : null })
+      ? spaceSendRules(access, me, {
+          type: body.type === 'sticker' ? 'text' : body.type,
+          text: 'text' in body ? body.text : null,
+        })
       : undefined;
     if (access.space) await assertSpaceVerification(tx, access, me);
     // Reply targets are looked up through my read row, lazy in Space channels.
@@ -188,7 +238,7 @@ export async function sendMessage(
     const input: CreateMessageInput = {
       chatId,
       senderId: me,
-      type: body.type,
+      type,
       clientId: body.clientId,
       metadata,
       spaceMentions,
@@ -206,8 +256,16 @@ export async function sendMessage(
       case 'poll':
         metadata.poll = buildPollDefinition(body.poll);
         break;
+      case 'sticker': {
+        // A Space of mine's sticker (404), external ones need USE_EXTERNAL_EMOJI here (403).
+        const sticker = await resolveStickerForSend(tx, me, access, body.stickerId);
+        input.mediaId = sticker.mediaId;
+        input.stickerId = sticker.id;
+        break;
+      }
       default:
-        await requireOwnedMedia(tx, body.mediaId, me, { kinds: [body.type] });
+        // Every file with its alt text; the caption belongs to the whole message.
+        input.attachments = await mediaAttachmentsOf(tx, me, body);
         input.mediaId = body.mediaId;
         input.text = captionOf(body.text);
     }
@@ -244,10 +302,46 @@ export async function sendMessage(
 // Forward
 // ---------------------------------------------------------------------------
 
-/** What a forwarded copy keeps (docs "Forward"): type, text, media, fresh location/contact/poll. */
+type AttachmentInput = NonNullable<CreateMessageInput['attachments']>[number];
+
+/**
+ * The `message_attachments` rows of messages (several files or alt text) as send inputs, in
+ * order, by message id: one query for a whole batch. Messages with just `media_id` have none.
+ */
+async function attachmentInputsOf(
+  tx: Tx,
+  messageIds: string[],
+): Promise<Map<string, AttachmentInput[]>> {
+  const out = new Map<string, AttachmentInput[]>();
+  if (messageIds.length === 0) return out;
+  const rows = await tx
+    .select({
+      messageId: messageAttachments.messageId,
+      mediaId: messageAttachments.mediaId,
+      description: messageAttachments.description,
+    })
+    .from(messageAttachments)
+    .where(inArray(messageAttachments.messageId, uniq(messageIds)))
+    .orderBy(asc(messageAttachments.messageId), asc(messageAttachments.position));
+  for (const r of rows)
+    out.set(r.messageId, [
+      ...(out.get(r.messageId) ?? []),
+      { mediaId: r.mediaId, description: r.description },
+    ]);
+  return out;
+}
+
+/**
+ * What a forwarded copy keeps (docs "Forward"): type, text, media — every attachment with its
+ * alt text (`attachments`, the source's rows) — and a fresh location/contact/poll.
+ */
 function forwardedContent(
   src: MessageRow,
-): Pick<CreateMessageInput, 'type' | 'text' | 'mediaId' | 'stickerId' | 'metadata'> {
+  attachments: AttachmentInput[] | undefined,
+): Pick<
+  CreateMessageInput,
+  'type' | 'text' | 'mediaId' | 'attachments' | 'stickerId' | 'metadata'
+> {
   const md = src.metadata ?? {};
   const metadata: MessageMetadata = {};
   if (md.location) metadata.location = { ...md.location };
@@ -263,6 +357,7 @@ function forwardedContent(
     type: src.type,
     text: src.text,
     mediaId: src.mediaId,
+    ...(src.mediaId && attachments?.length ? { attachments } : {}),
     stickerId: src.stickerId,
     metadata,
   };
@@ -306,6 +401,11 @@ export async function forwardMessages(
       if (message.deletedAt) throw badRequest('This message was deleted');
       sources.push(message);
     }
+    // Copies keep every file of their source with its alt text.
+    const files = await attachmentInputsOf(
+      tx,
+      sources.filter((s) => s.mediaId).map((s) => s.id),
+    );
     const out: MessageRow[] = [];
     let anyCreated = false;
     for (const chatId of body.chatIds) {
@@ -315,7 +415,7 @@ export async function forwardMessages(
           senderId: me,
           clientId: `${body.clientId}:${index}`,
           forwardCount: src.forwardCount + 1,
-          ...forwardedContent(src),
+          ...forwardedContent(src, files.get(src.id)),
         });
         anyCreated ||= r.created;
         out.push(r.message);
@@ -349,7 +449,8 @@ const EDITABLE_TYPES = new Set<MessageRow['type']>([
 export async function editMessage(me: string, messageId: string, text: string): Promise<Message> {
   const row = await transact(async (tx, fx) => {
     const { access, message } = await lockVisibleMessage(tx, me, messageId);
-    if (!EDITABLE_TYPES.has(message.type)) throw badRequest('This message cannot be edited');
+    if (!EDITABLE_TYPES.has(message.type) || message.stickerId)
+      throw badRequest('This message cannot be edited');
     if (message.deletedAt) throw forbidden('This message was deleted');
     const isAuthor =
       access.chat.type === 'channel' ? access.permissions.canSend : message.senderId === me;

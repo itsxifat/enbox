@@ -1,8 +1,8 @@
-import { memo, useState, type ReactNode } from 'react';
+import { Suspense, memo, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { Virtuoso } from 'react-virtuoso';
 import { Archive, Plus, Sparkles, Star, Users, X } from 'lucide-react';
-import { activePresenceNote, chatTitle, type ChatSummary } from '@enbox/shared';
+import { activePresenceNote, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Nameplate, StyledName } from '@/components/cosmetics';
@@ -11,10 +11,19 @@ import { UserPanel } from '@/components/layout/UserPanel';
 import { useTabBadges } from '@/components/layout/useTabBadges';
 import { Badge, IconButton, Menu, type IconType, type MenuAnchor } from '@/components/ui';
 import { chatMenuItems, setArchived } from '@/features/chats/chatActions';
+import { leaveGroupDm } from '@/features/groupDms/actions';
+import { GroupDmAvatar } from '@/features/groupDms/GroupDmAvatar';
+import { SelectFriendsPopover } from '@/features/groupDms/lazy';
+import { groupDmRowMenu } from '@/features/groupDms/menu';
+import type { SelectFriendsMode } from '@/features/groupDms/SelectFriendsPopover';
+import { useChatTitle } from '@/features/groupDms/title';
 import { cn } from '@/lib/cn';
 import { isChatUnread, useArchivedCounts, useSortedChats } from '@/stores/chats';
 import { useIncomingFriendRequestCount } from '@/stores/friends';
 import { useQuickSwitcher } from '@/stores/quickSwitcher';
+import { useUi } from '@/stores/ui';
+
+const CREATE_DM: SelectFriendsMode = { kind: 'create' };
 
 function NavRow({
   to,
@@ -51,6 +60,17 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
   const navigate = useNavigate();
   // Direct chats wear the peer's cosmetics: decoration, nameplate, name style.
   const peer = chat.type === 'direct' && chat.peer && !chat.peer.isDeleted ? chat.peer : null;
+  // Group DMs: their icon or two members, their name or the members' names; X = Leave Group.
+  const groupDm = chat.isGroupDm === true && chat.membership === 'active';
+  const title = useChatTitle(chat);
+  const devMode = useUi((s) => s.prefs.developerMode);
+  const onLeft = () => {
+    if (active) void navigate('/chats', { replace: true });
+  };
+  const leave = () =>
+    void leaveGroupDm(chat, title).then((ok) => {
+      if (ok) onLeft();
+    });
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const unread = isChatUnread(chat);
   const note = chat.type === 'direct' ? activePresenceNote(chat.peer?.presenceNote ?? null, Date.now()) : null;
@@ -78,10 +98,16 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
       >
         {/* Behind the row's content, which is positioned (relative) to paint over it. */}
         <Nameplate id={peer?.nameplate} />
-        {peer ? <UserAvatar user={peer} size={32} showPresence /> : <ChatAvatar chat={chat} size={32} showPresence />}
+        {peer ? (
+          <UserAvatar user={peer} size={32} showPresence />
+        ) : chat.isGroupDm ? (
+          <GroupDmAvatar chat={chat} size={32} />
+        ) : (
+          <ChatAvatar chat={chat} size={32} showPresence />
+        )}
         <span className="relative min-w-0 flex-1 leading-tight">
           <StyledName
-            name={chatTitle(chat)}
+            name={title}
             style={peer?.nameStyle}
             mode="full"
             className={cn('block truncate text-[15px]', unread ? 'font-semibold' : 'font-medium')}
@@ -101,15 +127,25 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
       </NavLink>
       {/* Discord's "close DM": hides it from the list (archives it; a new message brings it back). */}
       <span className="absolute top-1/2 right-3 -translate-y-1/2 opacity-0 group-hover/dm:opacity-100 focus-within:opacity-100">
-        <IconButton icon={X} label={`Close ${chatTitle(chat)}`} size="xs" variant="ghost" onClick={() => void setArchived(chat, true)} />
+        {groupDm ? (
+          <IconButton icon={X} label={`Leave ${title}`} size="xs" variant="ghost" onClick={leave} />
+        ) : (
+          <IconButton icon={X} label={`Close ${title}`} size="xs" variant="ghost" onClick={() => void setArchived(chat, true)} />
+        )}
       </span>
-      {/* Right-click: Discord's DM menu (read state, mute, pin, close, delete). */}
+      {/* Right-click: Discord's DM menu (read state, mute, pin, close, delete; group DMs: their own). */}
       <Menu
         open={!!menu}
         onClose={() => setMenu(null)}
         anchor={menu}
-        aria-label={`${chatTitle(chat)} menu`}
-        items={menu ? chatMenuItems(chat, { onDeleted: () => void navigate('/chats', { replace: true }) }) : []}
+        aria-label={`${title} menu`}
+        items={
+          !menu
+            ? []
+            : groupDm
+              ? groupDmRowMenu(chat, { title, devMode, onLeft })
+              : chatMenuItems(chat, { onDeleted: () => void navigate('/chats', { replace: true }) })
+        }
       />
     </div>
   );
@@ -118,11 +154,13 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
 interface HeaderContext {
   badges: ReturnType<typeof useTabBadges>;
   archivedUnread: number;
-  onCreate: () => void;
+  /** "+": opens Select Friends under the button. */
+  onCreate: (anchor: HTMLElement) => void;
+  creating: boolean;
 }
 
 function HomeHeader({ context }: { context: HeaderContext }) {
-  const { badges, archivedUnread, onCreate } = context;
+  const { badges, archivedUnread, onCreate, creating } = context;
   const requests = useIncomingFriendRequestCount();
   return (
     <div className="px-2 pt-2">
@@ -155,7 +193,7 @@ function HomeHeader({ context }: { context: HeaderContext }) {
       />
       <div className="group/head mt-4 mb-1 flex items-center justify-between pr-1 pl-3">
         <span className="text-[12px] font-semibold tracking-wide text-muted uppercase group-hover/head:text-fg">Direct Messages</span>
-        <IconButton icon={Plus} label="Create DM" size="xs" variant="ghost" onClick={onCreate} />
+        <IconButton icon={Plus} label="Create DM" size="xs" variant="ghost" active={creating} onClick={(e) => onCreate(e.currentTarget)} />
       </div>
     </div>
   );
@@ -166,14 +204,15 @@ const COMPONENTS = { Header: HomeHeader, Footer: () => <div className="h-2" /> }
 /**
  * Home (Discord's DM sidebar, desktop): find-or-start, Friends / Updates / Calls / Starred /
  * Archived, then every direct and group chat by recent activity (virtualised), and the user
- * panel at the bottom.
+ * panel at the bottom. "+" opens Select Friends (a DM, or a group DM with several).
  */
 export function HomeSidebar() {
-  const navigate = useNavigate();
   const { chatId } = useParams<{ chatId?: string }>();
   const chats = useSortedChats();
   const badges = useTabBadges();
   const archived = useArchivedCounts();
+  const [createAt, setCreateAt] = useState<HTMLElement | null>(null);
+  const toggleCreate = (el: HTMLElement) => setCreateAt((cur) => (cur ? null : el));
 
   return (
     <aside aria-label="Direct messages" className="card-pane flex w-[264px] shrink-0 flex-col overflow-hidden" data-testid="home-sidebar">
@@ -191,12 +230,15 @@ export function HomeSidebar() {
         <Virtuoso
           data={chats}
           computeItemKey={(_, c) => c.id}
-          context={{ badges, archivedUnread: archived.unread, onCreate: () => void navigate('/new') }}
+          context={{ badges, archivedUnread: archived.unread, onCreate: toggleCreate, creating: !!createAt }}
           components={COMPONENTS}
           itemContent={(_, c) => <DmRow chat={c} active={c.id === chatId} />}
           className="scrollbar-thin"
         />
       </div>
+      <Suspense fallback={null}>
+        {createAt ? <SelectFriendsPopover mode={CREATE_DM} anchor={createAt} onClose={() => setCreateAt(null)} /> : null}
+      </Suspense>
       <UserPanel />
     </aside>
   );

@@ -14,6 +14,7 @@ import { openProfile } from '@/features/profile/open';
 import { useMe } from '@/stores/auth';
 import { useUsers } from '@/stores/users';
 import { banMember, kickMember, setMemberRole, transferOwnership, updateMember } from './actions';
+import { copyIdItem } from './menus';
 
 const TIMEOUTS = [
   { id: '60', label: '60 seconds', ms: 60_000 },
@@ -60,6 +61,8 @@ export function MemberActionsMenu({
   const [dialog, setDialog] = useState<'nickname' | 'roles' | 'ban' | 'transfer' | null>(null);
   const can = me ? memberAbilities(space, me.id, member) : null;
   const name = nameOf(member);
+  // Developer Mode.
+  const copy = copyIdItem(member.userId, 'User');
 
   const items: MenuEntry[] = can
     ? [
@@ -106,6 +109,8 @@ export function MemberActionsMenu({
         space.ownerId === me?.id && member.userId !== me?.id && 'separator',
         space.ownerId === me?.id &&
           member.userId !== me?.id && { label: 'Transfer Ownership', icon: Crown, danger: true, onSelect: () => setDialog('transfer') },
+        copy && 'separator',
+        copy,
       ]
     : [];
 

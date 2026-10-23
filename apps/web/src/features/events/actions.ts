@@ -9,12 +9,13 @@ import { bus } from '@/lib/bus';
 import { useChats } from '@/stores/chats';
 import { eventLink, useEvents } from '@/stores/events';
 import { confirm, toast } from '@/stores/ui';
+import { isVoiceChannelType } from '@enbox/shared';
 
 /** The voice channel of a voice event, when it is loaded (I can see it). */
 export function eventChannel(event: Pick<SpaceEvent, 'entityType' | 'channelId'>): ChatSummary | null {
   if (event.entityType !== 'voice' || !event.channelId) return null;
   const chat = useChats.getState().byId[event.channelId];
-  return chat?.type === 'space_voice' ? chat : null;
+  return chat && isVoiceChannelType(chat.type) ? chat : null;
 }
 
 /** Join a live voice event: show its channel and connect (as clicking the channel row does). */

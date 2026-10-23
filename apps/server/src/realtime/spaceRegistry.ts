@@ -143,7 +143,8 @@ async function loadSpaces(spaceIds: string[], userIds: string[] = []): Promise<v
     }
     // Threads registered meanwhile (created or revived during this load) are kept while their
     // channel exists; a deleted thread's id resolves to nobody's events anyway.
-    for (const [id, parentId] of prev?.threads ?? []) if (!threads.has(id)) threads.set(id, parentId);
+    for (const [id, parentId] of prev?.threads ?? [])
+      if (!threads.has(id)) threads.set(id, parentId);
     for (const [id, parentId] of threads) if (!channels.has(parentId)) threads.delete(id);
     if (prev)
       for (const id of [...prev.channels.keys(), ...prev.threads.keys()])
@@ -454,6 +455,12 @@ export function loadedChannelBits(userId: string, chatId: string): number | null
     viewerId: userId,
     timedOut: isTimedOut(m.member) && !isSpaceAdmin(base),
   });
+}
+
+/** The parent channel of a thread of a Space this process has loaded. */
+export function loadedThreadParent(chatId: string): string | undefined {
+  const spaceId = channelSpace.get(chatId);
+  return spaceId ? states.get(spaceId)?.threads.get(chatId) : undefined;
 }
 
 /** Members of a loaded Space on this process (tests). */

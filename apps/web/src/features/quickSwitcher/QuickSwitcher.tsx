@@ -6,7 +6,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Hash, Volume2 } from 'lucide-react';
-import { chatTitle, type ChatSummary } from '@enbox/shared';
+import { isVoiceChannelType, chatTitle, type ChatSummary } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Avatar, Portal, toast, useFocusTrap, useOverlay } from '@/components/ui';
 import { openDirectChat } from '@/features/contacts/contactActions';
@@ -41,13 +41,13 @@ function useSwitcherItems(): SwitcherItem[] {
         const space = spaces[chat.space.spaceId];
         out.push({
           key: `chat:${chat.id}`,
-          kind: chat.type === 'space_voice' ? 'voice' : 'text',
+          kind: isVoiceChannelType(chat.type) ? 'voice' : 'text',
           title: chat.name ?? 'channel',
           subtitle: space?.name ?? null,
           path: `/spaces/${chat.space.spaceId}/${chat.id}`,
           chatId: chat.id,
           spaceId: chat.space.spaceId,
-          unread: chat.type !== 'space_voice' && unread,
+          unread: !isVoiceChannelType(chat.type) && unread,
           mentions: chat.unreadMentionCount,
         });
         continue;

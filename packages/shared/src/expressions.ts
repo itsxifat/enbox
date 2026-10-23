@@ -90,14 +90,19 @@ export interface SpaceSound {
   createdBy: ID | null;
 }
 
-export const createSpaceSoundSchema = z.object({
+const soundFields = {
   name: z.string().trim().min(2).max(32),
   emoji: z.string().trim().max(80).nullable().optional(),
-  volume: z.number().min(0).max(1).default(1),
+  volume: z.number().min(0).max(1),
+};
+export const createSpaceSoundSchema = z.object({
+  ...soundFields,
+  volume: soundFields.volume.default(1),
   /** An audio file I uploaded (MP3, OGG or WAV, ≤ MAX_SOUND_BYTES, ≤ MAX_SOUND_DURATION_MS). */
   mediaId: idSchema,
 });
-export const updateSpaceSoundSchema = createSpaceSoundSchema.omit({ mediaId: true }).partial();
+/** Built from the fields, not `.partial()` of the create schema: that would keep its defaults. */
+export const updateSpaceSoundSchema = z.object(soundFields).partial();
 export type CreateSpaceSoundRequest = z.input<typeof createSpaceSoundSchema>;
 export type UpdateSpaceSoundRequest = z.input<typeof updateSpaceSoundSchema>;
 
@@ -164,7 +169,10 @@ export interface MfaChallenge {
   expiresAt: ISODate;
 }
 
-export const totpCodeSchema = z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code');
+export const totpCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'Enter the 6-digit code');
 export const backupCodeSchema = z
   .string()
   .trim()

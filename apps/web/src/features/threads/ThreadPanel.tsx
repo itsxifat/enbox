@@ -1,9 +1,10 @@
 /**
  * A thread beside its channel (Discord's thread panel), a card pane in place of the member
- * list: the header (thread icon, name, "…" menu with Archive / Lock / Rename / Copy Link /
- * Delete as permitted, close ✕), the starter message, then the thread's conversation — the
- * channel's message list, composer and message menu, for the thread's chat. On phones the
- * same panel covers the screen (`overlay`, rendered by the channel header's ThreadsButton).
+ * list: the header (thread icon, name, a forum post's tags, "…" menu with Archive / Lock /
+ * Rename / Copy Link / Delete as permitted and Copy ID in Developer Mode, close ✕), the
+ * starter message, then the thread's conversation — the channel's message list, typing line,
+ * composer and message menu, for the thread's chat. On phones the same panel covers the
+ * screen (`overlay`, rendered by the channel header's ThreadsButton).
  *
  * `threadId === NEW_THREAD_ID` is the "New Thread" form: a name (prefilled with the starter
  * message's text), the starter message, and the first message — sending it creates the thread.
@@ -18,6 +19,7 @@ import {
   Archive,
   ArchiveRestore,
   EllipsisVertical,
+  IdCard,
   Link2,
   Lock,
   LockOpen,
@@ -36,7 +38,10 @@ import { LazyLightbox } from '@/features/conversation/lazy';
 import { MessageActionsHost } from '@/features/conversation/MessageActionsHost';
 import { MessageList, type JumpTarget, type UnreadSnapshot } from '@/features/conversation/MessageList';
 import { MessageContent, SenderAvatar, SenderName, rowShape } from '@/features/conversation/MessageRow';
+import { copyId, useDeveloperMode } from '@/features/conversation/moreActions';
 import { useConversationUi } from '@/features/conversation/state';
+import { postTags } from '@/features/forums/format';
+import { TagPill } from '@/features/forums/tags';
 import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
 import { markChatRead } from '@/realtime/chats';
@@ -47,6 +52,7 @@ import { useSidePanel } from '@/stores/sidePanel';
 import { useSpace } from '@/stores/spaces';
 import { NEW_THREAD_ID, threadRights, threadView, useThreads } from '@/stores/threads';
 import { copyThreadLink } from './actions';
+import { TypingLine } from './TypingLine';
 
 const COZY = { bubbleStyle: 'cozy' as const, messageAnimation: 'fade' as const };
 
@@ -230,9 +236,12 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
   const rights = threadRights(thread, me);
   const info = thread.thread;
   const spaceId = thread.space?.spaceId;
-  // A forum's threads are its posts.
+  // A forum's threads are its posts; a post wears tags of its forum.
   const parentType = useChats((s) => (info ? s.byId[info.parentId]?.type : undefined));
+  const forum = useChats((s) => (info ? s.byId[info.parentId]?.space?.forum : undefined));
   const noun = parentType === 'space_forum' ? 'Post' : 'Thread';
+  const tags = parentType === 'space_forum' && forum ? postTags(forum, info?.appliedTags) : [];
+  const devMode = useDeveloperMode();
 
   const update = (patch: UpdateThreadRequest) =>
     void useThreads
@@ -287,6 +296,8 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
               .catch((e: unknown) => toast.error(e)),
         ),
     },
+    devMode && 'separator',
+    devMode && { label: `Copy ${noun} ID`, icon: IdCard, onSelect: () => void copyId(thread.id, `${noun} ID`) },
   ];
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -313,9 +324,20 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
             containerClassName="min-w-0 flex-1"
           />
         ) : (
-          <h2 className="truncate text-[16px] font-bold text-fg" title={thread.name ?? undefined}>
-            {thread.name}
-          </h2>
+          <div className="flex min-w-0 flex-col">
+            <h2 className="truncate text-[16px] font-bold text-fg" title={thread.name ?? undefined}>
+              {thread.name}
+            </h2>
+            {tags.length ? (
+              <ul aria-label="Post tags" className="mt-0.5 flex min-w-0 gap-1 overflow-hidden" data-testid="thread-post-tags">
+                {tags.map((t) => (
+                  <li key={t.id} className="min-w-0 shrink-0">
+                    <TagPill tag={t} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         )
       }
       badges={
@@ -411,6 +433,12 @@ function ThreadConversation({ chat, parent }: { chat: ChatSummary; parent: ChatS
       ) : null}
       <div className="relative min-h-0 flex-1" data-testid="thread-messages">
         {!hasWindow ? <PageSpinner /> : <MessageList chat={chat} unread={unread} initialTarget={target} />}
+        {/* Over the list's bottom edge, so the list doesn't jump when someone starts typing. */}
+        <TypingLine
+          chatId={chat.id}
+          spaceId={chat.space?.spaceId}
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] bg-surface/90"
+        />
       </div>
       {info?.archived && canCompose ? (
         <p className="shrink-0 px-4 pt-1 text-[12.5px] text-muted" data-testid="thread-archived-note">

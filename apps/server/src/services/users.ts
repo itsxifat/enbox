@@ -654,6 +654,8 @@ export function toUserSelf(row: UserWithAvatar): UserSelf {
     nameplate: row.nameplate,
     nameStyle: row.nameStyle,
     railLayout: row.railLayout,
+    // Only whether it is on: the secret columns never leave the server.
+    mfaEnabled: !!row.totpSecret,
     phone: row.phone,
     createdAt: row.createdAt.toISOString(),
     availability: row.availability,

@@ -1,7 +1,12 @@
 /**
  * Full-screen media viewer: photos (click/double-tap to zoom, drag to pan, wheel zoom) and
- * videos, ←/→ (arrows, keys, swipe) through the chat's photos & videos, download, forward,
+ * videos, ←/→ (arrows, keys, swipe) through a gallery, download, open the original, forward,
  * "show in chat", Esc closes. Loaded lazily (lazy.ts).
+ *
+ * The gallery: opened on a message with several photos and videos, that message's (Discord:
+ * a "3 / 7" counter and its thumbnail strip); else the chat's photos and videos (the loaded
+ * messages plus the chat's media list, paged back as you go), each message's files in order.
+ * A file's alt text shows under it with the message's caption.
  */
 import {
   useCallback,
@@ -16,11 +21,12 @@ import {
   ArrowDownToLine,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Forward,
   MessageSquareText,
   X,
 } from 'lucide-react';
-import { renderMentions, type Message } from '@enbox/shared';
+import { renderMentions, type Message, type MessageAttachment } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import {
   IconButton,
@@ -38,25 +44,67 @@ import { useMessages, type ClientMessage } from '@/stores/messages';
 import { useUserName } from '@/stores/users';
 import { mentionName } from '@/features/chats/preview';
 import { canForward } from './actions';
+import { visualFiles } from './bubbles/attachments';
 import { useConversationUi } from './state';
 
-function isVisual(m: ClientMessage): boolean {
-  return (m.type === 'image' || m.type === 'video') && !!m.media && !m.deletedAt;
+/** One photo or video of the gallery: `index` among its message's. */
+interface GalleryItem {
+  key: string;
+  m: ClientMessage;
+  media: MessageAttachment;
+  index: number;
+}
+
+const itemKey = (messageId: string, index: number) => `${messageId}:${index}`;
+
+function itemsOf(m: ClientMessage): GalleryItem[] {
+  return visualFiles(m).map((media, index) => ({ key: itemKey(m.id, index), m, media, index }));
+}
+
+/** In the chat's gallery: messages with photos or videos (stickers are not media). */
+function hasVisual(m: ClientMessage): boolean {
+  return !m.sticker && visualFiles(m).length > 0;
+}
+
+/** The URL of a gallery file: the local copy of a message's own media while it has one. */
+function fileUrl(item: GalleryItem): string | undefined {
+  const own = item.media.id === item.m.media?.id;
+  return mediaUrl(own ? (item.m.localUrl ?? item.media.url) : item.media.url);
 }
 
 export function Lightbox() {
   const viewer = useConversationUi((s) => s.viewer);
   if (!viewer) return null;
-  return <LightboxInner key={viewer.chatId} chatId={viewer.chatId} messageId={viewer.messageId} />;
+  return (
+    <LightboxInner
+      key={`${viewer.chatId}:${viewer.messageId}`}
+      chatId={viewer.chatId}
+      messageId={viewer.messageId}
+      startIndex={viewer.index ?? 0}
+    />
+  );
 }
 
-function LightboxInner({ chatId, messageId }: { chatId: string; messageId: string }) {
+function LightboxInner({
+  chatId,
+  messageId,
+  startIndex,
+}: {
+  chatId: string;
+  messageId: string;
+  startIndex: number;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const chat = useChat(chatId);
   const loaded = useMessages((s) => s.byChat[chatId]?.items);
+  // Opened on a message with several photos and videos: browse those (else the chat's).
+  const [scoped] = useState(() => {
+    const m = useMessages.getState().byChat[chatId]?.items.find((x) => x.id === messageId);
+    return !!m && visualFiles(m).length > 1;
+  });
   const [fetched, setFetched] = useState<Message[]>([]);
-  const [hasMore, setHasMore] = useState(true);
-  const [current, setCurrent] = useState(messageId);
+  const [hasMore, setHasMore] = useState(!scoped);
+  const [current, setCurrent] = useState(() => itemKey(messageId, startIndex));
   const [zoom, setZoom] = useState<{ scale: number; x: number; y: number }>({
     scale: 1,
     x: 0,
@@ -73,6 +121,7 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
 
   const loadMore = useCallback(
     (before?: number) => {
+      if (scoped) return;
       api
         .get<Message[]>(`/api/chats/${chatId}/media`, {
           query: { kind: 'media', before, limit: 60 },
@@ -87,32 +136,42 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
         })
         .catch(() => setHasMore(false));
     },
-    [chatId],
+    [chatId, scoped],
   );
   useEffect(() => loadMore(), [loadMore]);
 
   const gallery = useMemo(() => {
+    if (scoped) {
+      const m = loaded?.find((x) => x.id === messageId);
+      return m ? itemsOf(m) : [];
+    }
     const map = new Map<string, ClientMessage>();
-    for (const m of fetched) if (isVisual(m)) map.set(m.id, m);
-    for (const m of loaded ?? []) if (isVisual(m)) map.set(m.id, { ...map.get(m.id), ...m });
-    return [...map.values()].sort(
-      (a, b) => (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER),
-    );
-  }, [fetched, loaded]);
+    for (const m of fetched) if (hasVisual(m)) map.set(m.id, m);
+    for (const m of loaded ?? []) if (hasVisual(m)) map.set(m.id, { ...map.get(m.id), ...m });
+    return [...map.values()]
+      .sort((a, b) => (a.seq || Number.MAX_SAFE_INTEGER) - (b.seq || Number.MAX_SAFE_INTEGER))
+      .flatMap(itemsOf);
+  }, [scoped, messageId, fetched, loaded]);
 
-  const index = gallery.findIndex((m) => m.id === current);
-  const m = index >= 0 ? gallery[index] : undefined;
+  const index = gallery.findIndex((g) => g.key === current);
+  const item = index >= 0 ? gallery[index] : undefined;
+  const m = item?.m;
   const sender = useUserName(m?.senderId, { you: 'You' });
+
+  const show = useCallback((key: string) => {
+    setCurrent(key);
+    setZoom({ scale: 1, x: 0, y: 0 });
+  }, []);
 
   const go = useCallback(
     (delta: number) => {
       const next = gallery[index + delta];
       if (!next) return;
-      setCurrent(next.id);
-      setZoom({ scale: 1, x: 0, y: 0 });
-      if (delta < 0 && index + delta === 0 && hasMore && gallery[0]?.seq) loadMore(gallery[0].seq);
+      show(next.key);
+      const first = gallery[0]?.m;
+      if (delta < 0 && index + delta === 0 && hasMore && first?.seq) loadMore(first.seq);
     },
-    [gallery, index, hasMore, loadMore],
+    [gallery, index, hasMore, loadMore, show],
   );
 
   useEffect(() => {
@@ -168,15 +227,16 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
     setZoom({ scale: 2.5, x: -cx * 1.5, y: -cy * 1.5 });
   };
   const onWheel = (e: WheelEvent<HTMLDivElement>) => {
-    if (m?.type !== 'image') return;
+    if (item?.media.kind !== 'image') return;
     setZoom((z) => {
       const scale = Math.max(1, Math.min(5, z.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
       return scale === 1 ? { scale: 1, x: 0, y: 0 } : { ...z, scale };
     });
   };
 
-  const src = m ? mediaUrl(m.localUrl ?? m.media!.url) : undefined;
+  const src = item ? fileUrl(item) : undefined;
   const caption = m?.text ? renderMentions(m.text, mentionName) : null;
+  const alt = item?.media.description ?? null;
 
   return (
     <Portal>
@@ -190,7 +250,7 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
       >
         <header className="flex h-16 shrink-0 items-center gap-3 px-2 pt-safe sm:px-4">
           <IconButton icon={X} label="Close" variant="glass" onClick={close} />
-          {m ? (
+          {m && item ? (
             <>
               <UserAvatar userId={m.senderId} size="md" />
               <div className="min-w-0 flex-1">
@@ -201,6 +261,14 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
                   {formatDaySeparator(m.createdAt)}, {formatTime(m.createdAt)}
                 </p>
               </div>
+              {scoped ? (
+                <span
+                  className="shrink-0 px-1 text-[14px] font-medium text-white/80 tabular-nums"
+                  data-testid="viewer-counter"
+                >
+                  {index + 1} / {gallery.length}
+                </span>
+              ) : null}
               <IconButton
                 icon={MessageSquareText}
                 label="Show in chat"
@@ -223,7 +291,17 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
               ) : null}
               <a
                 href={src}
-                download={m.media!.fileName ?? true}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden size-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur hover:bg-black/50 sm:flex"
+                aria-label="Open original"
+                title="Open original"
+              >
+                <ExternalLink size={20} aria-hidden />
+              </a>
+              <a
+                href={src}
+                download={item.media.fileName ?? true}
                 className="flex size-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur hover:bg-black/50"
                 aria-label="Download"
                 title="Download"
@@ -244,13 +322,14 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
           onPointerCancel={onPointerUp}
           onWheel={onWheel}
         >
-          {!m ? (
+          {!item ? (
             <Spinner size={32} />
-          ) : m.type === 'video' ? (
+          ) : item.media.kind === 'video' ? (
             <video
-              key={m.id}
+              key={item.key}
               src={src}
-              poster={mediaUrl(m.media!.thumbnailUrl ?? undefined)}
+              poster={mediaUrl(item.media.thumbnailUrl ?? undefined)}
+              aria-label={alt ?? undefined}
               controls
               autoPlay
               playsInline
@@ -258,9 +337,9 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
             />
           ) : (
             <img
-              key={m.id}
+              key={item.key}
               src={src}
-              alt={caption ?? 'Photo'}
+              alt={alt ?? caption ?? 'Photo'}
               draggable={false}
               onClick={toggleZoom}
               onDoubleClick={(e) => e.preventDefault()}
@@ -293,31 +372,43 @@ function LightboxInner({ chatId, messageId }: { chatId: string; messageId: strin
           ) : null}
         </div>
 
-        {caption ? (
-          <p className="mx-auto max-w-2xl shrink-0 px-6 py-3 text-center text-[15px] break-words whitespace-pre-wrap text-white/90">
-            {caption}
-          </p>
+        {caption || alt ? (
+          <div className="mx-auto flex max-w-2xl shrink-0 flex-col gap-1.5 px-6 py-3 text-center">
+            {caption ? (
+              <p className="text-[15px] break-words whitespace-pre-wrap text-white/90">{caption}</p>
+            ) : null}
+            {alt ? (
+              <p
+                className="text-[13px] break-words whitespace-pre-wrap text-white/70"
+                data-testid="viewer-alt"
+              >
+                <span className="mr-1.5 rounded-[4px] bg-white/15 px-1 py-px text-[10px] font-bold tracking-wide text-white">
+                  ALT
+                </span>
+                {alt}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {gallery.length > 1 ? (
-          <div className="flex shrink-0 justify-center gap-1.5 overflow-x-auto px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] scrollbar-none">
-            {gallery.map((g) => {
-              const thumb = mediaUrl(
-                g.media!.thumbnailUrl ??
-                  (g.type === 'image' ? (g.localUrl ?? g.media!.url) : undefined),
-              );
+          <div
+            className="flex shrink-0 justify-center gap-1.5 overflow-x-auto px-4 pt-1 pb-[max(12px,env(safe-area-inset-bottom))] scrollbar-none"
+            data-testid="viewer-strip"
+          >
+            {gallery.map((g, i) => {
+              const thumb =
+                mediaUrl(g.media.thumbnailUrl) ??
+                (g.media.kind === 'image' ? fileUrl(g) : undefined);
               return (
                 <button
-                  key={g.id}
+                  key={g.key}
                   type="button"
-                  aria-label={g.type === 'video' ? 'Video' : 'Photo'}
-                  aria-current={g.id === current || undefined}
-                  onClick={() => {
-                    setCurrent(g.id);
-                    setZoom({ scale: 1, x: 0, y: 0 });
-                  }}
+                  aria-label={`${g.media.kind === 'video' ? 'Video' : 'Photo'} ${i + 1}`}
+                  aria-current={g.key === current || undefined}
+                  onClick={() => show(g.key)}
                   className={cn(
                     'size-12 shrink-0 overflow-hidden rounded-md bg-white/10 transition-opacity',
-                    g.id === current
+                    g.key === current
                       ? 'opacity-100 ring-2 ring-white'
                       : 'opacity-50 hover:opacity-80',
                   )}

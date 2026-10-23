@@ -196,6 +196,7 @@ async function requireLinkableGroup(
   const access = await getChatAccess(tx, userId, chatId, { chat });
   if (access.chat.type !== 'group') throw notFound('Chat');
   if (access.membership !== 'active') throw notMember();
+  if (access.chat.isGroupDm) throw badRequest('Group DMs cannot join a community');
   if (access.chat.isAnnouncement || access.chat.communityId)
     throw conflict('This group already belongs to a community');
   if (!isAdminRole(access.member.role))

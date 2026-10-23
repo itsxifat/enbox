@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { USER_NOTE_MAX_LENGTH, type ID } from '@enbox/shared';
 import { cn } from '@/lib/cn';
+import { useStreamerHides } from '@/stores/streamer';
 import { useProfiles } from './profileStore';
 
 /**
  * My private note about someone: a borderless textarea that grows with its text and saves
  * on blur (Enter saves too, Shift+Enter is a new line) — optimistically, via
  * `PUT /api/users/:userId/note`. Closing the card while typing (Escape unmounts it without a
- * blur) still saves. Only I can see it.
+ * blur) still saves. Only I can see it; Streamer Mode (Hide Personal Information) hides it.
  */
 export function ProfileNote({
   userId,
@@ -19,6 +20,7 @@ export function ProfileNote({
   labelClassName?: string;
 }) {
   const saved = useProfiles((s) => s.notes[userId]);
+  const hidden = useStreamerHides('personal');
   const [draft, setDraft] = useState(saved ?? '');
   /** The draft for the unmount save (state is gone by then). */
   const draftRef = useRef(draft);
@@ -39,6 +41,9 @@ export function ProfileNote({
     },
     [userId],
   );
+
+  // Kept mounted while hidden: an unsaved draft survives and still saves when the card closes.
+  if (hidden) return null;
 
   const commit = () => {
     if (!dirty.current) return;

@@ -11,13 +11,12 @@ import {
 } from 'lucide-react';
 import { PhoneOffIcon, VideoIcon, VideoOffIcon } from '@/components/icons';
 import { Track, type Participant } from 'livekit-client';
-import { PERM, hasPerm, userDisplayName, type ChatSummary, type Space } from '@enbox/shared';
+import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
 import { Avatar, Button, IconButton } from '@/components/ui';
+import { SoundboardButton } from '@/features/soundboard/SoundboardButton';
+import { SoundFlash } from '@/features/soundboard/SoundFlash';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
-import { withSpaceProfile } from '@/features/spaces/serverProfile/merge';
-import { useSpaceAuthor } from '@/stores/spaces';
-import { useUser } from '@/stores/users';
 import { useVoice, useVoiceChannelStates } from '@/stores/voice';
 import { useVoiceSelf } from '@/stores/voiceSelf';
 import {
@@ -29,16 +28,7 @@ import {
   toggleScreenShare,
   voiceAvailable,
 } from './engine';
-
-/** A participant as the Space shows them: nickname, and the per-Space avatar and decoration. */
-function useVoiceUser(spaceId: string, userId: string) {
-  const user = useUser(userId);
-  const author = useSpaceAuthor(spaceId, userId);
-  return {
-    name: author?.nickname || userDisplayName(user),
-    user: user ? withSpaceProfile(user, author?.profile, author?.nickname) : undefined,
-  };
-}
+import { useVoiceUser } from './useVoiceUser';
 
 function VideoTrack({ participant, source }: { participant: Participant; source: Track.Source }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -105,6 +95,7 @@ export function Tile({
         {screen ? <MonitorUp size={14} aria-hidden /> : muted ? <MicOff size={14} aria-hidden /> : null}
         <span className="truncate">{screen ? `${name}'s screen` : name}</span>
       </span>
+      {screen ? null : <SoundFlash userId={participant.identity} />}
     </div>
   );
 }
@@ -197,6 +188,7 @@ function ControlBar({ chat }: { chat: ChatSummary }) {
       ) : null}
       <IconButton icon={muted || deafened ? MicOff : Mic} label={muted || deafened ? 'Unmute' : 'Mute'} variant="solid" className={cn(btn, (muted || deafened) && 'text-danger')} onClick={toggleMute} />
       <IconButton icon={deafened ? HeadphoneOff : Headphones} label={deafened ? 'Undeafen' : 'Deafen'} variant="solid" className={cn(btn, deafened && 'text-danger')} onClick={toggleDeafen} />
+      <SoundboardButton look="bar" />
       <IconButton icon={PhoneOffIcon} label="Disconnect" variant="danger" className={btn} onClick={() => void disconnectVoice()} data-testid="voice-disconnect" />
     </div>
   );

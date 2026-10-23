@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import {
   DISAPPEARING_OPTIONS,
-  chatTitle,
   formatTimer,
   isMuted,
   userDisplayName,
@@ -27,6 +26,17 @@ import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { PaneHeader } from '@/components/layout/PaneHeader';
 import { DropdownMenu, IconButton, choose, toast, type MenuEntry } from '@/components/ui';
+import { GroupDmAvatar } from '@/features/groupDms/GroupDmAvatar';
+import {
+  DmAddFriendsTool,
+  GroupDmName,
+  GroupDmTools,
+  addFriendsMenuItem,
+  canAddFriendsToDm,
+  groupDmMenuItems,
+} from '@/features/groupDms/header';
+import { useGroupDmUi } from '@/features/groupDms/state';
+import { useChatTitle } from '@/features/groupDms/title';
 import { InboxButton } from '@/features/inbox/InboxButton';
 import { HeaderSearch } from '@/features/search/HeaderSearch';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
@@ -87,6 +97,9 @@ function useSubtitle(chat: ChatSummary): { text: string; live: boolean } {
   if (chat.type === 'channel')
     return { text: `${formatCount(chat.memberCount)} followers`, live: false };
   if (chat.membership !== 'active') return { text: 'You’re no longer a member', live: false };
+  // Group DMs: the names are the title already (when it has none).
+  if (chat.isGroupDm)
+    return { text: `${chat.memberCount} Member${chat.memberCount === 1 ? '' : 's'}`, live: false };
   return { text: memberNames ?? `${chat.memberCount} members`, live: false };
 }
 
@@ -109,6 +122,13 @@ export function ConversationHeader({
   const canCall =
     chat.permissions.canCall && chat.membership === 'active' && chat.type !== 'channel';
   const base = backPath(pathname);
+  // Group DMs: their own name, member list and Leave Group; a DM with a friend can grow into one.
+  const title = useChatTitle(chat, { me: true });
+  const groupDm = chat.isGroupDm === true;
+  const gdm = groupDm
+    ? groupDmMenuItems(chat, { title, onLeft: () => navigate(base, { replace: true }) })
+    : null;
+  const dmGrows = canAddFriendsToDm(chat, me);
 
   const setDisappearing = async () => {
     const current = chat.disappearingSeconds;
@@ -141,7 +161,10 @@ export function ConversationHeader({
         ? 'Channel info'
         : 'Group info';
   const items: MenuEntry[] = [
-    { label: infoLabel, icon: Info, onSelect: onOpenInfo },
+    gdm ? gdm.members : { label: infoLabel, icon: Info, onSelect: onOpenInfo },
+    !desktop && ((groupDm && chat.membership === 'active') || dmGrows)
+      ? addFriendsMenuItem(chat)
+      : null,
     {
       label: 'Search',
       icon: Search,
@@ -172,9 +195,11 @@ export function ConversationHeader({
       ? { label: 'Clear chat', icon: Eraser, onSelect: () => void clearChat(chat) }
       : null,
     chat.type === 'group' && chat.membership === 'active'
-      ? chat.permissions.canLeave
-        ? { label: 'Exit group', icon: LogOut, danger: true, onSelect: () => void exitGroup(chat) }
-        : null
+      ? gdm
+        ? gdm.leave
+        : chat.permissions.canLeave
+          ? { label: 'Exit group', icon: LogOut, danger: true, onSelect: () => void exitGroup(chat) }
+          : null
       : chat.type !== 'channel'
         ? {
             label: chat.type === 'group' ? 'Delete group' : 'Delete chat',
@@ -194,18 +219,22 @@ export function ConversationHeader({
       leading={
         <button
           type="button"
-          onClick={onOpenInfo}
-          aria-label={`${infoLabel}: ${chatTitle(chat, me)}`}
+          onClick={groupDm ? () => useGroupDmUi.getState().toggleMembers(chat.id) : onOpenInfo}
+          aria-label={`${groupDm ? 'Members' : infoLabel}: ${title}`}
           className="mx-1 shrink-0 rounded-full outline-none focus-visible:outline-2 focus-visible:outline-brand"
         >
-          <ChatAvatar
-            chat={chat}
-            size="sm"
-            showPresence={chat.type === 'direct' && chat.peer?.id !== me}
-          />
+          {groupDm ? (
+            <GroupDmAvatar chat={chat} size={32} />
+          ) : (
+            <ChatAvatar
+              chat={chat}
+              size="sm"
+              showPresence={chat.type === 'direct' && chat.peer?.id !== me}
+            />
+          )}
         </button>
       }
-      title={chatTitle(chat, me)}
+      title={groupDm ? <GroupDmName chat={chat} /> : title}
       subtitle={
         subtitle.text ? (
           <span
@@ -216,7 +245,7 @@ export function ConversationHeader({
           </span>
         ) : undefined
       }
-      onTitleClick={onOpenInfo}
+      onTitleClick={groupDm ? undefined : onOpenInfo}
       actions={
         <>
           {canCall ? (
@@ -235,6 +264,11 @@ export function ConversationHeader({
             </>
           ) : null}
           {desktop ? <PinsButton chat={chat} /> : null}
+          {groupDm ? (
+            <GroupDmTools chat={chat} desktop={desktop} />
+          ) : dmGrows ? (
+            <DmAddFriendsTool chat={chat} desktop={desktop} />
+          ) : null}
           {desktop ? <HeaderSearch scope={{ kind: 'chat', chatId: chat.id }} chatId={chat.id} /> : null}
           <DropdownMenu
             aria-label="Chat menu"

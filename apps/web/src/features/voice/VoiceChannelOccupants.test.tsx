@@ -80,6 +80,34 @@ describe('occupant menu', () => {
     expect(labels(items)).toEqual(['Profile']);
   });
 
+  it('Stages: offered as Move To targets; their moderators get the seat actions', () => {
+    const town = voiceChannel('v5', 'Town Hall', MOVE, 'space_stage');
+    const listener = { ...state, channelId: 'v5', suppressed: true };
+    const stage = { moderator: true, self: false, onInvite: noop, onAudience: noop };
+    expect(labels(occupantMenuItems({ state, channel: v1, channels: [...all, town], onProfile: noop, onMove: noop, onDisconnect: noop }))).toEqual([
+      'Profile',
+      '—',
+      'Move To ▸ Lounge | Town Hall',
+      'Disconnect',
+    ]);
+    expect(
+      labels(occupantMenuItems({ state: listener, channel: town, channels: [], onProfile: noop, onMove: noop, onDisconnect: noop, stage })),
+    ).toEqual(['Profile', '—', 'Invite to Speak', '—', 'Move To ▸ No other voice channels (disabled)', 'Disconnect']);
+    expect(
+      labels(
+        occupantMenuItems({
+          state: { ...listener, suppressed: false },
+          channel: { spacePermissions: PERM.VIEW_CHANNEL },
+          channels: [],
+          onProfile: noop,
+          onMove: noop,
+          onDisconnect: noop,
+          stage: { ...stage, moderator: false, self: true },
+        }),
+      ),
+    ).toEqual(['Profile', '—', 'Move to Audience']);
+  });
+
   it('no other voice channel: Move To says so', () => {
     const items = occupantMenuItems({ state, channel: v1, channels: [v1, text], onProfile: noop, onMove: noop, onDisconnect: noop });
     expect(labels(items)).toEqual(['Profile', '—', 'Move To ▸ No other voice channels (disabled)', 'Disconnect']);

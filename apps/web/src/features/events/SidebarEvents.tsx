@@ -7,11 +7,12 @@ import { canCreateEvents, useEvents, useSpaceEvents } from '@/stores/events';
 import { joinEvent } from './actions';
 import { EventPlace } from './EventCard';
 import { EventsModal, eventsLabel } from './EventsModal';
+import { isVoiceChannelType } from '@enbox/shared';
 
 /** A started event at the top of the sidebar: green "Live", its name and place, Join for voice. */
 function LiveEventCard({ event, onOpen }: { event: SpaceEvent; onOpen: () => void }) {
   const channel = useChats((s) => (event.channelId ? s.byId[event.channelId] : undefined));
-  const joinable = event.entityType === 'voice' && channel?.type === 'space_voice';
+  const joinable = event.entityType === 'voice' && !!channel && isVoiceChannelType(channel.type);
   return (
     <div className="rounded-xl bg-success-soft px-3 py-2.5" data-testid="live-event-card">
       <p className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-success uppercase">

@@ -6,8 +6,10 @@
 import { memo, useCallback, useState, type MouseEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { AtSign, BellOff, ChevronDown, MessageSquareText, Pin } from 'lucide-react';
-import { chatTitle, isMuted, renderMentions, tickStatus, type ChatSummary } from '@enbox/shared';
+import { isMuted, renderMentions, tickStatus, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
+import { GroupDmAvatar } from '@/features/groupDms/GroupDmAvatar';
+import { useChatTitle } from '@/features/groupDms/title';
 import { ICON_STROKE_ON_FILL } from '@/components/icons';
 import { IN_APP_NAV } from '@/components/layout/navigation';
 import { Badge, ListItem, Menu, type MenuAnchor } from '@/components/ui';
@@ -119,7 +121,8 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
   };
 
   const items = chatMenuItems(chat, { onDeleted: onDeleted && (() => onDeleted(chat.id)) });
-  const title = chatTitle(chat, me);
+  // Unnamed group DMs show their members' names.
+  const title = useChatTitle(chat, { me: true });
 
   return (
     <div
@@ -134,11 +137,15 @@ export const ChatRow = memo(function ChatRow({ chat, to, active, onDeleted }: Ch
         active={active}
         onContextMenu={onContextMenu}
         leading={
-          <ChatAvatar
-            chat={chat}
-            size="lg"
-            showPresence={chat.type === 'direct' && chat.peer?.id !== me}
-          />
+          chat.isGroupDm ? (
+            <GroupDmAvatar chat={chat} size={48} />
+          ) : (
+            <ChatAvatar
+              chat={chat}
+              size="lg"
+              showPresence={chat.type === 'direct' && chat.peer?.id !== me}
+            />
+          )
         }
         title={title}
         meta={

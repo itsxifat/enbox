@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ImageUp, MapPin, Trash2, Volume2 } from 'lucide-react';
 import {
+  isVoiceChannelType,
   BANNER_MIME_TYPES,
   EVENT_DESCRIPTION_MAX_LENGTH,
   EVENT_LOCATION_MAX_LENGTH,
@@ -49,9 +50,9 @@ export interface EventDraft {
 export type DraftField = 'channelId' | 'location' | 'name' | 'startAt' | 'endAt';
 export type DraftErrors = Partial<Record<DraftField, string>>;
 
-/** The voice channels of the Space that I can see. */
+/** The voice channels and Stages of the Space that I can see. */
 export function voiceChannelsOf(channels: readonly ChatSummary[]): ChatSummary[] {
-  return channels.filter((c) => c.type === 'space_voice' && hasPerm(c.spacePermissions, PERM.VIEW_CHANNEL));
+  return channels.filter((c) => isVoiceChannelType(c.type) && hasPerm(c.spacePermissions, PERM.VIEW_CHANNEL));
 }
 
 /** A new event (voice, the first voice channel, the next full hour) or the event being edited. */

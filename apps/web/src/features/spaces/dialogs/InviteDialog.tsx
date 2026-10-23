@@ -8,7 +8,7 @@ import {
   type SpaceInvite,
 } from '@enbox/shared';
 import { Button, Field, Modal, Spinner, toast } from '@/components/ui';
-import { copyText, inviteUrl } from '@/features/groups/shared/share';
+import { copyText, inviteUrl, shownInviteUrl, useHideInvites } from '@/features/groups/shared/share';
 import { createInvite } from '../actions';
 
 const AGE_LABEL: Record<number, string> = {
@@ -27,6 +27,7 @@ export function InviteDialog({ space, channelId, onClose }: { space: Space; chan
   const [maxUses, setMaxUses] = useState<number>(0);
   const [invite, setInvite] = useState<SpaceInvite | null>(null);
   const [busy, setBusy] = useState(false);
+  const hideInvites = useHideInvites();
 
   const make = useCallback(async () => {
     setBusy(true);
@@ -58,7 +59,7 @@ export function InviteDialog({ space, channelId, onClose }: { space: Space; chan
         <div className="flex items-center gap-2 rounded-xl bg-surface-2 p-2 pl-3">
           <Link2 size={18} className="shrink-0 text-muted" aria-hidden />
           <span className="min-w-0 flex-1 truncate text-[14px] select-all" data-testid="space-invite-url">
-            {busy && !invite ? <Spinner size={16} /> : url}
+            {busy && !invite ? <Spinner size={16} /> : invite ? shownInviteUrl(invite.code, hideInvites) : ''}
           </span>
           <Button
             size="sm"

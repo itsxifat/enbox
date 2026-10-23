@@ -2,28 +2,37 @@ import { Link } from 'react-router';
 import { MonitorUp, Signal, Volume2 } from 'lucide-react';
 import { PhoneOffIcon, VideoIcon } from '@/components/icons';
 import { IconButton } from '@/components/ui';
+import { SoundboardButton } from '@/features/soundboard/SoundboardButton';
 import { cn } from '@/lib/cn';
 import { useChat } from '@/stores/chats';
 import { useSpace } from '@/stores/spaces';
-import { useVoice } from '@/stores/voice';
+import { useMyVoiceState, useVoice } from '@/stores/voice';
 import { disconnectVoice, getVoiceRoom, resumeVoiceAudio, toggleCamera, toggleScreenShare } from './engine';
 
 /**
  * Discord's "Voice Connected" panel above the user panel while I am in a voice channel:
- * status, the channel and Space (opens the channel), Disconnect, then Camera and Screen.
+ * status, the channel and Space (opens the channel), Disconnect, then Camera, Screen and the
+ * soundboard. A Stage audience has no camera or screen (they are for speakers).
  */
 export function VoicePanel() {
   const connection = useVoice((s) => s.connection);
   const audioBlocked = useVoice((s) => s.audioBlocked);
   useVoice((s) => s.roomVersion);
+  const mine = useMyVoiceState();
   const chat = useChat(connection?.channelId);
   const space = useSpace(connection?.spaceId);
   if (!connection) return null;
   const room = getVoiceRoom();
   const camera = !!room?.localParticipant.isCameraEnabled;
   const screen = !!room?.localParticipant.isScreenShareEnabled;
+  const audience = !!mine?.suppressed && mine.channelId === connection.channelId;
   const status =
     connection.status === 'connected' ? 'Voice Connected' : connection.status === 'reconnecting' ? 'Reconnecting' : 'Connecting';
+  const tile = (on: boolean) =>
+    cn(
+      'flex h-8 items-center justify-center gap-1.5 rounded-md text-[13px] font-medium disabled:pointer-events-none disabled:opacity-45',
+      on ? 'bg-fg text-surface' : 'bg-surface-2 text-fg hover:bg-hover',
+    );
   return (
     <div className="shrink-0 px-2 pt-2 pb-1" data-testid="voice-panel">
       <div className="flex items-center gap-2">
@@ -57,23 +66,26 @@ export function VoicePanel() {
           <Volume2 size={16} aria-hidden /> Click to hear voice
         </button>
       ) : null}
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className="mt-2 grid grid-cols-3 gap-2">
         <button
           type="button"
           aria-pressed={camera}
+          disabled={audience}
           onClick={() => void toggleCamera()}
-          className={cn('flex h-8 items-center justify-center gap-1.5 rounded-md text-[13px] font-medium', camera ? 'bg-fg text-surface' : 'bg-surface-2 text-fg hover:bg-hover')}
+          className={tile(camera)}
         >
           <VideoIcon size={16} aria-hidden /> Camera
         </button>
         <button
           type="button"
           aria-pressed={screen}
+          disabled={audience}
           onClick={() => void toggleScreenShare()}
-          className={cn('flex h-8 items-center justify-center gap-1.5 rounded-md text-[13px] font-medium', screen ? 'bg-fg text-surface' : 'bg-surface-2 text-fg hover:bg-hover')}
+          className={tile(screen)}
         >
           <MonitorUp size={16} aria-hidden /> Screen
         </button>
+        <SoundboardButton />
       </div>
     </div>
   );

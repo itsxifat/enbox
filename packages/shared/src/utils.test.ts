@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import { CHAT_THEME_PRESET_LABELS, CHAT_THEME_PRESETS } from './constants.js';
-import type { ChatTheme, PresenceNote } from './models.js';
+import type { ChatSummary, ChatTheme, MediaAttachment, Message, PresenceNote } from './models.js';
 import {
   activePresenceNote,
+  canEditMessage,
   effectiveAvailability,
   isDnd,
   isSharedChatTheme,
+  messagePreviewText,
   renderMentions,
   systemEventText,
 } from './utils.js';
@@ -132,7 +134,50 @@ describe('isSharedChatTheme', () => {
 describe('renderMentions: custom emoji', () => {
   it('previews read :name: for custom emoji tokens', () => {
     const id = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
-    expect(renderMentions(`hi <:blob:${id}> <a:party:${id}> @{${id}}`, () => 'Maya')).toBe('hi :blob: :party: @Maya');
+    expect(renderMentions(`hi <:blob:${id}> <a:party:${id}> @{${id}}`, () => 'Maya')).toBe(
+      'hi :blob: :party: @Maya',
+    );
     expect(renderMentions('<:x:not-an-id>', () => '')).toBe('<:x:not-an-id>');
+  });
+});
+
+describe('stickers and several files', () => {
+  const file = (kind: MediaAttachment['kind'], id: string) =>
+    ({ id, kind, url: `/uploads/${id}`, description: null }) as unknown as MediaAttachment & {
+      description: string | null;
+    };
+  const base = {
+    id: 'm1',
+    chatId: 'c1',
+    senderId: 'u1',
+    type: 'image',
+    text: null,
+    deletedAt: null,
+    createdAt: new Date().toISOString(),
+  } as unknown as Message;
+
+  it('previews a sticker by name, an album by count (or caption), mixed files as files', () => {
+    expect(
+      messagePreviewText({ ...base, sticker: { id: 's1', name: 'wave', spaceId: 'sp' } }),
+    ).toBe('🖼️ Sticker: wave');
+    const photos = [file('image', 'a'), file('image', 'b'), file('image', 'c')];
+    expect(messagePreviewText({ ...base, attachments: photos })).toBe('📷 3 photos');
+    expect(messagePreviewText({ ...base, attachments: photos, text: 'trip' })).toBe('📷 trip');
+    expect(
+      messagePreviewText({ ...base, attachments: [file('image', 'a'), file('file', 'd')] }),
+    ).toBe('📎 2 files');
+    // One file keeps the old wording.
+    expect(messagePreviewText({ ...base, attachments: [file('image', 'a')] })).toBe('📷 Photo');
+  });
+
+  it('never offers editing a sticker message', () => {
+    const chat = { type: 'direct', permissions: { canSend: true } } as unknown as Pick<
+      ChatSummary,
+      'type' | 'permissions'
+    >;
+    expect(canEditMessage(base, chat, 'u1')).toBe(true);
+    expect(
+      canEditMessage({ ...base, sticker: { id: 's1', name: 'wave', spaceId: 'sp' } }, chat, 'u1'),
+    ).toBe(false);
   });
 });

@@ -148,8 +148,11 @@ async function channelSummary(userId: string, chatId: string): Promise<ChatSumma
   return s;
 }
 
-function channelName(type: 'space_text' | 'space_voice' | 'space_forum', name: string): string {
-  // Forums are named like text channels (#lowercase-with-dashes).
+function channelName(
+  type: 'space_text' | 'space_voice' | 'space_forum' | 'space_stage',
+  name: string,
+): string {
+  // Forums are named like text channels (#lowercase-with-dashes); Stages like voice channels.
   const n =
     type === 'space_text' || type === 'space_forum' ? normalizeTextChannelName(name) : name.trim();
   if (!n) throw badRequest('name: use letters or numbers');
@@ -398,6 +401,8 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
   const { spaceId } = parse(P.space, req.params);
   const body = parse(createSpaceChannelSchema, req.body ?? {});
   const forum = newForumColumns(body.type, body);
+  // Stage channels are laid out like voice channels (user limit, bitrate), with a topic.
+  const stage = body.type === 'space_stage';
   assertUserLimit(me, 'spaceChannelUpdate', USER_RATE_LIMITS.spaceChannelUpdate);
   const chatId = await transact(async (tx, fx) => {
     await lockSpace(tx, spaceId);
@@ -452,12 +457,13 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
         spaceId,
         categoryId,
         position: await nextChannelPosition(tx, spaceId, categoryId),
-        topic: body.type === 'space_text' ? (body.topic ?? null) : null,
+        // Stages: the topic is what the Stage is about (its header).
+        topic: body.type === 'space_text' || stage ? (body.topic ?? null) : null,
         nsfw: body.nsfw ?? false,
         // Forums: one post per interval (their posts' replies are not slowed).
-        slowmodeSeconds: body.type !== 'space_voice' ? (body.slowmodeSeconds ?? 0) : 0,
-        userLimit: body.type === 'space_voice' ? (body.userLimit ?? null) : null,
-        bitrate: body.type === 'space_voice' ? (body.bitrate ?? null) : null,
+        slowmodeSeconds: body.type !== 'space_voice' && !stage ? (body.slowmodeSeconds ?? 0) : 0,
+        userLimit: body.type === 'space_voice' || stage ? (body.userLimit ?? null) : null,
+        bitrate: body.type === 'space_voice' || stage ? (body.bitrate ?? null) : null,
         ...forum,
         permissionsSynced: synced,
         createdBy: me,
@@ -554,16 +560,19 @@ router.patch('/spaces/:spaceId/channels/:chatId', async (req, res) => {
     const { overwrites } = await requireChannelBit(tx, access, me, chat, PERM.MANAGE_CHANNELS);
     const patch: Partial<typeof chats.$inferInsert> = {};
     if (body.name !== undefined) patch.name = channelName(chat.type as 'space_text', body.name);
-    if (body.topic !== undefined) patch.topic = chat.type === 'space_text' ? body.topic : null;
+    const stage = chat.type === 'space_stage';
+    if (body.topic !== undefined)
+      patch.topic = chat.type === 'space_text' || stage ? body.topic : null;
     if (body.nsfw !== undefined) patch.nsfw = body.nsfw;
     if (
       body.slowmodeSeconds !== undefined &&
       (chat.type === 'space_text' || chat.type === 'space_forum')
     )
       patch.slowmodeSeconds = body.slowmodeSeconds;
-    if (body.userLimit !== undefined && chat.type === 'space_voice')
+    if (body.userLimit !== undefined && (chat.type === 'space_voice' || stage))
       patch.userLimit = body.userLimit;
-    if (body.bitrate !== undefined && chat.type === 'space_voice') patch.bitrate = body.bitrate;
+    if (body.bitrate !== undefined && (chat.type === 'space_voice' || stage))
+      patch.bitrate = body.bitrate;
     // Forums: tags (the whole list) and options (merged).
     const forum = forumPatch(chat, body);
     Object.assign(patch, forum.patch);
@@ -767,7 +776,7 @@ router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
       .where(and(eq(chats.spaceId, spaceId), isNull(chats.parentId)));
     if (Number(n?.n ?? 0) >= MAX_SPACE_CHANNELS)
       throw limitReached(`A Space can have at most ${MAX_SPACE_CHANNELS} channels`);
-    const type = source.type as 'space_text' | 'space_voice' | 'space_forum';
+    const type = source.type as 'space_text' | 'space_voice' | 'space_forum' | 'space_stage';
     const [chat] = await tx
       .insert(chats)
       .values({

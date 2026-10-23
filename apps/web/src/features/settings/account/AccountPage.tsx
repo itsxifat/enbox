@@ -3,7 +3,9 @@ import { PhoneIcon } from '@/components/icons';
 import { confirm } from '@/components/ui';
 import { formatShortDate } from '@/lib/format';
 import { useAuth, useMe } from '@/stores/auth';
+import { PERSONAL_HIDDEN_TEXT, useStreamerHides } from '@/stores/streamer';
 import { SettingsGroup, SettingsNote, SettingsRow, SettingsScroller } from '../ui';
+import { TwoFactorRows } from './TwoFactorRows';
 
 export async function confirmLogout(): Promise<void> {
   const ok = await confirm({
@@ -15,13 +17,15 @@ export async function confirmLogout(): Promise<void> {
   if (ok) await useAuth.getState().logout();
 }
 
-/** Settings → Account: password, devices, phone, log out, delete account. */
+/** Settings → Account: password, devices, two-factor, phone, log out, delete account. */
 export function AccountPage() {
   const me = useMe();
+  // Streamer Mode ▸ Hide Personal Information.
+  const hide = useStreamerHides('personal');
   if (!me) return null;
   return (
     <SettingsScroller>
-      <SettingsGroup title="Security">
+      <SettingsGroup title="Password and Authentication">
         <SettingsRow
           icon={KeyRound}
           title="Change password"
@@ -34,18 +38,19 @@ export function AccountPage() {
           description="See and manage where you're logged in"
           to="/settings/devices"
         />
+        <TwoFactorRows />
       </SettingsGroup>
       <SettingsGroup title="Account info">
         <SettingsRow
           icon={UserRoundCog}
           title="Username"
-          description={`@${me.username}`}
+          description={hide ? PERSONAL_HIDDEN_TEXT : `@${me.username}`}
           to="/settings/profile"
         />
         <SettingsRow
           icon={PhoneIcon}
           title="Phone number"
-          description={me.phone ?? 'Not added'}
+          description={hide ? PERSONAL_HIDDEN_TEXT : (me.phone ?? 'Not added')}
           to="/settings/profile"
         />
       </SettingsGroup>

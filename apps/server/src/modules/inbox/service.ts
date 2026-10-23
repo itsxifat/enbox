@@ -137,7 +137,7 @@ function candidatesQuery(me: string, q: MentionsQuery, cursor: Cursor | null, n:
       where m.mentions @> ${uuidArray([me])}
         and ${common}
         and (case
-          when ch.type in ('space_text', 'space_voice', 'space_thread') then
+          when ch.type in ('space_text', 'space_voice', 'space_thread', 'space_stage') then
             exists (select 1 from space_members sm where sm.space_id = ch.space_id and sm.user_id = ${me}::uuid)
             and m.seq > coalesce(greatest(cm.joined_seq, cm.cleared_seq), 0) ${inSpace}
           when ch.type = 'group' then ${groups}

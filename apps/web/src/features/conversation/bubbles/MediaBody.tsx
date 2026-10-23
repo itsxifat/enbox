@@ -6,18 +6,24 @@
  * (an upload that came without one) shows a still tile instead: the gates hold either way.
  * Spoilers (a file name starting `SPOILER_`) stay blurred behind a SPOILER pill until
  * clicked, for this message in this view; nothing plays meanwhile.
+ *
+ * Messages with several files (`Message.attachments`, Discord: up to 10): their photos and
+ * videos as a mosaic (MediaMosaic) — a single one at its natural size, as here — and the
+ * other files below it, documents as cards and audio as players. Alt text is the picture's
+ * `alt` plus an ALT chip that shows it. A message without `attachments` renders as before.
  */
 import { useState, type ReactNode } from 'react';
 import { ImageOff, Play, RotateCw, X } from 'lucide-react';
-import { formatDuration } from '@enbox/shared';
-import { useAppVisible } from '@/hooks/useAppVisible';
-import { useReducedMotion } from '@/hooks/useMediaQuery';
+import { formatDuration, type MediaAttachment, type MessageAttachment } from '@enbox/shared';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import type { ClientMessage } from '@/stores/messages';
-import { useUi } from '@/stores/ui';
 import { isSpoilerName } from '../dropzone/files';
 import { cancelUpload } from '../lib/sendMedia';
+import { AudioFileBody } from './AudioBody';
+import { FileBody } from './CardBodies';
+import { AltChip, MediaMosaic, useAnimationGate } from './MediaMosaic';
+import { fileMessage, isVisualFile } from './attachments';
 
 const MAX_W = 330;
 const MAX_H = 380;
@@ -101,40 +107,44 @@ export function ProgressRing({
   );
 }
 
-export function MediaBody({
+/** One photo or video at its natural size (within MAX_W × MAX_H): the message's, or one of its files. */
+function SingleMedia({
   m,
+  media,
+  alt,
   onOpen,
   onRetry,
   rounded,
   children,
 }: {
   m: ClientMessage;
+  media: MediaAttachment;
+  /** Alt text (null = none). */
+  alt: string | null;
   onOpen: () => void;
   onRetry: () => void;
-  /** Extra classes for the inner radius (depends on caption/quote around it). */
   rounded: string;
-  /** Overlay (meta) rendered in the bottom-right corner. */
   children?: ReactNode;
 }) {
-  const media = m.media!;
   const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [hot, setHot] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const hidden = isSpoilerName(media.fileName) && !revealed;
   const box = mediaBox(media.width, media.height);
-  const video = m.type === 'video';
-  const uploading = !!m.pending && m.uploadProgress !== undefined && m.uploadProgress < 1;
+  const video = media.kind === 'video';
+  // The local copy and the upload belong to the message's own media (`Message.media`).
+  const own = media.id === m.media?.id;
+  const localUrl = own ? m.localUrl : undefined;
+  const uploading = own && !!m.pending && m.uploadProgress !== undefined && m.uploadProgress < 1;
   // Animated images (see the header): `media.animated`, or a GIF stored before uploads were
   // probed (migration 0001 marks those animated too; this covers a row it did not reach).
-  const autoplay = useUi((s) => s.prefs.autoplayAnimatedMedia);
-  const reduceMotion = useReducedMotion();
-  const appVisible = useAppVisible();
+  const { autoplay, allowed } = useAnimationGate();
   const poster = media.thumbnailUrl ? mediaUrl(media.thumbnailUrl) : undefined;
   const animated = !video && (media.animated || media.mimeType === 'image/gif');
-  const canPlay = animated && autoplay !== 'never' && !reduceMotion && appVisible;
+  const canPlay = animated && allowed;
   const playing = canPlay && !hidden && (autoplay === 'always' || hot);
-  const src = video || (animated && !playing) ? poster : mediaUrl(m.localUrl ?? media.url);
+  const src = video || (animated && !playing) ? poster : mediaUrl(localUrl ?? media.url);
   const placeholder = !video && !animated ? poster : undefined;
 
   return (
@@ -174,7 +184,7 @@ export function MediaBody({
         {src && !broken ? (
           <img
             src={src}
-            alt={m.text ?? (video ? 'Video' : animated ? 'GIF' : 'Photo')}
+            alt={alt ?? m.text ?? (video ? 'Video' : animated ? 'GIF' : 'Photo')}
             className={cn(
               'absolute inset-0 size-full object-cover transition-opacity duration-300',
               loaded ? 'opacity-100' : 'opacity-0',
@@ -187,7 +197,7 @@ export function MediaBody({
           />
         ) : video && !broken ? (
           <video
-            src={mediaUrl(m.localUrl ?? media.url)}
+            src={mediaUrl(localUrl ?? media.url)}
             preload="metadata"
             muted
             playsInline
@@ -249,6 +259,10 @@ export function MediaBody({
         </>
       ) : null}
 
+      {alt && !hidden && !uploading && !m.failed ? (
+        <AltChip text={alt} className={video && media.durationMs ? 'bottom-6' : undefined} />
+      ) : null}
+
       {uploading ? (
         <span className="absolute inset-0 m-auto flex size-12">
           <ProgressRing
@@ -273,5 +287,115 @@ export function MediaBody({
         <span className="pointer-events-none absolute right-1.5 bottom-1.5">{children}</span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A message with several files: the photos and videos first (a mosaic, or one at its natural
+ * size), then the others in order — audio as players, the rest as document cards. The time
+ * (`children`) sits on the pictures, or after the files when there are any.
+ */
+function AttachmentsBody({
+  m,
+  files,
+  mine,
+  onOpen,
+  onRetry,
+  rounded,
+  children,
+}: {
+  m: ClientMessage;
+  files: MessageAttachment[];
+  mine: boolean;
+  onOpen: (index: number) => void;
+  onRetry: () => void;
+  rounded: string;
+  children?: ReactNode;
+}) {
+  const visual = files.filter(isVisualFile);
+  const others = files.flatMap((file, i) => (isVisualFile(file) ? [] : [{ file, i }]));
+  const onMedia = others.length === 0 ? children : null;
+  return (
+    <div className="flex min-w-0 flex-col gap-1" data-testid="message-attachments">
+      {visual.length === 1 ? (
+        <SingleMedia
+          m={m}
+          media={visual[0]!}
+          alt={visual[0]!.description}
+          onOpen={() => onOpen(0)}
+          onRetry={onRetry}
+          rounded={rounded}
+        >
+          {onMedia}
+        </SingleMedia>
+      ) : visual.length > 1 ? (
+        <MediaMosaic m={m} files={visual} onOpen={onOpen} rounded={rounded}>
+          {onMedia}
+        </MediaMosaic>
+      ) : null}
+      {others.length ? (
+        <ul className="flex flex-col gap-1 px-0.5 pb-0.5" aria-label="Files">
+          {others.map(({ file, i }) => (
+            <li key={`${file.id}:${i}`} data-testid="attachment-file">
+              {file.kind === 'audio' || file.kind === 'voice' ? (
+                <AudioFileBody m={fileMessage(m, file, i)} mine={mine} />
+              ) : (
+                <FileBody m={fileMessage(m, file, i)} mine={mine} />
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {others.length && children ? (
+        <span className="flex justify-end px-1 pb-0.5">{children}</span>
+      ) : null}
+    </div>
+  );
+}
+
+export function MediaBody({
+  m,
+  mine = false,
+  onOpen,
+  onRetry,
+  rounded,
+  children,
+}: {
+  m: ClientMessage;
+  /** Sent by me (colours of the document cards and players of a message with several files). */
+  mine?: boolean;
+  /** Open the viewer on the message's `index`-th photo or video (0 for a single one). */
+  onOpen: (index: number) => void;
+  onRetry: () => void;
+  /** Extra classes for the inner radius (depends on caption/quote around it). */
+  rounded: string;
+  /** Overlay (meta) rendered in the bottom-right corner. */
+  children?: ReactNode;
+}) {
+  const files = m.attachments;
+  if (files && files.length > 1)
+    return (
+      <AttachmentsBody
+        m={m}
+        files={files}
+        mine={mine}
+        onOpen={onOpen}
+        onRetry={onRetry}
+        rounded={rounded}
+      >
+        {children}
+      </AttachmentsBody>
+    );
+  return (
+    <SingleMedia
+      m={m}
+      media={m.media!}
+      alt={files?.[0]?.description ?? null}
+      onOpen={() => onOpen(0)}
+      onRetry={onRetry}
+      rounded={rounded}
+    >
+      {children}
+    </SingleMedia>
   );
 }

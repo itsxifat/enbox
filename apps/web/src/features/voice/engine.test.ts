@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatSummary, VoiceJoinResult, VoiceState } from '@enbox/shared';
 import type * as ApiModule from '@/lib/api';
+import type * as SocketModule from '@/lib/socket';
 
 const rooms = vi.hoisted(() => [] as FakeRoom[]);
 const socket = vi.hoisted(() => ({ emitWithAck: vi.fn(), sendEvent: vi.fn() }));
@@ -42,7 +43,7 @@ vi.mock('livekit-client', () => {
     Track: { Kind: { Audio: 'audio' }, Source: {} },
   };
 });
-vi.mock('@/lib/socket', () => socket);
+vi.mock('@/lib/socket', async (importOriginal) => ({ ...(await importOriginal<typeof SocketModule>()), ...socket }));
 vi.mock('@/lib/serverConfig', () => ({ serverConfig: () => ({ voice: true }) }));
 vi.mock('@/lib/notify', () => ({ playSound: vi.fn() }));
 vi.mock('@/lib/api', async (importOriginal) => ({

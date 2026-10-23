@@ -5,11 +5,13 @@ import {
   DELETED_USERNAME_PREFIX,
   changePasswordSchema,
   idParamSchema,
+  loginMfaSchema,
   loginSchema,
   parseLoginIdentifier,
   registerSchema,
   usernameAvailabilityQuerySchema,
   type AuthResponse,
+  type MfaChallenge,
   type SessionInfo,
   type UsernameAvailability,
 } from '@enbox/shared';
@@ -23,18 +25,30 @@ import { parse } from '../../lib/validate.js';
 import { Effects, transact } from '../../services/effects.js';
 import { createSession } from '../../services/sessions.js';
 import { getUserRow, requireUser, toUserSelf } from '../../services/users.js';
+import {
+  assertCodeAttempt,
+  consumeSecondFactor,
+  invalidCode,
+  issueLoginTicket,
+  loginTimedOut,
+  verifyLoginTicket,
+} from '../mfa/service.js';
 import { checkPassword, isUniqueViolation, revokeSessionsEffect } from './service.js';
 
 /**
  * Auth module (docs "Accounts, sessions and deletion").
- * publicRouter (no auth): POST /auth/register, POST /auth/login (per-IP `authLimiter`),
- *                         GET /auth/username-available (per-IP `usernameCheckLimiter`)
+ * publicRouter (no auth): POST /auth/register, POST /auth/login, POST /auth/login/mfa (per-IP
+ *                         `authLimiter`), GET /auth/username-available (per-IP
+ *                         `usernameCheckLimiter`)
  * router (authenticated): POST /auth/logout, GET/DELETE /auth/sessions[/:sessionId],
  *                         POST /auth/change-password
  *
  * - Passwords: scrypt (lib/crypto). Unknown/deleted accounts are verified against a dummy
  *   hash (same timing) and fail with the same 401 as a wrong password.
  * - Sessions = linked devices; device name from the body or guessed from the User-Agent.
+ * - Two-factor on (`users.totp_secret`): the login answers an `MfaChallenge` (a 5-minute
+ *   ticket, no session); `POST /auth/login/mfa { ticket, code }` creates the session exactly
+ *   like the login would have (the ticket carries its device name). See modules/mfa.
  * - Revocation (log out other devices, revoke one, password change): rows deleted in one
  *   tx, then per session `invalidateSessions` → `session:revoked` → session room →
  *   `disconnectSession`. Push subscriptions cascade with their session.
@@ -126,16 +140,33 @@ publicRouter.post('/auth/register', authLimiter, async (req, res) => {
 publicRouter.post('/auth/login', authLimiter, async (req, res) => {
   const body = parse(loginSchema, req.body ?? {});
   const id = parseLoginIdentifier(body.identifier);
-  let row: { id: string; passwordHash: string; deletedAt: Date | null } | undefined;
+  let row:
+    | { id: string; passwordHash: string; totpSecret: string | null; deletedAt: Date | null }
+    | undefined;
   if (id) {
     [row] = await db
-      .select({ id: users.id, passwordHash: users.passwordHash, deletedAt: users.deletedAt })
+      .select({
+        id: users.id,
+        passwordHash: users.passwordHash,
+        totpSecret: users.totpSecret,
+        deletedAt: users.deletedAt,
+      })
       .from(users)
       .where(id.kind === 'phone' ? eq(users.phone, id.phone) : eq(users.username, id.username))
       .limit(1);
   }
   // Unknown or deleted accounts cost the same as a wrong password and fail identically.
   if (!(await checkPassword(row, body.password)) || !row) throw invalidCredentials();
+
+  // Two-factor on: no session yet, a short-lived ticket for POST /auth/login/mfa instead.
+  if (row.totpSecret) {
+    const challenge: MfaChallenge = issueLoginTicket(
+      { id: row.id, passwordHash: row.passwordHash, totpSecret: row.totpSecret },
+      body.deviceName,
+    );
+    res.json(challenge);
+    return;
+  }
 
   const { token } = await createSession({
     userId: row.id,
@@ -145,6 +176,26 @@ publicRouter.post('/auth/login', authLimiter, async (req, res) => {
   const user = await getUserRow(db, row.id);
   if (!user || user.deletedAt) throw invalidCredentials();
   const response: AuthResponse = { token, user: toUserSelf(user) };
+  res.json(response);
+});
+
+/**
+ * Second step of a login with two-factor on: a valid ticket (else 401 "Your login timed
+ * out") plus a TOTP code or an unused backup code (else 400 `invalid_code`). Code attempts
+ * are limited per user, after the ticket checked out (a forged ticket can't use up someone
+ * else's attempts). The session is created like the login's: the ticket's device name, this
+ * request's User-Agent and IP.
+ */
+publicRouter.post('/auth/login/mfa', authLimiter, async (req, res) => {
+  const body = parse(loginMfaSchema, req.body ?? {});
+  const { user, deviceName } = await verifyLoginTicket(body.ticket);
+  assertCodeAttempt(user.id);
+  if (!(await consumeSecondFactor(db, user, body.code))) throw invalidCode();
+
+  const { token } = await createSession({ userId: user.id, deviceName, ...clientInfo(req) });
+  const row = await getUserRow(db, user.id);
+  if (!row || row.deletedAt) throw loginTimedOut();
+  const response: AuthResponse = { token, user: toUserSelf(row) };
   res.json(response);
 });
 

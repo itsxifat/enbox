@@ -268,6 +268,35 @@ describe('push: subscriptions and notifications', () => {
       expect(to(aliceEp)).toEqual([]);
     });
 
+    it('unnamed group DMs: title = the other members as each recipient knows them', async () => {
+      const dave = await t.createUser({ displayName: 'Dave' });
+      const daveEp = await subscribe(dave);
+      for (const [a, b] of [
+        [alice, bob],
+        [alice, dave],
+      ] as const) {
+        await saveContact(a, b);
+        await saveContact(b, a);
+      }
+      await saveContact(dave, bob, 'Bobby');
+      const dm = (
+        await t
+          .api(alice)
+          .post('/api/chats/group-dm')
+          .send({ userIds: [bob.id, dave.id] })
+          .expect(201)
+      ).body as { id: string };
+      await pushIdle();
+      sent = [];
+      await send(alice, dm.id, 'hello all');
+      await pushIdle();
+      expect(to(bobEp)[0]!.payload).toMatchObject({
+        title: 'Alice, Dave',
+        body: 'Alice: hello all',
+      });
+      expect(to(daveEp)[0]!.payload.title).toBe('Alice, Bobby');
+    });
+
     it('notificationPreviews off → generic body (direct and group)', async () => {
       const group = await createGroup(alice, [bob], { name: 'Secret club' });
       await setSettings(bob, { notificationPreviews: false });

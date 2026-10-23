@@ -144,7 +144,7 @@ async function checkExemptChannels(tx: DbOrTx, spaceId: string, channelIds: stri
       and(
         eq(chats.spaceId, spaceId),
         inArray(chats.id, out),
-        inArray(chats.type, ['space_text', 'space_voice', 'space_forum']),
+        inArray(chats.type, ['space_text', 'space_voice', 'space_forum', 'space_stage']),
       ),
     );
   if (found.length !== out.length) throw badRequest('exemptChannelIds: Unknown channel');

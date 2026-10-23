@@ -14,7 +14,14 @@ import {
 import type { z } from 'zod';
 import type { DbOrTx, Tx } from '../../db/index.js';
 import { chats, type ChatRow } from '../../db/schema.js';
-import { conflict, forbidden, limitReached, notFound, notMember } from '../../lib/errors.js';
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  limitReached,
+  notFound,
+  notMember,
+} from '../../lib/errors.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
 import {
   activeMemberCount,
@@ -92,6 +99,11 @@ export async function requireGroupAccess(
   return access;
 }
 
+/** 400 for a group DM: it has no admins, admin settings or invite links (`what`). */
+export function refuseInGroupDm(chat: Pick<ChatRow, 'isGroupDm'>, what: string): void {
+  if (chat.isGroupDm) throw badRequest(`Group DMs have no ${what}`);
+}
+
 /** Normalised optional description ('' → null). */
 export function normDescription(d: string | null | undefined): string | null {
   return d ? d : null;
@@ -114,14 +126,21 @@ export async function ensureInviteCode(
  * `POST /groups` and `POST /communities/:id/groups` (matrix: JOIN(creator), JOIN(each
  * added); sys `group_created`, `members_added` → R; linked: community cascade). With a
  * `scope` the group is created linked to that community and its members become community
- * members (409 limit_reached when the community would overflow).
+ * members (409 limit_reached when the community would overflow). `groupDm` (groupDms
+ * module, never with a scope): `is_group_dm`, a name that may be null, no invite link and
+ * no `group_created` (Discord posts nothing on creation; `members_added` still says who).
  */
 export async function createGroupTx(
   tx: Tx,
   fx: Effects,
-  input: { creatorId: string; body: CreateGroupInput; scope?: CommunityScope | null },
+  input: {
+    creatorId: string;
+    body: Omit<CreateGroupInput, 'name'> & { name: string | null };
+    scope?: CommunityScope | null;
+    groupDm?: boolean;
+  },
 ): Promise<{ chat: ChatRow } & AddPlan> {
-  const { creatorId, body, scope } = input;
+  const { creatorId, body, scope, groupDm = false } = input;
   const creator = await requireUser(tx, creatorId);
   if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, creatorId);
   const plan = await planAdds(tx, {
@@ -144,8 +163,9 @@ export async function createGroupTx(
       avatarMediaId: body.avatarMediaId ?? null,
       createdBy: creatorId,
       communityId: scope?.community.id ?? null,
+      isGroupDm: groupDm,
       groupSettings: { ...DEFAULT_GROUP_SETTINGS, ...body.settings },
-      inviteCode: await generateUniqueInviteCode(tx),
+      inviteCode: groupDm ? null : await generateUniqueInviteCode(tx),
       disappearingSeconds: disappearingSeconds ?? null,
     })
     .returning();
@@ -158,11 +178,12 @@ export async function createGroupTx(
     addedBy: creatorId,
     initial: true,
   });
-  await postSystemMessage(tx, fx, group, {
-    kind: 'group_created',
-    actorId: creatorId,
-    name: body.name,
-  });
+  if (!groupDm)
+    await postSystemMessage(tx, fx, group, {
+      kind: 'group_created',
+      actorId: creatorId,
+      name: body.name ?? '',
+    });
   if (plan.toAdd.length)
     await postSystemMessage(tx, fx, group, {
       kind: 'members_added',

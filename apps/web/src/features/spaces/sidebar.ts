@@ -5,6 +5,7 @@
  * rows of the Notification Settings dialog.
  */
 import {
+  isVoiceChannelType,
   MUTE_FOREVER_ISO,
   isMuted,
   type ChatSummary,
@@ -112,8 +113,8 @@ export interface ChannelPositionItem {
   syncPermissions?: boolean;
 }
 
-/** Text-like channels always list before voice ones in a category; positions count per kind. */
-const sortClass = (c: Pick<ChatSummary, 'type'>) => (c.type === 'space_voice' ? 1 : 0);
+/** Text-like channels always list before voice ones and Stages in a category; positions count per kind. */
+const sortClass = (c: Pick<ChatSummary, 'type'>) => (isVoiceChannelType(c.type) ? 1 : 0);
 
 /**
  * The position changes of dropping channel `dragId` at `drop` (Discord's channel drag): it

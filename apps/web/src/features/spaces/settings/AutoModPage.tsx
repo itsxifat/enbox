@@ -11,6 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { AtSign, Check, Link2, MessageSquareWarning, Plus, ShieldAlert, TextCursorInput } from 'lucide-react';
 import {
+  isVoiceChannelType,
   MAX_AUTOMOD_RULES,
   type AutoModRule,
   type AutoModTriggerType,
@@ -327,7 +328,9 @@ function RuleEditor({
     setFormError(null);
   };
   const textChannels = channels.filter((c) => c.type === 'space_text');
-  const exemptable = channels.filter((c) => c.type === 'space_text' || c.type === 'space_voice' || c.type === 'space_forum');
+  const exemptable = channels.filter(
+    (c) => c.type === 'space_text' || c.type === 'space_forum' || isVoiceChannelType(c.type),
+  );
   const roles = space.roles.filter((r) => !r.isDefault).sort((a, b) => b.position - a.position);
   const keywordCount = parseWords(d.keywords).length;
   const patternCount = parseLines(d.patterns).length;

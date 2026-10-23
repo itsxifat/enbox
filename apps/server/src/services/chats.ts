@@ -23,7 +23,13 @@ import {
   type ChatMemberRow,
   type ChatRow,
 } from '../db/schema.js';
-import { badRequest, blocked as blockedError, forbidden, notFound, notMember } from '../lib/errors.js';
+import {
+  badRequest,
+  blocked as blockedError,
+  forbidden,
+  notFound,
+  notMember,
+} from '../lib/errors.js';
 import type { MemberCtx, SpacePermCtx } from './spaceAccess.js';
 import { spaceChannelAccess } from './spaceAccess.js';
 import { uniq } from './sql.js';
@@ -310,7 +316,10 @@ export interface PeerInfo {
  * guards and clients agree by construction). Former members get all false.
  */
 export function computePermissions(
-  chat: Pick<ChatRow, 'type' | 'isAnnouncement' | 'groupSettings' | 'channelSettings'>,
+  chat: Pick<
+    ChatRow,
+    'type' | 'isAnnouncement' | 'isGroupDm' | 'groupSettings' | 'channelSettings'
+  >,
   member: Pick<ChatMemberRow, 'role' | 'leftAt' | 'leftReason'>,
   peer: PeerInfo | null,
   viewerId: string,
@@ -319,6 +328,7 @@ export function computePermissions(
     {
       type: chat.type,
       isAnnouncement: chat.isAnnouncement,
+      isGroupDm: chat.type === 'group' && chat.isGroupDm,
       myRole: member.leftAt ? 'member' : member.role,
       membership: membershipOf(member),
       groupSettings: chat.type === 'group' ? chat.groupSettings : null,

@@ -433,8 +433,14 @@ export async function listMembers(me: string, chatId: string): Promise<ChatMembe
     me,
     rows.map((r) => r.userId),
   );
+  // A stable order (group DM titles are built from it): role, then who joined first.
   return [...rows]
-    .sort((a, b) => ROLE_RANK[a.role] - ROLE_RANK[b.role])
+    .sort(
+      (a, b) =>
+        ROLE_RANK[a.role] - ROLE_RANK[b.role] ||
+        a.joinedAt.getTime() - b.joinedAt.getTime() ||
+        (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0),
+    )
     .filter((r) => users.has(r.userId))
     .map((r) => ({ user: users.get(r.userId)!, role: r.role, joinedAt: r.joinedAt.toISOString() }));
 }
@@ -452,7 +458,12 @@ const MEDIA_KINDS: readonly ChatMediaKind[] = ['media', 'docs', 'links', 'voice'
 function mediaKindCondition(kind: ChatMediaKind): SQL {
   switch (kind) {
     case 'media':
-      return and(inArray(messages.type, ['image', 'video']), sql`${messages.mediaId} is not null`)!;
+      // Stickers are `image` messages but not part of the chat's media.
+      return and(
+        inArray(messages.type, ['image', 'video']),
+        sql`${messages.mediaId} is not null`,
+        sql`${messages.stickerId} is null`,
+      )!;
     case 'docs':
       return and(inArray(messages.type, ['file', 'audio']), sql`${messages.mediaId} is not null`)!;
     case 'voice':

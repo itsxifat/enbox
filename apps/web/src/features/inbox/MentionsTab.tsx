@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { AtSign, Hash, ListFilter, MessagesSquare, Users, Volume2, X } from 'lucide-react';
+import { AtSign, Hash, ListFilter, MessagesSquare, Podcast, Users, Volume2, X } from 'lucide-react';
 import type { ID, InboxMention } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { Avatar, Button, DropdownMenu, EmptyState, IconButton, Spinner, type MenuEntry } from '@/components/ui';
@@ -21,6 +21,7 @@ const MORE_THRESHOLD = 240;
 
 function chatIcon(type: InboxMention['chat']['type']) {
   if (type === 'space_voice') return Volume2;
+  if (type === 'space_stage') return Podcast;
   if (type === 'space_thread') return MessagesSquare;
   if (type === 'group') return Users;
   return Hash;

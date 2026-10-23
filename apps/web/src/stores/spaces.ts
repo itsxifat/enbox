@@ -13,6 +13,7 @@
 import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import {
+  isVoiceChannelType,
   PERM,
   computeBasePermissions,
   computeChannelPermissions,
@@ -428,8 +429,8 @@ export function useSpaceChannels(spaceId: ID | null | undefined): ChatSummary[] 
     return Object.values(byId)
       .filter((c) => c.space?.spaceId === spaceId && c.type !== 'space_thread')
       .sort((a, b) => {
-        const ka = [a.space!.categoryId ? (cats.get(a.space!.categoryId) ?? 0) : -1, a.type === 'space_voice' ? 1 : 0, a.space!.position];
-        const kb = [b.space!.categoryId ? (cats.get(b.space!.categoryId) ?? 0) : -1, b.type === 'space_voice' ? 1 : 0, b.space!.position];
+        const ka = [a.space!.categoryId ? (cats.get(a.space!.categoryId) ?? 0) : -1, isVoiceChannelType(a.type) ? 1 : 0, a.space!.position];
+        const kb = [b.space!.categoryId ? (cats.get(b.space!.categoryId) ?? 0) : -1, isVoiceChannelType(b.type) ? 1 : 0, b.space!.position];
         for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
         return a.createdAt < b.createdAt ? -1 : 1;
       });

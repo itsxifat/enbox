@@ -29,6 +29,7 @@ import type {
   DisableTotpRequest,
   EnableTotpRequest,
   LoginMfaRequest,
+  MfaChallenge,
   RegenerateBackupCodesRequest,
   SpaceSound,
   SpaceSticker,
@@ -201,6 +202,7 @@ export type ApiErrorCode =
   | 'payload_too_large' // 413
   | 'rate_limited' // 429
   | 'automod_blocked' // 403: a Space AutoMod rule blocked the message (not created)
+  | 'invalid_code' // 400: a wrong, expired or already used two-factor code
   | 'internal_error'; // 500
 
 export interface ApiErrorBody {
@@ -367,7 +369,10 @@ export interface ApiRoutes {
     R: UsernameAvailability;
   } /* public, per-IP rate-limited; malformed → 400 */;
   'POST /api/auth/register': { B: RegisterRequest; R: AuthResponse };
-  'POST /api/auth/login': { B: LoginRequest; R: AuthResponse };
+  'POST /api/auth/login': {
+    B: LoginRequest;
+    R: AuthResponse | MfaChallenge;
+  } /* two-factor on: an MfaChallenge (no session) → POST /api/auth/login/mfa */;
   'POST /api/auth/logout': {
     R: void;
   } /* deletes the current session (push subscriptions cascade) */;

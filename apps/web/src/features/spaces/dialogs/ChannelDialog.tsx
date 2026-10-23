@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, Hash, MessagesSquare, Minus, Plus, Trash2, Volume2, X } from 'lucide-react';
+import { Check, Hash, MessagesSquare, Minus, Plus, Podcast, Trash2, Volume2, X } from 'lucide-react';
 import {
   CHANNEL_NAME_MAX_LENGTH,
   CHANNEL_TOPIC_MAX_LENGTH,
@@ -19,7 +19,7 @@ import {
 } from '@enbox/shared';
 import { Button, DropdownMenu, EmptyState, Field, Input, Modal, Spinner, Switch, Tabs, Textarea, confirm, toast } from '@/components/ui';
 import { ForumSettingsSection } from '@/features/forums/ForumSettingsSection';
-import { inviteUrl } from '@/features/groups/shared/share';
+import { shownInviteUrl, useHideInvites } from '@/features/groups/shared/share';
 import { cn } from '@/lib/cn';
 import { useSpace } from '@/stores/spaces';
 import { useUser, useUsers } from '@/stores/users';
@@ -62,7 +62,7 @@ export function ChannelDialog({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<ChannelTab>('overview');
-  const title = chat ? `${chat.type === 'space_voice' ? '' : '#'}${chat.name}` : 'Create Channel';
+  const title = chat ? `${chat.type === 'space_voice' || chat.type === 'space_stage' ? '' : '#'}${chat.name}` : 'Create Channel';
   return (
     <Modal open onClose={onClose} size="lg" title={title}>
       {chat ? (
@@ -95,7 +95,7 @@ export function ChannelDialog({
 function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: ChatSummary; categoryId: ID | null; onClose: () => void }) {
   const space = useSpace(spaceId);
   const navigate = useNavigate();
-  const [type, setType] = useState<'space_text' | 'space_voice' | 'space_forum'>(
+  const [type, setType] = useState<'space_text' | 'space_voice' | 'space_forum' | 'space_stage'>(
     chat ? (chat.type as 'space_text') : 'space_text',
   );
   const [name, setName] = useState(chat?.name ?? '');
@@ -108,9 +108,10 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
   const [cat, setCat] = useState<ID | null>(chat?.space?.categoryId ?? categoryId);
   const [isPrivate, setPrivate] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Forums are named like text channels.
-  const shown = type === 'space_voice' ? name.trim() : normalizeTextChannelName(name);
-  const voice = type === 'space_voice';
+  // Forums are named like text channels; Stages are voice channels with a topic.
+  const stage = type === 'space_stage';
+  const voice = type === 'space_voice' || stage;
+  const shown = voice ? name.trim() : normalizeTextChannelName(name);
   const forum = type === 'space_forum';
 
   const save = async () => {
@@ -122,6 +123,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
         if (voice) {
           body.userLimit = userLimit || null;
           if (bitrate !== initialBitrate) body.bitrate = bitrate;
+          if (stage) body.topic = topic.trim() || null;
         } else {
           // Forums keep their guidelines in the Forum tab.
           if (!forum) body.topic = topic.trim() || null;
@@ -133,7 +135,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           type,
           name: shown,
           categoryId: cat,
-          ...(type === 'space_text' ? { topic: topic.trim() || undefined } : {}),
+          ...(type === 'space_text' || stage ? { topic: topic.trim() || undefined } : {}),
           privateRoleIds: isPrivate ? [] : undefined,
         });
       }
@@ -178,6 +180,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
               { v: 'space_text', icon: Hash, title: 'Text', sub: 'Messages, images, links, polls' },
               { v: 'space_voice', icon: Volume2, title: 'Voice', sub: 'Talk, video and screen share' },
               { v: 'space_forum', icon: MessagesSquare, title: 'Forum', sub: 'Organized posts, each with its own replies' },
+              { v: 'space_stage', icon: Podcast, title: 'Stage', sub: 'Speakers talk while an audience listens' },
             ] as const
           ).map((o) => (
             <button
@@ -198,7 +201,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
         </div>
       ) : null}
       <Field label="Channel name" htmlFor="ch-name" hint={!voice && name && shown !== name ? `Will be #${shown}` : undefined}>
-        <Input id="ch-name" value={name} maxLength={CHANNEL_NAME_MAX_LENGTH} placeholder={voice ? 'Lounge' : forum ? 'new-forum' : 'new-channel'} onChange={(e) => setName(e.target.value)} autoFocus data-testid="channel-name" />
+        <Input id="ch-name" value={name} maxLength={CHANNEL_NAME_MAX_LENGTH} placeholder={stage ? 'Town Hall' : voice ? 'Lounge' : forum ? 'new-forum' : 'new-channel'} onChange={(e) => setName(e.target.value)} autoFocus data-testid="channel-name" />
       </Field>
       {!chat && space && space.categories.length ? (
         <Field label="Category" htmlFor="ch-cat">
@@ -212,9 +215,9 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           </select>
         </Field>
       ) : null}
-      {type === 'space_text' ? (
-        <Field label="Channel topic" htmlFor="ch-topic">
-          <Textarea id="ch-topic" value={topic} maxLength={CHANNEL_TOPIC_MAX_LENGTH} rows={2} placeholder="Let everyone know how to use this channel" onChange={(e) => setTopic(e.target.value)} />
+      {type === 'space_text' || stage ? (
+        <Field label={stage ? 'Stage topic' : 'Channel topic'} htmlFor="ch-topic">
+          <Textarea id="ch-topic" value={topic} maxLength={CHANNEL_TOPIC_MAX_LENGTH} rows={2} placeholder={stage ? 'What is the Stage about?' : 'Let everyone know how to use this channel'} onChange={(e) => setTopic(e.target.value)} />
         </Field>
       ) : null}
       {chat && !voice ? (
@@ -307,10 +310,11 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
 
 function InviteRow({ invite, onRevoke }: { invite: SpaceInvite; onRevoke: () => void }) {
   const inviter = useUser(invite.createdBy);
+  const hideInvites = useHideInvites();
   return (
     <div className="flex items-center gap-3 rounded-lg px-3 py-2">
       <div className="min-w-0 flex-1">
-        <p className="truncate font-mono text-[13px]">{inviteUrl(invite.code)}</p>
+        <p className="truncate font-mono text-[13px]">{shownInviteUrl(invite.code, hideInvites)}</p>
         <p className="text-[13px] text-muted">
           {inviter ? `${userDisplayName(inviter)} · ` : ''}
           {invite.uses}
@@ -408,7 +412,7 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
   const current = selected ? targets.get(selected) : undefined;
   // Forums take the text channel permissions (SEND_MESSAGES creates posts).
   const groups = PERMISSION_GROUPS.filter((g) =>
-    g.channel.includes(chat.type === 'space_voice' ? 'space_voice' : 'space_text'),
+    g.channel.includes(chat.type === 'space_voice' || chat.type === 'space_stage' ? 'space_voice' : 'space_text'),
   );
   const valueOf = (bit: number): Tri =>
     !current ? 'neutral' : current.allow & bit ? 'allow' : current.deny & bit ? 'deny' : 'neutral';

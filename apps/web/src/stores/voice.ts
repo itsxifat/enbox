@@ -2,7 +2,8 @@
  * Voice channels: who is connected where (`voice_states`, one per account, kept current by
  * `voice:state` events) and my own connection (`features/voice/engine.ts` drives it).
  *
- * - `byUser`        every known voice state, by user (a user is in at most one channel)
+ * - `byUser`        every known voice state, by user (a user is in at most one channel; on a
+ *                   Stage `suppressed` = in the audience, `requestToSpeakAt` = a raised hand)
  * - `loadedSpaces`  Spaces whose states were fetched (`GET /api/spaces/:id/voice-states`)
  * - `connection`    my voice connection: channel, status, error
  * - `speaking`      who is speaking in my room right now (LiveKit active speakers)
@@ -13,6 +14,7 @@ import { create } from 'zustand';
 import type { ID, VoiceState } from '@enbox/shared';
 import { api } from '@/lib/api';
 import { registerSessionReset } from '@/lib/session';
+import { useAuth } from './auth';
 
 export type VoiceStatus = 'connecting' | 'connected' | 'reconnecting';
 
@@ -119,4 +121,32 @@ export function useVoiceChannelStates(channelId: ID | null | undefined): VoiceSt
 /** Whether anyone is in voice in this Space (rail speaker glyph). */
 export function useSpaceHasVoice(spaceId: ID): boolean {
   return useVoice((s) => Object.values(s.byUser).some((v) => v.spaceId === spaceId));
+}
+
+/** My voice state (whatever channel I am in), from the store. */
+export function useMyVoiceState(): VoiceState | undefined {
+  const me = useAuth((s) => s.user?.id);
+  return useVoice((s) => (me ? s.byUser[me] : undefined));
+}
+
+export interface StageGroups {
+  /** On stage, in join order. */
+  speakers: VoiceState[];
+  /** Listening, in join order. */
+  audience: VoiceState[];
+  /** Audience members with a raised hand, the earliest first. */
+  requests: VoiceState[];
+}
+
+/** The people on a Stage: speakers, the audience and the raised hands. */
+export function useStageGroups(channelId: ID | null | undefined): StageGroups {
+  const states = useVoiceChannelStates(channelId);
+  return useMemo(() => {
+    const speakers = states.filter((v) => !v.suppressed);
+    const audience = states.filter((v) => v.suppressed);
+    const requests = audience
+      .filter((v) => !!v.requestToSpeakAt)
+      .sort((a, b) => a.requestToSpeakAt!.localeCompare(b.requestToSpeakAt!) || a.userId.localeCompare(b.userId));
+    return { speakers, audience, requests };
+  }, [states]);
 }

@@ -31,23 +31,31 @@ import { requireAvatarMedia, staticMediaUrl } from '../../services/media.js';
 import { changeRole, transferOwnership, upsertMembership } from '../../services/membership.js';
 import { toChatSummary } from '../../services/summaries.js';
 import { postSystemMessage } from '../../services/system.js';
+import { addGroupDmMembersTx } from '../groupDms/service.js';
 import {
   addGroupMembersTx,
   createGroupTx,
   ensureInviteCode,
   normDescription,
+  refuseInGroupDm,
   requireGroupAccess,
 } from './service.js';
 
 /**
  * Groups module — owns: /groups/* (type 'group', never announcement groups: those are
  * managed through /communities → 403). Rules: docs "Groups", "Permissions matrix",
- * "Membership transitions"; events: matrix rows `/groups/*`.
+ * "Membership transitions"; events: matrix rows `/groups/*`. Group DMs (`is_group_dm`,
+ * groupDms module) use these routes too, minus what they don't have: settings, admins and
+ * invite links → 400; adding follows the group DM rules (friends only, the member cap).
  */
 export const router = Router();
 
 const chatParams = idParamSchema('chatId');
 const memberParams = idParamSchema('chatId', 'userId');
+/** `name: null` clears a group DM's name (clients show its members' names); groups keep one. */
+const updateSchema = updateGroupSchema.extend({
+  name: updateGroupSchema.shape.name.unwrap().nullable().optional(),
+});
 const SETTING_KEYS: (keyof GroupSettings)[] = [
   'onlyAdminsCanSend',
   'onlyAdminsCanEditInfo',
@@ -78,18 +86,20 @@ router.post('/groups', async (req, res) => {
 router.patch('/groups/:chatId', async (req, res) => {
   const me = authUserId(req);
   const { chatId } = parse(chatParams, req.params);
-  const body = parse(updateGroupSchema, req.body ?? {});
+  const body = parse(updateSchema, req.body ?? {});
   await transact(async (tx, fx) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
     requirePermission(access, 'canEditInfo', 'Only admins can edit this group');
     const chat = access.chat;
+    if (body.name === null && !chat.isGroupDm) throw badRequest('A group needs a name');
     const changes: ChatInfoChanges = {};
     const set: Partial<typeof chats.$inferInsert> = {};
     const events: SystemEvent[] = [];
     if (body.name !== undefined && body.name !== chat.name) {
       set.name = body.name;
       changes.name = body.name;
-      events.push({ kind: 'name_changed', actorId: me, name: body.name });
+      // Clearing a group DM's name has no system message (there's no name to show).
+      if (body.name !== null) events.push({ kind: 'name_changed', actorId: me, name: body.name });
     }
     if (body.description !== undefined && normDescription(body.description) !== chat.description) {
       set.description = normDescription(body.description);
@@ -104,7 +114,7 @@ router.patch('/groups/:chatId', async (req, res) => {
       changes.avatarUrl = avatar ? staticMediaUrl(avatar) : null;
       events.push({ kind: 'avatar_changed', actorId: me });
     }
-    if (events.length === 0) return;
+    if (Object.keys(set).length === 0) return;
     await tx
       .update(chats)
       .set({ ...set, updatedAt: new Date() })
@@ -122,6 +132,7 @@ router.patch('/groups/:chatId/settings', async (req, res) => {
   const body = parse(updateGroupSettingsSchema, req.body ?? {});
   await transact(async (tx, fx) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
+    refuseInGroupDm(access.chat, 'admin settings');
     if (!isAdminRole(access.member.role)) throw forbidden('Only admins can change group settings');
     const current = access.chat.groupSettings!;
     const next: GroupSettings = { ...current };
@@ -159,6 +170,8 @@ router.post('/groups/:chatId/members', async (req, res) => {
     const { chat, scope } = await lockGroupScope(tx, chatId);
     const access = await requireGroupAccess(tx, me, chatId, { chat });
     requirePermission(access, 'canAddMembers', 'Only admins can add members');
+    // Group DMs (also through this route: old clients see them as groups): their own rules.
+    if (chat.isGroupDm) return addGroupDmMembersTx(tx, fx, { chat, scope, actorId: me, userIds });
     return addGroupMembersTx(tx, fx, { chat, scope, actorId: me, userIds });
   });
   const out: AddMembersResult = {
@@ -201,6 +214,7 @@ router.put('/groups/:chatId/members/:userId/role', async (req, res) => {
   const { role } = parse(setRoleSchema, req.body ?? {});
   await transact(async (tx, fx) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
+    refuseInGroupDm(access.chat, 'admins');
     requirePermission(access, 'canManageAdmins', 'Only admins can manage admins');
     const changed = await changeRole(tx, fx, {
       chatId,
@@ -261,6 +275,7 @@ router.get('/groups/:chatId/invite', async (req, res) => {
   const { chatId } = parse(chatParams, req.params);
   const code = await transact(async (tx) => {
     const access = await requireGroupAccess(tx, me, chatId);
+    refuseInGroupDm(access.chat, 'invite links');
     requirePermission(access, 'canInvite', 'Only admins can share the invite link');
     return ensureInviteCode(tx, access.chat);
   });
@@ -273,6 +288,7 @@ router.post('/groups/:chatId/invite/reset', async (req, res) => {
   const { chatId } = parse(chatParams, req.params);
   const code = await transact(async (tx, fx) => {
     const access = await requireGroupAccess(tx, me, chatId, { lock: true });
+    refuseInGroupDm(access.chat, 'invite links');
     if (!isAdminRole(access.member.role)) throw forbidden('Only admins can reset the invite link');
     const next = await generateUniqueInviteCode(tx);
     await tx
