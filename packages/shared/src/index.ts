@@ -13,3 +13,7 @@ export * from './expressions.js';
 export * from './integrations.js';
 export * from './safety.js';
 export * from './starterTemplates.js';
+export * from './moderation.js';
+export * from './insights.js';
+export * from './guide.js';
+export * from './activity.js';

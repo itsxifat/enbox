@@ -15,6 +15,8 @@
  *   soundboard.ts   space:sounds, voice:sound (the soundboard)
  *   requests.ts     chat:request, chat:request-removed (message requests)
  *   ignores.ts      ignores:changed (my ignore list)
+ *   moderation.ts   space:security (security actions)
+ *   guide.ts        space:guide, me:channel-prefs (Server Guide, Browse Channels)
  *   events.ts       space:event* (scheduled events, the "Event starting" reminder)
  *   calls.ts        call:*                                      (agent 4)
  *   status.ts       status:*                                    (agent 4)
@@ -34,8 +36,10 @@ import { registerCommunityHandlers, resyncCommunities } from './communities';
 import { registerEmojiHandlers, resyncEmojis } from './emojis';
 import { registerEventHandlers, resyncEvents } from './events';
 import { registerFriendHandlers, resyncFriends } from './friends';
+import { registerGuideHandlers, resyncGuide } from './guide';
 import { registerIgnoresHandlers, resyncIgnores } from './ignores';
 import { registerMessageHandlers } from './messages';
+import { registerModerationHandlers, resyncModeration } from './moderation';
 import { registerRequestsHandlers, resyncRequests } from './requests';
 import { registerSoundboardHandlers, resyncSoundboard } from './soundboard';
 import { registerSpaceHandlers, resyncSpaces } from './spaces';
@@ -71,6 +75,8 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
         resyncSoundboard(info),
         resyncRequests(info),
         resyncIgnores(info),
+        resyncModeration(info),
+        resyncGuide(info),
         resyncEvents(info),
         resyncVoice(info),
       ]),
@@ -97,6 +103,8 @@ export function startRealtime(): void {
     registerSoundboardHandlers(socket);
     registerRequestsHandlers(socket);
     registerIgnoresHandlers(socket);
+    registerModerationHandlers(socket);
+    registerGuideHandlers(socket);
     registerEventHandlers(socket);
     registerVoiceHandlers(socket);
     registerCallHandlers(socket);

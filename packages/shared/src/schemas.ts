@@ -907,6 +907,8 @@ export const createSpaceChannelSchema = z.object({
   forumSettings: forumChannelFields.forumSettings.optional(),
   /** Text channels: an announcement channel. */
   isNews: z.boolean().optional(),
+  /** Not in members' sidebars until they show it (Browse Channels). */
+  optIn: z.boolean().optional(),
 });
 
 export const updateSpaceChannelSchema = z
@@ -923,6 +925,8 @@ export const updateSpaceChannelSchema = z
     forumSettings: forumChannelFields.forumSettings,
     /** Text channels: convert to or from an announcement channel. */
     isNews: z.boolean(),
+    /** Browse Channels: hidden from sidebars until members show it. */
+    optIn: z.boolean(),
   })
   .partial();
 

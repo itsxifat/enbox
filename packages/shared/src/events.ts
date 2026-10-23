@@ -45,6 +45,8 @@
 import type { FriendRequest, ReactionEvent, SpaceEmoji } from './social.js';
 import type { AutoModRule, SpaceEvent } from './community.js';
 import type { SpaceSound, SpaceSticker, VoiceSoundEvent } from './expressions.js';
+import type { ChannelPref, ServerGuide } from './guide.js';
+import type { SpaceSecurity } from './moderation.js';
 import type { ApiErrorCode } from './api.js';
 import type {
   Call,
@@ -169,7 +171,11 @@ export interface ServerToClientEvents {
   'message:reaction-add': (payload: ReactionEvent) => void;
   'message:reaction-remove': (payload: ReactionEvent) => void;
   /** A moderator cleared one emoji (`emoji`) or every reaction (`emoji: null`). */
-  'message:reactions-cleared': (payload: { chatId: ID; messageId: ID; emoji: string | null }) => void;
+  'message:reactions-cleared': (payload: {
+    chatId: ID;
+    messageId: ID;
+    emoji: string | null;
+  }) => void;
   /** A thread was created or changed (to the parent channel's room and the thread's). */
   'thread:upsert': (payload: { thread: ChatSummary }) => void;
   'thread:deleted': (payload: { threadId: ID; parentId: ID }) => void;
@@ -272,6 +278,12 @@ export interface ServerToClientEvents {
   /** The Space's stickers or soundboard changed (the whole list). */
   'space:stickers': (payload: { spaceId: ID; stickers: SpaceSticker[] }) => void;
   'space:sounds': (payload: { spaceId: ID; sounds: SpaceSound[] }) => void;
+  /** A Space's security actions or alerts changed (moderators show them). */
+  'space:security': (payload: { spaceId: ID; security: SpaceSecurity }) => void;
+  /** A Space's Server Guide changed (null = removed). */
+  'space:guide': (payload: { spaceId: ID; guide: ServerGuide | null }) => void;
+  /** My Browse Channels choices in a Space (my devices only). */
+  'me:channel-prefs': (payload: { spaceId: ID; prefs: ChannelPref[] }) => void;
   /** A message request for me arrived or changed (`chat.request` set). */
   'chat:request': (payload: { chat: ChatSummary }) => void;
   /** A request left my Requests list: accepted, ignored (on another device) or withdrawn. */
@@ -289,7 +301,12 @@ export interface ServerToClientEvents {
    * Voice: someone joined, moved within, changed flags in, or left (`state: null`) a voice
    * channel. Sent to the channel's room (only those who can see it).
    */
-  'voice:state': (payload: { spaceId: ID; channelId: ID; userId: ID; state: VoiceState | null }) => void;
+  'voice:state': (payload: {
+    spaceId: ID;
+    channelId: ID;
+    userId: ID;
+    state: VoiceState | null;
+  }) => void;
   /** My voice connection was ended by the server: disconnect from the media server. */
   'voice:disconnected': (payload: { channelId: ID; reason: VoiceDisconnectReason }) => void;
   /** A moderator moved me to another voice channel: reconnect with this token. */

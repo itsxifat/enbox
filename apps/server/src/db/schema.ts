@@ -26,6 +26,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -67,6 +68,8 @@ import type {
   ReportStatus,
   ReportTarget,
   RoleColorStyle,
+  OnboardingAnswers,
+  ServerGuide,
   SharedChatTheme,
   SpaceEventEntity,
   SpaceEventStatus,
@@ -477,6 +480,17 @@ export const spaces = pgTable(
     verificationLevel: smallint('verification_level').notNull().default(0),
     /** 0 off, 1 members without roles, 2 everyone: scan media for explicit content. */
     explicitFilter: smallint('explicit_filter').notNull().default(0),
+    /** Security actions: no invite joins until then (null = invites work). */
+    invitesPausedUntil: ts('invites_paused_until'),
+    /** Security actions: no new DMs between members who aren't friends until then. */
+    dmsPausedUntil: ts('dms_paused_until'),
+    /** Where raid and security alerts go. */
+    safetyAlertsChannelId: uuid('safety_alerts_channel_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'set null',
+    }),
+    raidAlerts: boolean('raid_alerts').notNull().default(true),
+    /** The Server Guide (null = none). */
+    guide: jsonb('guide').$type<ServerGuide>(),
     /** Discovery listing (with `is_discoverable`): DISCOVERY_CATEGORIES id and search tags. */
     discoveryCategory: text('discovery_category'),
     discoveryTags: text('discovery_tags').array().notNull().default(sql`'{}'::text[]`),
@@ -534,6 +548,13 @@ export const spaceMembers = pgTable(
     onboardedAt: ts('onboarded_at'),
     /** Members of this Space may DM me (new memberships take `settings.allowSpaceDms`). */
     allowDms: boolean('allow_dms').notNull().default(true),
+    /** My onboarding answers (prompt id → option ids); Channels & Roles changes them. */
+    onboardingAnswers: jsonb('onboarding_answers').$type<OnboardingAnswers>(),
+    /** Server Guide to-dos I did (their channel ids). */
+    guideDone: uuid('guide_done')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     /** Per-Space profile: each null field falls back to the main profile. */
     avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
       onDelete: 'set null',
@@ -1035,6 +1056,8 @@ export const chats = pgTable(
     isGroupDm: boolean('is_group_dm').notNull().default(false),
     /** Space text channels: an announcement channel (Publish, Follow). */
     isNews: boolean('is_news').notNull().default(false),
+    /** Browse Channels: hidden from members' sidebars until they show it. */
+    optIn: boolean('opt_in').notNull().default(false),
     /** Voice and Stage channels: "Set a channel status" (cleared when the channel empties). */
     voiceStatus: text('voice_status'),
     /** Groups only, always complete (DEFAULT_GROUP_SETTINGS merged at creation). */
@@ -1306,6 +1329,8 @@ export const messages = pgTable(
       .on(t.chatId, t.senderId, t.clientId)
       .where(sql`${t.clientId} is not null`),
     index('messages_sender_idx').on(t.senderId),
+    /** Mod View: a member's latest messages. */
+    index('messages_sender_created_idx').on(t.senderId, t.createdAt),
     /** Unread mention counts of space channels scan only messages that mention someone. */
     index('messages_mentions_idx')
       .on(t.chatId, t.seq)
@@ -1493,6 +1518,78 @@ export const spaceTemplates = pgTable(
     uniqueIndex('space_templates_code_uq').on(t.code),
     index('space_templates_source_idx').on(t.sourceSpaceId),
   ],
+);
+
+/** My Browse Channels choices that differ from a channel's default (opt-in or not). */
+export const spaceMemberChannels = pgTable(
+  'space_member_channels',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    shown: boolean('shown').notNull(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.channelId] }),
+    index('space_member_channels_space_idx').on(t.spaceId, t.userId),
+  ],
+);
+
+/** Space insights: one row per Space per UTC day, counted as things happen. */
+export const spaceStatsDaily = pgTable(
+  'space_stats_daily',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    day: date('day').notNull(),
+    messages: integer('messages').notNull().default(0),
+    joins: integer('joins').notNull().default(0),
+    leaves: integer('leaves').notNull().default(0),
+    voiceMinutes: integer('voice_minutes').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.day] })],
+);
+
+/** Space insights: messages per channel per UTC day (top channels). */
+export const spaceChannelStatsDaily = pgTable(
+  'space_channel_stats_daily',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    day: date('day').notNull(),
+    messages: integer('messages').notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.channelId, t.day] }),
+    index('space_channel_stats_space_idx').on(t.spaceId, t.day),
+  ],
+);
+
+/** Space insights: who was active (sent a message or was in voice) per UTC day. */
+export const spaceActiveDaily = pgTable(
+  'space_active_daily',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    day: date('day').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.day, t.userId] })],
 );
 
 export const starredMessages = pgTable(

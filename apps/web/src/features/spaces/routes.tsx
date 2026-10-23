@@ -5,6 +5,18 @@ import { SpacesView } from './SpacesView';
 const SpaceChannelPane = lazyNamed(() => import('./SpaceChannelPane'), 'SpaceChannelPane');
 const SpaceHome = lazyNamed(() => import('./SpaceChannelPane'), 'SpaceHome');
 const SpaceSettings = lazyNamed(() => import('./settings/SpaceSettings'), 'SpaceSettings');
+const ServerGuidePage = lazyNamed(
+  () => import('@/features/guide/ServerGuidePage'),
+  'ServerGuidePage',
+);
+const BrowseChannelsPage = lazyNamed(
+  () => import('@/features/guide/BrowseChannelsPage'),
+  'BrowseChannelsPage',
+);
+const ChannelsRolesPage = lazyNamed(
+  () => import('@/features/guide/ChannelsRolesPage'),
+  'ChannelsRolesPage',
+);
 
 /**
  *   /spaces                              rail (+ last Space on desktop)
@@ -25,6 +37,9 @@ export const spacesRoutes: RouteObject[] = [
     element: <SpacesView />,
     children: [
       { path: ':spaceId', element: <SpaceHome /> },
+      { path: ':spaceId/guide', element: <ServerGuidePage />, handle: { detail: true } },
+      { path: ':spaceId/browse', element: <BrowseChannelsPage />, handle: { detail: true } },
+      { path: ':spaceId/channels-roles', element: <ChannelsRolesPage />, handle: { detail: true } },
       { path: ':spaceId/:chatId', element: <SpaceChannelPane />, handle: { detail: true } },
     ],
   },

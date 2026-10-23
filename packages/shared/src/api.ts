@@ -20,6 +20,25 @@
  *   `/categories/:categoryId`, `/roles/positions` before `/roles/:roleId`, `/members/me` and
  *   `/members/batch` before `/members/:userId`). The catalogue lists them in that order.
  */
+import type { FriendActivity, SpacePreview, SpacePreviewMessages } from './activity.js';
+import type {
+  ChannelPref,
+  ChannelPrefsRequest,
+  GuideProgress,
+  OnboardingAnswers,
+  ServerGuide,
+  ServerGuideRequest,
+} from './guide.js';
+import type { InsightsQuery, SpaceInsights } from './insights.js';
+import type {
+  BulkMembersRequest,
+  BulkMembersResult,
+  MemberSearchQuery,
+  ModMemberPage,
+  ModView,
+  SpaceSecurity,
+  UpdateSpaceSecurityRequest,
+} from './moderation.js';
 import type {
   ChannelFollow,
   CreateTemplateRequest,
@@ -451,56 +470,133 @@ export interface ApiRoutes {
   // Group DMs (up to GROUP_DM_MAX_MEMBERS; friends only; no admins, the owner removes)
   'POST /api/chats/group-dm': { B: CreateGroupDmRequest; R: ChatSummary } /* one user → that DM */;
   'POST /api/chats/:chatId/group-dm/members': { B: AddGroupDmMembersRequest; R: ChatSummary };
-  'DELETE /api/chats/:chatId/group-dm/members/:userId': { R: void } /* the owner; me = leave silently */;
+  'DELETE /api/chats/:chatId/group-dm/members/:userId': {
+    R: void;
+  } /* the owner; me = leave silently */;
   // Two-factor sign-in
   'POST /api/me/mfa/totp/setup': { R: TotpSetup };
   'POST /api/me/mfa/totp/enable': { B: EnableTotpRequest; R: BackupCodes };
   'POST /api/me/mfa/totp/disable': { B: DisableTotpRequest; R: void };
   'POST /api/me/mfa/backup-codes': { B: RegenerateBackupCodesRequest; R: BackupCodes };
-  'POST /api/auth/login/mfa': { B: LoginMfaRequest; R: AuthResponse } /* second step of POST /api/auth/login */;
+  'POST /api/auth/login/mfa': {
+    B: LoginMfaRequest;
+    R: AuthResponse;
+  } /* second step of POST /api/auth/login */;
   // Message requests (a first DM from someone who isn't my friend, with messageRequests on)
-  'GET /api/chats/requests': { Q: { state?: 'pending' | 'ignored' }; R: ChatSummary[] } /* newest first */;
-  'POST /api/chats/:chatId/request/accept': { R: ChatSummary } /* chat:request-removed + chat:upsert → my devices */;
-  'POST /api/chats/:chatId/request/ignore': { R: void } /* stays hidden and quiet; the sender isn't told */;
+  'GET /api/chats/requests': {
+    Q: { state?: 'pending' | 'ignored' };
+    R: ChatSummary[];
+  } /* newest first */;
+  'POST /api/chats/:chatId/request/accept': {
+    R: ChatSummary;
+  } /* chat:request-removed + chat:upsert → my devices */;
+  'POST /api/chats/:chatId/request/ignore': {
+    R: void;
+  } /* stays hidden and quiet; the sender isn't told */;
   // Ignore (silent)
   'GET /api/me/ignores': { R: UserPublic[] };
   'PUT /api/users/:userId/ignore': { R: void } /* ignores:changed → my devices */;
   'DELETE /api/users/:userId/ignore': { R: void };
   // Reports (Space content also reaches the Space's moderators)
   'POST /api/reports': { B: CreateReportRequest; R: { id: ID } };
-  'GET /api/spaces/:spaceId/reports': { Q: SpaceReportsQuery; R: SpaceReportPage } /* MANAGE_MESSAGES, KICK, BAN or MODERATE */;
+  'GET /api/spaces/:spaceId/reports': {
+    Q: SpaceReportsQuery;
+    R: SpaceReportPage;
+  } /* MANAGE_MESSAGES, KICK, BAN or MODERATE */;
   'PATCH /api/spaces/:spaceId/reports/:reportId': { B: UpdateReportRequest; R: SpaceReport };
   // Webhooks (MANAGE_WEBHOOKS in the channel)
   'GET /api/spaces/:spaceId/webhooks': { R: Webhook[] };
   'GET /api/chats/:chatId/webhooks': { R: Webhook[] };
-  'POST /api/chats/:chatId/webhooks': { B: CreateWebhookRequest; R: WebhookWithUrl } /* the URL is shown once */;
+  'POST /api/chats/:chatId/webhooks': {
+    B: CreateWebhookRequest;
+    R: WebhookWithUrl;
+  } /* the URL is shown once */;
   'PATCH /api/webhooks/:webhookId': { B: UpdateWebhookRequest; R: Webhook };
   'DELETE /api/webhooks/:webhookId': { R: void };
-  'POST /api/webhooks/:webhookId/token': { R: WebhookWithUrl } /* a new URL; the old one stops working */;
-  'POST /api/webhooks/:webhookId/:token': { B: ExecuteWebhookBody; Q: { wait?: 'true' | 'false' }; R: Message | void } /* public: no session */;
-  'PATCH /api/webhooks/:webhookId/:token/messages/:messageId': { B: { content?: string; embeds?: unknown[] }; R: Message } /* public */;
+  'POST /api/webhooks/:webhookId/token': {
+    R: WebhookWithUrl;
+  } /* a new URL; the old one stops working */;
+  'POST /api/webhooks/:webhookId/:token': {
+    B: ExecuteWebhookBody;
+    Q: { wait?: 'true' | 'false' };
+    R: Message | void;
+  } /* public: no session */;
+  'PATCH /api/webhooks/:webhookId/:token/messages/:messageId': {
+    B: { content?: string; embeds?: unknown[] };
+    R: Message;
+  } /* public */;
   'DELETE /api/webhooks/:webhookId/:token/messages/:messageId': { R: void } /* public */;
   // Announcement channels (SpaceChannelInfo.isNews)
-  'POST /api/messages/:messageId/crosspost': { R: Message } /* Publish: the author or MANAGE_MESSAGES; PUBLISH_LIMIT_PER_HOUR */;
-  'GET /api/chats/:chatId/followers': { R: ChannelFollow[] } /* who follows this announcement channel */;
-  'POST /api/chats/:chatId/followers': { B: FollowChannelRequest; R: ChannelFollow } /* MANAGE_WEBHOOKS in the target */;
-  'GET /api/spaces/:spaceId/follows': { R: ChannelFollow[] } /* channels followed into this Space */;
+  'POST /api/messages/:messageId/crosspost': {
+    R: Message;
+  } /* Publish: the author or MANAGE_MESSAGES; PUBLISH_LIMIT_PER_HOUR */;
+  'GET /api/chats/:chatId/followers': {
+    R: ChannelFollow[];
+  } /* who follows this announcement channel */;
+  'POST /api/chats/:chatId/followers': {
+    B: FollowChannelRequest;
+    R: ChannelFollow;
+  } /* MANAGE_WEBHOOKS in the target */;
+  'GET /api/spaces/:spaceId/follows': {
+    R: ChannelFollow[];
+  } /* channels followed into this Space */;
   'DELETE /api/channel-follows/:followId': { R: void };
   // Space templates (starters: STARTER_TEMPLATES; POST /api/spaces { template })
   'GET /api/templates/:code': { R: SpaceTemplate };
   'GET /api/spaces/:spaceId/templates': { R: SpaceTemplate[] } /* MANAGE_SPACE */;
   'POST /api/spaces/:spaceId/templates': { B: CreateTemplateRequest; R: SpaceTemplate };
   'PATCH /api/spaces/:spaceId/templates/:code': { B: UpdateTemplateRequest; R: SpaceTemplate };
-  'PUT /api/spaces/:spaceId/templates/:code': { R: SpaceTemplate } /* sync with the Space as it is now */;
+  'PUT /api/spaces/:spaceId/templates/:code': {
+    R: SpaceTemplate;
+  } /* sync with the Space as it is now */;
   'DELETE /api/spaces/:spaceId/templates/:code': { R: void };
   // Rich content
   'GET /api/messages/:messageId': { R: Message } /* a message I can see (message link previews) */;
-  'PATCH /api/messages/:messageId/suppress-embeds': { B: { suppress: boolean }; R: Message } /* the author or MANAGE_MESSAGES */;
+  'PATCH /api/messages/:messageId/suppress-embeds': {
+    B: { suppress: boolean };
+    R: Message;
+  } /* the author or MANAGE_MESSAGES */;
+  // Moderation (moderator bits: KICK, BAN, MODERATE, MANAGE_ROLES or MANAGE_NICKNAMES)
+  'GET /api/spaces/:spaceId/members/search': { Q: MemberSearchQuery; R: ModMemberPage };
+  'POST /api/spaces/:spaceId/members/bulk': { B: BulkMembersRequest; R: BulkMembersResult };
+  'GET /api/spaces/:spaceId/members/:userId/mod-view': { R: ModView };
+  'GET /api/spaces/:spaceId/security': { R: SpaceSecurity };
+  'PATCH /api/spaces/:spaceId/security': {
+    B: UpdateSpaceSecurityRequest;
+    R: SpaceSecurity;
+  } /* space:security → Space room */;
+  // Insights (MANAGE_SPACE or VIEW_AUDIT_LOG)
+  'GET /api/spaces/:spaceId/insights': { Q: InsightsQuery; R: SpaceInsights };
+  'GET /api/spaces/:spaceId/insights.csv': { Q: InsightsQuery; R: string } /* text/csv */;
+  // Server Guide, Browse Channels, Channels & Roles
+  'PUT /api/spaces/:spaceId/guide': {
+    B: ServerGuideRequest;
+    R: ServerGuide | null;
+  } /* MANAGE_SPACE; space:guide → Space room */;
+  'POST /api/spaces/:spaceId/guide/todos/:channelId/done': { R: GuideProgress };
+  'PUT /api/spaces/:spaceId/channel-prefs': {
+    B: ChannelPrefsRequest;
+    R: ChannelPref[];
+  } /* me:channel-prefs → my devices */;
+  'PUT /api/spaces/:spaceId/onboarding/answers': {
+    B: { answers: OnboardingAnswers };
+    R: { roleIds: ID[] };
+  } /* change my answers: roles follow */;
+  // Active Now and Space preview
+  'GET /api/me/friends/activity': { R: FriendActivity[] };
+  'GET /api/spaces/:spaceId/preview': { R: SpacePreview } /* discoverable Spaces, non-members */;
+  'GET /api/spaces/:spaceId/preview/channels/:channelId/messages': { R: SpacePreviewMessages };
   // Voice channel status ("Set a channel status": people connected to it)
-  'PUT /api/chats/:chatId/voice-status': { B: VoiceStatusRequest; R: void } /* chat:updated → Space room */;
+  'PUT /api/chats/:chatId/voice-status': {
+    B: VoiceStatusRequest;
+    R: void;
+  } /* chat:updated → Space room */;
   // Friends (accepting makes both users each other's contacts)
   'GET /api/friends/requests': { R: FriendRequests };
-  'POST /api/friends/requests': { B: SendFriendRequest; R: SendFriendRequestResult } /* friends:request → them */;
+  'POST /api/friends/requests': {
+    B: SendFriendRequest;
+    R: SendFriendRequestResult;
+  } /* friends:request → them */;
   'POST /api/friends/requests/:userId/accept': { R: void } /* friends:changed → both */;
   'DELETE /api/friends/requests/:userId': { R: void } /* decline incoming or cancel outgoing */;
   'DELETE /api/friends/:userId': { R: void } /* remove friend: both contact rows */;
@@ -575,7 +671,9 @@ export interface ApiRoutes {
   'DELETE /api/messages/:messageId/reaction': { R: Message };
   // Reactions, Discord model (several per user). `:emoji` is URL-encoded: a unicode emoji or
   // a custom emoji token. The two routes above stay for the Android app (replace semantics).
-  'PUT /api/messages/:messageId/reactions/:emoji/@me': { R: void } /* ADD_REACTIONS to add a new emoji; joining an existing one needs only VIEW */;
+  'PUT /api/messages/:messageId/reactions/:emoji/@me': {
+    R: void;
+  } /* ADD_REACTIONS to add a new emoji; joining an existing one needs only VIEW */;
   'DELETE /api/messages/:messageId/reactions/:emoji/@me': { R: void };
   'DELETE /api/messages/:messageId/reactions/:emoji/:userId': { R: void } /* MANAGE_MESSAGES */;
   'DELETE /api/messages/:messageId/reactions/:emoji': { R: void } /* moderators: clear one emoji */;
@@ -590,15 +688,27 @@ export interface ApiRoutes {
     Q: MessageSearchQuery;
     R: MessageSearchPage;
   } /* channels I can view and read history of */;
-  'GET /api/chats/:chatId/messages/search': { Q: MessageSearchQuery; R: MessageSearchPage } /* DMs and groups */;
+  'GET /api/chats/:chatId/messages/search': {
+    Q: MessageSearchQuery;
+    R: MessageSearchPage;
+  } /* DMs and groups */;
 
   // Inbox
   'GET /api/me/mentions': { Q: InboxMentionsQuery; R: InboxMentionsPage };
 
   // Threads
-  'POST /api/chats/:chatId/threads': { B: CreateThreadRequest; R: ChatSummary } /* a Space text channel; thread:upsert → channel room */;
-  'GET /api/chats/:chatId/threads': { Q: ThreadsQuery; R: ThreadsPage } /* active (or archived) threads of a channel */;
-  'PATCH /api/threads/:threadId': { B: UpdateThreadRequest; R: ChatSummary } /* owner or MANAGE_MESSAGES */;
+  'POST /api/chats/:chatId/threads': {
+    B: CreateThreadRequest;
+    R: ChatSummary;
+  } /* a Space text channel; thread:upsert → channel room */;
+  'GET /api/chats/:chatId/threads': {
+    Q: ThreadsQuery;
+    R: ThreadsPage;
+  } /* active (or archived) threads of a channel */;
+  'PATCH /api/threads/:threadId': {
+    B: UpdateThreadRequest;
+    R: ChatSummary;
+  } /* owner or MANAGE_MESSAGES */;
   'DELETE /api/threads/:threadId': { R: void } /* MANAGE_MESSAGES / MANAGE_CHANNELS */;
   'GET /api/link-preview': {
     Q: LinkPreviewQuery;
@@ -745,14 +855,23 @@ export interface ApiRoutes {
   'GET /api/spaces/:spaceId/voice-states': { R: VoiceState[] } /* the voice channels I can see */;
   // Custom emoji (MANAGE_EMOJI to change; any member reads)
   'GET /api/spaces/:spaceId/emojis': { R: SpaceEmoji[] };
-  'POST /api/spaces/:spaceId/emojis': { B: CreateSpaceEmojiRequest; R: SpaceEmoji } /* space:emojis → Space room */;
+  'POST /api/spaces/:spaceId/emojis': {
+    B: CreateSpaceEmojiRequest;
+    R: SpaceEmoji;
+  } /* space:emojis → Space room */;
   'PATCH /api/spaces/:spaceId/emojis/:emojiId': { B: UpdateSpaceEmojiRequest; R: SpaceEmoji };
   'DELETE /api/spaces/:spaceId/emojis/:emojiId': { R: void };
   'GET /api/me/emojis': { R: SpaceEmojiGroup[] } /* the picker: emoji of all my Spaces */;
   // Stickers (MANAGE_EMOJI to change; members use them everywhere)
   'GET /api/spaces/:spaceId/stickers': { R: SpaceSticker[] };
-  'POST /api/spaces/:spaceId/stickers': { B: CreateSpaceStickerRequest; R: SpaceSticker } /* space:stickers → Space room */;
-  'PATCH /api/spaces/:spaceId/stickers/:stickerId': { B: UpdateSpaceStickerRequest; R: SpaceSticker };
+  'POST /api/spaces/:spaceId/stickers': {
+    B: CreateSpaceStickerRequest;
+    R: SpaceSticker;
+  } /* space:stickers → Space room */;
+  'PATCH /api/spaces/:spaceId/stickers/:stickerId': {
+    B: UpdateSpaceStickerRequest;
+    R: SpaceSticker;
+  };
   'DELETE /api/spaces/:spaceId/stickers/:stickerId': { R: void };
   'GET /api/me/stickers': { R: SpaceStickerGroup[] } /* the picker */;
   // Soundboard (MANAGE_EMOJI to change; SPEAK in a voice channel to play)
@@ -760,13 +879,21 @@ export interface ApiRoutes {
   'POST /api/spaces/:spaceId/sounds': { B: CreateSpaceSoundRequest; R: SpaceSound };
   'PATCH /api/spaces/:spaceId/sounds/:soundId': { B: UpdateSpaceSoundRequest; R: SpaceSound };
   'DELETE /api/spaces/:spaceId/sounds/:soundId': { R: void };
-  'POST /api/spaces/:spaceId/sounds/:soundId/play': { R: void } /* voice:sound → my voice channel's room */;
+  'POST /api/spaces/:spaceId/sounds/:soundId/play': {
+    R: void;
+  } /* voice:sound → my voice channel's room */;
   // Stage channels (raise a hand; moderators = MUTE_MEMBERS + MOVE_MEMBERS move speakers)
   'PATCH /api/spaces/:spaceId/voice-states/@me': { B: StageRequest; R: VoiceState };
-  'PATCH /api/spaces/:spaceId/voice-states/:userId/stage': { B: StageSpeakerRequest; R: VoiceState };
+  'PATCH /api/spaces/:spaceId/voice-states/:userId/stage': {
+    B: StageSpeakerRequest;
+    R: VoiceState;
+  };
   // Scheduled events (MANAGE_CHANNELS creates; the creator or MANAGE_SPACE edits)
   'GET /api/spaces/:spaceId/events': { R: SpaceEvent[] } /* scheduled and active, by start */;
-  'POST /api/spaces/:spaceId/events': { B: CreateSpaceEventRequest; R: SpaceEvent } /* space:event → Space room */;
+  'POST /api/spaces/:spaceId/events': {
+    B: CreateSpaceEventRequest;
+    R: SpaceEvent;
+  } /* space:event → Space room */;
   'PATCH /api/spaces/:spaceId/events/:eventId': { B: UpdateSpaceEventRequest; R: SpaceEvent };
   'DELETE /api/spaces/:spaceId/events/:eventId': { R: void };
   'PUT /api/spaces/:spaceId/events/:eventId/interested': { R: SpaceEvent };
@@ -778,17 +905,31 @@ export interface ApiRoutes {
   // AutoMod (MANAGE_SPACE)
   'GET /api/spaces/:spaceId/automod/rules': { R: AutoModRule[] };
   'POST /api/spaces/:spaceId/automod/rules': { B: CreateAutoModRuleRequest; R: AutoModRule };
-  'PATCH /api/spaces/:spaceId/automod/rules/:ruleId': { B: UpdateAutoModRuleRequest; R: AutoModRule };
+  'PATCH /api/spaces/:spaceId/automod/rules/:ruleId': {
+    B: UpdateAutoModRuleRequest;
+    R: AutoModRule;
+  };
   'DELETE /api/spaces/:spaceId/automod/rules/:ruleId': { R: void };
   // Community: discovery, welcome screen, onboarding
   'GET /api/discover/spaces': { Q: DiscoveryQuery; R: DiscoveryPage } /* any signed-in user */;
-  'POST /api/discover/spaces/:spaceId/join': { R: SpaceDetail } /* a discoverable Space, no invite */;
+  'POST /api/discover/spaces/:spaceId/join': {
+    R: SpaceDetail;
+  } /* a discoverable Space, no invite */;
   'GET /api/spaces/:spaceId/community': { R: SpaceCommunity } /* members read */;
-  'PATCH /api/spaces/:spaceId/community': { B: UpdateSpaceCommunityRequest; R: SpaceCommunity } /* MANAGE_SPACE */;
-  'POST /api/spaces/:spaceId/onboarding/answers': { B: OnboardingAnswersRequest; R: Space } /* roles from my picks; onboardedAt */;
+  'PATCH /api/spaces/:spaceId/community': {
+    B: UpdateSpaceCommunityRequest;
+    R: SpaceCommunity;
+  } /* MANAGE_SPACE */;
+  'POST /api/spaces/:spaceId/onboarding/answers': {
+    B: OnboardingAnswersRequest;
+    R: Space;
+  } /* roles from my picks; onboardedAt */;
   // Forums (space_forum: posts are threads)
   'GET /api/chats/:chatId/posts': { Q: ForumPostsQuery; R: ForumPostsPage };
-  'POST /api/chats/:chatId/posts': { B: CreateForumPostRequest; R: ChatSummary } /* thread + first message; thread:upsert */;
+  'POST /api/chats/:chatId/posts': {
+    B: CreateForumPostRequest;
+    R: ChatSummary;
+  } /* thread + first message; thread:upsert */;
   'GET /api/emojis/:emojiId': {
     Q: { static?: '1' };
     R: void;

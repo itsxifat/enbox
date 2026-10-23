@@ -40,6 +40,11 @@ import { router as reports } from './reports/routes.js';
 import { publicRouter as webhooksPublic, router as webhooks } from './webhooks/routes.js';
 import { router as announcements } from './announcements/routes.js';
 import { router as templates } from './templates/routes.js';
+import { router as moderation } from './moderation/routes.js';
+import { router as insights } from './insights/routes.js';
+import { router as guide } from './guide/routes.js';
+import { router as activity } from './activity/routes.js';
+import { router as preview } from './preview/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -69,6 +74,10 @@ export const authedRouters: Router[] = [
   calls,
   push,
   linkPreviews,
+  moderation,
+  insights,
+  guide,
+  preview,
   spaces,
   voice,
   inbox,
@@ -86,6 +95,7 @@ export const authedRouters: Router[] = [
   webhooks,
   announcements,
   templates,
+  activity,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

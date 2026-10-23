@@ -56,6 +56,7 @@ import {
   type SpaceRoleRow,
   type SpaceRow,
 } from '../db/schema.js';
+import { runSpaceMemberJoined, runSpaceMemberLeft } from './spaceMemberHooks.js';
 import { emitToRooms, emitToUser } from '../realtime/emit.js';
 import {
   spaceDeleted,
@@ -922,6 +923,12 @@ export async function addSpaceMemberTx(
   }));
   if (space!.memberCount <= LARGE_SPACE_THRESHOLD)
     fxSpaceUpdated(fx, spaceId, { memberCount: space!.memberCount, large: false });
+  await runSpaceMemberJoined(tx, fx, {
+    spaceId,
+    userId,
+    silent: !!opts.silent,
+    at: row.joinedAt,
+  });
   return row;
 }
 
@@ -990,6 +997,7 @@ export async function removeSpaceMemberTx(
     if (space.memberCount <= LARGE_SPACE_THRESHOLD)
       fxSpaceUpdated(fx, spaceId, { memberCount: space.memberCount, large: false });
   }
+  await runSpaceMemberLeft(tx, fx, { spaceId, userId, reason, at: new Date() });
   return true;
 }
 

@@ -21,6 +21,8 @@ import type { ForumInfo } from './community.js';
 import type { MessageAttachment, MessageStickerRef } from './expressions.js';
 import type { MessageAuthorOverride, MessageEmbed } from './integrations.js';
 import type { ChatRequestState, DmPolicy } from './safety.js';
+import type { ChannelPref, OnboardingAnswers, ServerGuide } from './guide.js';
+import type { SpaceSecurity } from './moderation.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -863,6 +865,8 @@ export interface SpaceChannelInfo {
   isNews?: boolean;
   /** Voice and Stage channels: what's going on (set by people in it; cleared when it empties). */
   voiceStatus?: string | null;
+  /** Hidden from members' sidebars until they show it in Browse Channels. */
+  optIn?: boolean;
 }
 
 export interface SpaceRole {
@@ -936,6 +940,12 @@ export interface SpaceMemberSelf extends SpaceProfile {
   onboardedAt?: ISODate | null;
   /** Members of this Space may DM me (absent = true). */
   allowDms?: boolean;
+  /** My onboarding answers (Channels & Roles changes them); null = none saved. */
+  onboardingAnswers?: OnboardingAnswers | null;
+  /** Server Guide to-dos I did (their channel ids). */
+  guideDone?: ID[];
+  /** My Browse Channels choices that differ from the channels' defaults. */
+  channelPrefs?: ChannelPref[];
 }
 
 /**
@@ -980,6 +990,12 @@ export interface Space {
   unread: boolean;
   /** Unread mentions of me (users, my roles, @everyone/@here) over the channels I can see, capped. */
   unreadMentionCount: number;
+  /** The Server Guide (null = none). */
+  guide?: ServerGuide | null;
+  /** Security actions and alerts: moderators only (MANAGE_SPACE or MODERATE_MEMBERS). */
+  security?: SpaceSecurity | null;
+  /** Invites are paused right now (everyone sees it on invite and join screens). */
+  invitesPaused?: boolean;
 }
 
 /** A member as listed to other members (viewer-neutral; resolve the user with `POST /users/batch`). */

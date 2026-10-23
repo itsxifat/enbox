@@ -59,6 +59,7 @@ export function toSpaceChannelInfo(
     permissionsSynced: chat.permissionsSynced,
     ...(chat.type === 'space_forum' ? { forum: forumInfoOf(chat) } : {}),
     ...(chat.type === 'space_text' ? { isNews: chat.isNews } : {}),
+    ...(chat.type !== 'space_thread' && chat.optIn ? { optIn: true } : {}),
     ...(chat.type === 'space_voice' || chat.type === 'space_stage'
       ? { voiceStatus: chat.voiceStatus }
       : {}),

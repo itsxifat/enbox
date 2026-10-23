@@ -25,6 +25,7 @@ import { discoverRoutes } from '@/features/discover/routes';
 import { groupsRoutes } from '@/features/groups/routes';
 import { invitesRoutes } from '@/features/invites/routes';
 import { profileRoutes } from '@/features/profile/routes';
+import { previewRoutes } from '@/features/preview/routes';
 import { requestsRoutes } from '@/features/requests/routes';
 import { settingsRoutes } from '@/features/settings/routes';
 import { youRoutes } from '@/features/you/routes';
@@ -63,6 +64,7 @@ export const routes: RouteObject[] = [
               ...profileRoutes,
               ...requestsRoutes,
               ...templatesRoutes,
+              ...previewRoutes,
               { path: '*', element: <NotFound /> },
             ],
           },

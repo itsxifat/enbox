@@ -15,6 +15,8 @@ export type SettingsSectionId =
   | 'integrations'
   | 'reports'
   | 'template'
+  | 'insights'
+  | 'guide'
   | 'members'
   | 'invites'
   | 'bans'
@@ -47,6 +49,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       has(s, PERM.MANAGE_MESSAGES, PERM.KICK_MEMBERS, PERM.BAN_MEMBERS, PERM.MODERATE_MEMBERS),
   },
   { id: 'template', label: 'Space Template', show: (s) => has(s, PERM.MANAGE_SPACE) },
+  { id: 'insights', label: 'Insights', show: (s) => has(s, PERM.MANAGE_SPACE, PERM.VIEW_AUDIT_LOG) },
+  { id: 'guide', label: 'Server Guide', show: (s) => has(s, PERM.MANAGE_SPACE) },
   {
     id: 'members',
     label: 'Members',
