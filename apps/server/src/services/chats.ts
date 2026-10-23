@@ -398,10 +398,11 @@ export interface ChatAccessOptions {
 
 /**
  * The viewer's access to a chat. 404 when the chat doesn't exist, the viewer has no
- * membership row, or the row is hidden ("deleted for me") unless `allowHidden`. Former
- * members get an access object with `membership !== 'active'` and all permissions false (see
- * requireActiveMember). In mutations pass `lock: true` (or a locked `chat`) so permission and
- * membership checks happen under the chat lock.
+ * membership row, or the row is hidden ("deleted for me") unless `allowHidden`. A message
+ * request is hidden too, yet open to its recipient (reading it, replying accepts it:
+ * dmGate.ts). Former members get an access object with `membership !== 'active'` and all
+ * permissions false (see requireActiveMember). In mutations pass `lock: true` (or a locked
+ * `chat`) so permission and membership checks happen under the chat lock.
  */
 export async function getChatAccess(
   dbx: DbOrTx,
@@ -430,7 +431,8 @@ export async function getChatAccess(
   }
   if (chat && isSpaceChatType(chat.type))
     return spaceChannelAccess(dbx, viewerId, chat, member ?? null);
-  if (!chat || !member || (member.hidden && !opts.allowHidden)) throw notFound('Chat');
+  if (!chat || !member || (member.hidden && !member.requestState && !opts.allowHidden))
+    throw notFound('Chat');
   const peer = chat.type === 'direct' ? await loadPeerInfo(dbx, chatId, viewerId) : null;
   return {
     chat,

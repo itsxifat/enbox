@@ -1,7 +1,7 @@
 import { Suspense, memo, useState, type ReactNode } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { Virtuoso } from 'react-virtuoso';
-import { Archive, Plus, Sparkles, Star, Users, X } from 'lucide-react';
+import { Archive, MailQuestionMark, Plus, Sparkles, Star, Users, X } from 'lucide-react';
 import { activePresenceNote, type ChatSummary } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { UserAvatar } from '@/components/common/UserAvatar';
@@ -21,6 +21,7 @@ import { cn } from '@/lib/cn';
 import { isChatUnread, useArchivedCounts, useSortedChats } from '@/stores/chats';
 import { useIncomingFriendRequestCount } from '@/stores/friends';
 import { useQuickSwitcher } from '@/stores/quickSwitcher';
+import { usePendingRequestCount } from '@/stores/requests';
 import { useUi } from '@/stores/ui';
 
 const CREATE_DM: SelectFriendsMode = { kind: 'create' };
@@ -162,6 +163,7 @@ interface HeaderContext {
 function HomeHeader({ context }: { context: HeaderContext }) {
   const { badges, archivedUnread, onCreate, creating } = context;
   const requests = useIncomingFriendRequestCount();
+  const messageRequests = usePendingRequestCount();
   return (
     <div className="px-2 pt-2">
       <NavRow
@@ -184,6 +186,16 @@ function HomeHeader({ context }: { context: HeaderContext }) {
         badge={badges.calls?.count ? <Badge count={badges.calls.count} size="sm" tone="danger" /> : null}
       />
       <NavRow to="/collectibles" icon={Sparkles} label="Collectibles" />
+      <NavRow
+        to="/message-requests"
+        icon={MailQuestionMark}
+        label="Message Requests"
+        badge={
+          messageRequests ? (
+            <Badge count={messageRequests} size="sm" tone="danger" label={`${messageRequests} message request${messageRequests === 1 ? '' : 's'}`} />
+          ) : null
+        }
+      />
       <NavRow to="/starred" icon={Star} label="Starred messages" />
       <NavRow
         to="/archived"
@@ -202,9 +214,10 @@ function HomeHeader({ context }: { context: HeaderContext }) {
 const COMPONENTS = { Header: HomeHeader, Footer: () => <div className="h-2" /> };
 
 /**
- * Home (Discord's DM sidebar, desktop): find-or-start, Friends / Updates / Calls / Starred /
- * Archived, then every direct and group chat by recent activity (virtualised), and the user
- * panel at the bottom. "+" opens Select Friends (a DM, or a group DM with several).
+ * Home (Discord's DM sidebar, desktop): find-or-start, Friends / Updates / Calls / Message
+ * Requests / Starred / Archived, then every direct and group chat by recent activity
+ * (virtualised), and the user panel at the bottom. "+" opens Select Friends (a DM, or a group
+ * DM with several).
  */
 export function HomeSidebar() {
   const { chatId } = useParams<{ chatId?: string }>();

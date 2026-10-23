@@ -1,5 +1,5 @@
 {
-  "id": "e89efc1b-5170-431e-82ef-ad6c00a97863",
+  "id": "8985e200-8a22-4eee-afbe-af3854860b36",
   "prevId": "e1705742-3b44-4de8-9434-559c5b6e92a1",
   "version": "7",
   "dialect": "postgresql",
@@ -3527,6 +3527,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "media_ids": {
+          "name": "media_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::uuid[]"
         },
         "status": {
           "name": "status",

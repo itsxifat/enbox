@@ -62,6 +62,9 @@ import { useUser, useUserName } from '@/stores/users';
 import { useSpaceAuthor } from '@/stores/spaces';
 import { useLongPress } from '@/features/chats/useLongPress';
 import { StickerBody } from '@/features/stickers/StickerBody';
+import { IgnoredMessageLine, useIgnoredCollapse } from '@/features/safety/IgnoredMessage';
+import { OverrideAuthorName } from '@/features/webhooks/OverrideAuthor';
+import { MessageEmbeds } from './bubbles/embeds/MessageEmbeds';
 import {
   canEdit,
   canPinMessage,
@@ -241,7 +244,7 @@ export function ForwardedLabel({ count }: { count: number }) {
 export function rowShape(m: ClientMessage, showSender: boolean) {
   const deleted = !!m.deletedAt;
   const emojiCount =
-    m.type === 'text' && !deleted && !m.replyTo && !m.forwardCount && !m.statusReply
+    m.type === 'text' && !deleted && !m.replyTo && !m.forwardCount && !m.statusReply && !m.embeds?.length
       ? emojiOnlyCount(m.text)
       : 0;
   const bare = emojiCount > 0;
@@ -750,6 +753,9 @@ export function MessageContent({
   search: string | null;
   shape: ReturnType<typeof rowShape>;
 }) {
+  // Someone I ignore: "Ignored message — Show" until I reveal it (features/safety).
+  const ignored = useIgnoredCollapse(m, mine);
+  if (ignored) return <IgnoredMessageLine messageId={m.id} />;
   const { deleted, bare, emojiCount, hasHeader, visual, caption } = shape;
   if (deleted) {
     return (
@@ -780,7 +786,8 @@ export function MessageContent({
     return (
       <div className="relative px-1.5 pt-1 pb-1.5 text-chat leading-[1.38] break-words whitespace-pre-wrap text-fg">
         <RichText text={m.text ?? ''} highlight={search} />
-        <LinkPreviewCard text={m.text} />
+        <MessageEmbeds m={m} />
+        <LinkPreviewCard text={m.text} message={m} chat={chat} />
         <InlineMeta m={m} mine={mine} chat={chat} />
       </div>
     );
@@ -936,8 +943,10 @@ export const MessageRow = memo(function MessageRow({
 
   const isGroupish = chat.type === 'group';
   const showSender = isGroupish && !mine && row.firstInGroup && !!m.senderId;
+  // No user sent it (webhooks, crossposts): the group's first bubble names its author override.
+  const override = row.firstInGroup && !m.senderId ? (m.authorOverride ?? null) : null;
   const showAvatar = isGroupish && !mine;
-  const shape = rowShape(m, showSender);
+  const shape = rowShape(m, showSender || !!override);
   const { deleted, bare, hasHeader, visual } = shape;
   // Stickers sit on the background like jumbo emoji (a quote or forward header keeps the bubble).
   const frameless = bare || (!deleted && !!m.sticker && !hasHeader);
@@ -1008,6 +1017,7 @@ export const MessageRow = memo(function MessageRow({
           >
             {!frameless && tail && row.firstInGroup ? <Tail mine={mine} /> : null}
             {showSender ? <SenderName userId={m.senderId!} selecting={selecting} coloured /> : null}
+            {override ? <OverrideAuthorName override={override} selecting={selecting} /> : null}
             <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
             <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />
           </div>

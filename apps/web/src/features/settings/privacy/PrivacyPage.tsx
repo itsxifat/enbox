@@ -1,5 +1,7 @@
 import { CircleUserRound, Clock, Eye, Info, ShieldBan, Timer, UsersRound } from 'lucide-react';
 import { PhoneOffIcon, UpdatesIcon } from '@/components/icons';
+import { DmPrivacySettings } from '@/features/requests/DmPrivacySettings';
+import { IgnoredUsersRow } from '@/features/safety/IgnoredUsersRow';
 import { useMe } from '@/stores/auth';
 import { useBlockedUsers } from '@/stores/contacts';
 import {
@@ -70,6 +72,10 @@ export function PrivacyPage() {
         />
       </SettingsGroup>
 
+      <SettingsGroup title="Direct messages">
+        <DmPrivacySettings />
+      </SettingsGroup>
+
       <SettingsGroup>
         <SettingsRow
           icon={UsersRound}
@@ -92,6 +98,7 @@ export function PrivacyPage() {
           to="/settings/privacy/blocked"
           testId="privacy-blocked"
         />
+        <IgnoredUsersRow />
       </SettingsGroup>
     </SettingsScroller>
   );

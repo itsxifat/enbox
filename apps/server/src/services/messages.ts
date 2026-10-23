@@ -65,6 +65,7 @@ import {
   windowOf,
   type VisibilityWindow,
 } from './chats.js';
+import { NO_DIRECT_GATE, fxChatRequest, fxRequestRemoved, gateDirectMessage } from './dmGate.js';
 import type { Effects } from './effects.js';
 import { loadMediaMap, toMediaAttachment } from './media.js';
 import { ensureSpaceReadRow } from './spaceAccess.js';
@@ -214,7 +215,9 @@ export interface InsertedMessage extends CreateMessageResult {
  * withheld rows for direct-chat recipients who blocked the sender; unhide active hidden
  * members who can see it; sender read+delivered → seq (+ clear marked_unread); delivered →
  * seq for online recipients. Direct chats: `withheld` is derived from the sender, or from
- * `actorId` for system messages.
+ * `actorId` for system messages; the DM gate runs for a chat its recipient never accepted
+ * (dmGate.ts: 403 dm_not_allowed, or a message request that stays hidden with no delivered
+ * receipt and `chat:request` instead of JOIN; acting in one's own request accepts it).
  */
 export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<InsertedMessage> {
   const locked = await lockChat(tx, input.chatId);
@@ -268,6 +271,11 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
   const actorId = input.senderId ?? input.actorId ?? null;
   const withheld =
     chat!.type === 'direct' && actorId ? [...(await blockersOf(tx, actorId, memberIds))] : [];
+  // Message requests (dmGate.ts): may throw 403 before anything is written.
+  const requests =
+    chat!.type === 'direct' && actorId
+      ? await gateDirectMessage(tx, { chatId: input.chatId, actorId, type: input.type, withheld })
+      : NO_DIRECT_GATE;
   const mentions = serverMessage
     ? []
     : await deriveMentions(
@@ -325,6 +333,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
   }
 
   // Rule 2: a new visible message unhides the chat for active members who had hidden it.
+  // Message requests stay hidden (and so does a new chat the gate didn't open).
+  const keepHidden = [...withheld, ...requests.held];
   const unhidden = noMemberWork
     ? []
     : (
@@ -336,7 +346,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
               eq(chatMembers.chatId, input.chatId),
               eq(chatMembers.hidden, true),
               isNull(chatMembers.leftAt),
-              withheld.length ? notInArray(chatMembers.userId, withheld) : undefined,
+              isNull(chatMembers.requestState),
+              keepHidden.length ? notInArray(chatMembers.userId, keepHidden) : undefined,
             ),
           )
           .returning({ userId: chatMembers.userId })
@@ -356,7 +367,14 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
   const recipientIds = memberIds.filter((id) => id !== input.senderId && !withheld.includes(id));
   if (!noMemberWork)
     changedMarks.push(
-      ...(await markDeliveredForOnlineRecipients(tx, { chatId: input.chatId, seq, recipientIds })),
+      ...(await markDeliveredForOnlineRecipients(tx, {
+        chatId: input.chatId,
+        seq,
+        // A waiting request gets no delivered receipt: its sender can't tell it arrived.
+        recipientIds: requests.held.length
+          ? recipientIds.filter((id) => !requests.held.includes(id))
+          : recipientIds,
+      })),
     );
 
   const row = message!;
@@ -368,9 +386,13 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
     chat: chatRow,
     publish(fx: Effects) {
       for (const userId of unhidden) fx.join(userId, input.chatId);
+      // Answered requests: in the chat list first (the JOIN above), then out of Requests.
+      fxRequestRemoved(fx, input.chatId, requests.accepted);
       if (threadPost)
         threadMessageFx(fx, chatRow, !!locked.threadArchivedAt || !!input.opensThread);
       fx.messageNew(row, { exceptUserIds: [...withheld, ...(input.exceptUserIds ?? [])] });
+      // A waiting request has no room: its recipient hears of it this way only.
+      fxChatRequest(fx, input.chatId, requests.notify);
       if (input.senderId) fx.chatRead(input.senderId, input.chatId);
       // Withheld recipients learn nothing: not even the tick change the hidden seq causes.
       if (!noMemberWork)
@@ -635,6 +657,7 @@ function toPreview(
         }))(toMediaAttachment(m))
       : null,
     deleted,
+    ...(row.authorOverride ? { authorName: row.authorOverride.name } : {}),
   };
 }
 
@@ -949,7 +972,8 @@ export async function toMessages(
     const sticker = !deleted && row.stickerId ? stickerById.get(row.stickerId) : undefined;
     if (sticker) message.sticker = { id: sticker.id, name: sticker.name, spaceId: sticker.spaceId };
     // Webhooks and crossposts show as their author override (kept on tombstones: who posted).
-    if (row.authorOverride) message.authorOverride = row.authorOverride;
+    if (row.authorOverride)
+      message.authorOverride = { ...row.authorOverride, webhookId: row.webhookId ?? null };
     if (!deleted && row.embeds?.length) message.embeds = row.embeds;
     if (row.flags) message.flags = row.flags;
     const threadRef = threadRefs.get(row.id);

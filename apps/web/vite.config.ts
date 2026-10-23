@@ -105,6 +105,20 @@ function serviceWorkerVersion(): Plugin {
 }
 
 /**
+ * What the app may frame: the video and music players of link embeds, each loaded only when
+ * someone presses play. Keep it equal to PLAYER_ORIGINS in
+ * src/features/conversation/bubbles/players/providers.ts (its test compares the two).
+ */
+const PLAYER_FRAME_ORIGINS = [
+  'https://www.youtube-nocookie.com',
+  'https://player.vimeo.com',
+  'https://player.twitch.tv',
+  'https://clips.twitch.tv',
+  'https://open.spotify.com',
+  'https://w.soundcloud.com',
+];
+
+/**
  * Production-only CSP `<meta>` (the API server disables its CSP header for the SPA).
  * Inline scripts in index.html (the theme boot script) are allowed by hash, so keep them
  * byte-identical between edits or rebuild — the hash is computed at build time.
@@ -113,7 +127,8 @@ function serviceWorkerVersion(): Plugin {
  * ws origin, OpenStreetMap tiles for location previews) — no blanket `https:`/`ws:`, so a
  * script that does run can't simply fetch() or <img>-beacon data to any host. Same-origin
  * WebSockets rely on CSP3 `'self'` matching ws/wss (older Safari: socket.io falls back to
- * long-polling). Emoji pickers use native emoji (no image CDN).
+ * long-polling). Emoji pickers use native emoji (no image CDN). Frames: the players only
+ * (PLAYER_FRAME_ORIGINS); link previews and their images come from our own /uploads.
  */
 function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
   return {
@@ -146,6 +161,7 @@ function contentSecurityPolicy(apiUrl: string | undefined): Plugin {
           `img-src ${src("'self'", 'data:', 'blob:', 'https://tile.openstreetmap.org', apiOrigin)}`,
           `media-src ${src("'self'", 'blob:', apiOrigin)}`,
           `connect-src ${src("'self'", apiOrigin, wsOrigin)}`,
+          `frame-src ${PLAYER_FRAME_ORIGINS.join(' ')}`,
           "font-src 'self' data:",
           "worker-src 'self'",
           "manifest-src 'self'",

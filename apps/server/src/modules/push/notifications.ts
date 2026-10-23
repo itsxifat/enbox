@@ -5,7 +5,8 @@
  *
  * - `message.created` → `message` push to every subscription of each recipient (never the
  *   sender, regardless of socket state). Not for channels, system or call messages,
- *   withheld messages (not in `recipientIds`), or muted chats; gated by the recipient's
+ *   withheld messages (not in `recipientIds`), senders the recipient ignores or blocked
+ *   (`silencedRecipients`, one query), or muted chats; gated by the recipient's
  *   `messageNotifications` (direct) / `groupNotifications` (groups incl. announcement).
  *   Title: direct → the sender as the recipient knows them; group → the group name with body
  *   `Sender: preview`. Preview = truncate(messagePreviewText(…, { viewerId }), 120) with
@@ -51,6 +52,7 @@ import {
   toUserPublicMap,
   toUserPublicsForPairs,
 } from '../../services/users.js';
+import { silencedRecipients } from '../ignores/service.js';
 import { deliverPush, getPushSender, trackPush, type PushEntry } from './sender.js';
 import { onSpaceMessageCreated } from './spaceNotifications.js';
 
@@ -118,7 +120,7 @@ export async function onMessageCreated({
   const subscribed = await subscribedUserIds(recipientIds);
   if (subscribed.length === 0) return;
 
-  const [members, rows] = await Promise.all([
+  const [members, rows, silenced] = await Promise.all([
     db
       .select({ userId: chatMembers.userId, mutedUntil: chatMembers.mutedUntil })
       .from(chatMembers)
@@ -132,12 +134,15 @@ export async function onMessageCreated({
         ),
       ),
     getUserRows(db, subscribed),
+    // Recipients who ignore (or blocked) the sender get no push from them.
+    silencedRecipients(db, message.senderId, subscribed),
   ]);
   const now = new Date();
   const eligible = members
     .filter((m) => {
       const row = rows.get(m.userId);
-      if (!row || row.deletedAt || isMuted(m.mutedUntil?.toISOString(), now)) return false;
+      if (!row || row.deletedAt || silenced.has(m.userId)) return false;
+      if (isMuted(m.mutedUntil?.toISOString(), now)) return false;
       if (isDnd(row, now.getTime())) return false;
       const s = settingsOf(row);
       return chat.type === 'direct' ? s.messageNotifications : s.groupNotifications;

@@ -1,5 +1,6 @@
-import { CaseSensitive, Check, CodeXml, CornerDownLeft, Link2, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
+import { CaseSensitive, Check, CodeXml, CornerDownLeft, Link2, Palette, Sparkles, Speech, Wallpaper, Zap } from 'lucide-react';
 import { ICON_STROKE_BOLD } from '@/components/icons';
+import { stopTts } from '@/features/tts/tts';
 import { ChatPreview } from '@/features/appearance/ChatPreview';
 import {
   AnimationPicker,
@@ -150,7 +151,7 @@ function DevicePreview() {
   return <ChatPreview appearance={appearance} className="mx-4 mt-4 min-h-28 lg:mx-5" />;
 }
 
-/** Settings → Chats: theme, wallpaper, animations, text size, enter to send, link previews (device preferences). */
+/** Settings → Chats: theme, wallpaper, animations, text size, enter to send, link previews, text-to-speech (device preferences). */
 export function ChatsSettingsPage() {
   const prefs = useUi((s) => s.prefs);
   return (
@@ -198,9 +199,21 @@ export function ChatsSettingsPage() {
         <SwitchRow
           icon={Link2}
           title="Link previews"
-          description="Show a preview card for links in messages. Enbox fetches it, so sites never see you."
+          description="Show previews and players for links in messages. Enbox fetches previews, so sites never see you; players load only when you press play."
           checked={prefs.linkPreviews}
           onChange={(v) => useUi.getState().setPref('linkPreviews', v)}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Text-to-speech">
+        <SwitchRow
+          icon={Speech}
+          title="Play /tts messages"
+          description="Read aloud messages sent with /tts in the chat you're viewing"
+          checked={prefs.ttsPlayback}
+          onChange={(v) => {
+            useUi.getState().setPref('ttsPlayback', v);
+            if (!v) stopTts();
+          }}
         />
       </SettingsGroup>
       <SettingsGroup title="Advanced">

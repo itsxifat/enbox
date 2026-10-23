@@ -1,8 +1,8 @@
 /**
  * The voice connection (one at a time): `voice:join` on the socket for a LiveKit token, then a
- * LiveKit `Room` for the media. Remote audio plays through hidden <audio> elements; deafen
- * mutes them and the mic. Mute/deafen come from the user panel (`useVoiceSelf`), camera and
- * screen from the voice view. The server learns my flags through `voice:update`.
+ * LiveKit `Room` for the media. Remote audio plays through hidden <audio> elements. Mute/deafen
+ * come from the user panel (`useVoiceSelf`), camera and screen from the voice view. The server
+ * learns my flags through `voice:update`.
  *
  * Media goes through TURN only while the server says `relayOnly` (the media server's ports
  * are not reachable from the internet yet).
@@ -18,14 +18,32 @@
  * server grants it (`ParticipantPermissionsChanged`); when that grant does not come (the
  * server could not reach the media server), one fresh token (`voice:join` again: my role is
  * kept) and a quick reconnect bring it.
+ *
+ * Settings → Voice & Video apply live:
+ * - Devices: `switchActiveDevice` for the mic, speaker and camera; tracks made later in the
+ *   room use them too (its capture defaults follow the settings).
+ * - The browser's noise / echo / gain processing: the mic track restarts with the new
+ *   constraints (the published track stays; its source is swapped).
+ * - Voice isolation, push to talk and a manual input sensitivity run the mic through the input
+ *   processor (processor.ts). It goes on before the mic is first published — push to talk
+ *   never leaks a word — and comes off when none of them is on. Push to talk (input/ptt.ts)
+ *   opens its gate while the shortcut is held, plus the release delay; a manual sensitivity
+ *   opens it while my level stays above the threshold (input/gate.ts, fed by its meter). My
+ *   own mute stays LiveKit's. Should the processor not start, a gated mic mutes instead.
+ * - Remote audio: each person at their volume × my output volume (userAudio.ts), nothing while
+ *   deafened. It plays through Web Audio where that keeps the speaker choice (volumes past
+ *   100%), else through the media elements (up to 100%).
  */
 import {
   DisconnectReason,
   Room,
   RoomEvent,
   Track,
+  type AudioCaptureOptions,
+  type LocalAudioTrack,
   type Participant,
   type RemoteTrack,
+  type VideoCaptureOptions,
 } from 'livekit-client';
 import {
   PERM,
@@ -37,6 +55,8 @@ import {
   type VoiceJoinResult,
   type VoiceState,
 } from '@enbox/shared';
+import { outputSelectionSupported } from '@/features/calls/engine/media';
+import { voiceIsolationAvailable } from '@/features/calls/voice';
 import { api } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { API_ORIGIN } from '@/lib/env';
@@ -45,10 +65,15 @@ import { serverConfig } from '@/lib/serverConfig';
 import { emitWithAck, sendEvent } from '@/lib/socket';
 import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
-import { useUi } from '@/stores/ui';
+import { useUi, type DevicePrefs } from '@/stores/ui';
 import { useVoice } from '@/stores/voice';
 import { useVoiceSelf } from '@/stores/voiceSelf';
 import { toast } from '@/components/ui';
+import { GATE_CLOSED, stepGate, type GateState } from './input/gate';
+import { useVoiceInputLevel } from './input/level';
+import { createPushToTalk, type PushToTalk } from './input/ptt';
+import { VoiceInputProcessor } from './processor';
+import { VOLUME_MAX, applyVoiceGains } from './userAudio';
 
 let room: Room | null = null;
 /** Set while we end the room ourselves (no "disconnected" toast, no extra leave). */
@@ -65,6 +90,20 @@ const PROTO_MICROPHONE = 2;
 let grantWait: { room: Room; resolve: (granted: boolean) => void; done: Promise<boolean> } | null = null;
 /** A fresh token was already tried in this speaker turn (no reconnect loop without a grant). */
 let refreshedTurn = false;
+
+/** The input processor on my mic in `room` (none: plain mic, or not published yet). */
+let processor: VoiceInputProcessor | null = null;
+/** Push to talk, while I am connected with that input mode. */
+let ptt: PushToTalk | null = null;
+/** The manual-sensitivity gate. */
+let vad: GateState = GATE_CLOSED;
+/** Remote audio of `room` plays through Web Audio (volumes past 100%). */
+let webAudioOut = false;
+/**
+ * My speaker reached Web Audio's context in `room`: the room picks it for its media elements
+ * when created, but its context only exists once connected.
+ */
+let speakerSet = false;
 
 export function getVoiceRoom(): Room | null {
   return room;
@@ -163,16 +202,18 @@ async function publishWhenGranted(r: Room): Promise<void> {
   await refreshMediaToken();
 }
 
-/** Moved to the audience: stop everything I publish. */
-async function enterAudience(r: Room): Promise<void> {
+/** Moved to the audience: stop everything I publish (after any mic change in flight). */
+function enterAudience(r: Room): Promise<void> {
   refreshedTurn = false;
-  await Promise.allSettled([
-    r.localParticipant.setMicrophoneEnabled(false),
-    r.localParticipant.setCameraEnabled(false),
-    r.localParticipant.setScreenShareEnabled(false),
-  ]);
-  syncFlags();
-  useVoice.getState().bumpRoom();
+  return micOp(async () => {
+    await Promise.allSettled([
+      r.localParticipant.setMicrophoneEnabled(false),
+      r.localParticipant.setCameraEnabled(false),
+      r.localParticipant.setScreenShareEnabled(false),
+    ]);
+    syncFlags();
+    useVoice.getState().bumpRoom();
+  });
 }
 
 // My Stage role (from `voice:state` / join results) drives what is published.
@@ -190,15 +231,297 @@ useVoice.subscribe((s, prev) => {
 });
 
 // ---------------------------------------------------------------------------
+// Settings → Voice & Video
+// ---------------------------------------------------------------------------
+
+/** The browser has its own voice isolation (the `voiceIsolation` constraint). */
+function nativeVoiceIsolation(): boolean {
+  try {
+    const supported = navigator.mediaDevices?.getSupportedConstraints?.() as
+      Record<string, boolean | undefined> | undefined;
+    return !!supported?.voiceIsolation;
+  } catch {
+    return false;
+  }
+}
+
+/** My mic as my settings want it (the room's capture defaults; mic restarts use it too). */
+export function voiceCaptureOptions(prefs: DevicePrefs = useUi.getState().prefs): AudioCaptureOptions {
+  return {
+    deviceId: prefs.audioInputDevice || { ideal: 'default' },
+    echoCancellation: prefs.echoCancellation,
+    noiseSuppression: prefs.noiseCancellation,
+    autoGainControl: prefs.autoGainControl,
+    voiceIsolation: prefs.voiceIsolation,
+  };
+}
+
+function cameraOptions(prefs: DevicePrefs): VideoCaptureOptions {
+  return { deviceId: prefs.videoInputDevice || { ideal: 'default' } };
+}
+
+/**
+ * Remote audio through Web Audio, so volumes can go past 100% — where the speaker can still
+ * be chosen that way (`AudioContext.setSinkId`), or cannot be chosen at all.
+ */
+function webAudioOutput(): boolean {
+  if (typeof AudioContext === 'undefined') return false;
+  return 'setSinkId' in AudioContext.prototype || !outputSelectionSupported();
+}
+
+/** Tracks made later in this room (the mic after a Stage invite, the camera) use my settings. */
+function syncCaptureDefaults(r: Room, prefs: DevicePrefs): void {
+  Object.assign((r.options.audioCaptureDefaults ??= {}), voiceCaptureOptions(prefs));
+  Object.assign((r.options.videoCaptureDefaults ??= {}), cameraOptions(prefs));
+}
+
+function isolationWanted(prefs = useUi.getState().prefs): boolean {
+  return prefs.voiceIsolation && voiceIsolationAvailable();
+}
+
+/** The mic only sends through a gate: push to talk, or a manual input sensitivity. */
+function gated(prefs = useUi.getState().prefs): boolean {
+  return prefs.voiceInputMode === 'pushToTalk' || !prefs.inputSensitivityAuto;
+}
+
+function processingWanted(prefs = useUi.getState().prefs): boolean {
+  return isolationWanted(prefs) || gated(prefs);
+}
+
+/** The gate lets my voice through now. */
+function gateOpen(): boolean {
+  const prefs = useUi.getState().prefs;
+  if (prefs.voiceInputMode === 'pushToTalk') return !!ptt?.active;
+  if (!prefs.inputSensitivityAuto) return vad.open;
+  return true;
+}
+
+function applyGate(): void {
+  if (processor) processor.setGateOpen(gateOpen());
+  // No processor (it could not start): a gated mic mutes while the gate is closed.
+  else if (room && gated() && micTrack(room)) void applyMic();
+}
+
+/** The meter's level: the sensitivity meter in Settings, and the manual-sensitivity gate. */
+function onInputLevel(db: number): void {
+  useVoiceInputLevel.setState({ db });
+  const prefs = useUi.getState().prefs;
+  if (prefs.voiceInputMode !== 'voiceActivity' || prefs.inputSensitivityAuto) return;
+  const next = stepGate(vad, db, prefs.inputSensitivityDb, performance.now());
+  if (next === vad) return;
+  const changed = next.open !== vad.open;
+  vad = next;
+  if (changed) applyGate();
+}
+
+/** Push to talk listens while I am connected with that input mode. */
+function syncPtt(): void {
+  const on = !!room && useUi.getState().prefs.voiceInputMode === 'pushToTalk';
+  if (on && !ptt) {
+    ptt = createPushToTalk({
+      shortcut: () => useUi.getState().prefs.pttShortcut,
+      releaseDelayMs: () => useUi.getState().prefs.pttReleaseDelayMs,
+      onChange: (active) => {
+        useVoiceSelf.setState({ pttActive: active });
+        // A key press is a user gesture: a graph waiting for one can start now.
+        if (active && processor?.suspended) void processor.resume();
+        applyGate();
+      },
+    });
+  } else if (!on && ptt) {
+    const p = ptt;
+    ptt = null;
+    p.dispose();
+  }
+}
+
+/** A processor that could not start yet (no user gesture) starts on the next click or key. */
+function resumeOnGesture(): void {
+  const go = () => {
+    window.removeEventListener('pointerdown', go, true);
+    window.removeEventListener('keydown', go, true);
+    void processor?.resume();
+  };
+  window.addEventListener('pointerdown', go, true);
+  window.addEventListener('keydown', go, true);
+}
+
+/** Each remote voice at its gain (userAudio.ts). */
+function applyVolumes(): void {
+  const r = room;
+  if (!r) return;
+  applyVoiceGains(
+    r.remoteParticipants.values(),
+    { voice: Track.Source.Microphone, stream: Track.Source.ScreenShareAudio },
+    {
+      prefs: useUi.getState().prefs,
+      deafened: useVoiceSelf.getState().deafened,
+      maxGain: webAudioOut ? VOLUME_MAX * VOLUME_MAX : 1,
+    },
+  );
+}
+
+function applyOutputDevice(r: Room): void {
+  if (!outputSelectionSupported()) return;
+  const id = useUi.getState().prefs.audioOutputDevice || 'default';
+  void r.switchActiveDevice('audiooutput', id).catch((err: unknown) => {
+    console.warn('Could not switch the speaker', err);
+    toast.error('That speaker isn’t available');
+  });
+}
+
+async function switchMic(r: Room, id: string): Promise<void> {
+  try {
+    await r.switchActiveDevice('audioinput', id || 'default', !!id);
+  } catch {
+    toast.error('That microphone isn’t available');
+    // The old mic was let go for the new one: back to the default.
+    await r.switchActiveDevice('audioinput', 'default', false).catch(() => undefined);
+  }
+}
+
+async function switchCamera(r: Room, id: string): Promise<void> {
+  if (!r.localParticipant.isCameraEnabled) return;
+  try {
+    await r.switchActiveDevice('videoinput', id || 'default', !!id);
+  } catch {
+    toast.error('That camera isn’t available');
+  }
+}
+
+/** The browser's processing changed: the mic restarts with it (the published track stays). */
+async function restartMic(r: Room): Promise<void> {
+  const track = micTrack(r);
+  if (!track) return;
+  try {
+    await track.restartTrack(voiceCaptureOptions());
+  } catch {
+    toast.error('Enbox can’t use your microphone. Allow it in the browser to talk.');
+  }
+}
+
+function processingChanged(a: DevicePrefs, b: DevicePrefs): boolean {
+  return (
+    a.noiseCancellation !== b.noiseCancellation ||
+    a.echoCancellation !== b.echoCancellation ||
+    a.autoGainControl !== b.autoGainControl ||
+    (a.voiceIsolation !== b.voiceIsolation && nativeVoiceIsolation())
+  );
+}
+
+// Settings changes reach the room at once.
+useUi.subscribe((s, prev) => {
+  const r = room;
+  const a = s.prefs;
+  const b = prev.prefs;
+  if (!r || a === b) return;
+  syncCaptureDefaults(r, a);
+  if (a.audioInputDevice !== b.audioInputDevice) void micOp(() => switchMic(r, a.audioInputDevice));
+  else if (processingChanged(a, b)) void micOp(() => restartMic(r));
+  if (a.audioOutputDevice !== b.audioOutputDevice) applyOutputDevice(r);
+  if (a.videoInputDevice !== b.videoInputDevice) void switchCamera(r, a.videoInputDevice);
+  if (a.outputVolume !== b.outputVolume || a.userAudio !== b.userAudio) applyVolumes();
+  if (a.voiceInputMode !== b.voiceInputMode) syncPtt();
+  if (
+    a.voiceIsolation !== b.voiceIsolation ||
+    a.voiceInputMode !== b.voiceInputMode ||
+    a.inputSensitivityAuto !== b.inputSensitivityAuto
+  ) {
+    vad = GATE_CLOSED;
+    void applyMic();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Media
 // ---------------------------------------------------------------------------
 
-function applyAudioOut(): void {
-  const deaf = useVoiceSelf.getState().deafened;
-  for (const el of host().querySelectorAll('audio')) el.muted = deaf;
+/** One microphone change at a time (publishing, the processor, restarts, the audience). */
+let micChain: Promise<unknown> = Promise.resolve();
+function micOp<T>(fn: () => Promise<T>): Promise<T> {
+  const run = micChain.then(fn, fn);
+  micChain = run.catch(() => undefined);
+  return run;
 }
 
-async function applyMic(): Promise<void> {
+/** My published microphone track in `r` (none before it was first turned on). */
+function micTrack(r: Room): LocalAudioTrack | undefined {
+  return r.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack;
+}
+
+/** A mic track whose processor would not start (not tried again on it). */
+let processorFailed: LocalAudioTrack | null = null;
+
+/**
+ * Put the input processor on my mic track in `r`. False when it could not start (plain mic) or
+ * `r` ended meanwhile (the track and its processor go with it).
+ */
+async function attachProcessor(r: Room, track: LocalAudioTrack): Promise<boolean> {
+  if (processorFailed === track) return false;
+  const p = new VoiceInputProcessor({
+    isolation: isolationWanted(),
+    open: gateOpen(),
+    onLevel: onInputLevel,
+  });
+  try {
+    await track.setProcessor(p);
+  } catch (err) {
+    console.warn('Voice processing is unavailable; using the plain microphone', err);
+    processorFailed = track;
+    await p.destroy();
+    return false;
+  }
+  if (room !== r) return false;
+  processor = p;
+  if (p.suspended) resumeOnGesture();
+  return true;
+}
+
+async function detachProcessor(track: LocalAudioTrack): Promise<void> {
+  processor = null;
+  vad = GATE_CLOSED;
+  useVoiceInputLevel.setState({ db: null });
+  await track.stopProcessor().catch(() => undefined);
+}
+
+/** The processor of my published mic matches my settings: on or off, voice isolation, gate. */
+async function syncProcessing(r: Room): Promise<void> {
+  const track = micTrack(r);
+  if (!track || room !== r) return;
+  const want = processingWanted();
+  if (want && !processor) await attachProcessor(r, track);
+  else if (!want && processor) await detachProcessor(track);
+  if (room !== r || !processor) return;
+  await processor.setIsolation(isolationWanted());
+  processor.setGateOpen(gateOpen());
+}
+
+/**
+ * The first publish of a processed mic: the processor goes on before anything is sent. Should
+ * it not start, a gated mic goes out muted while its gate is closed.
+ */
+async function publishProcessedMic(r: Room): Promise<void> {
+  const [track] = (await r.localParticipant.createTracks({ audio: true })) as LocalAudioTrack[];
+  if (!track) return;
+  try {
+    const ok = await attachProcessor(r, track);
+    if (room !== r) {
+      track.stop();
+      return;
+    }
+    if (!ok && gated() && !gateOpen()) await track.mute();
+    await r.localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+  } catch (e) {
+    track.stop();
+    throw e;
+  }
+}
+
+function applyMic(): Promise<void> {
+  return micOp(applyMicNow);
+}
+
+async function applyMicNow(): Promise<void> {
   const r = room;
   if (!r) return;
   const { muted, deafened } = useVoiceSelf.getState();
@@ -210,7 +533,15 @@ async function applyMic(): Promise<void> {
     return;
   }
   try {
-    await r.localParticipant.setMicrophoneEnabled(want);
+    if (want && !micTrack(r) && processingWanted()) {
+      await publishProcessedMic(r);
+      return;
+    }
+    // The processor first: with it the gate is its business; without it (it could not start)
+    // a gated mic mutes while the gate is closed.
+    await syncProcessing(r);
+    if (room !== r) return;
+    await r.localParticipant.setMicrophoneEnabled(want && (!!processor || !gated() || gateOpen()));
   } catch {
     toast.error('Enbox can’t use your microphone. Allow it in the browser to talk.');
     if (!useVoiceSelf.getState().muted) useVoiceSelf.getState().toggleMute();
@@ -232,7 +563,7 @@ function syncFlags(): void {
 // The user panel's mute / deafen drive the room.
 useVoiceSelf.subscribe((s, prev) => {
   if (!room || (s.muted === prev.muted && s.deafened === prev.deafened)) return;
-  applyAudioOut();
+  applyVolumes();
   void applyMic().then(syncFlags);
 });
 
@@ -240,10 +571,14 @@ function wire(r: Room): void {
   const bump = () => useVoice.getState().bumpRoom();
   r.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
     if (track.kind === Track.Kind.Audio) {
-      const el = track.attach();
-      el.muted = useVoiceSelf.getState().deafened;
-      host().appendChild(el);
+      host().appendChild(track.attach());
+      // Web Audio's context exists by now: it takes my speaker too (once per room).
+      if (!speakerSet && webAudioOut && useUi.getState().prefs.audioOutputDevice) {
+        speakerSet = true;
+        applyOutputDevice(r);
+      }
     }
+    applyVolumes();
     bump();
   });
   r.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
@@ -253,8 +588,11 @@ function wire(r: Room): void {
   r.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) =>
     useVoice.getState().setSpeaking(speakers.map((p) => p.identity)),
   );
+  r.on(RoomEvent.ParticipantConnected, () => {
+    applyVolumes();
+    bump();
+  });
   for (const ev of [
-    RoomEvent.ParticipantConnected,
     RoomEvent.ParticipantDisconnected,
     RoomEvent.TrackMuted,
     RoomEvent.TrackUnmuted,
@@ -313,6 +651,13 @@ function setStatus(status: 'connecting' | 'connected' | 'reconnecting') {
 
 function cleanup(): void {
   room = null;
+  // The room stops my tracks, and their processor with them.
+  processor = null;
+  processorFailed = null;
+  speakerSet = false;
+  vad = GATE_CLOSED;
+  useVoiceInputLevel.setState({ db: null });
+  syncPtt();
   if (audioHost) audioHost.replaceChildren();
   grantWait?.resolve(false);
   useVoice.getState().bumpRoom();
@@ -368,14 +713,15 @@ async function openRoom(res: VoiceJoinResult, channelId: ID, opts: { chime?: boo
   const prefs = useUi.getState().prefs;
   const ice = await iceServers().catch(() => [] as RTCIceServer[]);
   if (useVoice.getState().connection?.channelId !== channelId) return;
+  webAudioOut = webAudioOutput();
+  const speaker = prefs.audioOutputDevice && outputSelectionSupported() ? prefs.audioOutputDevice : null;
   const r = new Room({
     adaptiveStream: true,
     dynacast: true,
-    audioCaptureDefaults: {
-      noiseSuppression: prefs.noiseCancellation,
-      echoCancellation: prefs.echoCancellation,
-      autoGainControl: prefs.autoGainControl,
-    },
+    webAudioMix: webAudioOut,
+    audioCaptureDefaults: voiceCaptureOptions(prefs),
+    videoCaptureDefaults: cameraOptions(prefs),
+    ...(speaker ? { audioOutput: { deviceId: speaker } } : {}),
     publishDefaults: { dtx: true, red: true },
   });
   wire(r);
@@ -387,8 +733,10 @@ async function openRoom(res: VoiceJoinResult, channelId: ID, opts: { chime?: boo
     await r.disconnect();
     return;
   }
+  if (speaker && webAudioOut) applyOutputDevice(r);
+  syncPtt();
   await applyMic();
-  applyAudioOut();
+  applyVolumes();
   useVoice.setState({ audioBlocked: !r.canPlaybackAudio });
   setStatus('connected');
   if (opts.chime !== false) playSound('sent');
@@ -516,8 +864,8 @@ export async function toggleScreenShare(): Promise<void> {
   useVoice.getState().bumpRoom();
 }
 
-/** Start remote audio after the browser blocked autoplay (needs a click). */
+/** Start remote audio (and my mic's processing) after the browser blocked it (needs a click). */
 export async function resumeVoiceAudio(): Promise<void> {
-  await room?.startAudio();
+  await Promise.all([room?.startAudio(), processor?.resume()]);
   useVoice.setState({ audioBlocked: room ? !room.canPlaybackAudio : false });
 }

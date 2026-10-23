@@ -42,6 +42,8 @@ export async function canRelayTyping(userId: string, chatId: string): Promise<bo
     !access ||
     access.chat.type === 'channel' ||
     access.membership !== 'active' ||
+    // A message request: typing would tell its sender I opened it (dmGate.ts).
+    access.member.requestState ||
     !access.permissions.canSend
   )
     return false;

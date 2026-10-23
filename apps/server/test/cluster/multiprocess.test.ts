@@ -69,6 +69,8 @@ describe.skipIf(!PG_ADMIN_URL || !REDIS_URL)('cluster: two processes', () => {
         REDIS_URL,
         DATA_DIR: dataDir,
         RATE_LIMIT: 'off',
+        // Specs DM fresh users: no Message Requests in between.
+        MESSAGE_REQUESTS: 'off',
         LOG_LEVEL: 'warn',
         CORS_ORIGINS: '*',
       },

@@ -6,13 +6,26 @@
  */
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import {
+  ASSIGNABLE_PERMISSIONS,
+  CHANNEL_NAME_MAX_LENGTH,
+  CHANNEL_TOPIC_MAX_LENGTH,
   DEFAULT_EVERYONE_PERMISSIONS,
+  DEFAULT_FORUM_SETTINGS,
   LARGE_SPACE_THRESHOLD,
+  MAX_SPACE_CATEGORIES,
+  MAX_SPACE_CHANNELS,
+  MAX_SPACE_ROLES,
+  MAX_VOICE_CHANNEL_PARTICIPANTS,
   PERM,
+  ROLE_NAME_MAX_LENGTH,
   SPACE_UNREAD_CAP,
   hasPerm,
+  normalizeTextChannelName,
+  resolveUserSettings,
   rooms,
   type PermissionOverwrite,
+  type SpaceTemplateSnapshot,
+  type TemplateOverwrite,
   type Space,
   type SpaceAuditEntry,
   type SpaceCategory,
@@ -30,6 +43,7 @@ import {
   spaceAuditLog,
   spaceCategories,
   spaceCategoryOverwrites,
+  spaceChannelOverwrites,
   spaceEventInterests,
   spaceEvents,
   spaceMemberRoles,
@@ -376,6 +390,7 @@ export async function toSpaces(
         suppressRoles: m.suppressRoles,
         hideMutedChannels: m.hideMutedChannels,
         onboardedAt: m.onboardedAt?.toISOString() ?? null,
+        allowDms: m.allowDms,
       },
       myPermissions: base,
       unread: unreadSpaces.has(s.id),
@@ -581,7 +596,8 @@ export interface CreatedSpace {
 /**
  * A new Space owned by `ownerId`: @everyone (DEFAULT_EVERYONE_PERMISSIONS), the owner as the
  * first member, categories "Text channels" / "Voice channels" with `#general` (the system
- * channel) and a "General" voice channel. Registers the owner's JOIN fan-out.
+ * channel) and a "General" voice channel — or, with `template`, the template's roles,
+ * categories, channels and overwrites (`applyTemplateTx`). Registers the owner's JOIN fan-out.
  */
 export async function createSpaceTx(
   tx: Tx,
@@ -595,6 +611,8 @@ export async function createSpaceTx(
     legacyCommunityId?: string | null;
     /** The conversion makes its own channels. */
     withDefaults?: boolean;
+    /** Build from a template (a starter's or a template code's snapshot) instead of the defaults. */
+    template?: SpaceTemplateSnapshot | null;
   },
 ): Promise<CreatedSpace> {
   const now = input.createdAt ?? new Date();
@@ -623,7 +641,15 @@ export async function createSpaceTx(
     .returning();
   let generalChatId = '';
   let voiceChatId = '';
-  if (input.withDefaults !== false) {
+  if (input.template) {
+    ({ generalChatId, voiceChatId } = await applyTemplateTx(
+      tx,
+      space!.id,
+      input.ownerId,
+      everyone!.id,
+      input.template,
+    ));
+  } else if (input.withDefaults !== false) {
     const [textCat, voiceCat] = await tx
       .insert(spaceCategories)
       .values([
@@ -668,6 +694,182 @@ export async function createSpaceTx(
   return { space: fresh!, everyoneRoleId: everyone!.id, generalChatId, voiceChatId };
 }
 
+/** Channel types a template carries (threads never travel). */
+const TEMPLATE_CHANNEL_TYPES = new Set(['space_text', 'space_voice', 'space_forum', 'space_stage']);
+const ROLE_COLOR = /^#[0-9a-f]{6}$/;
+
+const sameOverwriteSet = (a: readonly PermissionOverwrite[], b: readonly PermissionOverwrite[]) => {
+  const key = (o: PermissionOverwrite) => `${o.targetType}:${o.targetId}:${o.allow}:${o.deny}`;
+  const keys = new Set(a.map(key));
+  return a.length === b.length && b.every((o) => keys.has(key(o)));
+};
+
+/**
+ * A new Space's structure from a template snapshot (the mirror of `buildSnapshot`,
+ * modules/templates/service.ts): @everyone takes the snapshot's permissions; the other roles
+ * are created above it in their order (index = position); categories, then channels in order
+ * with dense positions per category; overwrites mapped from role indexes (allow wins over
+ * deny); a channel whose overwrites equal its category's stays synced; the system (text) and
+ * AFK (voice) channels by index. Space limits apply (a snapshot never exceeds them). Returns
+ * the system channel (else the first text channel) and the first voice channel, '' for none.
+ */
+async function applyTemplateTx(
+  tx: Tx,
+  spaceId: string,
+  ownerId: string,
+  everyoneRoleId: string,
+  t: SpaceTemplateSnapshot,
+): Promise<{ generalChatId: string; voiceChatId: string }> {
+  const roleIdByIndex = new Map<number, string>();
+  const defaultIndex = t.roles.findIndex((r) => r.isDefault);
+  if (defaultIndex >= 0) {
+    const d = t.roles[defaultIndex]!;
+    await tx
+      .update(spaceRoles)
+      .set({ permissions: d.permissions & ASSIGNABLE_PERMISSIONS, mentionable: d.mentionable })
+      .where(eq(spaceRoles.id, everyoneRoleId));
+    roleIdByIndex.set(defaultIndex, everyoneRoleId);
+  }
+  const others = t.roles
+    .map((role, index) => ({ role, index }))
+    .filter((r) => r.index !== defaultIndex)
+    .slice(0, MAX_SPACE_ROLES - 1);
+  if (others.length) {
+    const rows = await tx
+      .insert(spaceRoles)
+      .values(
+        others.map(({ role }, k) => ({
+          spaceId,
+          name: role.name.trim().slice(0, ROLE_NAME_MAX_LENGTH) || 'new role',
+          color: role.color && ROLE_COLOR.test(role.color) ? role.color : null,
+          position: k + 1,
+          permissions: role.permissions & ASSIGNABLE_PERMISSIONS,
+          hoist: role.hoist,
+          mentionable: role.mentionable,
+        })),
+      )
+      .returning({ id: spaceRoles.id, position: spaceRoles.position });
+    for (const r of rows) roleIdByIndex.set(others[r.position - 1]!.index, r.id);
+  }
+  const overwritesOf = (list: readonly TemplateOverwrite[]): PermissionOverwrite[] => {
+    const out = new Map<string, PermissionOverwrite>();
+    for (const o of list) {
+      const targetId = roleIdByIndex.get(o.role);
+      if (!targetId) continue;
+      const allow = o.allow & ASSIGNABLE_PERMISSIONS;
+      const deny = o.deny & ASSIGNABLE_PERMISSIONS & ~allow;
+      out.set(targetId, { targetType: 'role', targetId, allow, deny });
+    }
+    return [...out.values()];
+  };
+
+  const cats = t.categories.slice(0, MAX_SPACE_CATEGORIES);
+  const catIdByIndex = new Map<number, string>();
+  const catOverwrites = new Map<string, PermissionOverwrite[]>();
+  if (cats.length) {
+    const rows = await tx
+      .insert(spaceCategories)
+      .values(
+        cats.map((c, position) => ({
+          spaceId,
+          name: c.name.trim().slice(0, CHANNEL_NAME_MAX_LENGTH) || 'Category',
+          position,
+        })),
+      )
+      .returning({ id: spaceCategories.id, position: spaceCategories.position });
+    for (const r of rows) catIdByIndex.set(r.position, r.id);
+    const values = cats.flatMap((c, i) => {
+      const categoryId = catIdByIndex.get(i)!;
+      const ow = overwritesOf(c.overwrites);
+      catOverwrites.set(categoryId, ow);
+      return ow.map((o) => ({ categoryId, ...o }));
+    });
+    if (values.length) await tx.insert(spaceCategoryOverwrites).values(values);
+  }
+
+  const nextPosition = new Map<string, number>();
+  const planned: {
+    index: number;
+    key: string;
+    overwrites: PermissionOverwrite[];
+    values: typeof chats.$inferInsert;
+  }[] = [];
+  for (const [index, c] of t.channels.entries()) {
+    if (planned.length >= MAX_SPACE_CHANNELS || !TEMPLATE_CHANNEL_TYPES.has(c.type)) continue;
+    const categoryId = c.category === null ? null : (catIdByIndex.get(c.category) ?? null);
+    const position = nextPosition.get(categoryId ?? '') ?? 0;
+    nextPosition.set(categoryId ?? '', position + 1);
+    const textLike = c.type === 'space_text' || c.type === 'space_forum';
+    const voiceLike = c.type === 'space_voice' || c.type === 'space_stage';
+    const overwrites = overwritesOf(c.overwrites);
+    const name = (textLike ? normalizeTextChannelName(c.name) : c.name.trim()).slice(
+      0,
+      CHANNEL_NAME_MAX_LENGTH,
+    );
+    planned.push({
+      index,
+      key: `${categoryId ?? ''}:${position}`,
+      overwrites,
+      values: {
+        type: c.type,
+        name: name || (voiceLike ? 'Voice' : 'channel'),
+        spaceId,
+        categoryId,
+        position,
+        topic:
+          c.type === 'space_text' || c.type === 'space_stage'
+            ? (c.topic?.slice(0, CHANNEL_TOPIC_MAX_LENGTH) ?? null)
+            : null,
+        nsfw: !!c.nsfw,
+        slowmodeSeconds: voiceLike
+          ? 0
+          : Math.min(21_600, Math.max(0, Math.trunc(c.slowmodeSeconds) || 0)),
+        userLimit:
+          voiceLike && c.userLimit ? Math.min(MAX_VOICE_CHANNEL_PARTICIPANTS, c.userLimit) : null,
+        isNews: c.type === 'space_text' && !!c.isNews,
+        ...(c.type === 'space_forum'
+          ? { forumTags: [], forumSettings: { ...DEFAULT_FORUM_SETTINGS } }
+          : {}),
+        permissionsSynced:
+          categoryId === null || sameOverwriteSet(overwrites, catOverwrites.get(categoryId) ?? []),
+        createdBy: ownerId,
+      },
+    });
+  }
+  const idByIndex = new Map<number, string>();
+  if (planned.length) {
+    const rows = await tx
+      .insert(chats)
+      .values(planned.map((p) => p.values))
+      .returning({ id: chats.id, categoryId: chats.categoryId, position: chats.position });
+    const idByKey = new Map(rows.map((r) => [`${r.categoryId ?? ''}:${r.position}`, r.id]));
+    const values: (PermissionOverwrite & { chatId: string })[] = [];
+    for (const p of planned) {
+      const chatId = idByKey.get(p.key)!;
+      idByIndex.set(p.index, chatId);
+      for (const o of p.overwrites) values.push({ chatId, ...o });
+    }
+    if (values.length) await tx.insert(spaceChannelOverwrites).values(values);
+  }
+  const pick = (index: number | null, type: string) =>
+    index !== null && t.channels[index]?.type === type ? idByIndex.get(index) : undefined;
+  const system = pick(t.systemChannel, 'space_text');
+  const afk = pick(t.afkChannel, 'space_voice');
+  if (system || afk)
+    await tx
+      .update(spaces)
+      .set({ systemChannelId: system ?? null, afkChannelId: afk ?? null })
+      .where(eq(spaces.id, spaceId));
+  const first = (type: string) => {
+    const p = planned.find((x) => x.values.type === type);
+    return p ? idByIndex.get(p.index) : undefined;
+  };
+  return {
+    generalChatId: system ?? first('space_text') ?? '',
+    voiceChatId: first('space_voice') ?? '',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Membership
 // ---------------------------------------------------------------------------
@@ -685,7 +887,7 @@ export async function addSpaceMemberTx(
   opts: { joinedAt?: Date; silent?: boolean; roleIds?: string[] } = {},
 ): Promise<SpaceMemberRow | null> {
   const [user] = await tx
-    .select({ displayName: users.displayName })
+    .select({ displayName: users.displayName, settings: users.settings })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -696,6 +898,8 @@ export async function addSpaceMemberTx(
       userId,
       sortName: sortNameOf(null, user?.displayName ?? 'member'),
       joinedAt: opts.joinedAt ?? new Date(),
+      // Per-Space DM privacy starts from "Allow DMs from new Spaces' members" (dmGate.ts).
+      allowDms: resolveUserSettings(user?.settings).allowSpaceDms,
     })
     .onConflictDoNothing()
     .returning();

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { ArrowDownToLine, ArrowRightLeft, Hand, HeadphoneOff, Mic, MicOff, Podcast, UserRound, Volume2 } from 'lucide-react';
+import { ArrowDownToLine, ArrowRightLeft, Hand, HeadphoneOff, Mic, MicOff, Podcast, UserRound, Volume2, VolumeX } from 'lucide-react';
 import { PhoneOffIcon, VideoIcon } from '@/components/icons';
 import { PERM, hasPerm, userDisplayName, type ChatSummary, type ID, type VoiceState } from '@enbox/shared';
-import { Avatar, Menu, contextMenuAnchor, toast, type MenuAnchor, type MenuEntry } from '@/components/ui';
+import { Avatar, contextMenuAnchor, toast, type MenuAnchor, type MenuEntry } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { tidy } from '@/features/spaces/menus';
 import { cn } from '@/lib/cn';
@@ -13,6 +13,9 @@ import { useSpaceAuthor } from '@/stores/spaces';
 import { useUser } from '@/stores/users';
 import { useVoice, useVoiceChannelStates } from '@/stores/voice';
 import { disconnectVoiceMember, isStageModerator, moveVoiceMember, setStageSpeaker } from './actions';
+import { useUserAudio } from './userAudio';
+import { VoiceStatusLine } from './VoiceStatus';
+import { VoiceUserMenu } from './VoiceUserMenu';
 
 /** Drag data of an occupant row: the channel sidebar drops it on another voice channel. */
 export interface VoiceDragData {
@@ -92,10 +95,13 @@ function Occupant({
   const hand = listening && !!state.requestToSpeakAt;
   const muted = state.selfMute || state.serverMute;
   const deaf = state.selfDeaf || state.serverDeaf;
+  // Muted only for me (my "Mute" in their menu).
+  const mutedForMe = useUserAudio(state.userId).muted && state.userId !== me;
   const label = [
     name,
     hand ? 'asked to speak' : listening && 'listening',
     !listening && muted && 'muted',
+    mutedForMe && 'muted for you',
     deaf && 'deafened',
     state.selfVideo && 'camera on',
     state.selfStream && 'live',
@@ -158,12 +164,16 @@ function Occupant({
         ) : null}
         {state.selfVideo ? <VideoIcon size={15} className="shrink-0" aria-hidden /> : null}
         {muted && !listening ? <MicOff size={15} className={cn('shrink-0', state.serverMute && 'text-danger')} aria-hidden /> : null}
+        {mutedForMe ? (
+          <VolumeX size={15} className="shrink-0 text-danger" aria-hidden data-testid="muted-for-me" />
+        ) : null}
         {deaf ? <HeadphoneOff size={15} className={cn('shrink-0', state.serverDeaf && 'text-danger')} aria-hidden /> : null}
       </button>
-      <Menu
+      <VoiceUserMenu
         open={!!anchor}
         onClose={() => setAnchor(null)}
         anchor={anchor}
+        userId={state.userId}
         items={anchor ? items() : []}
         aria-label={`${name} menu`}
       />
@@ -183,10 +193,11 @@ export function OccupantDragPreview({ data }: { data: VoiceDragData }) {
 }
 
 /**
- * Who is in a voice channel, listed under its row in the channel sidebar (Discord). With
- * MOVE_MEMBERS, a row drags onto another voice channel and its menu has "Move To". On a
- * Stage, its speakers come first, then the audience (dimmed; a hand on those who asked).
- * `channels`: the Space's channels in sidebar order (the "Move To" choices).
+ * Who is in a voice channel, listed under its row in the channel sidebar (Discord), after the
+ * channel's status line while it has one. With MOVE_MEMBERS, a row drags onto another voice
+ * channel and its menu has "Move To"; the menu of anyone else has their volume and a mute for
+ * me. On a Stage, its speakers come first, then the audience (dimmed; a hand on those who
+ * asked). `channels`: the Space's channels in sidebar order (the "Move To" choices).
  */
 export function VoiceChannelOccupants({ chat, channels = [] }: { chat: ChatSummary; channels?: readonly ChatSummary[] }) {
   const spaceId = chat.space?.spaceId;
@@ -203,12 +214,16 @@ export function VoiceChannelOccupants({ chat, channels = [] }: { chat: ChatSumma
     [all, chat.type],
   );
   const speaking = useVoice((s) => s.speaking);
-  if (!states.length) return null;
+  const status = <VoiceStatusLine chat={chat} />;
+  if (!states.length) return status;
   return (
-    <ul className="mb-1 flex flex-col pr-2 pl-7" aria-label={`In ${chat.name ?? 'voice'}`}>
-      {states.map((v) => (
-        <Occupant key={v.userId} chat={chat} state={v} speaking={!!speaking[v.userId]} channels={channels} />
-      ))}
-    </ul>
+    <>
+      {status}
+      <ul className="mb-1 flex flex-col pr-2 pl-7" aria-label={`In ${chat.name ?? 'voice'}`}>
+        {states.map((v) => (
+          <Occupant key={v.userId} chat={chat} state={v} speaking={!!speaking[v.userId]} channels={channels} />
+        ))}
+      </ul>
+    </>
   );
 }

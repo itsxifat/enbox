@@ -117,6 +117,7 @@ import {
   forumPatch,
   newForumColumns,
 } from '../forums/channel.js';
+import { templateSnapshotFor } from '../templates/service.js';
 import { router as membersRouter } from './members.js';
 import { router as emojisRouter } from './emojis.js';
 import './hooks.js';
@@ -168,7 +169,8 @@ router.get('/spaces', async (req, res) => {
   res.json(await toSpaces(db, authUserId(req)));
 });
 
-// POST /spaces → SpaceDetail (201). Owner joins; #general (system channel) + General voice.
+// POST /spaces → SpaceDetail (201). Owner joins; #general (system channel) + General voice,
+// or a template's roles and channels (`template`: a starter id or a template code, 404).
 router.post('/spaces', async (req, res) => {
   const me = authUserId(req);
   const body = parse(createSpaceSchema, req.body ?? {});
@@ -181,11 +183,13 @@ router.post('/spaces', async (req, res) => {
     if (Number(mine?.n ?? 0) >= MAX_SPACES_PER_USER)
       throw limitReached(`You can be in at most ${MAX_SPACES_PER_USER} Spaces`);
     if (body.iconMediaId) await requireAvatarMedia(tx, body.iconMediaId, me);
+    const template = body.template ? await templateSnapshotFor(tx, body.template) : null;
     const { space } = await createSpaceTx(tx, fx, {
       ownerId: me,
       name: body.name,
       description: body.description ?? null,
       iconMediaId: body.iconMediaId ?? null,
+      template,
     });
     return space.id;
   });
@@ -403,6 +407,9 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
   const forum = newForumColumns(body.type, body);
   // Stage channels are laid out like voice channels (user limit, bitrate), with a topic.
   const stage = body.type === 'space_stage';
+  // Announcement channels are text channels (Publish, Follow: modules/announcements).
+  if (body.isNews && body.type !== 'space_text')
+    throw badRequest('isNews: only text channels can be announcement channels');
   assertUserLimit(me, 'spaceChannelUpdate', USER_RATE_LIMITS.spaceChannelUpdate);
   const chatId = await transact(async (tx, fx) => {
     await lockSpace(tx, spaceId);
@@ -465,6 +472,7 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
         userLimit: body.type === 'space_voice' || stage ? (body.userLimit ?? null) : null,
         bitrate: body.type === 'space_voice' || stage ? (body.bitrate ?? null) : null,
         ...forum,
+        isNews: body.type === 'space_text' && !!body.isNews,
         permissionsSynced: synced,
         createdBy: me,
       })
@@ -573,6 +581,12 @@ router.patch('/spaces/:spaceId/channels/:chatId', async (req, res) => {
       patch.userLimit = body.userLimit;
     if (body.bitrate !== undefined && (chat.type === 'space_voice' || stage))
       patch.bitrate = body.bitrate;
+    // Text channels convert to and from announcement channels (their follows stay).
+    if (body.isNews !== undefined && body.isNews !== chat.isNews) {
+      if (chat.type !== 'space_text')
+        throw badRequest('isNews: only text channels can be announcement channels');
+      patch.isNews = body.isNews;
+    }
     // Forums: tags (the whole list) and options (merged).
     const forum = forumPatch(chat, body);
     Object.assign(patch, forum.patch);
@@ -792,6 +806,7 @@ router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
         bitrate: source.bitrate,
         // Forums: the same tags and options (not the posts).
         ...clonedForumColumns(source),
+        isNews: source.isNews,
         permissionsSynced: source.permissionsSynced,
         createdBy: me,
       })

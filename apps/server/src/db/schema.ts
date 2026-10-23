@@ -263,6 +263,11 @@ export const reports = pgTable(
     details: text('details'),
     /** What was reported, as it was then. */
     evidence: jsonb('evidence').$type<ReportEvidence>().notNull().default({}),
+    /** The reported message's files: media GC keeps them while the report exists. */
+    mediaIds: uuid('media_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     status: text('status').$type<ReportStatus>().notNull().default('open'),
     createdAt: createdAt(),
     resolvedAt: ts('resolved_at'),

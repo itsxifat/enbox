@@ -6,8 +6,9 @@
  * (unless they suppress role or @everyone mentions in that Space), and members whose
  * notification level is 'all'. The level chain
  * is channel row → member → Space default ('mentions' by default); 'none' never pushes,
- * 'mentions' only for mentions. Then: not muted (Space or channel), not in DND, group
- * notifications on, and VIEW_CHANNEL (computed like everywhere else).
+ * 'mentions' only for mentions. Then: not ignoring or blocking the sender, not muted (Space
+ * or channel), not in DND, group notifications on, and VIEW_CHANNEL (computed like
+ * everywhere else).
  */
 import { sql } from 'drizzle-orm';
 import {
@@ -34,6 +35,7 @@ import {
 } from '../../services/spaceAccess.js';
 import { pairKey, rawRows, uniq, uuidArray } from '../../services/sql.js';
 import { getUserRows, settingsOf, toUserPublicsForPairs } from '../../services/users.js';
+import { silencedRecipients } from '../ignores/service.js';
 import { deliverPush, type PushEntry } from './sender.js';
 
 const PREVIEW_MAX = 120;
@@ -81,8 +83,15 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
   );
   if (candidates.length === 0) return;
 
+  // No push, mentions included, from someone the member ignores (or blocked): one query.
+  const silenced = await silencedRecipients(
+    db,
+    message.senderId,
+    candidates.map((c) => c.user_id),
+  );
   const now = new Date();
   const wanted = candidates.filter((c) => {
+    if (silenced.has(c.user_id)) return false;
     const level = c.c_level ?? c.s_level ?? space.default_notify_level;
     if (level === 'none' || (level === 'mentions' && !c.mentioned)) return false;
     const muted = (v: string | null) => v && isMuted(new Date(v).toISOString(), now);

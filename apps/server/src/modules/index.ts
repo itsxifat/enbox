@@ -56,6 +56,8 @@ export const authedRouters: Router[] = [
   userProfiles,
   friends,
   media,
+  // Before chats: `GET /chats/requests` would otherwise match `/chats/:chatId`.
+  requests,
   chats,
   messages,
   search,
@@ -79,7 +81,6 @@ export const authedRouters: Router[] = [
   soundboard,
   groupDms,
   mfa,
-  requests,
   ignores,
   reports,
   webhooks,

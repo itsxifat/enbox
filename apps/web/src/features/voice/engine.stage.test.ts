@@ -33,8 +33,10 @@ vi.mock('livekit-client', () => {
   class Room {
     handlers = new Map<string, ((...args: unknown[]) => void)[]>();
     canPlaybackAudio = true;
+    remoteParticipants = new Map();
     localParticipant = {
       permissions: undefined as { canPublish: boolean; canPublishSources: number[] } | undefined,
+      getTrackPublication: vi.fn(() => undefined),
       setMicrophoneEnabled: vi.fn(async () => undefined),
       setCameraEnabled: vi.fn(async () => undefined),
       setScreenShareEnabled: vi.fn(async () => undefined),

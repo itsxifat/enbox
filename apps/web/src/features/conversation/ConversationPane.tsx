@@ -33,10 +33,12 @@ import { ChannelInfoPanel } from '@/features/channels/ChannelInfoPanel';
 import { ContactInfoPanel } from '@/features/contacts/ContactInfoPanel';
 import { GroupInfoPanel } from '@/features/groups/GroupInfoPanel';
 import { chatPath } from '@/features/chats/links';
+import { RequestBanner } from '@/features/requests/RequestBanner';
 import { ChatSearchDock } from '@/features/search/ChatSearchDock';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
+import { useRequestChat, useRequests } from '@/stores/requests';
 import { ChatSearchBar, ReadOnlyFooter, SelectionBar } from './Bars';
 import { RowAppearanceContext } from './bubbles/appearance';
 import { Composer } from './composer/Composer';
@@ -67,8 +69,12 @@ function targetFromParams(params: URLSearchParams): JumpTarget | null {
 export function ConversationPane() {
   const { chatId } = useParams<{ chatId: string }>();
   const [params, setParams] = useSearchParams();
-  const chat = useChat(chatId);
+  // Message requests aren't in the chat list: their own store has them (stores/requests.ts).
+  const listed = useChat(chatId);
+  const requested = useRequestChat(listed ? null : chatId);
+  const chat = listed ?? requested;
   const chatsLoaded = useChats((s) => s.loaded);
+  const requestsLoaded = useRequests((s) => s.loaded);
   const [consumed, setConsumed] = useState<{ chatId: string; t: JumpTarget } | null>(null);
 
   // `?m=<seq>[&mid=<id>]` links (search results, starred): remember, then drop from the URL.
@@ -105,7 +111,12 @@ export function ConversationPane() {
         .catch(() => undefined);
   }, [chatId, chatsLoaded, chat]);
 
-  if (!chat) return <MissingChat loaded={chatsLoaded} />;
+  // Maybe a message request (normally loaded on `ready` already, even without a socket).
+  useEffect(() => {
+    if (chatId && chatsLoaded && !chat && !requestsLoaded) void useRequests.getState().load();
+  }, [chatId, chatsLoaded, chat, requestsLoaded]);
+
+  if (!chat) return <MissingChat loaded={chatsLoaded && requestsLoaded} />;
   // Channels have their own feed (ChannelPane), space channels live in their Space;
   // search/starred/forward links land here too.
   if (chat.type === 'channel' || chat.space)
@@ -307,6 +318,8 @@ export function Conversation({
             <MessageList chat={chat} unread={unread} initialTarget={initialTarget} />
           )}
         </div>
+        {/* A message request: Accept / Ignore / Block / Report (replying accepts too). */}
+        {chat.request ? <RequestBanner chat={chat} /> : null}
         {/* Files dragged over the window land in this chat's composer (read-only: none). */}
         {canCompose ? <ConversationDropzone chat={chat} /> : null}
         {canCompose ? (

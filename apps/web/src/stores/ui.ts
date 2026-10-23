@@ -4,9 +4,11 @@
  *
  * State
  * - `theme`: 'light' | 'ash' | 'dark' | 'onyx' | 'system'; `resolvedTheme`: 'light' | 'dark'
- * - `prefs`: { enterToSend, linkPreviews, voiceIsolation, noiseCancellation, echoCancellation,
- *   autoGainControl, fontSize, wallpaperPattern, sounds, desktopNotifications,
- *   reduceMotion, autoplayAnimatedMedia, showNameStyles, chatTheme, bubbleStyle,
+ * - `prefs`: { enterToSend, linkPreviews, ttsPlayback, voiceIsolation, noiseCancellation,
+ *   echoCancellation, autoGainControl, the voice channel keys (audioInputDevice, audioOutputDevice,
+ *   videoInputDevice, outputVolume, voiceInputMode, pttShortcut, pttReleaseDelayMs,
+ *   inputSensitivityAuto, inputSensitivityDb, userAudio), fontSize, wallpaperPattern, sounds,
+ *   desktopNotifications, reduceMotion, autoplayAnimatedMedia, showNameStyles, chatTheme, bubbleStyle,
  *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur, developerMode }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
@@ -48,21 +50,57 @@ export type FontSize = 'small' | 'medium' | 'large';
 export type ReduceMotionPref = 'system' | 'on' | 'off';
 /** Animated images (GIF / WebP / APNG avatars, chat GIFs): play always, on hover/tap, or never. */
 export type AutoplayAnimatedMedia = 'always' | 'hover' | 'never';
+/** Voice channels: the mic sends whenever I speak, or only while a shortcut is held. */
+export type VoiceInputMode = 'voiceActivity' | 'pushToTalk';
+
+/** A recorded key combination (push to talk). `code` is `KeyboardEvent.code`. */
+export interface KeyCombo {
+  code: string;
+  /** What to show for the key (`KeyboardEvent.key` when it was recorded: "V", "`", "F8"). */
+  key: string;
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+  meta: boolean;
+}
+
+/** Someone's voice on this device: volume 0-2 (200%; 1 when absent) and a mute only I hear. */
+export interface UserAudioPref {
+  volume?: number;
+  muted?: boolean;
+}
 
 export interface DevicePrefs {
   /** Enter sends (Shift+Enter = newline). Mobile keyboards always insert newlines. */
   enterToSend: boolean;
   /** Preview cards (title, description, image) under messages with a link. */
   linkPreviews: boolean;
+  /** Read aloud /tts messages that arrive in the chat I'm viewing (features/tts). */
+  ttsPlayback: boolean;
   /**
-   * Calls (features/calls/voice.ts): an AI filter on the microphone that keeps speech and
-   * removes background sounds.
+   * Calls (features/calls/voice.ts) and voice channels (features/voice): an AI filter on the
+   * microphone that keeps speech and removes background sounds.
    */
   voiceIsolation: boolean;
-  /** Calls: the browser's noise suppression, echo cancellation and automatic gain. */
+  /** Calls and voice channels: the browser's noise suppression, echo cancellation and gain. */
   noiseCancellation: boolean;
   echoCancellation: boolean;
   autoGainControl: boolean;
+  /** Voice channels: microphone, speaker and camera (`deviceId`; '' = the system default). */
+  audioInputDevice: string;
+  audioOutputDevice: string;
+  videoInputDevice: string;
+  /** Voice channels: how loud everyone plays, 0-2 (200%). */
+  outputVolume: number;
+  voiceInputMode: VoiceInputMode;
+  /** Push to talk: the shortcut (null = none yet) and how long the mic stays on after it (ms). */
+  pttShortcut: KeyCombo | null;
+  pttReleaseDelayMs: number;
+  /** Voice activity: open the mic whenever I speak, or above `inputSensitivityDb` (-100..0 dB). */
+  inputSensitivityAuto: boolean;
+  inputSensitivityDb: number;
+  /** Per person (user id), on this device. */
+  userAudio: Record<string, UserAudioPref>;
   /** Chat text size (sets `--chat-font-size`; use the `text-chat` utility). */
   fontSize: FontSize;
   /** Faint dot pattern over the wallpaper. */
@@ -96,10 +134,21 @@ export interface DevicePrefs {
 export const DEFAULT_PREFS: DevicePrefs = {
   enterToSend: true,
   linkPreviews: true,
+  ttsPlayback: true,
   voiceIsolation: false,
   noiseCancellation: true,
   echoCancellation: true,
   autoGainControl: true,
+  audioInputDevice: '',
+  audioOutputDevice: '',
+  videoInputDevice: '',
+  outputVolume: 1,
+  voiceInputMode: 'voiceActivity',
+  pttShortcut: null,
+  pttReleaseDelayMs: 20,
+  inputSensitivityAuto: true,
+  inputSensitivityDb: -60,
+  userAudio: {},
   fontSize: 'medium',
   wallpaperPattern: true,
   sounds: true,

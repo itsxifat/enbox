@@ -29,6 +29,7 @@ import {
   reactorsListed,
 } from '@/features/conversation/bubbles/reactions/model';
 import { hasPendingReaction } from '@/features/conversation/bubbles/reactions/pending';
+import { speakArrivedMessage } from '@/features/tts/tts';
 import { useChatMembersStore } from '@/features/conversation/members';
 import { UNNAMED_GROUP_DM, groupDmMemberNames, isUnnamedGroupDm } from '@/features/groupDms/title';
 import { mediaUrl } from '@/lib/api';
@@ -38,6 +39,7 @@ import { registerSessionReset } from '@/lib/session';
 import type { AppSocket } from '@/lib/socket';
 import { useAuth } from '@/stores/auth';
 import { useChats } from '@/stores/chats';
+import { isIgnored } from '@/stores/ignores';
 import { useMessages } from '@/stores/messages';
 import { useSidePanel } from '@/stores/sidePanel';
 import { useUi } from '@/stores/ui';
@@ -297,6 +299,8 @@ function inThreadPanel(chatId: ID): boolean {
 function notifyIncoming(message: Message, chat: ChatSummary): void {
   if (message.type === 'system' || message.type === 'call') return; // calls ring via the calls UI
   if (chat.type === 'channel' || isMuted(chat.mutedUntil)) return;
+  // Someone I ignore: no sound, no notification (the unread badge still counts it).
+  if (isIgnored(message.senderId)) return;
   const me = useAuth.getState().user;
   if (!me) return;
   if (isSpaceChatType(chat.type)) {
@@ -349,6 +353,8 @@ export function handleNewMessage(message: Message): void {
   }
 
   useMessages.getState().upsertMessage(message);
+  // A /tts message in the chat I'm viewing is read aloud (features/tts).
+  speakArrivedMessage(message);
   // A message from someone ends their typing indicator right away (WhatsApp behaviour).
   if (message.senderId && !mine) chats.setTyping(message.chatId, message.senderId, 'idle');
   void useUsers

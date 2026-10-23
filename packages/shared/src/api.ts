@@ -223,6 +223,7 @@ export type ApiErrorCode =
   | 'rate_limited' // 429
   | 'automod_blocked' // 403: a Space AutoMod rule blocked the message (not created)
   | 'invalid_code' // 400: a wrong, expired or already used two-factor code
+  | 'dm_not_allowed' // 403: their "Who can send you direct messages" refuses me (safety.ts)
   | 'internal_error'; // 500
 
 export interface ApiErrorBody {
@@ -495,7 +496,6 @@ export interface ApiRoutes {
   // Rich content
   'GET /api/messages/:messageId': { R: Message } /* a message I can see (message link previews) */;
   'PATCH /api/messages/:messageId/suppress-embeds': { B: { suppress: boolean }; R: Message } /* the author or MANAGE_MESSAGES */;
-  'GET /api/proxy/image': { Q: { url: string }; R: void } /* 302 to our cached copy (SSRF-guarded fetch) */;
   // Voice channel status ("Set a channel status": people connected to it)
   'PUT /api/chats/:chatId/voice-status': { B: VoiceStatusRequest; R: void } /* chat:updated → Space room */;
   // Friends (accepting makes both users each other's contacts)

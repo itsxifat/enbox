@@ -648,6 +648,7 @@ export async function markDeliveredOnConnect(userId: string): Promise<void> {
               order by m.seq desc limit 1
             ) v
             where cm.user_id = ${userId} and cm.left_at is null and cm.chat_id = any(${uuidArray(locked.map((r) => r.id))})
+              and cm.request_state is null -- a message request is never delivered (dmGate.ts)
             order by cm.chat_id
             for update of cm
           )

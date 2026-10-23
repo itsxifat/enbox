@@ -206,6 +206,8 @@ router.patch('/spaces/:spaceId/members/me', async (req, res) => {
     if (body.suppressEveryone !== undefined) patch.suppressEveryone = body.suppressEveryone;
     if (body.suppressRoles !== undefined) patch.suppressRoles = body.suppressRoles;
     if (body.hideMutedChannels !== undefined) patch.hideMutedChannels = body.hideMutedChannels;
+    // Privacy Settings: members of this Space may DM me (services/dmGate.ts).
+    if (body.allowDms !== undefined) patch.allowDms = body.allowDms;
     // Per-Space profile (locks the media rows against the GC until commit).
     if (body.avatarMediaId !== undefined) {
       if (body.avatarMediaId) await requireAvatarMedia(tx, body.avatarMediaId, me);

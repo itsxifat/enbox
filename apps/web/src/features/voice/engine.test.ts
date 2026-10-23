@@ -22,7 +22,13 @@ vi.mock('livekit-client', () => {
   class Room {
     handlers = new Map<string, (...args: unknown[]) => void>();
     canPlaybackAudio = true;
-    localParticipant = { setMicrophoneEnabled: vi.fn(async () => undefined), isCameraEnabled: false, isScreenShareEnabled: false };
+    remoteParticipants = new Map();
+    localParticipant = {
+      setMicrophoneEnabled: vi.fn(async () => undefined),
+      getTrackPublication: vi.fn(() => undefined),
+      isCameraEnabled: false,
+      isScreenShareEnabled: false,
+    };
     connect = vi.fn(async () => undefined);
     disconnect = vi.fn(async () => this.emit('disconnected', 1));
     constructor() {

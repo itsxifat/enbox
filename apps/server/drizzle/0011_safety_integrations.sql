@@ -16,6 +16,7 @@ CREATE TABLE "reports" (
 	"category" text NOT NULL,
 	"details" text,
 	"evidence" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"media_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL,
 	"status" text DEFAULT 'open' NOT NULL,
 	"created_at" timestamp (3) with time zone DEFAULT now() NOT NULL,
 	"resolved_at" timestamp (3) with time zone,

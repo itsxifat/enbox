@@ -171,11 +171,14 @@ describe('DELETE /me across domains', () => {
 
   it('locks every chat it may touch in one sorted batch — linked groups the user never joined included (F3 / C6b)', async () => {
     const [owner, u] = [await t.createUser(), await t.createUser()];
-    const cGroup = await createGroup(owner, [u], { name: 'C' });
-    // A group u is NOT in whose id sorts below C: it must be locked before C.
-    let lGroup = await createGroup(owner, [], { name: 'L' });
-    for (let i = 0; i < 40 && lGroup > cGroup; i++)
-      lGroup = await createGroup(owner, [], { name: 'L' });
+    // A group u is NOT in (L) whose id sorts below one u is in (C): L must be locked before C.
+    // Picked from a few fresh groups by id, so the order never depends on luck.
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i++) ids.push(await createGroup(owner, [], { name: `G${i}` }));
+    ids.sort();
+    const lGroup = ids[0]!;
+    const cGroup = ids.at(-1)!;
+    await t.api(owner).post(`/api/groups/${cGroup}/members`).send({ userIds: [u.id] }).expect(200);
     expect(lGroup < cGroup).toBe(true);
     const community = (
       await t

@@ -47,6 +47,8 @@ export async function runMediaGc(
               and not exists (select 1 from message_attachments x where x.media_id = m.id)
               and not exists (select 1 from space_stickers x where x.media_id = m.id)
               and not exists (select 1 from space_sounds x where x.media_id = m.id)
+              and not exists (select 1 from webhooks x where x.avatar_media_id = m.id)
+              and not exists (select 1 from reports x where m.id = any(x.media_ids))
             order by m.created_at
             limit ${batch}
             for update skip locked

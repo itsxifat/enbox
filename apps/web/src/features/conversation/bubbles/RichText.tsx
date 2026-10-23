@@ -3,7 +3,8 @@
  * lists, code blocks, and inline **bold** *italic* __underline__ ~~strike~~ `code`
  * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions, custom Space emoji and
  * in-chat search highlights. `inline` (descriptions inside a paragraph) skips the block
- * syntax; `jumbo` (emoji-only messages) draws custom emoji at 48 px instead of 22.
+ * syntax; `jumbo` (emoji-only messages) draws custom emoji at 48 px instead of 22. Links to
+ * this app open in-app (bubbles/cards/internalLinks.ts), others in a new tab.
  */
 import { createContext, memo, useContext, useMemo, useState } from 'react';
 import type { ID } from '@enbox/shared';
@@ -22,6 +23,7 @@ import {
   type Inline,
   type TimestampStyle,
 } from '../lib/richText';
+import { internalLinkOf, isPlainClick, openInternalLink } from './cards/internalLinks';
 
 /** A tappable @mention: opens the profile card (Message lives inside it). */
 function Mention({ userId }: { userId: ID }) {
@@ -99,6 +101,31 @@ function Spoiler({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * A link: one to this app (its origin or the public one) opens in-app — a message of the
+ * open chat scrolls there — unless a modifier asks for a new tab; others open in a new tab.
+ */
+function MessageLink({ href, title, children }: { href: string; title?: string; children: React.ReactNode }) {
+  const internal = internalLinkOf(href);
+  return (
+    <a
+      href={href}
+      target={internal ? undefined : '_blank'}
+      rel={internal ? undefined : 'noopener noreferrer'}
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!internal || !isPlainClick(e)) return;
+        e.preventDefault();
+        openInternalLink(internal);
+      }}
+      className="break-words text-link hover:underline"
+    >
+      {children}
+    </a>
+  );
+}
+
 /** Custom emoji size of the text being rendered (jumbo for emoji-only messages). */
 const EmojiSize = createContext<CustomEmojiSize>(22);
 
@@ -142,17 +169,9 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
             return <Text key={i} text={s.text} highlight={highlight} />;
           case 'link':
             return (
-              <a
-                key={i}
-                href={s.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={s.children ? s.href : undefined}
-                onClick={(e) => e.stopPropagation()}
-                className="break-words text-link hover:underline"
-              >
+              <MessageLink key={i} href={s.href} title={s.children ? s.href : undefined}>
                 {s.children ? <Segments segments={s.children} highlight={highlight} /> : <Text text={s.text} highlight={highlight} />}
-              </a>
+              </MessageLink>
             );
           case 'mention':
             return <Mention key={i} userId={s.userId} />;

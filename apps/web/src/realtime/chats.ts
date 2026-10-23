@@ -20,6 +20,7 @@ import { sendEvent, type AppSocket, type ReadyInfo } from '@/lib/socket';
 import { getMyId } from '@/stores/auth';
 import { useCalls } from '@/stores/calls';
 import { mergeWatermarks, useChats } from '@/stores/chats';
+import { isIgnored } from '@/stores/ignores';
 import { useMessages, windowGeneration, windowRequestMark } from '@/stores/messages';
 import { useSpaces } from '@/stores/spaces';
 
@@ -106,7 +107,8 @@ export function registerChatHandlers(socket: AppSocket): void {
   });
 
   socket.on('chat:typing', ({ chatId, userId, state }) => {
-    if (userId === getMyId()) return;
+    // Ignored users' typing is never shown (header, chat list, typing line).
+    if (userId === getMyId() || isIgnored(userId)) return;
     chats().setTyping(chatId, userId, state);
   });
 

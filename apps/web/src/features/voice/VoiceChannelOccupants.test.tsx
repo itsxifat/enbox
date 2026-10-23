@@ -4,6 +4,7 @@ import { PERM, type ChatSummary, type VoiceState } from '@enbox/shared';
 import type { MenuEntry } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useAuth } from '@/stores/auth';
+import { DEFAULT_PREFS, useUi } from '@/stores/ui';
 import { useVoice } from '@/stores/voice';
 import { makeChat, makeMe } from '@/test/factories';
 import { VoiceChannelOccupants, occupantMenuItems } from './VoiceChannelOccupants';
@@ -116,12 +117,22 @@ describe('occupant menu', () => {
 
 describe('VoiceChannelOccupants', () => {
   beforeEach(() => {
+    // The menu of someone else is a popover (its slider), which watches its size.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
     useAuth.setState({ user: makeMe({ id: 'me' }), token: 't', status: 'authenticated' });
     useVoice.setState({ byUser: { bob: state }, loadedSpaces: { s1: true } });
   });
   afterEach(() => {
     vi.restoreAllMocks();
     useVoice.setState({ byUser: {}, loadedSpaces: {} });
+    useUi.setState({ prefs: DEFAULT_PREFS });
   });
 
   it('right-click → Move To → a channel moves them (at once, then the server)', async () => {
@@ -141,6 +152,37 @@ describe('VoiceChannelOccupants', () => {
     fireEvent.contextMenu(screen.getByTestId('voice-occupant'));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Disconnect' }));
     expect(post).toHaveBeenCalledWith('/api/spaces/s1/voice-states/bob/disconnect');
+  });
+
+  it('User Volume and Mute (for me only) in their menu, kept on this device; the row shows it', async () => {
+    render(<VoiceChannelOccupants chat={v1} channels={all} />);
+    fireEvent.contextMenu(screen.getByTestId('voice-occupant'));
+    const slider = await screen.findByRole('slider', { name: 'User Volume' });
+    expect(slider).toHaveValue('100');
+    expect(slider).toHaveAttribute('max', '200');
+    fireEvent.change(slider, { target: { value: '150' } });
+    expect(useUi.getState().prefs.userAudio.bob).toEqual({ volume: 1.5 });
+    expect(slider).toHaveAttribute('aria-valuetext', '150%');
+
+    const mute = screen.getByRole('menuitemcheckbox', { name: 'Mute' });
+    expect(mute).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(mute);
+    expect(useUi.getState().prefs.userAudio.bob).toEqual({ volume: 1.5, muted: true });
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Mute' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('muted-for-me')).toBeInTheDocument();
+    expect(screen.getByTestId('voice-occupant')).toHaveAccessibleName(/muted for you/);
+    // The rest of the menu is still there.
+    expect(screen.getByRole('menuitem', { name: 'Profile' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
+  });
+
+  it('my own row has no volume or mute', async () => {
+    useVoice.setState({ byUser: { me: { ...state, userId: 'me' } } });
+    render(<VoiceChannelOccupants chat={v1} channels={all} />);
+    fireEvent.contextMenu(screen.getByTestId('voice-occupant'));
+    expect(await screen.findByRole('menuitem', { name: 'Profile' })).toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'User Volume' })).toBeNull();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Mute' })).toBeNull();
   });
 
   it('a refused move puts them back', async () => {

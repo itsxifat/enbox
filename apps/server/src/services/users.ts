@@ -41,6 +41,7 @@ import {
   sessions,
   statuses,
   userBackupCodes,
+  userIgnores,
   userNotes,
   users,
   type UserRow,
@@ -675,7 +676,7 @@ export async function loadUserSelf(dbx: DbOrTx, userId: string): Promise<UserSel
 
 /**
  * Steps (3) + (4) of account deletion (docs "Accounts, sessions and deletion"): delete
- * sessions, push subscriptions, contacts and blocks (both directions) and statuses, then
+ * sessions, push subscriptions, contacts, blocks and ignores (both directions) and statuses, then
  * scrub the row. Run inside the deletion transaction AFTER the membership pipeline (steps
  * 1–2: forced call leave, groups/communities/channels). Returns the revoked session ids
  * (after commit: `invalidateSessions(ids)`, then `disconnectUser`). `keepStatuses`: leave the
@@ -694,6 +695,9 @@ export async function scrubDeletedUser(
   await tx.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await tx.delete(contacts).where(or(eq(contacts.ownerId, userId), eq(contacts.contactId, userId)));
   await tx.delete(blocks).where(or(eq(blocks.blockerId, userId), eq(blocks.blockedId, userId)));
+  await tx
+    .delete(userIgnores)
+    .where(or(eq(userIgnores.userId, userId), eq(userIgnores.ignoredId, userId)));
   await tx
     .delete(userNotes)
     .where(or(eq(userNotes.ownerId, userId), eq(userNotes.subjectId, userId)));

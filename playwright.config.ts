@@ -52,6 +52,8 @@ export default defineConfig({
         PGLITE_DIR: 'memory',
         DATA_DIR: `./data-e2e-${apiPort}`,
         RATE_LIMIT: 'off',
+        // Specs DM fresh users: no Message Requests in between.
+        MESSAGE_REQUESTS: 'off',
         LOG_LEVEL: 'warn',
         NODE_ENV: 'development',
         PUBLIC_URL: `http://localhost:${webPort}`,

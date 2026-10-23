@@ -24,6 +24,8 @@
  * - Cleanup: socket disconnects leave at once; `sweepVoice` (leader) drops rows of dead
  *   processes and of people no longer in the Space; `sweepLocalVoice` (every process) drops
  *   rows bound to sockets of this process that are gone.
+ * - Channel status (status.ts): every way out of a channel (leave, joining another one, a
+ *   move, a moderator's disconnect, the sweeps) clears its status once nobody is left.
  */
 import { and, eq, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { AccessToken, RoomServiceClient, TrackSource } from 'livekit-server-sdk';
@@ -56,6 +58,7 @@ import {
   requireSpacePermission,
 } from '../../services/spaceAccess.js';
 import { audit } from '../../services/spaces.js';
+import { clearEmptyVoiceStatuses } from './status.js';
 
 type VoiceRow = typeof voiceStates.$inferSelect;
 type MemberFlags = { serverMute: boolean; serverDeaf: boolean };
@@ -304,6 +307,7 @@ export async function joinVoice(
   if (previous && previous.channelId !== channelId) {
     emitState(previous.spaceId, previous.channelId, userId, null);
     kickFromRoom(previous.channelId, userId);
+    await clearEmptyVoiceStatuses([previous.channelId]);
   }
   emitState(state.spaceId, channelId, userId, state);
   stageRejoin.delete(userId);
@@ -330,6 +334,7 @@ export async function leaveVoice(
   if (opts.socketGone) rememberSpeaker(row);
   else stageRejoin.delete(userId);
   emitState(row.spaceId, row.channelId, userId, null);
+  await clearEmptyVoiceStatuses([row.channelId]);
   return row;
 }
 
@@ -357,6 +362,7 @@ export async function disconnectMember(actorId: string, spaceId: string, targetI
     return r;
   });
   endConnection(row, 'disconnected_by_moderator');
+  await clearEmptyVoiceStatuses([row.channelId]);
 }
 
 /**
@@ -439,6 +445,7 @@ export async function moveMember(
   });
   const kick = setTimeout(() => void kickIfStillMoved(targetId, moved.from), MOVE_KICK_DELAY_MS);
   kick.unref?.();
+  await clearEmptyVoiceStatuses([moved.from]);
 }
 
 /** After a move: drop the member from the old room, unless they went back there meanwhile. */
@@ -467,6 +474,7 @@ export async function endVoiceInSpace(dbx: DbOrTx, spaceId: string, userId: stri
     .where(and(eq(voiceStates.spaceId, spaceId), eq(voiceStates.userId, userId)))
     .returning();
   for (const r of rows) endConnection(r, reason);
+  await clearEmptyVoiceStatuses(rows.map((r) => r.channelId), dbx);
 }
 
 // ---------------------------------------------------------------------------
@@ -582,10 +590,12 @@ export async function sweepVoice(): Promise<void> {
     .innerJoin(chats, eq(chats.id, voiceStates.channelId))
     .where(notInArray(chats.type, [...VOICE_CHANNEL_TYPES]))
     .limit(500);
+  const emptied = [...dead, ...gone].map((r) => r.channelId);
   if (stale.length) {
     const rows = await db.delete(voiceStates).where(inArray(voiceStates.channelId, stale.map((s) => s.id))).returning();
     for (const r of rows) endConnection(r, 'channel_deleted');
   }
+  await clearEmptyVoiceStatuses(emptied);
 }
 
 /** Every process: rows bound to sockets of this process that no longer exist. */

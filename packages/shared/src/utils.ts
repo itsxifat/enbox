@@ -692,6 +692,8 @@ export function systemEventText(
       return `${actor} joined the Space`;
     case 'thread_created':
       return `${actor} started a thread: ${event.name}`;
+    case 'channel_followed':
+      return `${actor} has added ${event.spaceName} #${event.channelName} to this channel. Its most important updates will show up here.`;
   }
 }
 

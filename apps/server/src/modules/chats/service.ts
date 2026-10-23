@@ -48,6 +48,7 @@ import {
   visibleTo,
   type ChatAccess,
 } from '../../services/chats.js';
+import { dmGate, dmNotAllowed } from '../../services/dmGate.js';
 import { transact } from '../../services/effects.js';
 import { mediaUrl, requireWallpaperMedia, staticMediaKey } from '../../services/media.js';
 import { loadVisibleMessage, toMessages } from '../../services/messages.js';
@@ -90,12 +91,15 @@ export function getChat(viewerId: string, chatId: string): Promise<ChatSummary> 
 
 /**
  * `POST /chats/direct` (idempotent): one chat per user pair (`direct_key`). A new chat gets
- * the caller's row (visible) and the peer's row hidden until the first visible message; no
- * system message and nothing is emitted to the peer. `userId = me` → "Message yourself" (one
- * row). An existing chat hidden for the caller is unhidden (history stays cleared). New
- * chats start with the caller's `defaultDisappearingSeconds`. Unknown users → 404; deleted
- * users → 404 unless a chat with them already exists. Blocks don't prevent opening a chat
- * (sending is gated by `canSend`). Events: JOIN(me) when the chat became visible to me.
+ * the caller's row (visible) and the peer's row hidden until the first visible message,
+ * which runs the DM gate (it may land as a message request: services/dmGate.ts); no system
+ * message and nothing is emitted to the peer. A new chat with someone whose "Who can send you
+ * direct messages" refuses me → 403 dm_not_allowed. `userId = me` → "Message yourself" (one
+ * row). An existing chat hidden for the caller is unhidden (history stays cleared), except a
+ * message request for me: it stays one, and the summary says so (`request`). New chats start
+ * with the caller's `defaultDisappearingSeconds`. Unknown users → 404; deleted users → 404
+ * unless a chat with them already exists. Blocks don't prevent opening a chat (sending is
+ * gated by `canSend`). Events: JOIN(me) when the chat became visible to me.
  */
 export async function openDirectChat(me: string, peerId: string): Promise<ChatSummary> {
   const chatId = await transact(async (tx, fx) => {
@@ -104,28 +108,37 @@ export async function openDirectChat(me: string, peerId: string): Promise<ChatSu
     const peer = self ? meRow : await getUserRow(tx, peerId);
     if (!peer) throw notFound('User');
     const key = directChatKey(me, peerId);
+    const [existing] = await tx
+      .select({ id: chats.id })
+      .from(chats)
+      .where(eq(chats.directKey, key))
+      .limit(1);
+    if (!existing && !peer.deletedAt && (await dmGate(tx, me, peerId)) === 'refused')
+      throw dmNotAllowed();
 
-    const [inserted] = peer.deletedAt
-      ? []
-      : await tx
-          .insert(chats)
-          .values({
-            type: 'direct',
-            directKey: key,
-            createdBy: me,
-            disappearingSeconds: settingsOf(meRow).defaultDisappearingSeconds,
-          })
-          .onConflictDoNothing({ target: chats.directKey })
-          .returning({ id: chats.id });
-    let id = inserted?.id;
+    const [inserted] =
+      existing || peer.deletedAt
+        ? []
+        : await tx
+            .insert(chats)
+            .values({
+              type: 'direct',
+              directKey: key,
+              createdBy: me,
+              disappearingSeconds: settingsOf(meRow).defaultDisappearingSeconds,
+            })
+            .onConflictDoNothing({ target: chats.directKey })
+            .returning({ id: chats.id });
+    let id = existing?.id ?? inserted?.id;
     if (!id) {
-      const [existing] = await tx
+      // Created meanwhile by them, or a deleted account without shared history.
+      const [raced] = await tx
         .select({ id: chats.id })
         .from(chats)
         .where(eq(chats.directKey, key))
         .limit(1);
-      if (!existing) throw notFound('User'); // deleted account without shared history
-      id = existing.id;
+      if (!raced) throw notFound('User');
+      id = raced.id;
     }
     await lockChat(tx, id);
 
@@ -144,7 +157,7 @@ export async function openDirectChat(me: string, peerId: string): Promise<ChatSu
     if (!mine) {
       await tx.insert(chatMembers).values({ chatId: id, userId: me }).onConflictDoNothing();
       fx.join(me, id);
-    } else if (mine.hidden) {
+    } else if (mine.hidden && !mine.requestState) {
       await tx
         .update(chatMembers)
         .set({ hidden: false })
@@ -153,7 +166,10 @@ export async function openDirectChat(me: string, peerId: string): Promise<ChatSu
     }
     return id;
   });
-  return summaryOrNotFound(me, chatId);
+  // A message request for me comes back as one (hidden, `request` set: Accept / Ignore).
+  const summary = await toChatSummary(db, me, chatId, { includeHidden: true });
+  if (!summary) throw notFound('Chat');
+  return summary;
 }
 
 // ---------------------------------------------------------------------------

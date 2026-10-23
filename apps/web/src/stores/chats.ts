@@ -21,7 +21,7 @@
  * - `refreshChat(id)`        GET /api/chats/:id (deduped), upserts; removes on 404
  * - `upsertChat(chat)` / `upsertChats(chats)` merge a full summary (`mergeChatUpsert`: a summary
  *                            built before messages we already applied keeps the newer preview
- *                            and unread counts)
+ *                            and unread counts); message requests go to stores/requests.ts
  * - `patchChat(id, partial)` absolute patch; a direct chat's `permissions` are recomputed when
  *                            the `peer` changes (deleted/blocked peer)
  * - `mutateChat(id, fn)`     patch computed from the current summary (`fn(chat) → partial |
@@ -63,6 +63,7 @@ import {
 import { ApiError, api } from '@/lib/api';
 import { registerSessionReset, sessionEpoch } from '@/lib/session';
 import { useAuth } from './auth';
+import { takeRequests } from './requests';
 import { useUsers } from './users';
 
 export interface TypingEntry {
@@ -286,7 +287,9 @@ export const useChats = create<ChatsState>((set, get) => {
       get().upsertChats([chat]);
     },
 
-    upsertChats(chats) {
+    upsertChats(incoming) {
+      // Message requests are kept out of the list (stores/requests.ts holds them).
+      const chats = takeRequests(incoming);
       if (!chats.length) return;
       useUsers.getState().upsertUsers(peersOf(chats));
       commit(chats.map((chat) => ({ id: chat.id, apply: (c) => mergeChatUpsert(c, chat) })));

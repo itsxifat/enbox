@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, Hash, MessagesSquare, Minus, Plus, Podcast, Trash2, Volume2, X } from 'lucide-react';
+import { Check, Hash, Megaphone, MessagesSquare, Minus, Plus, Podcast, Trash2, Volume2, X } from 'lucide-react';
 import {
   CHANNEL_NAME_MAX_LENGTH,
   CHANNEL_TOPIC_MAX_LENGTH,
@@ -107,12 +107,17 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
   const [bitrate, setBitrate] = useState(initialBitrate);
   const [cat, setCat] = useState<ID | null>(chat?.space?.categoryId ?? categoryId);
   const [isPrivate, setPrivate] = useState(false);
+  // Announcement channels are text channels with Publish and Follow.
+  const [isNews, setNews] = useState(!!chat?.space?.isNews);
   const [busy, setBusy] = useState(false);
   // Forums are named like text channels; Stages are voice channels with a topic.
   const stage = type === 'space_stage';
   const voice = type === 'space_voice' || stage;
   const shown = voice ? name.trim() : normalizeTextChannelName(name);
   const forum = type === 'space_forum';
+  /** The create dialog's type choice ("Announcement" is a text channel with isNews). */
+  const picked = (v: typeof type | 'news') =>
+    v === 'news' ? type === 'space_text' && isNews : type === v && !(v === 'space_text' && isNews);
 
   const save = async () => {
     if (!shown) return;
@@ -128,6 +133,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           // Forums keep their guidelines in the Forum tab.
           if (!forum) body.topic = topic.trim() || null;
           body.slowmodeSeconds = slowmode as 0;
+          if (type === 'space_text' && isNews !== !!chat.space?.isNews) body.isNews = isNews;
         }
         await updateChannel(spaceId, chat.id, body);
       } else {
@@ -136,6 +142,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           name: shown,
           categoryId: cat,
           ...(type === 'space_text' || stage ? { topic: topic.trim() || undefined } : {}),
+          ...(type === 'space_text' && isNews ? { isNews: true } : {}),
           privateRoleIds: isPrivate ? [] : undefined,
         });
       }
@@ -180,6 +187,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
               { v: 'space_text', icon: Hash, title: 'Text', sub: 'Messages, images, links, polls' },
               { v: 'space_voice', icon: Volume2, title: 'Voice', sub: 'Talk, video and screen share' },
               { v: 'space_forum', icon: MessagesSquare, title: 'Forum', sub: 'Organized posts, each with its own replies' },
+              { v: 'news', icon: Megaphone, title: 'Announcement', sub: 'Important updates that other Spaces can follow' },
               { v: 'space_stage', icon: Podcast, title: 'Stage', sub: 'Speakers talk while an audience listens' },
             ] as const
           ).map((o) => (
@@ -187,9 +195,12 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
               key={o.v}
               type="button"
               role="radio"
-              aria-checked={type === o.v}
-              onClick={() => setType(o.v)}
-              className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors', type === o.v ? 'bg-selected' : 'bg-surface-2 hover:bg-hover')}
+              aria-checked={picked(o.v)}
+              onClick={() => {
+                setType(o.v === 'news' ? 'space_text' : o.v);
+                setNews(o.v === 'news');
+              }}
+              className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors', picked(o.v) ? 'bg-selected' : 'bg-surface-2 hover:bg-hover')}
             >
               <o.icon size={22} className="text-muted" aria-hidden />
               <span className="flex-1">
@@ -249,6 +260,14 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
       ) : null}
       {chat ? (
         <Switch checked={nsfw} onChange={setNsfw} label="Age-Restricted Channel" description="Members confirm they are over 18 before viewing its content." />
+      ) : null}
+      {chat && type === 'space_text' ? (
+        <Switch
+          checked={isNews}
+          onChange={setNews}
+          label="Announcement Channel"
+          description="Posts reach Spaces outside this one: they can follow this channel, and the messages you publish show up in their own channels."
+        />
       ) : null}
       {chat && voice ? (
         <>

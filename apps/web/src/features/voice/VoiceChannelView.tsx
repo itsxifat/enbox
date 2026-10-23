@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   ArrowLeft,
@@ -7,16 +7,20 @@ import {
   Mic,
   MicOff,
   MonitorUp,
+  UserRound,
   Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { PhoneOffIcon, VideoIcon, VideoOffIcon } from '@/components/icons';
 import { Track, type Participant } from 'livekit-client';
 import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
-import { Avatar, Button, IconButton } from '@/components/ui';
+import { Avatar, Button, IconButton, contextMenuAnchor, type MenuAnchor } from '@/components/ui';
+import { openProfile } from '@/features/profile/open';
 import { SoundboardButton } from '@/features/soundboard/SoundboardButton';
 import { SoundFlash } from '@/features/soundboard/SoundFlash';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
+import { useAuth } from '@/stores/auth';
 import { useVoice, useVoiceChannelStates } from '@/stores/voice';
 import { useVoiceSelf } from '@/stores/voiceSelf';
 import {
@@ -28,7 +32,10 @@ import {
   toggleScreenShare,
   voiceAvailable,
 } from './engine';
+import { useUserAudio } from './userAudio';
 import { useVoiceUser } from './useVoiceUser';
+import { VoiceStatusHeader } from './VoiceStatus';
+import { VoiceUserMenu } from './VoiceUserMenu';
 
 function VideoTrack({ participant, source }: { participant: Participant; source: Track.Source }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -65,38 +72,68 @@ export function Tile({
   const { name, user } = useVoiceUser(spaceId, participant.identity);
   const speaking = useVoice((s) => !!s.speaking[participant.identity]);
   const state = useVoice((s) => s.byUser[participant.identity]);
+  const me = useAuth((s) => s.user?.id);
+  // Muted only for me (my "Mute" in their menu).
+  const mutedForMe = useUserAudio(participant.identity).muted && participant.identity !== me;
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const screen = source === Track.Source.ScreenShare;
   const hasVideo = !!participant.getTrackPublication(source)?.track && !participant.getTrackPublication(source)?.isMuted;
   const muted = state ? state.selfMute || state.serverMute : !participant.isMicrophoneEnabled;
+  const label = screen
+    ? `${name}'s screen`
+    : [name, muted && 'muted', mutedForMe && 'muted for you'].filter(Boolean).join(', ');
   return (
-    <div
-      className={cn(
-        'relative flex aspect-video min-w-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 ring-2 transition-shadow',
-        speaking && !screen ? 'ring-success' : 'ring-transparent',
-      )}
-      aria-label={screen ? `${name}'s screen` : `${name}${muted ? ', muted' : ''}`}
-      data-testid="voice-tile"
-      data-animate-avatars
-    >
-      {hasVideo ? (
-        <VideoTrack participant={participant} source={source} />
-      ) : (
-        <Avatar
-          src={user?.avatarUrl}
-          animatedSrc={user?.avatarAnimatedUrl}
-          name={name}
-          colorSeed={participant.identity}
-          size={80}
-          decoration={user?.avatarDecoration}
-          decorative
-        />
-      )}
-      <span className="absolute bottom-2 left-2 flex max-w-[80%] items-center gap-1 rounded-md bg-black/55 px-2 py-0.5 text-[13px] font-medium text-white">
-        {screen ? <MonitorUp size={14} aria-hidden /> : muted ? <MicOff size={14} aria-hidden /> : null}
-        <span className="truncate">{screen ? `${name}'s screen` : name}</span>
-      </span>
-      {screen ? null : <SoundFlash userId={participant.identity} />}
-    </div>
+    <>
+      <div
+        className={cn(
+          'relative flex aspect-video min-w-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 ring-2 transition-shadow',
+          speaking && !screen ? 'ring-success' : 'ring-transparent',
+        )}
+        aria-label={label}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setAnchor(contextMenuAnchor(e));
+        }}
+        data-testid="voice-tile"
+        data-animate-avatars
+      >
+        {hasVideo ? (
+          <VideoTrack participant={participant} source={source} />
+        ) : (
+          <Avatar
+            src={user?.avatarUrl}
+            animatedSrc={user?.avatarAnimatedUrl}
+            name={name}
+            colorSeed={participant.identity}
+            size={80}
+            decoration={user?.avatarDecoration}
+            decorative
+          />
+        )}
+        <span className="absolute bottom-2 left-2 flex max-w-[80%] items-center gap-1 rounded-md bg-black/55 px-2 py-0.5 text-[13px] font-medium text-white">
+          {screen ? <MonitorUp size={14} aria-hidden /> : muted ? <MicOff size={14} aria-hidden /> : null}
+          {mutedForMe && !screen ? (
+            <VolumeX size={14} className="text-danger" aria-hidden data-testid="muted-for-me" />
+          ) : null}
+          <span className="truncate">{screen ? `${name}'s screen` : name}</span>
+        </span>
+        {screen ? null : <SoundFlash userId={participant.identity} />}
+      </div>
+      <VoiceUserMenu
+        open={!!anchor}
+        anchor={anchor}
+        onClose={() => setAnchor(null)}
+        userId={participant.identity}
+        items={[
+          {
+            label: 'Profile',
+            icon: UserRound,
+            onSelect: () => openProfile(participant.identity, anchor, { spaceId }),
+          },
+        ]}
+        aria-label={`${name} menu`}
+      />
+    </>
   );
 }
 
@@ -212,9 +249,12 @@ export function VoiceChannelView({ chat, space }: { chat: ChatSummary; space: Sp
         {desktop ? null : (
           <IconButton icon={ArrowLeft} label="Back" variant="ghost" onClick={() => navigate(`/spaces/${space.id}`)} />
         )}
-        <Volume2 size={22} className="text-muted" aria-hidden />
+        <Volume2 size={22} className="shrink-0 text-muted" aria-hidden />
         <h1 className="truncate text-[16px] font-bold">{chat.name}</h1>
-        {status && status !== 'connected' ? <span className="text-[13px] text-warning">{status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span> : null}
+        <div className="flex min-w-0 flex-1">
+          <VoiceStatusHeader chat={chat} />
+        </div>
+        {status && status !== 'connected' ? <span className="shrink-0 text-[13px] text-warning">{status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span> : null}
       </header>
       {here ? (
         <>

@@ -12,10 +12,13 @@ import {
   MAX_ALT_TEXT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_CAPTION_LENGTH,
+  MESSAGE_FLAGS,
+  PERM,
   USER_RATE_LIMITS,
   canDeleteForEveryone,
   canEditMessage,
   extractMentionIds,
+  hasPerm,
   isSpaceChatType,
   type ChatType,
   type MediaKind,
@@ -82,6 +85,7 @@ import { ensureSpaceReadRow } from '../../services/spaceAccess.js';
 import { getUserRows, settingsOf, toUserPublicMap } from '../../services/users.js';
 import { toSearchResults } from '../chats/service.js';
 import { removeMyReactions, replaceMyReaction } from './reactions.js';
+import { propagateCrosspostDelete, propagateCrosspostEdit } from '../announcements/service.js';
 
 export type SendMessageBody = z.output<typeof sendMessageSchema>;
 export type ForwardBody = z.output<typeof forwardSchema>;
@@ -271,6 +275,11 @@ export async function sendMessage(
     }
     // Space channels: other Spaces' custom emoji need USE_EXTERNAL_EMOJI (else `:name:`).
     if (input.text) input.text = await gateExternalEmoji(tx, access, input.text);
+    // Flags: /tts (read aloud), and no embeds from a Space channel member without EMBED_LINKS.
+    let flags = body.type === 'text' && body.tts ? MESSAGE_FLAGS.TTS : 0;
+    if (access.space && input.text && !hasPerm(access.space.bits, PERM.EMBED_LINKS))
+      flags |= MESSAGE_FLAGS.SUPPRESS_EMBEDS;
+    if (flags) input.flags = flags;
     if (body.replyToId) {
       const target = await resolveReplyTarget(tx, me, access.chat, body.replyToId);
       input.replyToId = target.id;
@@ -501,6 +510,7 @@ export async function editMessage(me: string, messageId: string, text: string): 
     fx.messageUpdated(messageId, { exceptUserIds: await peersWhoBlockedMe(tx, access) });
     return updated!;
   });
+  propagateCrosspostEdit(row); // published announcements: the followers' copies follow
   return toMessageFor(me, row);
 }
 
@@ -544,6 +554,7 @@ export async function deleteMessage(
     }
     await deleteForEveryoneTx(tx, fx, messageId);
   });
+  propagateCrosspostDelete(messageId); // published announcements: their copies go too
 }
 
 // ---------------------------------------------------------------------------

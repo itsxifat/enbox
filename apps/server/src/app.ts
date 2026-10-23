@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { requireAuth } from './http/auth.js';
 import { HttpError, toHttpError } from './lib/errors.js';
 import { logger } from './lib/logger.js';
+import { requestLogSerializers } from './lib/redact.js';
 import { apiLimiter } from './lib/rateLimit.js';
 import { authedRouters, publicRouters } from './modules/index.js';
 
@@ -55,7 +56,14 @@ export function createApp() {
   );
   app.use(compression());
   if (config.env !== 'test') {
-    app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
+    app.use(
+      pinoHttp({
+        logger,
+        // No headers (session tokens) and no webhook secrets in request log lines.
+        serializers: requestLogSerializers,
+        autoLogging: { ignore: (req) => req.url === '/api/health' },
+      }),
+    );
   }
 
   // Uploaded media: unguessable keys, immutable, never executed as HTML/script.

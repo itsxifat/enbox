@@ -220,7 +220,8 @@ export function canSpeak(m: ClientMessage): boolean {
 export function speakMessage(chat: ChatSummary, m: ClientMessage): void {
   const text = copyText(m);
   if (!text || !canSpeak(m)) return;
-  const who = chat.type !== 'channel' && m.senderId ? nameOf(m.senderId) : null;
+  const who =
+    chat.type !== 'channel' && m.senderId ? nameOf(m.senderId) : (m.authorOverride?.name ?? null);
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(new SpeechSynthesisUtterance(who ? `${who} said ${text}` : text));
 }

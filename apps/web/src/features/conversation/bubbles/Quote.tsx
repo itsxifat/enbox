@@ -132,7 +132,9 @@ export function ReplyQuote({
       onClick={onClick}
       className={className}
       label={
-        onClick ? `Go to replied message from ${preview.senderId ? name : 'channel'}` : undefined
+        onClick
+          ? `Go to replied message from ${preview.senderId ? name : (preview.authorName ?? 'channel')}`
+          : undefined
       }
       thumb={
         thumbSrc ? (
@@ -159,7 +161,7 @@ export function ReplyQuote({
       }
     >
       <span className="truncate text-[13px] font-semibold" style={{ color }}>
-        {preview.senderId ? name : 'Channel'}
+        {preview.senderId ? name : (preview.authorName ?? 'Channel')}
         {origin ? <span className="font-normal text-muted"> · {chatTitle(origin, me)}</span> : null}
       </span>
       <span

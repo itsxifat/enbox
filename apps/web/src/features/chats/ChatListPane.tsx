@@ -44,6 +44,7 @@ import { ChatRow } from './ChatRow';
 import { MessageSearchResults } from './MessageSearchResults';
 import { IN_APP_NAV } from '@/components/layout/navigation';
 import { FriendsEntry } from '@/features/you/FriendsEntry';
+import { MessageRequestsEntry } from '@/features/requests/MessageRequestsEntry';
 
 function ArchivedEntry({ count, unread }: { count: number; unread: number }) {
   return (
@@ -166,7 +167,10 @@ export function ChatListPane() {
           ? () => (
               <>
                 {showFriends ? <FriendsEntry /> : null}
-                {showArchived ? <ArchivedEntry count={archivedCount} unread={archivedUnread} /> : null}
+                {showFriends ? <MessageRequestsEntry /> : null}
+                {showArchived ? (
+                  <ArchivedEntry count={archivedCount} unread={archivedUnread} />
+                ) : null}
               </>
             )
           : undefined,
@@ -220,6 +224,7 @@ export function ChatListPane() {
     body = (
       <>
         {showFriends ? <FriendsEntry /> : null}
+        {showFriends ? <MessageRequestsEntry /> : null}
         {showArchived ? <ArchivedEntry count={archivedCount} unread={archivedUnread} /> : null}
         <EmptyState
           icon={NewChatIcon}

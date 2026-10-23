@@ -287,7 +287,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const suggestions = isSpace ? spaceSuggestions : groupSuggestions;
   const cmdQuery = editing ? null : commandQuery(text);
   const commands =
-    cmdQuery !== null && cmdDismissed !== text ? matchCommands(cmdQuery) : NO_COMMANDS;
+    cmdQuery !== null && cmdDismissed !== text ? matchCommands(cmdQuery, chat) : NO_COMMANDS;
   const cmdActive = Math.min(cmdIdx, Math.max(0, commands.length - 1));
 
   const pickCommand = (c: SlashCommand) => {
@@ -388,12 +388,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     m ? { replyToId: m.id, replyTo: previewOf(m) } : { replyToId: undefined, replyTo: null };
 
   const send = () => {
-    // A slash command at the start becomes its message (/shrug, /me …); edits send as typed.
-    const command = editing ? null : applyCommand(text);
+    // A slash command at the start becomes its message (/shrug, /me, /tts …) or runs instead
+    // of one (/nick, /thread); edits send as typed.
+    const command = editing ? null : applyCommand(text, chat);
     if (command && 'missing' in command) {
       toast.info(`Type a ${command.missing.option} after /${command.missing.name}`, {
         id: 'slash-command',
       });
+      return;
+    }
+    if (command && 'run' in command) {
+      clearAfterSend();
+      void command.run();
       return;
     }
     const encoded = encodeMentions(command ? command.text : text, refs.current).trim();
@@ -424,7 +430,13 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     if (sounds) playSound('sent');
     void sendQueued(
       chat.id,
-      { type: 'text', text: encoded, replyToId: r.replyToId, ...ping },
+      {
+        type: 'text',
+        text: encoded,
+        replyToId: r.replyToId,
+        ...ping,
+        ...(command?.tts ? { tts: true } : {}),
+      },
       { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
     );
   };

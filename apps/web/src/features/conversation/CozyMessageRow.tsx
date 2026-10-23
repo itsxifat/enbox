@@ -10,6 +10,12 @@ import { cn } from '@/lib/cn';
 import { formatTime } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
 import { ThreadStarterCard } from '@/features/threads/ThreadStarterCard';
+import { PublishPill } from '@/features/announcements/PublishPill';
+import {
+  CrosspostSource,
+  OverrideAuthorName,
+  OverrideAvatar,
+} from '@/features/webhooks/OverrideAuthor';
 import { useEnterAnimation } from './bubbles/appearance';
 import { ReactionChips, ReactionsDialog } from './bubbles/Reactions';
 import { DaySeparator, SystemPill, UnreadDivider } from './bubbles/SystemPill';
@@ -54,7 +60,9 @@ export const CozyMessageRow = memo(function CozyMessageRow({
   const shape = rowShape(m, false);
   const { deleted, bare, visual } = shape;
   const hasReactions = m.reactions.length > 0 && !deleted;
-  const header = row.firstInGroup && !!m.senderId;
+  // No user sent it: a webhook or a crosspost shows as its author override (no profile).
+  const override = m.authorOverride ?? null;
+  const header = row.firstInGroup && (!!m.senderId || !!override);
 
   return (
     <div
@@ -87,7 +95,9 @@ export const CozyMessageRow = memo(function CozyMessageRow({
 
         {/* Avatar column: the avatar on the group's first row, the time on hover below it. */}
         <span className="w-10 shrink-0 self-start">
-          {header ? (
+          {header && override ? (
+            <OverrideAvatar override={override} selecting={selecting} size={40} />
+          ) : header ? (
             <SenderAvatar userId={m.senderId!} selecting={selecting} size={40} spaceId={chat.space?.spaceId} />
           ) : (
             <span
@@ -115,15 +125,22 @@ export const CozyMessageRow = memo(function CozyMessageRow({
           >
             {header ? (
               <div className="flex items-baseline gap-2">
-                <SenderName
-                  userId={m.senderId!}
-                  selecting={selecting}
-                  you={myName}
-                  className="text-[14.5px]"
-                  spaceId={chat.space?.spaceId}
-                />
+                {override ? (
+                  <OverrideAuthorName override={override} selecting={selecting} className="text-[14.5px]" />
+                ) : (
+                  <SenderName
+                    userId={m.senderId!}
+                    selecting={selecting}
+                    you={myName}
+                    className="text-[14.5px]"
+                    spaceId={chat.space?.spaceId}
+                  />
+                )}
                 <span className="shrink-0 text-[11.5px] text-muted">{formatTime(m.createdAt)}</span>
               </div>
+            ) : null}
+            {header && override?.kind === 'crosspost' && override.source ? (
+              <CrosspostSource source={override.source} />
             ) : null}
             <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
             <div className={cn(!bare && (visual ? 'max-w-[min(100%,480px)]' : 'max-w-[720px]'), m.pending && 'opacity-60')}>
@@ -138,6 +155,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
 
           {hasReactions ? <ReactionChips m={m} chat={chat} className="mt-1 px-1" /> : null}
           {m.thread ? <ThreadStarterCard message={m} /> : null}
+          <PublishPill chat={chat} m={m} />
 
           <RetryButton chat={chat} m={m} />
         </div>

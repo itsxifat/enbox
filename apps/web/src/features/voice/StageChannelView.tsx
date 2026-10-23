@@ -6,15 +6,17 @@
  * - audience: Request to Speak (a toggle; moderators: Become a Speaker) and Leave Quietly
  * - speakers: mic, soundboard, Move to Audience and Leave Quietly
  * Right-clicking someone opens the Stage menu (stageMenu.ts: Invite to Speak / Move to
- * Audience for moderators). Not connected: the lobby with Join Stage — everyone joins in the
- * audience; the voice engine publishes nothing there and turns the mic on once invited up.
+ * Audience for moderators) with their volume and a mute for me (VoiceUserMenu). Speakers and
+ * moderators set the Stage's status in the header. Not connected: the lobby with Join Stage —
+ * everyone joins in the audience; the voice engine publishes nothing there and turns the mic
+ * on once invited up.
  */
 import { useEffect, useState, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowDownToLine, ArrowLeft, Hand, Mic, MicOff, Podcast, Volume2 } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, Hand, Mic, MicOff, Podcast, Volume2, VolumeX } from 'lucide-react';
 import { PhoneOffIcon } from '@/components/icons';
 import { PERM, hasPerm, type ChatSummary, type ID, type Space, type VoiceState } from '@enbox/shared';
-import { Avatar, Button, IconButton, Menu, contextMenuAnchor, toast, type MenuAnchor } from '@/components/ui';
+import { Avatar, Button, IconButton, contextMenuAnchor, toast, type MenuAnchor } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { SoundboardButton } from '@/features/soundboard/SoundboardButton';
 import { SoundFlash } from '@/features/soundboard/SoundFlash';
@@ -26,7 +28,10 @@ import { useVoiceSelf } from '@/stores/voiceSelf';
 import { isStageModerator, requestToSpeak, setStageSpeaker } from './actions';
 import { connectVoice, disconnectVoice, resumeVoiceAudio, voiceAvailable } from './engine';
 import { stageMemberMenuItems } from './stageMenu';
+import { useUserAudio } from './userAudio';
 import { useVoiceUser } from './useVoiceUser';
+import { VoiceStatusHeader } from './VoiceStatus';
+import { VoiceUserMenu } from './VoiceUserMenu';
 
 const fail = (e: unknown) => toast.error(e);
 
@@ -35,14 +40,19 @@ type OpenMenu = (state: VoiceState, e: MouseEvent<HTMLElement>) => void;
 function SpeakerTile({ state, onMenu }: { state: VoiceState; onMenu: OpenMenu }) {
   const { name, user } = useVoiceUser(state.spaceId, state.userId);
   const speaking = useVoice((s) => !!s.speaking[state.userId]);
+  const me = useAuth((s) => s.user?.id);
   const muted = state.selfMute || state.serverMute;
+  // Muted only for me (my "Mute" in their menu).
+  const mutedForMe = useUserAudio(state.userId).muted && state.userId !== me;
   return (
     <li className="relative">
       <button
         type="button"
         onClick={(e) => openProfile(state.userId, e.currentTarget, { spaceId: state.spaceId })}
         onContextMenu={(e) => onMenu(state, e)}
-        aria-label={[name, muted && 'muted', speaking && 'speaking'].filter(Boolean).join(', ')}
+        aria-label={[name, muted && 'muted', mutedForMe && 'muted for you', speaking && 'speaking']
+          .filter(Boolean)
+          .join(', ')}
         className="flex w-full flex-col items-center gap-2 rounded-xl bg-surface-2 px-2 py-4 text-center transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand"
         data-testid="stage-speaker"
         data-animate-avatars
@@ -67,7 +77,12 @@ function SpeakerTile({ state, onMenu }: { state: VoiceState; onMenu: OpenMenu })
             {muted ? <MicOff size={14} /> : <Mic size={14} />}
           </span>
         </span>
-        <span className="w-full truncate text-[14px] font-semibold text-fg">{name}</span>
+        <span className="flex w-full min-w-0 items-center justify-center gap-1">
+          {mutedForMe ? (
+            <VolumeX size={14} className="shrink-0 text-danger" aria-hidden data-testid="muted-for-me" />
+          ) : null}
+          <span className="truncate text-[14px] font-semibold text-fg">{name}</span>
+        </span>
       </button>
       <SoundFlash userId={state.userId} />
     </li>
@@ -254,7 +269,14 @@ function StageRoom({ chat, space }: { chat: ChatSummary; space: Space }) {
         </div>
       </div>
       <StageBar chat={chat} mine={mine} moderator={moderator} />
-      <Menu open={!!menu} onClose={() => setMenu(null)} anchor={menu?.anchor ?? null} items={items} aria-label="Stage member menu" />
+      <VoiceUserMenu
+        open={!!menu}
+        onClose={() => setMenu(null)}
+        anchor={menu?.anchor ?? null}
+        userId={menu?.state.userId}
+        items={items}
+        aria-label="Stage member menu"
+      />
     </>
   );
 }
@@ -335,6 +357,9 @@ export function StageChannelView({ chat, space }: { chat: ChatSummary; space: Sp
             {topic}
           </p>
         ) : null}
+        <div className={cn('flex min-w-0 justify-end', !topic && 'flex-1 justify-start')}>
+          <VoiceStatusHeader chat={chat} />
+        </div>
         {status && status !== 'connected' ? (
           <span className="shrink-0 text-[13px] text-warning">{status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</span>
         ) : null}

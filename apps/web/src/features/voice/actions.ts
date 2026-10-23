@@ -1,5 +1,6 @@
 import { PERM, hasPerm, type ChatSummary, type ID, type VoiceState } from '@enbox/shared';
 import { api } from '@/lib/api';
+import { useChats } from '@/stores/chats';
 import { useVoice } from '@/stores/voice';
 import { connectVoice } from './engine';
 
@@ -30,6 +31,42 @@ export async function moveVoiceMember(spaceId: ID, userId: ID, channelId: ID): P
 /** Disconnect someone from voice (MOVE_MEMBERS). */
 export async function disconnectVoiceMember(spaceId: ID, userId: ID): Promise<void> {
   await api.post(`/api/spaces/${spaceId}/voice-states/${userId}/disconnect`);
+}
+
+// ---------------------------------------------------------------------------
+// Channel status
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether I may set the channel's status (as the server): connected to it with SPEAK there —
+ * on a Stage as a speaker or one of its moderators.
+ */
+export function canSetVoiceStatus(chat: ChatSummary, mine: VoiceState | undefined): boolean {
+  if (!mine || mine.channelId !== chat.id || !hasPerm(chat.spacePermissions, PERM.SPEAK)) return false;
+  return chat.type !== 'space_stage' || !mine.suppressed || isStageModerator(chat.spacePermissions);
+}
+
+/** The channel's status in the chat list (its `space`), as `chat:updated` would set it. */
+function showVoiceStatus(chatId: ID, voiceStatus: string | null): void {
+  const space = useChats.getState().byId[chatId]?.space;
+  if (space) useChats.getState().applyChatUpdate(chatId, { space: { ...space, voiceStatus } });
+}
+
+/**
+ * Set the status of the voice channel I am in (blank clears it). Shows at once; the old one
+ * comes back if the server refuses — unless a newer one arrived meanwhile.
+ */
+export async function setVoiceChannelStatus(chatId: ID, text: string): Promise<void> {
+  const next = text.trim() || null;
+  const before = useChats.getState().byId[chatId]?.space?.voiceStatus ?? null;
+  showVoiceStatus(chatId, next);
+  try {
+    await api.put(`/api/chats/${chatId}/voice-status`, { status: next });
+  } catch (e) {
+    if ((useChats.getState().byId[chatId]?.space?.voiceStatus ?? null) === next)
+      showVoiceStatus(chatId, before);
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------

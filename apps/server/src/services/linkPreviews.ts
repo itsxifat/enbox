@@ -1,6 +1,10 @@
 /**
  * Link previews (`GET /api/link-preview?url=`): the card a client shows under a message
- * with a link — title, description, site name, theme colour and an image.
+ * with a link — title, description, site name, theme colour and an image. A direct link to
+ * an image (`content-type: image/*`) previews as that image alone (no title or description;
+ * clients show it inline); animated GIF and WebP are kept there, and clients show their
+ * first frame until the device's animation preference lets them play. Other non-pages
+ * (videos, archives…) have no preview and their bodies are never read.
  *
  * The server fetches the page, never the client: sites do not learn who reads a chat, and
  * the image is a copy stored under /uploads (metadata stripped), not the site's own URL.
@@ -56,6 +60,8 @@ const MAX_CONCURRENT_FETCHES = 6;
 const MAX_QUEUED_FETCHES = 200;
 /** Images smaller than this on either side (icons, tracking pixels) are dropped. */
 const MIN_IMAGE_SIDE = 48;
+/** A direct image link is shown down to this size (someone linked the picture itself). */
+const MIN_DIRECT_IMAGE_SIDE = 16;
 const TITLE_MAX = 300;
 const DESCRIPTION_MAX = 600;
 const SITE_NAME_MAX = 100;
@@ -67,6 +73,23 @@ const IMAGE_EXT: Record<ImageMime, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+/**
+ * Animated images a direct link may keep: clients draw a GIF's or WebP's first frame as its
+ * still (an animated PNG looks like any PNG to them, so it would always play).
+ */
+const ANIMATABLE: ReadonlySet<ImageMime> = new Set(['image/gif', 'image/webp']);
+/** Declared types whose bytes are read as an image (the bytes themselves decide). */
+const RASTER_TYPES = new Set([
+  'image/gif',
+  'image/webp',
+  'image/png',
+  'image/apng',
+  'image/jpeg',
+  'image/jpg',
+  'image/pjpeg',
+]);
+const IMAGE_ACCEPT = 'image/webp,image/png,image/jpeg,image/gif;q=0.8';
+const PAGE_ACCEPT = `text/html,application/xhtml+xml;q=0.9,${IMAGE_ACCEPT},*/*;q=0.1`;
 
 // ---------------------------------------------------------------------------
 // Address policy
@@ -183,15 +206,31 @@ interface Fetched {
   /** Where the body came from (after redirects). */
   url: URL;
   contentType: string;
+  /** Empty when the response's type was not worth reading (`FetchOptions.limits` → null). */
   body: Buffer;
 }
 
-interface FetchOptions {
-  accept: string;
+interface BodyLimits {
   maxBytes: number;
   /** Keep the first `maxBytes` of a longer body (pages) instead of failing (images). */
   truncate: boolean;
 }
+
+interface FetchOptions {
+  accept: string;
+  /** How much of a response of this media type to read; null: none of it. */
+  limits: (mediaType: string) => BodyLimits | null;
+}
+
+const PAGE_LIMITS: BodyLimits = { maxBytes: PAGE_MAX_BYTES, truncate: true };
+const IMAGE_LIMITS: BodyLimits = { maxBytes: IMAGE_MAX_BYTES, truncate: false };
+
+/** `text/html; charset=utf-8` → `text/html`. */
+function mediaTypeOf(contentType: string): string {
+  return contentType.split(';')[0]!.trim().toLowerCase();
+}
+
+const isPage = (type: string) => type === 'text/html' || type === 'application/xhtml+xml';
 
 function requestOnce(url: URL, accept: string, signal: AbortSignal): Promise<http.IncomingMessage> {
   const host = bareHost(url);
@@ -226,7 +265,7 @@ function requestOnce(url: URL, accept: string, signal: AbortSignal): Promise<htt
 /** Reads a (decompressed) body up to `maxBytes`. */
 function readBody(
   res: http.IncomingMessage,
-  { maxBytes, truncate }: FetchOptions,
+  { maxBytes, truncate }: BodyLimits,
 ): Promise<{ body: Buffer }> {
   const encoding = String(res.headers['content-encoding'] ?? '')
     .trim()
@@ -300,13 +339,20 @@ async function fetchCapped(start: URL, opts: FetchOptions): Promise<Fetched> {
       res.destroy();
       throw new PreviewFetchError(`HTTP ${status}`);
     }
+    const contentType = String(res.headers['content-type'] ?? '');
+    const limits = opts.limits(mediaTypeOf(contentType));
+    if (!limits) {
+      // A video, an archive…: its type is all a preview needs (no preview), not its bytes.
+      res.destroy();
+      return { url, contentType, body: Buffer.alloc(0) };
+    }
     const declared = Number(res.headers['content-length']);
-    if (!opts.truncate && !res.headers['content-encoding'] && declared > opts.maxBytes) {
+    if (!limits.truncate && !res.headers['content-encoding'] && declared > limits.maxBytes) {
       res.destroy();
       throw new PreviewFetchError('Response too large');
     }
-    const { body } = await readBody(res, opts);
-    return { url, contentType: String(res.headers['content-type'] ?? ''), body };
+    const { body } = await readBody(res, limits);
+    return { url, contentType, body };
   }
 }
 
@@ -513,27 +559,46 @@ function hasContent(d: PreviewData): boolean {
   return !!(d.title || d.description || d.imageKey);
 }
 
-/** Downloads, verifies and stores a preview image; null when it is unusable. */
-async function storePreviewImage(
-  src: string,
-  opts: { minSide?: number } = {},
-): Promise<{ key: string; width: number; height: number } | null> {
-  const url = normalizeLink(src);
-  if (!url) return null;
-  const { body } = await fetchCapped(url, {
-    accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.8',
-    maxBytes: IMAGE_MAX_BYTES,
-    truncate: false,
-  });
+interface StoredImage {
+  key: string;
+  width: number;
+  height: number;
+}
+
+interface StoreImageOptions {
+  minSide?: number;
+  /** Keep an animated GIF or WebP (direct image links; see ANIMATABLE). */
+  animated?: boolean;
+}
+
+/**
+ * Verifies image bytes and stores them with their metadata stripped; null when unusable: not
+ * a GIF, WebP, PNG or JPEG, over a decode cap, a frame outside the canvas, smaller than
+ * `minSide`, or animated without `animated`.
+ */
+async function storeImage(body: Buffer, opts: StoreImageOptions = {}): Promise<StoredImage | null> {
   const info = readImageInfo(body);
-  // Animated images have no static poster to honour "play animated media: never" with.
-  if (!info || info.animated || !info.framesInCanvas || imageCapViolation(info)) return null;
+  if (!info || !info.framesInCanvas || imageCapViolation(info)) return null;
+  // An animated og:image has no still for "play animated media: never" (a page's card shows
+  // it as is); a linked GIF or WebP has its first frame, which clients draw themselves.
+  if (info.animated && !(opts.animated && ANIMATABLE.has(info.mime))) return null;
   if (Math.min(info.width, info.height) < (opts.minSide ?? MIN_IMAGE_SIDE)) return null;
   const key = newStorageKey(IMAGE_EXT[info.mime]);
   const dest = storagePath(key);
   await fs.mkdir(path.dirname(dest), { recursive: true });
   await fs.writeFile(dest, stripImageMetadata(body));
   return { key, width: info.width, height: info.height };
+}
+
+/** Downloads, verifies and stores a preview image; null when it is unusable. */
+async function storePreviewImage(
+  src: string,
+  opts: StoreImageOptions = {},
+): Promise<StoredImage | null> {
+  const url = normalizeLink(src);
+  if (!url) return null;
+  const { body } = await fetchCapped(url, { accept: IMAGE_ACCEPT, limits: () => IMAGE_LIMITS });
+  return storeImage(body, opts);
 }
 
 /**
@@ -554,15 +619,26 @@ export async function cacheRemoteImage(
 
 async function fetchPreview(url: URL): Promise<PreviewData> {
   const page = await fetchCapped(url, {
-    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1',
-    maxBytes: PAGE_MAX_BYTES,
-    truncate: true,
+    accept: PAGE_ACCEPT,
+    limits: (type) => (isPage(type) ? PAGE_LIMITS : RASTER_TYPES.has(type) ? IMAGE_LIMITS : null),
   });
   const domain = displayDomain(page.url);
-  const type = page.contentType.split(';')[0]!.trim().toLowerCase();
-  if (type !== 'text/html' && type !== 'application/xhtml+xml') return { ...NO_PREVIEW, domain };
+  const type = mediaTypeOf(page.contentType);
+  if (RASTER_TYPES.has(type)) {
+    // A direct image link: the picture itself, stored like an og:image, without a title.
+    const image = await storeImage(page.body, { animated: true, minSide: MIN_DIRECT_IMAGE_SIDE });
+    if (!image) return { ...NO_PREVIEW, domain };
+    return {
+      ...NO_PREVIEW,
+      domain,
+      imageKey: image.key,
+      imageWidth: image.width,
+      imageHeight: image.height,
+    };
+  }
+  if (!isPage(type)) return { ...NO_PREVIEW, domain };
   const meta = parsePageMeta(decodeHtml(page.body, page.contentType), page.url);
-  let image: Awaited<ReturnType<typeof storePreviewImage>> = null;
+  let image: StoredImage | null = null;
   if (meta.image) {
     image = await storePreviewImage(meta.image).catch((err: unknown) => {
       logger.debug({ err, image: meta.image }, 'link preview image skipped');

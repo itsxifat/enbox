@@ -126,6 +126,7 @@ describe('message menu', () => {
       'Copy Text',
       'Mark Unread',
       'Copy Message Link',
+      'Report Message',
     ]);
   });
 
@@ -156,6 +157,7 @@ describe('message menu', () => {
       'Unpin Message',
       'Mark Unread',
       'Copy Message Link',
+      'Report Message',
       'Delete Message',
     ]);
   });

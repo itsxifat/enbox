@@ -16,7 +16,19 @@ import {
   parsePageMeta,
 } from '../src/services/linkPreviews.js';
 import { startTestServer, type TestServer, type TestUser } from './helpers.js';
-import { ANIMATED_GIF, gif, gifFrame } from './support/images.js';
+import {
+  ANIMATED_GIF,
+  actl,
+  fctl,
+  fdat,
+  gif,
+  gifFrame,
+  gifWithFrames,
+  idat,
+  iend,
+  ihdr,
+  png,
+} from './support/images.js';
 
 describe('isPublicAddress', () => {
   it('allows public unicast addresses', () => {
@@ -142,12 +154,47 @@ describe('GET /api/link-preview', () => {
   let origin = '';
   let hits = 0;
   const COVER = gif(120, 63, gifFrame(120, 63));
+  const ANIMATED_64 = gifWithFrames(3, 64, 64);
+  const APNG_64 = png(
+    ihdr(64, 64),
+    actl(2, 0),
+    fctl(0, 64, 64),
+    idat,
+    fctl(1, 64, 64),
+    fdat(2),
+    iend,
+  );
+  const image = (type: string, body: Buffer) => (res: http.ServerResponse) => {
+    res.writeHead(200, { 'content-type': type });
+    res.end(body);
+  };
+  const IMAGES: Record<string, (res: http.ServerResponse) => void> = {
+    '/photo.gif': image('image/gif', COVER),
+    '/animated.gif': image('image/gif', ANIMATED_64),
+    '/tiny.gif': image('image/gif', gif(8, 8, gifFrame(8, 8))),
+    '/moving.png': image('image/png', APNG_64),
+    '/lying.png': image('image/png', Buffer.from('<html>not an image</html>')),
+    '/huge.gif': (res) => {
+      res.writeHead(200, {
+        'content-type': 'image/gif',
+        'content-length': String(6 * 1024 * 1024),
+      });
+      res.end();
+    },
+    // A video is never downloaded: this body never ends, so reading it would time out.
+    '/clip.mp4': (res) => {
+      res.writeHead(200, { 'content-type': 'video/mp4' });
+      res.write(Buffer.alloc(1024));
+    },
+  };
 
   beforeAll(async () => {
     t = await startTestServer();
     user = await t.createUser();
     site = http.createServer((req, res) => {
       hits += 1;
+      const direct = IMAGES[req.url ?? ''];
+      if (direct) return direct(res);
       switch (req.url) {
         case '/article':
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -195,6 +242,7 @@ describe('GET /api/link-preview', () => {
 
   afterAll(async () => {
     allowLocalLinkPreviewsForTests(false);
+    site.closeAllConnections();
     await new Promise<void>((resolve) => site.close(() => resolve()));
     await t.close();
   });
@@ -265,5 +313,45 @@ describe('GET /api/link-preview', () => {
     const before = hits;
     expect(await preview(`${origin}/missing`)).toBeNull();
     expect(hits).toBe(before);
+  });
+
+  it('a direct image link previews as the stored image alone', async () => {
+    allowLocalLinkPreviewsForTests(true);
+    const p = await preview(`${origin}/photo.gif`);
+    expect(p).toMatchObject({
+      url: `${origin}/photo.gif`,
+      domain: '127.0.0.1',
+      siteName: null,
+      title: null,
+      description: null,
+      themeColor: null,
+      image: { width: 120, height: 63 },
+    });
+    expect(p!.image!.url).toMatch(/^\/uploads\/\d{4}\/\d{2}\/[0-9a-f-]+\.gif$/);
+    const stored = path.join(t.uploadDir, p!.image!.url.replace('/uploads/', ''));
+    expect(fs.readFileSync(stored).equals(COVER)).toBe(true);
+    // Cached like any preview.
+    const before = hits;
+    expect(await preview(`${origin}/photo.gif`)).toEqual(p);
+    expect(hits).toBe(before);
+  });
+
+  it('direct links keep animated GIFs (clients draw the still); not APNGs, tiny or fake images', async () => {
+    allowLocalLinkPreviewsForTests(true);
+    const anim = await preview(`${origin}/animated.gif`);
+    expect(anim?.image).toMatchObject({ width: 64, height: 64 });
+    const stored = path.join(t.uploadDir, anim!.image!.url.replace('/uploads/', ''));
+    expect(fs.readFileSync(stored).equals(ANIMATED_64)).toBe(true);
+    expect(await preview(`${origin}/moving.png`)).toBeNull();
+    expect(await preview(`${origin}/tiny.gif`)).toBeNull();
+    expect(await preview(`${origin}/lying.png`)).toBeNull();
+    expect(await preview(`${origin}/huge.gif`)).toBeNull();
+  });
+
+  it('a video link has no preview and is never downloaded', async () => {
+    allowLocalLinkPreviewsForTests(true);
+    const started = Date.now();
+    expect(await preview(`${origin}/clip.mp4`)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(4000);
   });
 });

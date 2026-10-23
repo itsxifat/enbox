@@ -656,6 +656,8 @@ export type SystemEvent =
   | { kind: 'member_joined_space'; actorId: ID }
   /** A thread was started from a message of this channel. */
   | { kind: 'thread_created'; actorId: ID; threadId: ID; name: string }
+  /** An announcement channel was followed into this channel (its published posts arrive here). */
+  | { kind: 'channel_followed'; actorId: ID; channelId: ID; spaceName: string; channelName: string }
   /** AutoMod alert channel: a rule blocked or flagged a member's message (`content` is a copy). */
   | {
       kind: 'automod_alert';
@@ -706,6 +708,8 @@ export interface MessagePreview {
   > | null;
   /** The original was deleted for everyone (content fields are null). */
   deleted: boolean;
+  /** Webhook and crosspost messages: who they show as (`senderId` is null). */
+  authorName?: string | null;
 }
 
 /**

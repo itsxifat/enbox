@@ -68,9 +68,19 @@ function timesOf(m: ClientMessage): TimeMeta {
   return v;
 }
 
+/**
+ * Who a message groups by: its sender, or — no user sent it — its webhook and the name it
+ * showed (a webhook posting under another `username` starts a new group, Discord's rule).
+ */
+function authorKey(m: ClientMessage): string | null {
+  const o = m.authorOverride;
+  return o ? `${o.kind}\u0000${o.webhookId ?? ''}\u0000${o.name}` : m.senderId;
+}
+
 function sameGroup(a: ClientMessage, b: ClientMessage): boolean {
   if (!groupable(a) || !groupable(b)) return false;
-  if (a.senderId !== b.senderId) return false;
+  // A webhook's messages never group with a user's (nor a sender-less channel post's).
+  if (!a.authorOverride !== !b.authorOverride || authorKey(a) !== authorKey(b)) return false;
   const gap = timesOf(b).t - timesOf(a).t;
   return gap >= 0 && gap <= GROUP_WINDOW_MS;
 }

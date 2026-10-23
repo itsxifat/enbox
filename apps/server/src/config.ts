@@ -58,6 +58,12 @@ export interface Config {
   webDistDir: string;
   rateLimit: boolean;
   /**
+   * Message requests (services/dmGate.ts): DMs from people who aren't friends wait in Message
+   * Requests when the recipient's `messageRequests` is on. MESSAGE_REQUESTS=off lets them all
+   * straight in (who may DM whom still applies); off by default in tests, like RATE_LIMIT.
+   */
+  messageRequests: boolean;
+  /**
    * Express `trust proxy`. Only set it when a reverse proxy you control sits in front of the
    * server: otherwise clients can spoof `X-Forwarded-For` and dodge every per-IP rate limit.
    */
@@ -110,6 +116,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     logLevel: str('LOG_LEVEL', env === 'test' ? 'silent' : 'info')!,
     webDistDir: path.resolve(str('WEB_DIST_DIR', path.join(process.cwd(), '../web/dist'))!),
     rateLimit: str('RATE_LIMIT', env === 'test' ? 'off' : 'on') !== 'off',
+    messageRequests: str('MESSAGE_REQUESTS', env === 'test' ? 'off' : 'on') !== 'off',
     trustProxy: trustProxy('TRUST_PROXY'),
     ice: {
       stunUrls: list('STUN_URLS', [

@@ -29,6 +29,7 @@ import {
 } from './service.js';
 import { router as reactionsRouter } from './reactions.js';
 import { router as unreadRouter } from './unread.js';
+import { getMessage, suppressEmbeds, suppressEmbedsSchema } from './richContent.js';
 
 /**
  * Messages module — owns: /chats/:chatId/messages, /messages/*, /search/messages.
@@ -84,6 +85,20 @@ router.delete('/messages/:messageId', async (req, res) => {
   const query = parse(deleteMessageQuerySchema, req.query);
   await deleteMessage(me, messageId, query.for);
   res.status(204).end();
+});
+
+// Rich content (./richContent.ts): a message I can see (message link cards), Remove embeds.
+router.get('/messages/:messageId', async (req, res) => {
+  const me = authUserId(req);
+  const { messageId } = parse(messageParams, req.params);
+  res.json(await getMessage(me, messageId));
+});
+
+router.patch('/messages/:messageId/suppress-embeds', async (req, res) => {
+  const me = authUserId(req);
+  const { messageId } = parse(messageParams, req.params);
+  const { suppress } = parse(suppressEmbedsSchema, req.body);
+  res.json(await suppressEmbeds(me, messageId, suppress));
 });
 
 router.put('/messages/:messageId/reaction', async (req, res) => {

@@ -15,7 +15,10 @@ test('create a Space, invite a friend, and chat in #general', async ({ browser }
   const name = `Guild ${uniqueName('s')}`;
 
   const a = await openAs(browser, alice, '/spaces');
+  // Create Your Space: Create My Own → who it's for → name and icon.
   await a.page.getByTestId('create-space').click();
+  await a.page.getByTestId('add-space-own').click();
+  await a.page.getByText('For me and my friends').click();
   await a.page.getByLabel('Space name').fill(name);
   await a.page.getByTestId('create-space-submit').click();
   await expect(a.page).toHaveURL(/\/spaces\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/);

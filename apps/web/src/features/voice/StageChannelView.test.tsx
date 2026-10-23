@@ -112,6 +112,15 @@ const names = (region: HTMLElement) =>
 
 describe('StageChannelView', () => {
   beforeEach(() => {
+    // The member menu of someone else is a popover (its volume slider), which watches its size.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
     vi.spyOn(api, 'get').mockResolvedValue([] as never);
     vi.spyOn(api, 'post').mockResolvedValue([] as never);
   });

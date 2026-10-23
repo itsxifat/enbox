@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowLeft, Bell, Hash, Settings, Users } from 'lucide-react';
+import { ArrowLeft, Bell, Hash, Megaphone, Settings, Users } from 'lucide-react';
 import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
 import { EmptyState, IconButton, PageSpinner, Sheet } from '@/components/ui';
 import { Conversation } from '@/features/conversation/ConversationPane';
@@ -9,6 +9,7 @@ import { ForumChannelView } from '@/features/forums/ForumChannelView';
 import { InboxButton } from '@/features/inbox/InboxButton';
 import { HeaderSearch } from '@/features/search/HeaderSearch';
 import { ThreadsButton } from '@/features/threads/ThreadsButton';
+import { FollowButton } from '@/features/announcements/FollowButton';
 import { VoiceChannelView } from '@/features/voice/VoiceChannelView';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { lazyNamed } from '@/lib/lazy';
@@ -37,7 +38,11 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
       {desktop ? null : (
         <IconButton icon={ArrowLeft} label="Back" variant="ghost" onClick={() => navigate(`/spaces/${space.id}`)} />
       )}
-      <Hash size={22} className="shrink-0 text-muted" aria-hidden />
+      {chat.space?.isNews ? (
+        <Megaphone size={22} className="shrink-0 text-muted" aria-hidden />
+      ) : (
+        <Hash size={22} className="shrink-0 text-muted" aria-hidden />
+      )}
       <h1 className="shrink-0 truncate text-[16px] font-bold text-fg">{chat.name}</h1>
       {topic ? (
         <>
@@ -55,6 +60,7 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
         <div className="flex-1" />
       )}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <FollowButton chat={chat} />
         <ThreadsButton chat={chat} />
         <IconButton icon={Bell} label="Notification settings" variant="ghost" onClick={() => setDialog('notifications')} />
         <PinsButton chat={chat} />

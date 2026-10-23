@@ -5,6 +5,7 @@ import {
   stageRequestSchema,
   stageSpeakerSchema,
   voiceMoveSchema,
+  voiceStatusSchema,
 } from '@enbox/shared';
 import { authUserId } from '../../http/auth.js';
 import { assertUserLimit } from '../../lib/userLimit.js';
@@ -16,8 +17,20 @@ import {
   setStageRequest,
   setStageSpeaker,
 } from './service.js';
+import { VOICE_STATUS_RATE, setVoiceStatus } from './status.js';
 
 export const router = Router();
+
+// PUT /chats/:chatId/voice-status { status } → 204: the channel status of the voice or Stage
+// channel I am connected to (SPEAK there); blank or null clears it. chat:updated { space } → R.
+router.put('/chats/:chatId/voice-status', async (req, res) => {
+  const chatId = parse(idSchema, req.params.chatId);
+  const { status } = parse(voiceStatusSchema, req.body ?? {});
+  const me = authUserId(req);
+  assertUserLimit(me, 'voice:status', VOICE_STATUS_RATE);
+  await setVoiceStatus(me, chatId, status);
+  res.status(204).end();
+});
 
 // GET /spaces/:spaceId/voice-states → VoiceState[] (the voice channels I can see)
 router.get('/spaces/:spaceId/voice-states', async (req, res) => {

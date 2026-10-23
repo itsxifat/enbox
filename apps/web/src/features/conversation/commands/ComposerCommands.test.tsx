@@ -1,11 +1,12 @@
 /**
  * Composer keyboard: the slash command list (`/` at the start; arrows, Tab / Enter pick,
- * Escape hides) and its transforms on send, ↑ in an empty composer edits my last message
+ * Escape hides; what each chat offers) and its transforms on send (/tts sends `tts: true`,
+ * /nick and /thread run instead of sending), ↑ in an empty composer edits my last message
  * (Escape cancels), and the reply's "@ ON / @ OFF" (OFF sends `mentionRepliedAuthor: false`).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import type { ChatSummary, Message } from '@enbox/shared';
+import { PERM, type ChatSummary, type Message } from '@enbox/shared';
 import { resetSessionState } from '@/lib/session';
 import { useAuth } from '@/stores/auth';
 import { useMessages, type ChatMessages } from '@/stores/messages';
@@ -16,7 +17,20 @@ import { useChatMembersStore } from '../members';
 import { useConversationUi } from '../state';
 import { SHRUG } from './commands';
 
+const commandActions = vi.hoisted(() => ({
+  setNickname: vi.fn(async () => undefined),
+  startThread: vi.fn(async () => undefined),
+}));
+vi.mock('./actions', () => commandActions);
+
 const group = makeChat({ id: 'g1', type: 'group', name: 'Friends' });
+const channel = makeChat({
+  id: 'c1',
+  type: 'space_text',
+  name: 'general',
+  space: { spaceId: 's1', categoryId: null, position: 0, overwrites: [] } as never,
+  spacePermissions: PERM.VIEW_CHANNEL | PERM.SEND_MESSAGES | PERM.ATTACH_FILES,
+});
 const dm = makeChat({
   id: 'dm1',
   type: 'direct',
@@ -50,7 +64,9 @@ function seed(chat: ChatSummary, items: Message[] = []) {
 beforeEach(() => {
   useAuth.setState({ user: makeMe({ id: 'me' }), token: 't', status: 'authenticated' });
   useUi.setState({ prefs: { ...DEFAULT_PREFS, sounds: false } });
-  useChatMembersStore.setState({ byChat: { g1: [], dm1: [] } });
+  useChatMembersStore.setState({ byChat: { g1: [], dm1: [], c1: [] } });
+  commandActions.setNickname.mockClear();
+  commandActions.startThread.mockClear();
   send = vi.fn().mockResolvedValue(undefined);
   vi.spyOn(useMessages.getState(), 'sendMessage').mockImplementation(send as never);
 });
@@ -68,7 +84,7 @@ describe('slash commands in the composer', () => {
     seed(group);
     render(<Composer chat={group} />);
     type('/');
-    expect(options()).toEqual(['/shrug', '/tableflip', '/unflip', '/me', '/spoiler']);
+    expect(options()).toEqual(['/shrug', '/tableflip', '/unflip', '/me', '/spoiler', '/tts']);
     type('/s');
     expect(options()).toEqual(['/shrug', '/spoiler']);
     press('ArrowDown');
@@ -116,11 +132,60 @@ describe('slash commands in the composer', () => {
     seed(group);
     render(<Composer chat={group} />);
     type('/t');
-    expect(options()).toEqual(['/tableflip']);
+    expect(options()).toEqual(['/tableflip', '/tts']);
     press('Escape');
     expect(screen.queryByRole('listbox', { name: 'Commands' })).toBeNull();
     type('/ta');
     expect(options()).toEqual(['/tableflip']);
+  });
+
+  it('/tts sends the message with tts: true', () => {
+    seed(group);
+    render(<Composer chat={group} />);
+    type('/tts hello everyone');
+    press('Enter');
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![1]).toMatchObject({
+      type: 'text',
+      text: 'hello everyone',
+      tts: true,
+    });
+    // Other messages carry no flag.
+    type('quiet');
+    press('Enter');
+    expect(send.mock.calls[1]![1]).not.toHaveProperty('tts');
+  });
+
+  it('Space channels add /nick and /thread, which run instead of sending', () => {
+    seed(channel);
+    render(<Composer chat={channel} />);
+    type('/');
+    expect(options()).toEqual([
+      '/shrug',
+      '/tableflip',
+      '/unflip',
+      '/me',
+      '/spoiler',
+      '/tts',
+      '/nick',
+      '/thread',
+    ]);
+    // Descriptions show in the list.
+    expect(screen.getByRole('option', { name: /\/thread/ })).toHaveTextContent(
+      'Starts a thread in this channel.',
+    );
+    type('/nick Captain');
+    press('Enter');
+    expect(commandActions.setNickname).toHaveBeenCalledWith(channel, 'Captain');
+    expect(textarea()).toHaveValue('');
+    type('/thread Weekend plans');
+    press('Enter');
+    expect(commandActions.startThread).toHaveBeenCalledWith(channel, 'Weekend plans');
+    expect(textarea()).toHaveValue('');
+    type('/thread ');
+    press('Enter');
+    expect(useUi.getState().toasts.at(-1)?.message).toBe('Type a name after /thread');
+    expect(send).not.toHaveBeenCalled();
   });
 });
 

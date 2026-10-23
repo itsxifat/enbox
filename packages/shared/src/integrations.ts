@@ -310,9 +310,3 @@ export const voiceStatusSchema = z.object({
   status: z.string().trim().max(VOICE_STATUS_MAX_LENGTH).nullable(),
 });
 export type VoiceStatusRequest = z.input<typeof voiceStatusSchema>;
-
-// ---------------------------------------------------------------------------
-// Image proxy (third-party images in embeds and links, through our origin)
-// ---------------------------------------------------------------------------
-
-export const imageProxyQuerySchema = z.object({ url: httpsUrl });

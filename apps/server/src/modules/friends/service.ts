@@ -31,6 +31,7 @@ import type { DbOrTx } from '../../db/index.js';
 import { contacts, friendRequests, users } from '../../db/schema.js';
 import { HttpError, conflict, limitReached } from '../../lib/errors.js';
 import { emitToUser } from '../../realtime/emit.js';
+import { acceptRequestsBetween } from '../../services/dmGate.js';
 import type { Effects } from '../../services/effects.js';
 import { rawRows } from '../../services/sql.js';
 import {
@@ -118,7 +119,8 @@ function requestEffect(fx: Effects, row: { fromId: ID; toId: ID; createdAt: Date
 
 /**
  * Make a and b friends (inside the pair lock): the requests between them go, both contact
- * rows are ensured (an existing row keeps its saved name).
+ * rows are ensured (an existing row keeps its saved name), and a message request between
+ * them becomes an ordinary chat (services/dmGate.ts, row locks only).
  */
 async function befriend(tx: DbOrTx, fx: Effects, a: ID, b: ID): Promise<void> {
   await tx.delete(friendRequests).where(requestsBetween(a, b));
@@ -132,6 +134,7 @@ async function befriend(tx: DbOrTx, fx: Effects, a: ID, b: ID): Promise<void> {
     .returning({ ownerId: contacts.ownerId, contactId: contacts.contactId });
   fx.toUsers([a, b], 'friends:changed', {});
   contactRowsChanged(fx, added);
+  await acceptRequestsBetween(tx, fx, a, b);
 }
 
 /**
