@@ -26,7 +26,9 @@ import {
   type PermissionOverwrite,
   type SpaceTemplateSnapshot,
   type TemplateOverwrite,
+  type ChannelPref,
   type Space,
+  type SpaceSecurity,
   type SpaceAuditEntry,
   type SpaceCategory,
   type SpaceInfoChanges,
@@ -46,6 +48,7 @@ import {
   spaceChannelOverwrites,
   spaceEventInterests,
   spaceEvents,
+  spaceMemberChannels,
   spaceMemberRoles,
   spaceMembers,
   spaceRoles,
@@ -157,7 +160,11 @@ export function toSpaceProfile(m: SpaceMemberRow, media?: MediaById): Required<S
   };
 }
 
-export function toSpaceMember(m: SpaceMemberRow, roleIds: string[], media?: MediaById): SpaceMember {
+export function toSpaceMember(
+  m: SpaceMemberRow,
+  roleIds: string[],
+  media?: MediaById,
+): SpaceMember {
   return {
     userId: m.userId,
     nickname: m.nickname,
@@ -178,10 +185,7 @@ export async function toSpaceMembers(
   dbx: DbOrTx,
   list: readonly { member: SpaceMemberRow; roleIds: string[] }[],
 ): Promise<SpaceMember[]> {
-  const mediaById = await loadMediaMap(
-    dbx,
-    memberMediaIds(list.map((m) => m.member)),
-  );
+  const mediaById = await loadMediaMap(dbx, memberMediaIds(list.map((m) => m.member)));
   return list.map((m) => toSpaceMember(m.member, m.roleIds, mediaById));
 }
 
@@ -341,6 +345,31 @@ export async function toSpaces(
     }
   }
   const unreadSpaces = new Set(visibleUnread.map((v) => v.spaceId));
+  // My Browse Channels choices (rows only where I changed a channel's default).
+  const prefRows = spaceRows.length
+    ? await dbx
+        .select({
+          spaceId: spaceMemberChannels.spaceId,
+          channelId: spaceMemberChannels.channelId,
+          shown: spaceMemberChannels.shown,
+        })
+        .from(spaceMemberChannels)
+        .where(
+          and(
+            eq(spaceMemberChannels.userId, viewerId),
+            inArray(
+              spaceMemberChannels.spaceId,
+              spaceRows.map((s) => s.id),
+            ),
+          ),
+        )
+    : [];
+  const prefsBy = new Map<string, ChannelPref[]>();
+  for (const r of prefRows)
+    prefsBy.set(r.spaceId, [
+      ...(prefsBy.get(r.spaceId) ?? []),
+      { channelId: r.channelId, shown: r.shown },
+    ]);
 
   const out: Space[] = [];
   for (const s of spaceRows) {
@@ -392,16 +421,42 @@ export async function toSpaces(
         hideMutedChannels: m.hideMutedChannels,
         onboardedAt: m.onboardedAt?.toISOString() ?? null,
         allowDms: m.allowDms,
+        onboardingAnswers: m.onboardingAnswers ?? null,
+        guideDone: m.guideDone ?? [],
+        channelPrefs: prefsBy.get(s.id) ?? [],
       },
       myPermissions: base,
       unread: unreadSpaces.has(s.id),
       unreadMentionCount: mentionCounts.get(s.id) ?? 0,
+      guide: s.guide ?? null,
+      invitesPaused: !!s.invitesPausedUntil && s.invitesPausedUntil.getTime() > Date.now(),
+      security:
+        hasPerm(base, PERM.MANAGE_SPACE) || hasPerm(base, PERM.MODERATE_MEMBERS)
+          ? toSpaceSecurity(s)
+          : null,
     });
   }
   const order = spaceIds ? new Map(spaceIds.map((id, i) => [id, i])) : null;
   return out.sort((a, b) =>
     order ? order.get(a.id)! - order.get(b.id)! : a.name.localeCompare(b.name),
   );
+}
+
+/** Security actions as moderators see them (a pause that ended reads as none). */
+export function toSpaceSecurity(
+  s: Pick<
+    SpaceRow,
+    'invitesPausedUntil' | 'dmsPausedUntil' | 'safetyAlertsChannelId' | 'raidAlerts'
+  >,
+  now = Date.now(),
+): SpaceSecurity {
+  const live = (d: Date | null) => (d && d.getTime() > now ? d.toISOString() : null);
+  return {
+    invitesPausedUntil: live(s.invitesPausedUntil),
+    dmsPausedUntil: live(s.dmsPausedUntil),
+    safetyAlertsChannelId: s.safetyAlertsChannelId,
+    raidAlerts: s.raidAlerts,
+  };
 }
 
 export async function toSpace(
@@ -969,7 +1024,10 @@ export async function removeSpaceMemberTx(
         eq(spaceEventInterests.userId, userId),
         inArray(
           spaceEventInterests.eventId,
-          tx.select({ id: spaceEvents.id }).from(spaceEvents).where(eq(spaceEvents.spaceId, spaceId)),
+          tx
+            .select({ id: spaceEvents.id })
+            .from(spaceEvents)
+            .where(eq(spaceEvents.spaceId, spaceId)),
         ),
       ),
     )
