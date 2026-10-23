@@ -11,6 +11,8 @@
  *   spaces.ts       space:*, space channel focus / member-list subscriptions
  *   threads.ts      thread:upsert / thread:deleted, threads of changed channels
  *   emojis.ts       space:emojis (custom Space emoji)
+ *   stickers.ts     space:stickers (Space stickers)
+ *   soundboard.ts   space:sounds, voice:sound (the soundboard)
  *   events.ts       space:event* (scheduled events, the "Event starting" reminder)
  *   calls.ts        call:*                                      (agent 4)
  *   status.ts       status:*                                    (agent 4)
@@ -31,8 +33,10 @@ import { registerEmojiHandlers, resyncEmojis } from './emojis';
 import { registerEventHandlers, resyncEvents } from './events';
 import { registerFriendHandlers, resyncFriends } from './friends';
 import { registerMessageHandlers } from './messages';
+import { registerSoundboardHandlers, resyncSoundboard } from './soundboard';
 import { registerSpaceHandlers, resyncSpaces } from './spaces';
 import { registerStatusHandlers, resyncStatus } from './status';
+import { registerStickerHandlers, resyncSticker } from './stickers';
 import { registerThreadHandlers, resyncThreads } from './threads';
 import { registerUserHandlers, resyncUsers } from './users';
 import { registerVoiceHandlers, resyncVoice } from './voice';
@@ -59,6 +63,8 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
         resyncSpaces(info),
         resyncThreads(info),
         resyncEmojis(info),
+        resyncSticker(info),
+        resyncSoundboard(info),
         resyncEvents(info),
         resyncVoice(info),
       ]),
@@ -81,6 +87,8 @@ export function startRealtime(): void {
     registerSpaceHandlers(socket);
     registerThreadHandlers(socket);
     registerEmojiHandlers(socket);
+    registerStickerHandlers(socket);
+    registerSoundboardHandlers(socket);
     registerEventHandlers(socket);
     registerVoiceHandlers(socket);
     registerCallHandlers(socket);
