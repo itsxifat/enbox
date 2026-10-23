@@ -26,12 +26,13 @@ import { useChatMessages, useMessages } from '@/stores/messages';
 import { nameOf } from '@/stores/users';
 import { useBus } from '@/hooks/useBus';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
-import { toast } from '@/stores/ui';
+import { toast, useUi } from '@/stores/ui';
 import { VirtualListItem, messageListLabel } from '@/features/a11y/lists';
 import { useRowNavigation } from '@/features/a11y/rowKeys';
 import { useChatTitle } from '@/features/groupDms/title';
 import { JumpToPresentBar } from './Bars';
 import { CozyMessageRow } from './CozyMessageRow';
+import { CompactMessageRow } from './CompactMessageRow';
 import { MessageRow } from './MessageRow';
 import { useRowAppearance } from './bubbles/appearance';
 import { Pill } from './bubbles/SystemPill';
@@ -453,14 +454,18 @@ export const MessageList = memo(function MessageList({
 
   // `cozy` (Discord-style rows) comes from the appearance context set on the conversation root.
   const cozy = useRowAppearance().bubbleStyle === 'cozy';
+  // Discord rows in Compact mode (Settings ▸ Chats ▸ Message display).
+  const compact = useUi((s) => s.prefs.messageDisplay === 'compact');
   const renderRow = useCallback(
     (_: number, row: Row) =>
-      cozy ? (
+      cozy && compact ? (
+        <CompactMessageRow row={row} chat={chat} onJump={onJump} onJumpById={onJumpById} />
+      ) : cozy ? (
         <CozyMessageRow row={row} chat={chat} onJump={onJump} onJumpById={onJumpById} />
       ) : (
         <MessageRow row={row} chat={chat} onJump={onJump} onJumpById={onJumpById} />
       ),
-    [chat, cozy, onJump, onJumpById],
+    [chat, cozy, compact, onJump, onJumpById],
   );
 
   // Screen readers and the keyboard (features/a11y): a named list, ↑/↓ between rows.

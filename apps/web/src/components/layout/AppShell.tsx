@@ -18,12 +18,14 @@ import { ConnectionBanner } from './ConnectionBanner';
 import { SpaceRail } from '@/features/spaces/SpaceRail';
 import { HomeSidebar } from '@/features/home/HomeSidebar';
 import { ReportDialogHost } from '@/features/safety/ReportDialogHost';
+import { NotificationsHost } from '@/features/notifications/NotificationsHost';
 
 const CallOverlay = lazyNamed(() => import('@/features/calls/CallOverlay'), 'CallOverlay');
 const ProfileCardHost = lazyNamed(
   () => import('@/features/profile/ProfileCardHost'),
   'ProfileCardHost',
 );
+const UserMenuHost = lazyNamed(() => import('@/features/users/UserMenuHost'), 'UserMenuHost');
 const KeyboardShortcuts = lazyNamed(
   () => import('@/features/quickSwitcher/KeyboardShortcuts'),
   'KeyboardShortcuts',
@@ -85,6 +87,8 @@ export function AppShell() {
         <AppChrome />
         <ReportDialogHost />
         <ConnectionBanner />
+        {/* In-app message banners, due reminders, the enable-notifications banner. */}
+        <NotificationsHost />
         <UNSAFE_LocationContext.Provider value={base.location}>
           <UNSAFE_RouteContext.Provider value={base.route}>
             <div className="flex min-h-0 flex-1 gap-[var(--pane-gap)] lg:p-[var(--pane-gap)]">
@@ -107,6 +111,7 @@ export function AppShell() {
       <Suspense fallback={null}>
         <CallOverlay />
         <ProfileCardHost />
+        <UserMenuHost />
       </Suspense>
       {/* Its own boundary: Ctrl+K must not wait for the call overlay's chunk. */}
       <Suspense fallback={null}>

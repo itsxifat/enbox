@@ -86,6 +86,8 @@ export interface UserSettings {
   messageRequests: boolean;
   /** Allow DMs from members of Spaces I join from now on (`SpaceMemberSelf.allowDms`). */
   allowSpaceDms: boolean;
+  /** Push me when someone reacts to my message: anywhere, in DMs and groups only, or never. */
+  reactionNotifications: 'all' | 'dms' | 'off';
 }
 
 /**

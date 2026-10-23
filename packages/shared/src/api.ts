@@ -22,6 +22,17 @@
  */
 import type { FriendActivity, SpacePreview, SpacePreviewMessages } from './activity.js';
 import type {
+  Bookmark,
+  BookmarkRequest,
+  BookmarksPage,
+  BookmarksQuery,
+  FriendInvite,
+  FriendInviteAccepted,
+  FriendInvitePreview,
+  PreferencesPatch,
+  SyncedPreferences,
+} from './everyday.js';
+import type {
   AdoptSpaceTagRequest,
   FollowedThreads,
   ReactionKindQuery,
@@ -590,6 +601,27 @@ export interface ApiRoutes {
     B: { answers: OnboardingAnswers };
     R: { roleIds: ID[] };
   } /* change my answers: roles follow */;
+  // Synced preferences (appearance and accessibility across my devices)
+  'GET /api/me/preferences': { R: SyncedPreferences };
+  'PATCH /api/me/preferences': {
+    B: PreferencesPatch;
+    R: SyncedPreferences;
+  } /* merge (null deletes a key); me:preferences → my devices */;
+  // Bookmarks and reminders
+  'GET /api/me/bookmarks': { Q: BookmarksQuery; R: BookmarksPage };
+  'PUT /api/messages/:messageId/bookmark': {
+    B: BookmarkRequest;
+    R: Bookmark;
+  } /* a message I can see; ≤ MAX_BOOKMARKS; bookmark:changed → my devices */;
+  'DELETE /api/messages/:messageId/bookmark': { R: void } /* bookmark:removed → my devices */;
+  // Friend invite links
+  'GET /api/me/friend-invites': { R: FriendInvite[] } /* my live links */;
+  'POST /api/me/friend-invites': { R: FriendInvite };
+  'DELETE /api/me/friend-invites': { R: void } /* revoke all of mine */;
+  'GET /api/friend-invites/:code': { R: FriendInvitePreview };
+  'POST /api/friend-invites/:code/accept': {
+    R: FriendInviteAccepted;
+  } /* both become friends (friends:changed); 404 once expired or used up */;
   // Server tags
   'PUT /api/spaces/:spaceId/tag': {
     B: SpaceTagRequest;

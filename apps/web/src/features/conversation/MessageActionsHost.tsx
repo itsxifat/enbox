@@ -98,6 +98,7 @@ import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
 import { superReactionMenuItem } from './bubbles/reactions/superReactions';
 import { pollMenuItem } from './bubbles/polls/pollMenu';
 import { useHideDownloads } from '@/features/forums/media';
+import { bookmarkMenuItems } from '@/features/bookmarks/bookmarkMenu';
 import { recentReactions } from './bubbles/reactions/recent';
 import { useChatMembersStore } from './members';
 import { Popover } from './Popover';
@@ -352,6 +353,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
       canMarkUnread(chat, m)
         ? { label: 'Mark Unread', icon: MessageSquareDot, onSelect: () => void markUnread(chat, m) }
         : null,
+      ...bookmarkMenuItems(chat, m),
       actionable
         ? { label: 'Copy Message Link', icon: Link, onSelect: () => void copyMessageLink(chat, m) }
         : null,

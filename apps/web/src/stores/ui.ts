@@ -155,7 +155,31 @@ export interface DevicePrefs {
   showSendButton: boolean;
   /** Space between message groups in px (Discord: 0, 4, 8, 16, 24). */
   messageGroupSpacing: MessageGroupSpacing;
+  // Everyday wave (agents 1-6 read these; agent 3 owns the appearance ones and syncing).
+  /** Discord rows: Cozy (avatar and name per group) or Compact (one line per message). */
+  messageDisplay: MessageDisplay;
+  /** Compact mode shows small avatars. */
+  compactShowAvatars: boolean;
+  /** Spacing of lists and sidebars. */
+  uiDensity: UiDensity;
+  /** App zoom, 0.5..2 (1 = 100%). */
+  zoom: number;
+  /** Chat text in px (12..24); null = `fontSize`. */
+  chatFontPx: number | null;
+  /** Sync appearance and accessibility across my devices (`/api/me/preferences`). */
+  syncPreferences: boolean;
+  /** Convert typed emoticons such as :) to emoji when sending. */
+  emoticonConversion: boolean;
+  /** Links to these domains open without the "leaving Enbox" warning. */
+  trustedLinkDomains: string[];
+  /** A toast when a friend comes online. */
+  friendOnlineAlerts: boolean;
+  /** In-app banners for new messages in other chats while Enbox is open. */
+  inAppBanners: boolean;
 }
+
+export type MessageDisplay = 'cozy' | 'compact';
+export type UiDensity = 'compact' | 'default' | 'spacious';
 
 export type ContrastPref = 'system' | 'on' | 'off';
 export type RoleColorDisplay = 'names' | 'dot' | 'hidden';
@@ -205,6 +229,16 @@ export const DEFAULT_PREFS: DevicePrefs = {
   superReactionAnimations: true,
   showSendButton: false,
   messageGroupSpacing: 16,
+  messageDisplay: 'cozy',
+  compactShowAvatars: true,
+  uiDensity: 'default',
+  zoom: 1,
+  chatFontPx: null,
+  syncPreferences: true,
+  emoticonConversion: true,
+  trustedLinkDomains: [],
+  friendOnlineAlerts: false,
+  inAppBanners: true,
 };
 
 export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {

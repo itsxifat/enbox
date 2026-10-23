@@ -47,6 +47,7 @@ import type { AutoModRule, SpaceEvent } from './community.js';
 import type { SpaceSound, SpaceSticker, VoiceSoundEvent } from './expressions.js';
 import type { ChannelPref, ServerGuide } from './guide.js';
 import type { ThreadFollowEvent } from './polish.js';
+import type { Bookmark, SyncedPreferences } from './everyday.js';
 import type { SpaceSecurity } from './moderation.js';
 import type { ApiErrorCode } from './api.js';
 import type {
@@ -183,6 +184,13 @@ export interface ServerToClientEvents {
   'thread:deleted': (payload: { threadId: ID; parentId: ID }) => void;
   /** I followed or unfollowed a post or thread (my devices only). */
   'thread:follow': (payload: ThreadFollowEvent) => void;
+  /** My synced preferences changed on another device (the whole document). */
+  'me:preferences': (payload: SyncedPreferences) => void;
+  /** A bookmark of mine was saved or changed / removed (my devices only). */
+  'bookmark:changed': (payload: { bookmark: Bookmark }) => void;
+  'bookmark:removed': (payload: { messageId: ID }) => void;
+  /** A reminder of mine is due (my devices; a push notification goes out too). */
+  'reminder:due': (payload: { bookmark: Bookmark }) => void;
   /**
    * Messages disappeared: delete-for-me (user:<id>, my devices) or disappearing-timer purge
    * (room chat:<id>; ids a client doesn't have are ignored). Clients also hide messages

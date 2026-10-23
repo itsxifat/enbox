@@ -370,6 +370,7 @@ export const updateSettingsSchema = z
     whoCanDm: z.enum(['everyone', 'spaces', 'friends']),
     messageRequests: z.boolean(),
     allowSpaceDms: z.boolean(),
+    reactionNotifications: z.enum(['all', 'dms', 'off']),
   })
   .partial();
 
@@ -550,6 +551,8 @@ const sendBase = {
    * (default true, the composer's "@ ON"). `false` = the reply doesn't notify them.
    */
   mentionRepliedAuthor: z.boolean().optional(),
+  /** @silent: no push or desktop notification for anyone (MESSAGE_FLAGS.SILENT). */
+  silent: z.boolean().optional(),
 };
 
 /**

@@ -21,6 +21,7 @@ import { subscribeSpaceMembers } from '@/realtime/spaces';
 import { usePresence, useUser, useUsers } from '@/stores/users';
 import { roleNameStyle, topColoredRole, topIconRole, useSpace, useSpaces } from '@/stores/spaces';
 import { MemberActionsMenu } from './MemberActions';
+import { openUserMenu } from '@/features/users/userMenu';
 import { RoleIcon } from './RoleIcon';
 import { withSpaceProfile } from './serverProfile/merge';
 
@@ -43,7 +44,8 @@ export function MemberRow({ space, member, onMenu }: { space: Space; member: Spa
       onClick={(e) => openProfile(member.userId, e.currentTarget, { spaceId: space.id })}
       onContextMenu={(e: MouseEvent) => {
         e.preventDefault();
-        onMenu(member, { x: e.clientX, y: e.clientY });
+        const at = { x: e.clientX, y: e.clientY };
+        if (!openUserMenu(member.userId, at, { spaceId: space.id })) onMenu(member, at);
       }}
       className={cn(
         'group/m relative flex h-11 w-full items-center gap-3 rounded-lg px-2 text-left transition-colors hover:bg-hover',

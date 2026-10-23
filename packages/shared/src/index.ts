@@ -18,3 +18,4 @@ export * from './insights.js';
 export * from './guide.js';
 export * from './activity.js';
 export * from './polish.js';
+export * from './everyday.js';

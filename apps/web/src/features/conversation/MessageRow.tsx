@@ -94,6 +94,7 @@ import { ToolButton } from './ToolButton';
 import { ForwardSource } from './forward/ForwardSource';
 import { useMessageRowA11y } from '@/features/a11y/messageRowA11y';
 import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
+import { openUserMenu } from '@/features/users/userMenu';
 import { recentReactions } from './bubbles/reactions/recent';
 import {
   canDeleteMessage,
@@ -184,6 +185,13 @@ export function SenderName({
         if (selecting) return;
         e.stopPropagation();
         openProfile(userId, e.currentTarget, { spaceId: spaceId ?? undefined });
+      }}
+      onContextMenu={(e) => {
+        if (selecting) return;
+        if (openUserMenu(userId, { x: e.clientX, y: e.clientY }, { spaceId })) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }}
       className={cn(
         'flex max-w-full min-w-0 items-center gap-1 rounded px-1 pt-0.5 text-left text-[13px] font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-brand',

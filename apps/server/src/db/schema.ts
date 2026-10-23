@@ -133,6 +133,9 @@ export const users = pgTable(
     tagSpaceId: uuid('tag_space_id').references((): AnyPgColumn => spaces.id, {
       onDelete: 'set null',
     }),
+    /** Device preferences I sync across devices (everyday.ts SyncedPreferences). */
+    preferences: jsonb('preferences').$type<Record<string, unknown>>().notNull().default({}),
+    preferencesUpdatedAt: ts('preferences_updated_at'),
     /** Chosen availability; `effectiveAvailability()` reverts it to 'online' once `availability_until` passes. */
     availability: text('availability').$type<Availability>().notNull().default('online'),
     availabilityUntil: ts('availability_until'),
@@ -1316,6 +1319,50 @@ export const threadFollows = pgTable(
     primaryKey({ columns: [t.threadId, t.userId] }),
     index('thread_follows_user_idx').on(t.userId, t.spaceId),
   ],
+);
+
+/** Messages I saved, optionally with a reminder ("Remind me"). */
+export const messageBookmarks = pgTable(
+  'message_bookmarks',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    chatId: uuid('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+    remindAt: ts('remind_at'),
+    remindedAt: ts('reminded_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.messageId] }),
+    /** My list, newest first. */
+    index('message_bookmarks_user_idx').on(t.userId, t.createdAt),
+    /** The reminder job's sweep: due reminders not sent yet. */
+    index('message_bookmarks_due_idx')
+      .on(t.remindAt)
+      .where(sql`${t.remindAt} is not null and ${t.remindedAt} is null`),
+  ],
+);
+
+/** Friend invite links: whoever opens one becomes my friend (a week, five uses). */
+export const friendInvites = pgTable(
+  'friend_invites',
+  {
+    code: text('code').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+    expiresAt: ts('expires_at').notNull(),
+    uses: integer('uses').notNull().default(0),
+    maxUses: integer('max_uses').notNull(),
+  },
+  (t) => [index('friend_invites_user_idx').on(t.userId)],
 );
 
 export const messages = pgTable(

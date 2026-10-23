@@ -12,6 +12,7 @@ import {
   MAX_MENTIONS,
 } from './constants.js';
 import { PERM, hasPerm } from './permissions.js';
+import { CHANNEL_MENTION_RE } from './everyday.js';
 import type {
   Availability,
   CallDirection,
@@ -438,6 +439,8 @@ export function renderMentions(
   text: string,
   nameOf: (id: ID) => string,
   roleName: (id: ID) => string = () => 'role',
+  /** Channel mentions (`#{id}`, everyday.ts) → `#name` (default "#channel"). */
+  channelName: (id: ID) => string = () => 'channel',
 ): string {
   return text
     .replace(
@@ -445,6 +448,7 @@ export function renderMentions(
       (_, userId: string | undefined, special: string | undefined, roleId: string | undefined) =>
         userId ? `@${nameOf(userId)}` : special ? `@${special}` : `@${roleName(roleId!)}`,
     )
+    .replace(new RegExp(CHANNEL_MENTION_RE.source, 'g'), (_, id: string) => `#${channelName(id)}`)
     .replace(CUSTOM_EMOJI_PLAIN, ':$1:');
 }
 

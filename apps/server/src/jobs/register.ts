@@ -13,3 +13,4 @@ import './statusExpiry.js';
 import './presenceExpiry.js';
 import './insights.js';
 import './pollClose.js';
+import './reminders.js';

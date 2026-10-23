@@ -48,6 +48,9 @@ import { router as preview } from './preview/routes.js';
 import { router as polls } from './messages/polls.js';
 import { router as spaceTags } from './spaceTags/routes.js';
 import { router as threadFollow } from './threads/follow.js';
+import { router as preferences } from './preferences/routes.js';
+import { router as bookmarks } from './bookmarks/routes.js';
+import { router as friendInvites } from './friendInvites/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -60,6 +63,8 @@ export const publicRouters: Router[] = [systemPublic, authPublic, emojiImages, w
 /** Mounted under /api behind requireAuth. */
 export const authedRouters: Router[] = [
   auth,
+  // Before users: `/me/preferences` must not fall into a `/me/:x` route there.
+  preferences,
   users,
   userProfiles,
   friends,
@@ -102,6 +107,8 @@ export const authedRouters: Router[] = [
   templates,
   activity,
   polls,
+  bookmarks,
+  friendInvites,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

@@ -22,6 +22,8 @@ export const MESSAGE_FLAGS = {
   SUPPRESS_EMBEDS: 1 << 2,
   /** Sent with /tts: read aloud to whoever has text-to-speech on. */
   TTS: 1 << 3,
+  /** Sent with @silent: no push or desktop notification (unreads and mentions still count). */
+  SILENT: 1 << 4,
 } as const;
 
 export function hasMessageFlag(flags: number | undefined, flag: number): boolean {

@@ -71,6 +71,7 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   whoCanDm: 'everyone',
   messageRequests: true,
   allowSpaceDms: true,
+  reactionNotifications: 'dms',
 });
 
 // ---------------------------------------------------------------------------
