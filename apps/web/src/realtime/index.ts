@@ -48,6 +48,8 @@ import { registerStickerHandlers, resyncSticker } from './stickers';
 import { registerThreadHandlers, resyncThreads } from './threads';
 import { registerUserHandlers, resyncUsers } from './users';
 import { registerVoiceHandlers, resyncVoice } from './voice';
+import { registerPreferencesHandlers, resyncPreferences } from './preferences';
+import { registerBookmarkHandlers, resyncBookmarks } from './bookmarks';
 
 export { markChatRead } from './chats';
 export { handleNewMessage } from './messages';
@@ -75,6 +77,8 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
         resyncSoundboard(info),
         resyncRequests(info),
         resyncIgnores(info),
+        resyncPreferences(info),
+        resyncBookmarks(info),
         resyncModeration(info),
         resyncGuide(info),
         resyncEvents(info),
@@ -109,6 +113,8 @@ export function startRealtime(): void {
     registerVoiceHandlers(socket);
     registerCallHandlers(socket);
     registerStatusHandlers(socket);
+    registerPreferencesHandlers(socket);
+    registerBookmarkHandlers(socket);
   });
 
   cleanups.push(
