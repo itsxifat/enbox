@@ -55,6 +55,17 @@ export interface DomainEventMap {
   };
   /** Calls module: a call reached a terminal status. */
   'call.ended': { callId: string; chatId: string; status: CallStatus; participantIds: string[] };
+  /**
+   * Reactions module: `userId` added a reaction to `message` (never in broadcast channels,
+   * which are anonymous). Push: the author's reaction notifications.
+   */
+  'reaction.added': {
+    message: MessageRow;
+    chat: ChatRow;
+    userId: string;
+    emoji: string;
+    burst: boolean;
+  };
 }
 
 export type DomainEventName = keyof DomainEventMap;

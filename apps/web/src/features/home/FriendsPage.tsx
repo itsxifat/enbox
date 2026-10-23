@@ -1,20 +1,24 @@
 import { Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Check, Inbox, MessageCircle, MoreVertical, SearchX, ShieldBan, Users, X } from 'lucide-react';
+import { BellRing, Check, Inbox, MessageCircle, MoreVertical, SearchX, Settings2, ShieldBan, UserMinus, Users, X } from 'lucide-react';
 import { activePresenceNote, userDisplayName, type UserPublic } from '@enbox/shared';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { StyledName } from '@/components/cosmetics';
-import { Badge, Button, EmptyState, IconButton, Input, Menu, SearchInput, toast, type MenuAnchor } from '@/components/ui';
+import { PhoneIcon, VideoIcon } from '@/components/icons';
+import { Badge, Button, DropdownMenu, EmptyState, IconButton, Input, Menu, SearchInput, toast, type MenuAnchor } from '@/components/ui';
 import { ensureDirectChat } from '@/features/calls/directChat';
-import { confirmBlock } from '@/features/contacts/contactActions';
+import { FriendInviteLinks } from '@/features/friends/FriendInviteLinks';
 import { InboxButton } from '@/features/inbox/InboxButton';
 import { openProfile } from '@/features/profile/open';
+import { callUser } from '@/features/users/userItems';
+import { openUserMenu } from '@/features/users/userMenu';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { lazyNamed } from '@/lib/lazy';
 import { matchesUser, useBlockedUsers, useContactList, useContacts } from '@/stores/contacts';
 import { useFriendRequests, useFriends, useIncomingFriendRequestCount, type PendingItem } from '@/stores/friends';
+import { useUi } from '@/stores/ui';
 import { useUsers } from '@/stores/users';
 import { acceptFriend, cancelFriendRequest, confirmRemoveFriend, ignoreFriend } from './friendActions';
 
@@ -76,7 +80,14 @@ export function FriendRow({
     }
   };
   return (
-    <div className={ROW} data-testid="friend-row" data-animate-avatars>
+    <div
+      className={ROW}
+      data-testid="friend-row"
+      data-animate-avatars
+      onContextMenu={(e) => {
+        if (openUserMenu(user.id, { x: e.clientX, y: e.clientY })) e.preventDefault();
+      }}
+    >
       <RowIdentity user={user} presence sub={blocked ? 'Blocked' : statusLine(user, state)} />
       {blocked ? null : (
         <IconButton icon={MessageCircle} label={`Message ${userDisplayName(user)}`} variant="solid" className="rounded-full" onClick={() => void message()} />
@@ -166,15 +177,38 @@ function AddFriend() {
           {result.text}
         </p>
       ) : null}
+      <FriendInviteLinks />
     </div>
   );
 }
 
+/** The Friends page's own settings: friend-online alerts (a device preference). */
+function FriendsSettings() {
+  const alerts = useUi((s) => s.prefs.friendOnlineAlerts);
+  return (
+    <DropdownMenu
+      aria-label="Friends settings"
+      trigger={(p) => <IconButton {...p} icon={Settings2} label="Friends settings" />}
+      items={[
+        {
+          label: 'Friend online alerts',
+          description: 'A notice when a friend comes online',
+          icon: BellRing,
+          checked: alerts,
+          keepOpen: true,
+          onSelect: () => useUi.getState().setPref('friendOnlineAlerts', !alerts),
+        },
+      ]}
+    />
+  );
+}
+
 /**
- * Home main view (Discord's Friends page): Online / All / Pending / Blocked / Add Friend. Friends
- * are my contacts, with live presence, a message button and a menu per row; Pending lists the
- * requests both ways. Every list has a search box and a "NAME — N" header. At ≥ 1200px the
- * Active Now column (features/activeNow) sits on the right.
+ * Home main view (Discord's Friends page): Online / All / Pending / Blocked / Add Friend (by
+ * username, or a friend invite link). Friends are my contacts, with live presence, a message
+ * button, a menu per row and the user menu on right-click; Pending lists the requests both ways.
+ * Every list has a search box and a "NAME — N" header. The header's settings hold the
+ * friend-online alerts. At ≥ 1200px the Active Now column (features/activeNow) sits on the right.
  */
 export function FriendsPage() {
   const [params, setParams] = useSearchParams();
@@ -314,7 +348,10 @@ export function FriendsPage() {
             Add Friend
           </button>
         </div>
-        <div className="ml-auto flex items-center"><InboxButton /></div>
+        <div className="ml-auto flex items-center">
+          <FriendsSettings />
+          <InboxButton />
+        </div>
       </header>
       <div className="flex min-h-0 flex-1">
         {tab === 'add' ? (
@@ -346,10 +383,9 @@ export function FriendsPage() {
             ? tab === 'blocked'
               ? [{ label: 'Unblock', onSelect: () => void useContacts.getState().unblock(menu.user.id).catch((e: unknown) => toast.error(e)) }]
               : [
-                  { label: 'Profile', onSelect: () => openProfile(menu.user.id, menu.anchor) },
-                  'separator',
-                  { label: 'Remove Friend', danger: true, onSelect: () => void confirmRemoveFriend(menu.user) },
-                  { label: 'Block', danger: true, onSelect: () => void confirmBlock(menu.user) },
+                  { label: 'Start Video Call', icon: VideoIcon, onSelect: () => void callUser(menu.user.id, 'video') },
+                  { label: 'Start Voice Call', icon: PhoneIcon, onSelect: () => void callUser(menu.user.id, 'audio') },
+                  { label: 'Remove Friend', icon: UserMinus, danger: true, onSelect: () => void confirmRemoveFriend(menu.user) },
                 ]
             : []
         }

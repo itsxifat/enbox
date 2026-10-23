@@ -9,6 +9,11 @@
  * 'mentions' only for mentions. Then: not ignoring or blocking the sender, not muted (Space
  * or channel), not in DND, group notifications on, and VIEW_CHANNEL (computed like
  * everywhere else).
+ *
+ * Threads and forum posts: the parent channel's row comes between the thread's and the
+ * member's in the level chain, and muting the channel mutes its threads. Whoever follows one
+ * (`thread_follows`) gets every message in it, unless the thread's own row sets a level.
+ * @silent messages never get here (./notifications.ts).
  */
 import { sql } from 'drizzle-orm';
 import {
@@ -47,6 +52,11 @@ interface Candidate {
   s_muted: string | null;
   c_level: NotifyLevel | null;
   c_muted: string | null;
+  /** A thread's parent channel row. */
+  p_level: NotifyLevel | null;
+  p_muted: string | null;
+  /** Follows the thread. */
+  following: boolean;
   mentioned: boolean;
 }
 
@@ -75,6 +85,8 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
     db,
     sql`select sm.user_id, sm.notify_level as s_level, sm.muted_until as s_muted,
                cm.notify_level as c_level, cm.muted_until as c_muted,
+               pm.notify_level as p_level, pm.muted_until as p_muted,
+               (tf.user_id is not null) as following,
                (sm.user_id = any(${uuidArray(mentions)})
                 or (not sm.suppress_roles and exists (select 1 from space_member_roles r
                     where r.space_id = sm.space_id and r.user_id = sm.user_id
@@ -82,6 +94,8 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
                 or (${everyone} and not sm.suppress_everyone)) as mentioned
         from space_members sm
         left join chat_members cm on cm.chat_id = ${chat.id} and cm.user_id = sm.user_id
+        left join chat_members pm on pm.chat_id = ${chat.parentId}::uuid and pm.user_id = sm.user_id
+        left join thread_follows tf on tf.thread_id = ${chat.id} and tf.user_id = sm.user_id
         where sm.space_id = ${chat.spaceId} and sm.user_id <> ${message.senderId}
           and exists (select 1 from push_subscriptions ps where ps.user_id = sm.user_id)
           and (sm.user_id = any(${uuidArray(mentions)})
@@ -89,7 +103,8 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
                    where r.space_id = sm.space_id and r.user_id = sm.user_id
                      and r.role_id = any(${uuidArray(roleIds)})))
                or (${everyone} and not sm.suppress_everyone)
-               or coalesce(cm.notify_level, sm.notify_level, ${space.default_notify_level}) = 'all')
+               or tf.user_id is not null
+               or coalesce(cm.notify_level, pm.notify_level, sm.notify_level, ${space.default_notify_level}) = 'all')
         limit ${PUSH_SPACE_ALL_CAP}`,
   );
   if (candidates.length === 0) return;
@@ -103,10 +118,12 @@ export async function onSpaceMessageCreated(message: MessageRow, chat: ChatRow):
   const now = new Date();
   const wanted = candidates.filter((c) => {
     if (silenced.has(c.user_id)) return false;
-    const level = c.c_level ?? c.s_level ?? space.default_notify_level;
+    // Following a thread means all of it, unless the thread itself says otherwise.
+    const level =
+      c.c_level ?? (c.following ? 'all' : (c.p_level ?? c.s_level ?? space.default_notify_level));
     if (level === 'none' || (level === 'mentions' && !c.mentioned)) return false;
     const muted = (v: string | null) => v && isMuted(new Date(v).toISOString(), now);
-    return !muted(c.s_muted) && !muted(c.c_muted);
+    return !muted(c.s_muted) && !muted(c.c_muted) && !muted(c.p_muted);
   });
   if (wanted.length === 0) return;
 

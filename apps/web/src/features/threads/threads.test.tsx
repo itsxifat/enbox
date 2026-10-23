@@ -23,6 +23,7 @@ import { useUsers } from '@/stores/users';
 import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
 import { threadMessageAction } from './actions';
 import { SidebarThreads } from './SidebarThreads';
+import { TypingIndicator } from '@/features/conversation/composer/TypingIndicator';
 import { ThreadPanel } from './ThreadPanel';
 import { ThreadsButton, ThreadsPopout } from './ThreadsButton';
 import { ThreadStarterCard } from './ThreadStarterCard';
@@ -345,21 +346,22 @@ describe('Thread panel: typing, forum tags, Developer Mode', () => {
     seed({ threads: [thread()] });
     seedWindow('t1', []);
     useUsers.setState((s) => ({ byId: { ...s.byId, bob: makeUser({ id: 'bob', displayName: 'Bob' }) } }));
-    inChannel(<ThreadPanel threadId="t1" parentId="general" />);
-    expect(screen.queryByTestId('typing-line')).toBeNull();
+    // The typing line lives in the thread's composer (composer/TypingIndicator).
+    inChannel(<TypingIndicator chatId="t1" spaceId="s1" />);
+    expect(screen.getByTestId('composer-typing').textContent).toBe('');
 
     act(() => useChats.getState().setTyping('general', 'bob', 'typing'));
-    expect(screen.queryByTestId('typing-line')).toBeNull();
+    expect(screen.getByTestId('composer-typing').textContent).toBe('');
     act(() => useChats.getState().setTyping('t1', 'owner', 'typing'));
-    expect(screen.getByTestId('typing-line')).toHaveTextContent('Olive is typing…');
+    expect(screen.getByTestId('composer-typing')).toHaveTextContent('Olive is typing…');
     act(() => useChats.getState().setTyping('t1', 'bob', 'typing'));
-    expect(screen.getByTestId('typing-line')).toHaveTextContent('Olive and Bob are typing…');
+    expect(screen.getByTestId('composer-typing')).toHaveTextContent('Olive and Bob are typing…');
     act(() => useChats.getState().setTyping('t1', 'owner', 'idle'));
     act(() => useSpaces.setState({ members: { s1: { bob: { userId: 'bob', nickname: 'Bobby', roleIds: [] } as never } } }));
     act(() => useChats.getState().setTyping('t1', 'bob', 'typing'));
-    expect(screen.getByTestId('typing-line')).toHaveTextContent('Bobby is typing…');
+    expect(screen.getByTestId('composer-typing')).toHaveTextContent('Bobby is typing…');
     act(() => useChats.getState().setTyping('t1', 'bob', 'idle'));
-    expect(screen.queryByTestId('typing-line')).toBeNull();
+    expect(screen.getByTestId('composer-typing').textContent).toBe('');
   });
 
   it('typing wording', () => {

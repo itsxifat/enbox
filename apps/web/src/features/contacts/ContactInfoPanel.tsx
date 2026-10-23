@@ -30,6 +30,7 @@ import {
 import {
   DISAPPEARING_OPTIONS,
   MUTE_FOREVER_ISO,
+  SPACE_MUTE_DURATIONS,
   chatTitle,
   formatTimer,
   isMuted,
@@ -173,7 +174,7 @@ function QuickAction({
 function muteLabel(mutedUntil: string | null): string | undefined {
   if (!isMuted(mutedUntil)) return undefined;
   if (mutedUntil === MUTE_FOREVER_ISO || new Date(mutedUntil!).getFullYear() > 9000)
-    return 'Muted always';
+    return 'Muted until you turn it back on';
   const d = new Date(mutedUntil!);
   const sameDay = d.toDateString() === new Date().toDateString();
   return `Muted until ${sameDay ? formatTime(d) : `${formatShortDate(d)} ${formatTime(d)}`}`;
@@ -186,21 +187,15 @@ function muteLabel(mutedUntil: string | null): string | undefined {
 async function setMute(chat: ChatSummary, on: boolean): Promise<void> {
   let mutedUntil: string | null = null;
   if (on) {
+    // Discord's durations (SPACE_MUTE_DURATIONS).
     const choice = await choose({
       title: 'Mute notifications',
       message: 'Other members won’t know you muted this chat.',
-      options: [
-        { value: '8h', label: '8 hours' },
-        { value: '1w', label: '1 week' },
-        { value: 'always', label: 'Always' },
-      ],
+      options: SPACE_MUTE_DURATIONS.map((d, i) => ({ value: String(i), label: d.label })),
     });
-    if (!choice) return;
-    const hour = 3_600_000;
-    mutedUntil =
-      choice === 'always'
-        ? MUTE_FOREVER_ISO
-        : new Date(Date.now() + (choice === '8h' ? 8 * hour : 7 * 24 * hour)).toISOString();
+    const opt = choice ? SPACE_MUTE_DURATIONS[Number(choice)] : undefined;
+    if (!opt) return;
+    mutedUntil = opt.ms ? new Date(Date.now() + opt.ms).toISOString() : MUTE_FOREVER_ISO;
   }
   const prev = chat.mutedUntil;
   useChats.getState().patchChat(chat.id, { mutedUntil });

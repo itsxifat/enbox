@@ -146,6 +146,10 @@ describe('links in message text', () => {
     const external = screen.getByRole('link', { name: 'https://example.com' });
     expect(external).toHaveAttribute('target', '_blank');
     expect(external).toHaveAttribute('rel', 'noopener noreferrer');
+    // Another site: the "Leaving Enbox" warning first (features/links), unless trusted.
+    fireEvent.click(external);
+    expect(prevented).toBe(true);
+    useUi.getState().setPref('trustedLinkDomains', ['example.com']);
     fireEvent.click(external);
     expect(prevented).toBe(false);
   });

@@ -68,7 +68,7 @@ function requestsBetween(a: ID, b: ID): SQL {
 }
 
 /** Contact rows between a and b, both directions. */
-function contactsBetween(a: ID, b: ID): SQL {
+export function contactsBetween(a: ID, b: ID): SQL {
   return or(
     and(eq(contacts.ownerId, a), eq(contacts.contactId, b)),
     and(eq(contacts.ownerId, b), eq(contacts.contactId, a)),
@@ -120,9 +120,10 @@ function requestEffect(fx: Effects, row: { fromId: ID; toId: ID; createdAt: Date
 /**
  * Make a and b friends (inside the pair lock): the requests between them go, both contact
  * rows are ensured (an existing row keeps its saved name), and a message request between
- * them becomes an ordinary chat (services/dmGate.ts, row locks only).
+ * them becomes an ordinary chat (services/dmGate.ts, row locks only). Also used by friend
+ * invite links (friendInvites module).
  */
-async function befriend(tx: DbOrTx, fx: Effects, a: ID, b: ID): Promise<void> {
+export async function befriend(tx: DbOrTx, fx: Effects, a: ID, b: ID): Promise<void> {
   await tx.delete(friendRequests).where(requestsBetween(a, b));
   const added = await tx
     .insert(contacts)

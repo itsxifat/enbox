@@ -4,9 +4,11 @@
  * idempotent — the sender also gets its own events). Delivered receipts are server-driven.
  */
 import {
+  MESSAGE_FLAGS,
   isVoiceChannelType,
   chatKindOf,
   chatTitle,
+  hasMessageFlag,
   isDnd,
   isMuted,
   isSpaceChatType,
@@ -303,6 +305,8 @@ function inThreadPanel(chatId: ID): boolean {
 function notifyIncoming(message: Message, chat: ChatSummary): void {
   if (message.type === 'system' || message.type === 'call') return; // calls ring via the calls UI
   if (chat.type === 'channel' || isMuted(chat.mutedUntil)) return;
+  // @silent: no sound, no notification (unreads and mentions still count).
+  if (hasMessageFlag(message.flags, MESSAGE_FLAGS.SILENT)) return;
   // Someone I ignore: no sound, no notification (the unread badge still counts it).
   if (isIgnored(message.senderId)) return;
   const me = useAuth.getState().user;

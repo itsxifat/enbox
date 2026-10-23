@@ -11,6 +11,7 @@ import {
   type Block,
   type Inline,
 } from '../../lib/richText';
+import { channelMentionName } from '../../channelMention/names';
 
 function simplify(segments: Inline[], spoiler: string): Inline[] {
   return segments.map((s): Inline => {
@@ -52,5 +53,5 @@ export function plainMessageText(
   opts: { spoiler?: string } = {},
 ): string {
   const segments = simplify(flatten(parseMarkdown(text), []), opts.spoiler ?? 'spoiler');
-  return inlineToPlain(segments, nameOf).replace(/\s+/g, ' ').trim();
+  return inlineToPlain(segments, nameOf, channelMentionName).replace(/\s+/g, ' ').trim();
 }

@@ -35,6 +35,7 @@ import { GroupInfoPanel } from '@/features/groups/GroupInfoPanel';
 import { chatPath } from '@/features/chats/links';
 import { RequestBanner } from '@/features/requests/RequestBanner';
 import { ChatSearchDock } from '@/features/search/ChatSearchDock';
+import { DmProfileDock } from '@/features/users/DmProfilePanel';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
@@ -129,11 +130,15 @@ export function ConversationPane() {
   return (
     // Search results dock beside the conversation (features/search).
     <ChatSearchDock chatId={chat.id}>
-      <Conversation
-        key={chat.id}
-        chat={chat}
-        initialTarget={target?.chatId === chat.id ? target.t : null}
-      />
+      {/* DMs: the user profile panel on the right (Show User Profile); search replaces it. */}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <Conversation
+          key={chat.id}
+          chat={chat}
+          initialTarget={target?.chatId === chat.id ? target.t : null}
+        />
+        <DmProfileDock chat={chat} />
+      </div>
     </ChatSearchDock>
   );
 }
@@ -293,7 +298,7 @@ export function Conversation({
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col"
       onKeyDown={onKeyDown}
       data-testid="conversation"
       data-chat-id={chat.id}

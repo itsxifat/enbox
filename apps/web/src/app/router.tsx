@@ -13,6 +13,7 @@
  *   /new                                    features/contacts    (agent 1)
  *   /new/group                              features/groups      (agent 3)
  *   /join/:code                             features/invites     (agent 3)
+ *   /friend/:code                           features/friends     (friend invite links)
  */
 import { Navigate, createBrowserRouter, type RouteObject } from 'react-router';
 import { AppShell } from '@/components/layout/AppShell';
@@ -24,6 +25,7 @@ import { contactsRoutes } from '@/features/contacts/routes';
 import { discoverRoutes } from '@/features/discover/routes';
 import { groupsRoutes } from '@/features/groups/routes';
 import { invitesRoutes } from '@/features/invites/routes';
+import { friendsRoutes } from '@/features/friends/routes';
 import { profileRoutes } from '@/features/profile/routes';
 import { previewRoutes } from '@/features/preview/routes';
 import { requestsRoutes } from '@/features/requests/routes';
@@ -60,6 +62,7 @@ export const routes: RouteObject[] = [
               ...contactsRoutes,
               ...groupsRoutes,
               ...invitesRoutes,
+              ...friendsRoutes,
               ...discoverRoutes,
               ...profileRoutes,
               ...requestsRoutes,

@@ -17,6 +17,7 @@ import { useUserName, useUsers } from '@/stores/users';
 import { chatPath } from './links';
 import { PreviewLine, mentionName, previewParts } from './preview';
 import { IN_APP_NAV } from '@/components/layout/navigation';
+import { channelMentionName } from '@/features/conversation/channelMention/names';
 
 function StarredRow({
   r,
@@ -36,7 +37,7 @@ function StarredRow({
   const channel = r.chat.type === 'channel';
   const mine = m.senderId === me;
   const thumb = m.media?.thumbnailUrl ?? (m.media?.kind === 'image' ? m.media.url : null);
-  const text = m.text ? renderMentions(m.text, mentionName) : null;
+  const text = m.text ? renderMentions(m.text, mentionName, undefined, channelMentionName) : null;
   const from = channel ? chatName : sender;
   const to = channel ? null : direct ? (mine ? chatName : 'You') : chatName;
   return (

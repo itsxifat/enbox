@@ -12,7 +12,7 @@ import { useAuth } from '@/stores/auth';
 import { useMessages, type ChatMessages } from '@/stores/messages';
 import { useUsers } from '@/stores/users';
 import { makeChat, makeMe, makeMessage, makeUser } from '@/test/factories';
-import { focusRow } from './rowKeys';
+import { focusRow, rowActionOf } from './rowKeys';
 
 const ann = makeUser({ id: 'ann', displayName: 'Ann' });
 const chat = makeChat({ id: 'd1', type: 'direct', peer: ann, name: null });
@@ -149,6 +149,28 @@ describe('keyboard', () => {
     fireEvent.pointerDown(list);
     fireEvent.focus(list, { relatedTarget: screen.getByRole('button', { name: 'Chat header' }) });
     expect(rowOf('fourth')).not.toHaveFocus();
+  });
+
+  it('Discord’s action keys: E, R, Backspace / Delete, P, + / =, Ctrl+C (⌘C on a Mac)', () => {
+    const key = (k: string, mods: { ctrl?: boolean; meta?: boolean; alt?: boolean } = {}, mac = false) =>
+      rowActionOf({ key: k, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, altKey: !!mods.alt }, mac);
+    expect(['e', 'E', 'r', 'Backspace', 'Delete', 'p', '+', '='].map((k) => key(k))).toEqual([
+      'edit',
+      'edit',
+      'reply',
+      'delete',
+      'delete',
+      'pin',
+      'react',
+      'react',
+    ]);
+    expect(key('c', { ctrl: true })).toBe('copy');
+    expect(key('c', { meta: true }, true)).toBe('copy');
+    expect(key('c', { meta: true })).toBeNull();
+    expect(key('e', { ctrl: true })).toBeNull();
+    expect(key('e', { alt: true })).toBeNull();
+    expect(key('c')).toBeNull();
+    expect(key('ArrowUp')).toBeNull();
   });
 
   it('a loaded row outside the rendered window is scrolled in, then focused', () => {

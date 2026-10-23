@@ -2,7 +2,8 @@
  * One conversation row: optional day separator / unread divider, then a system pill or a
  * message bubble (sender name, forwarded label, quotes, typed content, meta, reactions).
  * Interactions: the hover toolbar (`RowToolbar`, Discord's) and right-click (desktop),
- * long-press sheet and swipe-right-to-reply (touch), click-to-toggle in select mode.
+ * long-press sheet and swipe-right-to-reply (touch), click-to-toggle in select mode. A message
+ * that mentions me is highlighted (mentions/mentionHighlight.ts).
  *
  * The bubble chrome follows the chat's bubble style (`useRowAppearance`): `classic` (tail),
  * `rounded`, `minimal`; `cozy` rows are rendered by the sibling `CozyMessageRow`, which
@@ -106,6 +107,8 @@ import {
   useDeveloperMode,
 } from './moreActions';
 import { useEnterAnimation, useRowAppearance } from './bubbles/appearance';
+import { registerAddReaction } from './keyboard/addReaction';
+import { MENTION_ROW_CLASS, useMentionsMe } from './mentions/mentionHighlight';
 import { AudioFileBody, VoiceBody } from './bubbles/AudioBody';
 import { CallBody, ContactBody, FileBody, LocationBody } from './bubbles/CardBodies';
 import { MediaBody } from './bubbles/MediaBody';
@@ -158,6 +161,7 @@ export function SenderName({
   className,
   spaceId,
   coloured = false,
+  chatId,
 }: {
   userId: string;
   selecting: boolean;
@@ -168,6 +172,8 @@ export function SenderName({
   spaceId?: string | null;
   /** Per-sender colour (bubbles); Discord rows use the text colour. */
   coloured?: boolean;
+  /** The chat of the row: the user menu's Mention inserts into its composer. */
+  chatId?: string | null;
 }) {
   // The same subscriptions as useUserName, keeping the user for their name style.
   const me = useAuth((s) => (s.user?.id === userId ? s.user : null));
@@ -188,7 +194,7 @@ export function SenderName({
       }}
       onContextMenu={(e) => {
         if (selecting) return;
-        if (openUserMenu(userId, { x: e.clientX, y: e.clientY }, { spaceId })) {
+        if (openUserMenu(userId, { x: e.clientX, y: e.clientY }, { spaceId, chatId })) {
           e.preventDefault();
           e.stopPropagation();
         }
@@ -214,12 +220,15 @@ export function SenderAvatar({
   selecting,
   size = 32,
   spaceId,
+  chatId,
 }: {
   userId: string;
   selecting: boolean;
   size?: number;
   /** Space channels: the per-Space avatar and decoration win. */
   spaceId?: string | null;
+  /** The chat of the row: the user menu's Mention inserts into its composer. */
+  chatId?: string | null;
 }) {
   const name = useUserName(userId);
   const user = useUser(userId);
@@ -234,6 +243,13 @@ export function SenderAvatar({
         if (selecting) return;
         e.stopPropagation();
         openProfile(userId, e.currentTarget, { spaceId: spaceId ?? undefined });
+      }}
+      onContextMenu={(e) => {
+        if (selecting) return;
+        if (openUserMenu(userId, { x: e.clientX, y: e.clientY }, { spaceId, chatId })) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }}
       className="rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
@@ -579,6 +595,23 @@ export function RowToolbar({
       : addNew
         ? recent
         : m.reactions.map((r) => r.emoji).slice(0, 3);
+  const offersReaction = reactable && (addNew || m.reactions.length > 0);
+  // Quick-only channels and members who may only join: the short list; else the full picker.
+  const addReaction = (anchor: HTMLElement) => {
+    if (quickOnly || !addNew) open('react', anchor);
+    else setPicker((p) => (p ? null : anchor));
+  };
+  // + on the focused message (features/a11y/rowKeys) opens it too, from the toolbar.
+  const addReactionRef = useRef(addReaction);
+  useEffect(() => {
+    addReactionRef.current = addReaction;
+  });
+  useEffect(() => {
+    if (!offersReaction) return;
+    return registerAddReaction(m.id, () => {
+      if (toolbarRef.current) addReactionRef.current(toolbarRef.current);
+    });
+  }, [offersReaction, m.id, toolbarRef]);
   const thread = threadMessageAction(chat, m);
   const actionable = isActionable(m);
   const latest = () =>
@@ -670,17 +703,13 @@ export function RowToolbar({
             </button>
           );
         })}
-        {reactable && (addNew || m.reactions.length > 0) ? (
+        {offersReaction ? (
           <ToolButton
             icon={SmilePlus}
             label="Add Reaction"
             aria-haspopup="dialog"
             active={!!picker}
-            onClick={(e) => {
-              // Quick-only channels and members who may only join: the short list.
-              if (quickOnly || !addNew) open('react', e.currentTarget);
-              else setPicker(picker ? null : e.currentTarget);
-            }}
+            onClick={(e) => addReaction(e.currentTarget)}
           />
         ) : null}
         {reactable ? (
@@ -913,6 +942,7 @@ export const MessageRow = memo(function MessageRow({
   const { bubbleStyle } = useRowAppearance();
   const enter = useEnterAnimation(row.key);
   const a11y = useMessageRowA11y(m, chat, mine);
+  const mentioned = useMentionsMe(m, chat, mine);
 
   if (m.type === 'system') {
     return (
@@ -943,6 +973,7 @@ export const MessageRow = memo(function MessageRow({
       data-seq={m.seq}
       data-mine={mine || undefined}
       data-type={m.type}
+      data-mentioned={mentioned || undefined}
       {...a11y}
     >
       {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
@@ -954,6 +985,8 @@ export const MessageRow = memo(function MessageRow({
           row.firstInGroup ? 'msg-group-start-bubble' : 'pt-[3px]',
           hasReactions ? 'pb-4' : 'pb-0',
           selecting && 'cursor-pointer',
+          // Mentions me (Discord's tint and bar); selection and the jump flash take over.
+          mentioned && !selected && !x.flash && MENTION_ROW_CLASS,
           selected && 'bg-brand/12',
           x.flash && 'bg-brand/20 duration-150',
         )}
@@ -974,7 +1007,7 @@ export const MessageRow = memo(function MessageRow({
         {showAvatar ? (
           <span className="mr-1.5 w-8 shrink-0 self-start pt-0.5">
             {row.firstInGroup && m.senderId ? (
-              <SenderAvatar userId={m.senderId} selecting={selecting} />
+              <SenderAvatar userId={m.senderId} selecting={selecting} chatId={chat.id} />
             ) : null}
           </span>
         ) : null}
@@ -1000,7 +1033,9 @@ export const MessageRow = memo(function MessageRow({
             )}
           >
             {!frameless && tail && row.firstInGroup ? <Tail mine={mine} /> : null}
-            {showSender ? <SenderName userId={m.senderId!} selecting={selecting} coloured /> : null}
+            {showSender ? (
+              <SenderName userId={m.senderId!} selecting={selecting} coloured chatId={chat.id} />
+            ) : null}
             {override ? <OverrideAuthorName override={override} selecting={selecting} /> : null}
             <BubbleHeader m={m} chat={chat} onJump={onJump} deleted={deleted} />
             <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />

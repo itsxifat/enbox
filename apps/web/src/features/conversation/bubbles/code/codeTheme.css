@@ -1,0 +1,83 @@
+/*
+ * Highlighted code blocks (HighlightedCode.tsx): highlight.js token colours for the light
+ * theme and the dark ones (Dark, Ash, Onyx), GitHub's palettes. In the components layer, so
+ * utilities still win.
+ */
+@layer components {
+  .msg-code {
+    --hl-keyword: #cf222e;
+    --hl-title: #8250df;
+    --hl-constant: #0550ae;
+    --hl-string: #0a3069;
+    --hl-builtin: #953800;
+    --hl-comment: #6e7781;
+    --hl-tag: #116329;
+    --hl-subst: var(--fg);
+    --hl-bullet: #6f5600;
+    --hl-addition: #116329;
+    --hl-addition-bg: #dafbe1;
+    --hl-deletion: #82071e;
+    --hl-deletion-bg: #ffebe9;
+  }
+  .dark .msg-code {
+    --hl-keyword: #ff7b72;
+    --hl-title: #d2a8ff;
+    --hl-constant: #79c0ff;
+    --hl-string: #a5d6ff;
+    --hl-builtin: #ffa657;
+    --hl-comment: #8b949e;
+    --hl-tag: #7ee787;
+    --hl-bullet: #f2cc60;
+    --hl-addition: #aff5b4;
+    --hl-addition-bg: #033a16;
+    --hl-deletion: #ffdcd7;
+    --hl-deletion-bg: #67060c;
+  }
+
+  .msg-code :is(.hljs-doctag, .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type, .hljs-variable.language_),
+  .msg-code .hljs-meta .hljs-keyword {
+    color: var(--hl-keyword);
+  }
+  .msg-code :is(.hljs-title, .hljs-title.class_, .hljs-title.function_) {
+    color: var(--hl-title);
+  }
+  .msg-code :is(.hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id, .hljs-section) {
+    color: var(--hl-constant);
+  }
+  .msg-code :is(.hljs-regexp, .hljs-string),
+  .msg-code .hljs-meta .hljs-string {
+    color: var(--hl-string);
+  }
+  .msg-code :is(.hljs-built_in, .hljs-symbol) {
+    color: var(--hl-builtin);
+  }
+  .msg-code :is(.hljs-comment, .hljs-code, .hljs-formula) {
+    color: var(--hl-comment);
+  }
+  .msg-code :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
+    color: var(--hl-tag);
+  }
+  .msg-code .hljs-subst {
+    color: var(--hl-subst);
+  }
+  .msg-code .hljs-section {
+    font-weight: 700;
+  }
+  .msg-code .hljs-bullet {
+    color: var(--hl-bullet);
+  }
+  .msg-code .hljs-emphasis {
+    font-style: italic;
+  }
+  .msg-code .hljs-strong {
+    font-weight: 700;
+  }
+  .msg-code .hljs-addition {
+    color: var(--hl-addition);
+    background-color: var(--hl-addition-bg);
+  }
+  .msg-code .hljs-deletion {
+    color: var(--hl-deletion);
+    background-color: var(--hl-deletion-bg);
+  }
+}

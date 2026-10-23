@@ -16,10 +16,10 @@ export function MuteModal({
   onMute: (until: string) => Promise<unknown>;
   kind?: 'chat' | 'group' | 'channel';
 }) {
-  const [choice, setChoice] = useState<MuteChoice>('8h');
+  const [choice, setChoice] = useState<MuteChoice>(MUTE_OPTIONS[0]!.value);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) setChoice('8h');
+    if (open) setChoice(MUTE_OPTIONS[0]!.value);
   }, [open]);
   const submit = async () => {
     setBusy(true);

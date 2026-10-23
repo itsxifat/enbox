@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { ChevronDown, Database, HardDrive, Keyboard, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, Database, HardDrive, Keyboard, Sparkles, Trash2, Upload } from 'lucide-react';
 import { APP_NAME, formatBytes } from '@enbox/shared';
 import { LogoMark } from '@/components/common/Logo';
 import { Spinner, confirm, toast } from '@/components/ui';
 import { getServerConfig } from '@/lib/push';
 import { SettingsGroup, SettingsNote, SettingsRow, SettingsScroller } from './ui';
+import { openWhatsNew } from '@/features/whatsNew/store';
 
 type ServerConfig = Awaited<ReturnType<typeof getServerConfig>>;
 
@@ -88,6 +89,15 @@ export function HelpPage() {
           Version {config?.version ?? '…'}
         </p>
       </div>
+
+      <SettingsGroup>
+        <SettingsRow
+          icon={Sparkles}
+          title="What’s New"
+          description="Recent changes to Enbox"
+          onClick={() => openWhatsNew()}
+        />
+      </SettingsGroup>
 
       <SettingsGroup title="Help center">
         {FAQ.map((f) => (

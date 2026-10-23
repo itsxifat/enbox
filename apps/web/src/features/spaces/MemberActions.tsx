@@ -1,4 +1,4 @@
-import { Suspense, useState } from 'react';
+import { Suspense, useRef, useState } from 'react';
 import { Ban, Clock, Crown, LogOut, Shield, ShieldCheck, User, UserPen } from 'lucide-react';
 import {
   PERM,
@@ -16,7 +16,7 @@ import { lazyNamed } from '@/lib/lazy';
 import { useMe } from '@/stores/auth';
 import { useUsers } from '@/stores/users';
 import { banMember, kickMember, setMemberRole, transferOwnership, updateMember } from './actions';
-import { copyIdItem } from './menus';
+import { copyIdItem, tidy } from './menus';
 
 const ModViewPanel = lazyNamed(() => import('@/features/moderation/ModView'), 'ModViewPanel');
 
@@ -51,6 +51,150 @@ export function memberAbilities(space: Space, meId: string, member: SpaceMember)
   };
 }
 
+/** The dialogs the member items open (`MemberDialog` renders them). */
+export type MemberDialogKind = 'nickname' | 'roles' | 'timeout' | 'kick' | 'ban' | 'transfer' | 'modview';
+
+/**
+ * Roles ▸ of the user menu: every role but @everyone, highest first, as checkboxes; the ones
+ * at or above my highest role are disabled (as in the roles dialog). Stays open while toggling.
+ */
+export function memberRoleEntries(space: Space, member: SpaceMember, myTop: number): MenuEntry[] {
+  return space.roles
+    .filter((r) => !r.isDefault)
+    .sort((a, b) => b.position - a.position)
+    .map((r) => {
+      const has = member.roleIds.includes(r.id);
+      return {
+        label: (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="size-3 shrink-0 rounded-full" style={{ background: r.color ?? 'var(--color-muted)' }} aria-hidden />
+            <span className="truncate">{r.name}</span>
+          </span>
+        ),
+        checked: has,
+        keepOpen: true,
+        disabled: r.position >= myTop,
+        onSelect: () => void setMemberRole(space.id, member.userId, r.id, !has).catch((e: unknown) => toast.error(e)),
+      };
+    });
+}
+
+/**
+ * The member's Space items of a menu, as my permissions allow: Mod View, Change nickname, Roles,
+ * Time out (or Remove timeout), Kick, Ban and, for the owner, Transfer Ownership. `open` shows
+ * an item's dialog (`MemberDialog`). With `roles: 'submenu'` (the user menu) Roles ▸ lists the
+ * roles as checkboxes instead of opening the roles dialog, after the moderation items as in
+ * Discord's member menu.
+ */
+export function memberSpaceItems(
+  space: Space,
+  member: SpaceMember,
+  meId: string,
+  open: (dialog: MemberDialogKind) => void,
+  opts: { roles?: 'dialog' | 'submenu' } = {},
+): MenuEntry[] {
+  const can = memberAbilities(space, meId, member);
+  const name = nameOf(member);
+  const timedOut = !!member.timedOutUntil && Date.parse(member.timedOutUntil) > Date.now();
+  const roles = opts.roles === 'submenu' ? memberRoleEntries(space, member, can.myTop) : null;
+  // Discord: only the owner, to someone else.
+  const transfer = space.ownerId === meId && member.userId !== meId;
+  const rolesItem: MenuEntry =
+    can.roles &&
+    (roles
+      ? roles.length > 0 && { label: 'Roles', icon: Shield, submenu: roles }
+      : { label: 'Roles', icon: Shield, onSelect: () => open('roles') });
+  return [
+    can.modView && { label: 'Mod View', icon: ShieldCheck, onSelect: () => open('modview') },
+    can.nickname && { label: 'Change nickname', icon: UserPen, onSelect: () => open('nickname') },
+    !roles && rolesItem,
+    (can.timeout || can.kick || can.ban) && 'separator',
+    can.timeout &&
+      (timedOut
+        ? {
+            label: 'Remove timeout',
+            icon: Clock,
+            onSelect: () => void updateMember(space.id, member.userId, { timedOutUntil: null }).catch((e: unknown) => toast.error(e)),
+          }
+        : { label: `Time out ${name}`, icon: Clock, onSelect: () => open('timeout') }),
+    can.kick && { label: `Kick ${name}`, icon: LogOut, danger: true, onSelect: () => open('kick') },
+    can.ban && { label: `Ban ${name}`, icon: Ban, danger: true, onSelect: () => open('ban') },
+    !!roles && 'separator',
+    !!roles && rolesItem,
+    transfer && 'separator',
+    transfer && { label: 'Transfer Ownership', icon: Crown, danger: true, onSelect: () => open('transfer') },
+  ];
+}
+
+/** The dialog a member item opened; `onClose` once it is done or dismissed. */
+export function MemberDialog({
+  space,
+  member,
+  dialog,
+  onClose,
+}: {
+  space: Space;
+  member: SpaceMember;
+  dialog: MemberDialogKind;
+  onClose: () => void;
+}) {
+  const me = useMe();
+  const name = nameOf(member);
+  switch (dialog) {
+    case 'nickname':
+      return <NicknameForMember space={space} member={member} onClose={onClose} />;
+    case 'roles':
+      return me ? (
+        <RolesForMember space={space} member={member} myTop={memberAbilities(space, me.id, member).myTop} onClose={onClose} />
+      ) : null;
+    case 'timeout':
+      return (
+        <TimeoutDialog
+          subject={name}
+          onClose={onClose}
+          onTimeout={async (seconds, reason) => {
+            await updateMember(space.id, member.userId, {
+              timedOutUntil: new Date(Date.now() + seconds * 1000).toISOString(),
+              reason,
+            });
+            toast.success(`${name} is timed out`);
+          }}
+        />
+      );
+    case 'kick':
+      return (
+        <KickDialog
+          subject={name}
+          onClose={onClose}
+          onKick={async (reason) => {
+            await kickMember(space.id, member.userId, reason);
+            toast.success(`${name} was kicked`);
+          }}
+        />
+      );
+    case 'ban':
+      return (
+        <BanDialog
+          subject={name}
+          onClose={onClose}
+          onBan={async (choice) => {
+            await banMember(space.id, member.userId, choice);
+            toast.success(`${name} was banned`);
+          }}
+        />
+      );
+    case 'transfer':
+      return <TransferDialog space={space} member={member} onClose={onClose} />;
+    case 'modview':
+      return (
+        <Suspense fallback={null}>
+          <ModViewPanel space={space} userId={member.userId} onClose={onClose} />
+        </Suspense>
+      );
+  }
+}
+
+/** The member menu of the moderation pages: Profile, the member's Space items, Copy User ID. */
 export function MemberActionsMenu({
   space,
   member,
@@ -63,85 +207,42 @@ export function MemberActionsMenu({
   onClose: () => void;
 }) {
   const me = useMe();
-  const [dialog, setDialog] = useState<
-    'nickname' | 'roles' | 'timeout' | 'kick' | 'ban' | 'transfer' | 'modview' | null
-  >(null);
-  const can = me ? memberAbilities(space, me.id, member) : null;
+  const [dialog, setDialog] = useState<MemberDialogKind | null>(null);
+  // An item that opens a dialog keeps this mounted (the menu hides) until the dialog closes.
+  const opening = useRef(false);
+  const open = (d: MemberDialogKind) => {
+    opening.current = true;
+    setDialog(d);
+  };
   const name = nameOf(member);
   // Developer Mode.
   const copy = copyIdItem(member.userId, 'User');
-  const timedOut = !!member.timedOutUntil && Date.parse(member.timedOutUntil) > Date.now();
 
-  const items: MenuEntry[] = can
-    ? [
+  const items: MenuEntry[] = me
+    ? tidy([
         { label: 'Profile', icon: User, onSelect: () => openProfile(member.userId, null, { spaceId: space.id }) },
-        can.modView && { label: 'Mod View', icon: ShieldCheck, onSelect: () => setDialog('modview') },
-        can.nickname && { label: 'Change nickname', icon: UserPen, onSelect: () => setDialog('nickname') },
-        can.roles && { label: 'Roles', icon: Shield, onSelect: () => setDialog('roles') },
-        (can.timeout || can.kick || can.ban) && 'separator',
-        can.timeout &&
-          (timedOut
-            ? {
-                label: 'Remove timeout',
-                icon: Clock,
-                onSelect: () => void updateMember(space.id, member.userId, { timedOutUntil: null }).catch((e: unknown) => toast.error(e)),
-              }
-            : { label: `Time out ${name}`, icon: Clock, onSelect: () => setDialog('timeout') }),
-        can.kick && { label: `Kick ${name}`, icon: LogOut, danger: true, onSelect: () => setDialog('kick') },
-        can.ban && { label: `Ban ${name}`, icon: Ban, danger: true, onSelect: () => setDialog('ban') },
-        // Discord: only the owner, to someone else.
-        space.ownerId === me?.id && member.userId !== me?.id && 'separator',
-        space.ownerId === me?.id &&
-          member.userId !== me?.id && { label: 'Transfer Ownership', icon: Crown, danger: true, onSelect: () => setDialog('transfer') },
-        copy && 'separator',
+        ...memberSpaceItems(space, member, me.id, open),
+        'separator',
         copy,
-      ]
+      ])
     : [];
 
   return (
     <>
-      <Menu open={!dialog} onClose={onClose} anchor={anchor} items={items} aria-label={`${name} actions`} />
-      {dialog === 'nickname' ? <NicknameForMember space={space} member={member} onClose={onClose} /> : null}
-      {dialog === 'roles' && can ? <RolesForMember space={space} member={member} myTop={can.myTop} onClose={onClose} /> : null}
-      {dialog === 'timeout' ? (
-        <TimeoutDialog
-          subject={name}
-          onClose={onClose}
-          onTimeout={async (seconds, reason) => {
-            await updateMember(space.id, member.userId, {
-              timedOutUntil: new Date(Date.now() + seconds * 1000).toISOString(),
-              reason,
-            });
-            toast.success(`${name} is timed out`);
-          }}
-        />
-      ) : null}
-      {dialog === 'kick' ? (
-        <KickDialog
-          subject={name}
-          onClose={onClose}
-          onKick={async (reason) => {
-            await kickMember(space.id, member.userId, reason);
-            toast.success(`${name} was kicked`);
-          }}
-        />
-      ) : null}
-      {dialog === 'ban' ? (
-        <BanDialog
-          subject={name}
-          onClose={onClose}
-          onBan={async (choice) => {
-            await banMember(space.id, member.userId, choice);
-            toast.success(`${name} was banned`);
-          }}
-        />
-      ) : null}
-      {dialog === 'transfer' ? <TransferDialog space={space} member={member} onClose={onClose} /> : null}
-      {dialog === 'modview' ? (
-        <Suspense fallback={null}>
-          <ModViewPanel space={space} userId={member.userId} onClose={onClose} />
-        </Suspense>
-      ) : null}
+      <Menu
+        open={!dialog}
+        onClose={onClose}
+        // Items run after this: close unless one of them opened a dialog.
+        onItemSelected={() =>
+          queueMicrotask(() => {
+            if (!opening.current) onClose();
+          })
+        }
+        anchor={anchor}
+        items={items}
+        aria-label={`${name} actions`}
+      />
+      {dialog ? <MemberDialog space={space} member={member} dialog={dialog} onClose={onClose} /> : null}
     </>
   );
 }

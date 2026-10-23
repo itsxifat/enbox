@@ -23,7 +23,6 @@ import { MessageActionsHost } from '@/features/conversation/MessageActionsHost';
 import { MessageInfoSheet } from '@/features/conversation/MessageInfoSheet';
 import { MessageList, type JumpTarget, type UnreadSnapshot } from '@/features/conversation/MessageList';
 import { useConversationUi } from '@/features/conversation/state';
-import { TypingLine } from '@/features/threads/TypingLine';
 import { markChatRead } from '@/realtime/chats';
 import { useChat, useChats } from '@/stores/chats';
 import { useMessages } from '@/stores/messages';
@@ -180,12 +179,6 @@ function VoiceConversation({ chat }: { chat: ChatSummary }) {
     <RowAppearanceContext.Provider value={COZY}>
       <div className="relative min-h-0 flex-1" data-testid="voice-chat-messages">
         {!hasWindow ? <PageSpinner /> : <MessageList chat={chat} unread={unread} initialTarget={target} />}
-        {/* Over the list's bottom edge, so the list doesn't jump when someone starts typing. */}
-        <TypingLine
-          chatId={chat.id}
-          spaceId={chat.space?.spaceId}
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] bg-surface/90"
-        />
       </div>
       {/* Files dragged over the window land in this chat's composer (the card covers the panel). */}
       {canCompose ? <ConversationDropzone chat={chat} /> : null}

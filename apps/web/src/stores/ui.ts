@@ -11,10 +11,15 @@
  *   desktopNotifications, reduceMotion, autoplayAnimatedMedia, showNameStyles, chatTheme, bubbleStyle,
  *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur, developerMode, and the
  *   Accessibility ones: saturation, saturateRoleColors, contrast, underlineLinks, roleColors,
- *   stickerAnimation, animateEmoji, superReactionAnimations, showSendButton, messageGroupSpacing }
+ *   stickerAnimation, animateEmoji, superReactionAnimations, showSendButton, messageGroupSpacing,
+ *   and the display ones: messageDisplay, compactShowAvatars, uiDensity, zoom, chatFontPx,
+ *   appTheme, customThemeColors, syncPreferences … }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
- * Actions: `setTheme(t)`, `setPref(key, value)`, `pushToast`, `dismissToast`
+ * Actions: `setTheme(t)`, `setPref(key, value)`, `setPrefs(patch)`, `pushToast`, `dismissToast`
+ *
+ * With `syncPreferences` on, the appearance and chat keys of stores/preferencesSync.ts follow
+ * me across devices (`/api/me/preferences`); the rest stays on this device.
  *
  * Imperative helpers (use anywhere, no hooks needed):
  *   toast.success('Saved'); toast.error(err); toast.info('Copied', { action: { label: 'Undo', onClick } });
@@ -29,7 +34,10 @@
  * `data-autoplay-media` attributes (the CSS-only cosmetics animations read them) and the
  * Accessibility ones (`--saturation`, `data-contrast` (resolved, following the OS on 'system'),
  * `data-underline-links`, `data-role-colors`, `data-saturate-roles`, `data-sticker-animation`,
- * `data-animate-emoji`, `--msg-group-gap`; index.css "Accessibility").
+ * `data-animate-emoji`, `--msg-group-gap`; index.css "Accessibility") and the display ones
+ * (`data-density`, CSS `zoom` with `--app-zoom` / `data-zoomed`, `data-app-theme` with the
+ * Custom theme's `--theme-*`; index.css "Display"). It also installs the zoom shortcuts
+ * (features/appearance/zoom.ts).
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -40,7 +48,16 @@ import type {
   MessageAnimation,
   WallpaperPresetId,
 } from '@enbox/shared';
+import {
+  CUSTOM_THEME_VARS,
+  DEFAULT_CUSTOM_THEME_COLORS,
+  appThemeChromeColor,
+  customThemeVars,
+  isAppTheme,
+  type AppTheme,
+} from '@/features/appearance/appThemes';
 import { devicePresetVars } from '@/features/appearance/presets';
+import { clampZoom, installZoomShortcuts, zoomLabel } from '@/features/appearance/zoom';
 import { errorMessage, isSessionChangedError } from '@/lib/api';
 import { newClientId } from '@/lib/ids';
 import { StorageKeys } from '@/lib/storage';
@@ -176,10 +193,16 @@ export interface DevicePrefs {
   friendOnlineAlerts: boolean;
   /** In-app banners for new messages in other chats while Enbox is open. */
   inAppBanners: boolean;
+  /** Gradient app theme over Light / Dark (features/appearance/appThemes.ts); 'default' = none. */
+  appTheme: AppTheme;
+  /** The two colours of the Custom app theme (`#rrggbb`). */
+  customThemeColors: [string, string];
 }
 
 export type MessageDisplay = 'cozy' | 'compact';
-export type UiDensity = 'compact' | 'default' | 'spacious';
+export const UI_DENSITIES = ['compact', 'default', 'spacious'] as const;
+export type UiDensity = (typeof UI_DENSITIES)[number];
+export type { AppTheme };
 
 export type ContrastPref = 'system' | 'on' | 'off';
 export type RoleColorDisplay = 'names' | 'dot' | 'hidden';
@@ -239,6 +262,8 @@ export const DEFAULT_PREFS: DevicePrefs = {
   trustedLinkDomains: [],
   friendOnlineAlerts: false,
   inAppBanners: true,
+  appTheme: 'default',
+  customThemeColors: DEFAULT_CUSTOM_THEME_COLORS,
 };
 
 export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {
@@ -246,6 +271,26 @@ export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {
   medium: { label: 'Medium', px: 15 },
   large: { label: 'Large', px: 17 },
 };
+
+/** Chat font scaling (Settings ▸ Chats): `chatFontPx` from 12 to 24 px. */
+export const CHAT_FONT_MIN_PX = 12;
+export const CHAT_FONT_MAX_PX = 24;
+
+/** The chat text size in use: `chatFontPx`, or the older `fontSize` step when it is unset. */
+export function chatFontPx(prefs: Pick<DevicePrefs, 'chatFontPx' | 'fontSize'>): number {
+  const px = prefs.chatFontPx;
+  if (typeof px === 'number' && Number.isFinite(px))
+    return Math.min(CHAT_FONT_MAX_PX, Math.max(CHAT_FONT_MIN_PX, Math.round(px)));
+  return FONT_SIZES[prefs.fontSize]?.px ?? FONT_SIZES.medium.px;
+}
+
+/** The `fontSize` step closest to a px size (kept next to `chatFontPx` for older clients). */
+export function nearestFontSize(px: number): FontSize {
+  const sizes = Object.keys(FONT_SIZES) as FontSize[];
+  return sizes.reduce((best, f) =>
+    Math.abs(FONT_SIZES[f].px - px) < Math.abs(FONT_SIZES[best].px - px) ? f : best,
+  );
+}
 
 /** Browser chrome color per palette (keep in sync with --surface and index.html). */
 export const THEME_COLORS: Record<ThemeVariant, string> = {
@@ -307,6 +352,8 @@ export interface UiState {
 
   setTheme(theme: ThemePref): void;
   setPref<K extends keyof DevicePrefs>(key: K, value: DevicePrefs[K]): void;
+  /** Several prefs in one change. */
+  setPrefs(patch: Partial<DevicePrefs>): void;
   pushToast(kind: ToastKind, message: string, opts?: ToastOptions): string;
   dismissToast(id: string): void;
   openDialog(req: Omit<DialogRequest, 'id'>): string;
@@ -343,6 +390,10 @@ export const useUi = create<UiState>()(
 
       setPref(key, value) {
         set((s) => ({ prefs: { ...s.prefs, [key]: value } }));
+      },
+
+      setPrefs(patch) {
+        set((s) => ({ prefs: { ...s.prefs, ...patch } }));
       },
 
       pushToast(kind, message, opts = {}) {
@@ -494,8 +545,15 @@ function applyAppearance(s: Pick<UiState, 'theme' | 'resolvedTheme' | 'prefs'>):
   root.classList.toggle('dark', dark);
   root.dataset.theme = variant;
   root.style.colorScheme = dark ? 'dark' : 'light';
-  document.getElementById('theme-color')?.setAttribute('content', THEME_COLORS[variant]);
-  root.style.setProperty('--chat-font-size', `${FONT_SIZES[s.prefs.fontSize]?.px ?? 15}px`);
+  const appTheme = isAppTheme(s.prefs.appTheme) ? s.prefs.appTheme : 'default';
+  const chrome = appThemeChromeColor(
+    appTheme,
+    s.prefs.customThemeColors ?? DEFAULT_CUSTOM_THEME_COLORS,
+    s.resolvedTheme,
+    clampSaturation(s.prefs.saturation),
+  );
+  document.getElementById('theme-color')?.setAttribute('content', chrome ?? THEME_COLORS[variant]);
+  root.style.setProperty('--chat-font-size', `${chatFontPx(s.prefs)}px`);
   // Device-level chat appearance: the preset variables on <html> (a conversation root
   // overrides them with its own resolved theme) and the data attributes the CSS keys on.
   const vars = devicePresetVars(s.prefs, s.resolvedTheme);
@@ -525,6 +583,28 @@ function applyAppearance(s: Pick<UiState, 'theme' | 'resolvedTheme' | 'prefs'>):
     ? p.messageGroupSpacing
     : DEFAULT_PREFS.messageGroupSpacing;
   root.style.setProperty('--msg-group-gap', `${gap}px`);
+  // Display (Settings ▸ Chats): the "Display" rules of index.css.
+  root.dataset.density = UI_DENSITIES.includes(p.uiDensity) ? p.uiDensity : 'default';
+  const zoom = clampZoom(p.zoom);
+  if (zoom === 1) {
+    root.style.removeProperty('zoom');
+    root.style.removeProperty('--app-zoom');
+    delete root.dataset.zoomed;
+  } else {
+    root.style.setProperty('zoom', String(zoom));
+    root.style.setProperty('--app-zoom', String(zoom));
+    root.dataset.zoomed = '';
+  }
+  if (appTheme === 'default') delete root.dataset.appTheme;
+  else root.dataset.appTheme = appTheme;
+  const custom =
+    appTheme === 'custom'
+      ? customThemeVars(p.customThemeColors ?? DEFAULT_CUSTOM_THEME_COLORS, s.resolvedTheme)
+      : null;
+  for (const name of CUSTOM_THEME_VARS) {
+    if (custom) root.style.setProperty(name, custom[name]);
+    else root.style.removeProperty(name);
+  }
 }
 
 /** The OS asks for more contrast (or runs a forced-colours theme): High contrast on 'system'. */
@@ -561,4 +641,16 @@ export function initTheme(): void {
       const s = useUi.getState();
       if (s.prefs.contrast === 'system') applyAppearance(s);
     });
+  installZoomShortcuts(
+    () => useUi.getState().prefs.zoom,
+    (zoom) => {
+      const reset = () => useUi.getState().setPref('zoom', 1);
+      useUi.getState().setPref('zoom', zoom);
+      toast.info(`Zoom ${zoomLabel(zoom)}`, {
+        id: 'app-zoom',
+        duration: 2000,
+        action: zoom === 1 ? undefined : { label: 'Reset', onClick: reset },
+      });
+    },
+  );
 }

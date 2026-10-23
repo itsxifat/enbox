@@ -1,13 +1,15 @@
 /**
  * The `cozy` bubble style (README "Chat themes & animations"): Discord-style rows — a 40 px
- * avatar, name and time header on the first message of a sender group, no bubble
- * background, full-width content and a hover toolbar in the top-right corner. Same props,
- * actions and gestures as `MessageRow` (which exports the shared pieces); `MessageList`
- * picks it from the appearance context.
+ * avatar, name and time header ("Today at 3:14 PM") on the first message of a sender group,
+ * the short time beside the later ones on hover (the full date in their tooltips), no bubble
+ * background, full-width content and a hover toolbar in the top-right corner. A message that
+ * mentions me wears Discord's tint and accent bar. Same props, actions and gestures as
+ * `MessageRow` (which exports the shared pieces); `MessageList` picks it from the appearance
+ * context.
  */
 import { memo } from 'react';
 import { cn } from '@/lib/cn';
-import { formatTime } from '@/lib/format';
+import { BookmarkMark } from '@/features/bookmarks/BookmarkMark';
 import { useAuth } from '@/stores/auth';
 import { useMessageRowA11y } from '@/features/a11y/messageRowA11y';
 import { ThreadStarterCard } from '@/features/threads/ThreadStarterCard';
@@ -20,6 +22,9 @@ import {
 import { useEnterAnimation } from './bubbles/appearance';
 import { ReactionChips, ReactionsDialog } from './bubbles/Reactions';
 import { DaySeparator, SystemPill, UnreadDivider } from './bubbles/SystemPill';
+import { MENTION_ROW_CLASS, useMentionsMe } from './mentions/mentionHighlight';
+import { MessageTime } from './time/MessageTime';
+import { formatFullMessageTime } from './time/timeFormat';
 import {
   BubbleHeader,
   MessageContent,
@@ -48,6 +53,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
   // Discord shows your own name, not "You".
   const myName = useAuth((s) => s.user?.displayName ?? 'You');
   const a11y = useMessageRowA11y(m, chat, mine);
+  const mentioned = useMentionsMe(m, chat, mine);
 
   if (m.type === 'system') {
     return (
@@ -74,6 +80,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
       data-mine={mine || undefined}
       data-type={m.type}
       data-cozy
+      data-mentioned={mentioned || undefined}
       {...a11y}
     >
       {row.showDay ? <DaySeparator date={m.createdAt} /> : null}
@@ -84,7 +91,8 @@ export const CozyMessageRow = memo(function CozyMessageRow({
           // The space above a group follows Settings ▸ Accessibility ▸ Message spacing.
           row.firstInGroup ? 'msg-group-start-cozy pt-0.5' : 'pt-px',
           hasReactions ? 'pb-1' : 'pb-px',
-          'hover:bg-fg/[0.04]',
+          // Mentions me (Discord's tint and bar); selection and the jump flash take over.
+          mentioned && !selected && !x.flash ? MENTION_ROW_CLASS : 'hover:bg-fg/[0.04]',
           selecting && 'cursor-pointer',
           selected && 'bg-brand/12',
           x.flash && 'bg-brand/20 duration-150',
@@ -102,14 +110,20 @@ export const CozyMessageRow = memo(function CozyMessageRow({
           {header && override ? (
             <OverrideAvatar override={override} selecting={selecting} size={40} />
           ) : header ? (
-            <SenderAvatar userId={m.senderId!} selecting={selecting} size={40} spaceId={chat.space?.spaceId} />
+            <SenderAvatar
+              userId={m.senderId!}
+              selecting={selecting}
+              size={40}
+              spaceId={chat.space?.spaceId}
+              chatId={chat.id}
+            />
           ) : (
-            <span
-              className="block pt-1 text-right text-[10.5px] leading-4 text-muted opacity-0 group-hover/msg:opacity-100"
+            <MessageTime
+              at={m.createdAt}
+              short
               aria-hidden
-            >
-              {formatTime(m.createdAt)}
-            </span>
+              className="block pt-1 text-right text-[10.5px] leading-4 text-muted opacity-0 group-hover/msg:opacity-100"
+            />
           )}
         </span>
 
@@ -138,9 +152,11 @@ export const CozyMessageRow = memo(function CozyMessageRow({
                     you={myName}
                     className="text-[14.5px]"
                     spaceId={chat.space?.spaceId}
+                    chatId={chat.id}
                   />
                 )}
-                <span className="shrink-0 text-[11.5px] text-muted">{formatTime(m.createdAt)}</span>
+                <MessageTime at={m.createdAt} className="shrink-0 text-[11.5px] text-muted" />
+                <BookmarkMark messageId={m.id} className="self-center" />
               </div>
             ) : null}
             {header && override?.kind === 'crosspost' && override.source ? (
@@ -150,7 +166,7 @@ export const CozyMessageRow = memo(function CozyMessageRow({
             <div className={cn(!bare && (visual ? 'max-w-[min(100%,480px)]' : 'max-w-[720px]'), m.pending && 'opacity-60')}>
               <MessageContent m={m} mine={mine} chat={chat} search={x.search} shape={shape} />
               {m.editedAt && !m.deletedAt ? (
-                <span className="ml-1 text-[11px] text-subtle" title={new Date(m.editedAt).toLocaleString()}>
+                <span className="ml-1 text-[11px] text-subtle" title={formatFullMessageTime(m.editedAt)}>
                   (edited)
                 </span>
               ) : null}

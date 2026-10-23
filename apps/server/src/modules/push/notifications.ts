@@ -5,7 +5,8 @@
  *
  * - `message.created` → `message` push to every subscription of each recipient (never the
  *   sender, regardless of socket state). Not for channels, system or call messages,
- *   withheld messages (not in `recipientIds`), senders the recipient ignores or blocked
+ *   @silent ones (MESSAGE_FLAGS.SILENT, Space channels too), withheld messages (not in
+ *   `recipientIds`), senders the recipient ignores or blocked
  *   (`silencedRecipients`, one query), or muted chats; gated by the recipient's
  *   `messageNotifications` (direct) / `groupNotifications` (groups incl. announcement).
  *   Title: direct → the sender as the recipient knows them; group → the group name with body
@@ -27,7 +28,9 @@
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   CALL_RING_TIMEOUT_MS,
+  MESSAGE_FLAGS,
   PUSH_MESSAGE_TTL_SEC,
+  hasMessageFlag,
   isDnd,
   isMuted,
   isSpaceChatType,
@@ -105,6 +108,8 @@ export async function onMessageCreated({
   chat,
   recipientIds,
 }: DomainEventMap['message.created']): Promise<void> {
+  // @silent: nobody is pushed, in any chat (unreads and mention counts still move).
+  if (hasMessageFlag(message.flags, MESSAGE_FLAGS.SILENT)) return;
   if (isSpaceChatType(chat.type)) {
     if (getPushSender()) await onSpaceMessageCreated(message, chat);
     return;

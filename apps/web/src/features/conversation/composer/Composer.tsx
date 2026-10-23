@@ -15,6 +15,14 @@
  * Formatting (formatting/): Ctrl/Cmd+B, I, U and Shift+X wrap or unwrap the selection (or put
  * markers around the caret; Ctrl/Cmd+I in an empty box stays the Inbox's), and selecting text
  * on desktop floats a toolbar over it (Alt+F10 reaches it). Edits keep the undo stack.
+ *
+ * Suggestions over the box: "@" (members, roles, and "@silent" at the start), "#" (the Space's
+ * channels, sent as `#{id}` tokens: channelMentions.ts) and ":na" (emoji: emojiSuggestions.ts);
+ * arrows move, Enter or Tab picks, Escape hides one until the query changes. On send, typed
+ * emoticons become emoji (device pref) and "@silent " sends without notifications. The typing
+ * line sits under the box; inside the box are slowmode's timer and countdown (slowmode.ts)
+ * and, in Space chats, the characters left from MESSAGE_COUNTER_FROM — over
+ * SPACE_MESSAGE_MAX_LENGTH Enter refuses and the text can go as message.txt instead.
  */
 import {
   Suspense,
@@ -30,13 +38,17 @@ import {
 } from 'react';
 import { Check, Mic, Pencil, PlusCircle, Smile, X, Camera, Keyboard } from 'lucide-react';
 import {
+  isSpaceChatType,
   isVoiceChannelType,
   MAX_CAPTION_LENGTH,
   MAX_MESSAGE_LENGTH,
   MAX_UPLOAD_BYTES,
+  MESSAGE_COUNTER_FROM,
+  SPACE_MESSAGE_MAX_LENGTH,
   formatBytes,
   userDisplayName,
   type ChatSummary,
+  type ID,
 } from '@enbox/shared';
 import { SendIcon } from '@/components/icons';
 import { IconButton, Spinner } from '@/components/ui';
@@ -45,6 +57,7 @@ import { useIsDesktop, useIsTouch } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/cn';
 import { playSound } from '@/lib/notify';
 import { useAuth } from '@/stores/auth';
+import { useChats } from '@/stores/chats';
 import { useMessages, type ClientMessage } from '@/stores/messages';
 import { toast, useUi } from '@/stores/ui';
 import { mentionName } from '@/features/chats/preview';
@@ -94,12 +107,31 @@ import {
   type TrayUpload,
 } from './AttachmentTray';
 import { CameraDialog, ContactPickerDialog, LocationDialog, PollDialog } from './AttachDialogs';
+import { replaceQuery, sameQuery } from './autocomplete';
+import { BoxStatus } from './BoxStatus';
+import {
+  activeChannelQuery,
+  decodeChannels,
+  encodeChannels,
+  pruneChannelRefs,
+  useChannelSuggestions,
+  type ChannelRef,
+  type ChannelSuggestion,
+} from './channelMentions';
+import { activeEmojiQuery, useEmojiSuggestions, type EmojiSuggestion } from './emojiSuggestions';
+import { convertEmoticons } from './emoticons';
 import { applyTextEdit } from './formatting/applyEdit';
 import { FormattingToolbar, type ToolbarFormat } from './formatting/FormattingToolbar';
 import { makeLink, toggleInline, toggleQuote, type TextEdit } from './formatting/markdown';
 import { shortcutFormat } from './formatting/shortcuts';
 import { MediaPreviewDialog } from './MediaPreviewDialog';
 import { MentionSuggestions } from './MentionSuggestions';
+import { SILENT_KEY, silentCandidate, silentRest } from './silent';
+import { noteSlowmodeSend, sendSlowmoded, useChatSlowmode } from './slowmode';
+import { SuggestionList } from './SuggestionList';
+import { channelRows, emojiRows } from './suggestionRows';
+import { TooLongPrompt } from './TooLongPrompt';
+import { TypingIndicator } from './TypingIndicator';
 import { VoiceRecorderBar } from './VoiceRecorderBar';
 
 const MAX_ROWS = 6;
@@ -108,11 +140,22 @@ const NO_COMMANDS: SlashCommand[] = [];
 
 type Dialog = 'location' | 'contact' | 'poll' | 'camera' | null;
 
-/** What goes with the tray's files: the caption and the reply. */
+/**
+ * What goes with the tray's files: the caption, the reply, and @silent (`sendAttachments`
+ * sends it as `silent: true` once AttachmentLead carries it).
+ */
 type Lead = AttachmentLead;
 
 /** Files can't be added while the tray's files are being sent. */
 const TRAY_BUSY = 'Wait until your files are sent';
+const SPACE_LIMIT = `Messages in Spaces are limited to ${SPACE_MESSAGE_MAX_LENGTH.toLocaleString()} characters`;
+
+/** A suggestion query's identity, for "hidden with Escape until it changes". */
+const queryKey = (kind: string, q: MentionQuery | null) =>
+  q ? `${kind}:${q.start}:${q.query}` : null;
+
+/** `#{id}` tokens read as the channel's name when I can see it. */
+const channelName = (id: ID) => useChats.getState().byId[id]?.name ?? null;
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -130,6 +173,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const enterToSend = useUi((s) => s.prefs.enterToSend);
   const showSendPref = useUi((s) => s.prefs.showSendButton);
   const sounds = useUi((s) => s.prefs.sounds);
+  const emoticons = useUi((s) => s.prefs.emoticonConversion);
   const touch = useIsTouch();
   const desktop = useIsDesktop();
   const reply = useConversationUi((s) => s.reply[chat.id]);
@@ -140,23 +184,38 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const title = useChatTitle(chat);
   const listId = useId();
   const isSpace = !!chat.space; // text channels, threads and voice / Stage chats
-  const mentionable = chat.type === 'group' || isSpace;
+  // Space chats (threads too) cap messages at SPACE_MESSAGE_MAX_LENGTH, counted near it.
+  const spaceLimit = isSpaceChatType(chat.type);
   const roleName = (id: string) =>
     useSpaces.getState().byId[chat.space?.spaceId ?? '']?.roles.find((r) => r.id === id)?.name ??
     'role';
+  /** Stored text (drafts, edits, a caption back) for the box: names for its tokens. */
+  const decode = (raw: string) => {
+    const d = decodeMentions(raw, mentionName, roleName);
+    const c = decodeChannels(d.text, channelName);
+    return { text: c.text, refs: d.refs, channels: c.refs };
+  };
 
   const initial = useMemo(() => {
     const d = getDraft(chat.id);
     return d
-      ? decodeMentions(d.text, mentionName, roleName)
-      : { text: '', refs: [] as MentionRef[] };
+      ? decode(d.text)
+      : { text: '', refs: [] as MentionRef[], channels: [] as ChannelRef[] };
     // Only on mount for this chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [text, setText] = useState(initial.text);
   const refs = useRef<MentionRef[]>(initial.refs);
+  const channelRefs = useRef<ChannelRef[]>(initial.channels);
   const [mention, setMention] = useState<MentionQuery | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
+  // The "#channel" and ":emoji" lists (one at a time), and the query Escape hid.
+  const [channelQ, setChannelQ] = useState<MentionQuery | null>(null);
+  const [emojiQ, setEmojiQ] = useState<MentionQuery | null>(null);
+  const [acIdx, setAcIdx] = useState(0);
+  const acListId = useId();
+  const dismissed = useRef<string | null>(null);
+  const slow = useChatSlowmode(chat, meId);
   // Slash commands: listed while a command name is typed at the start (Escape hides the list
   // until the text changes).
   const [cmdIdx, setCmdIdx] = useState(0);
@@ -195,7 +254,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const docInput = useRef<HTMLInputElement>(null);
   const audioInput = useRef<HTMLInputElement>(null);
   const sendButton = useRef<HTMLButtonElement>(null);
-  const stash = useRef<{ text: string; refs: MentionRef[] } | null>(null);
+  const stash = useRef<{ text: string; refs: MentionRef[]; channels: ChannelRef[] } | null>(null);
   const hold = useRef<{
     timer: ReturnType<typeof setTimeout> | null;
     x: number;
@@ -233,10 +292,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       useConversationUi.getState().setReply(chat.id, m);
   }, [loaded, chat.id]);
 
+  /** The box's text with its tokens: mentions, custom emoji and channels as picked. */
+  const encodeText = (value: string) =>
+    encodeChannels(encodeMentions(value, refs.current), channelRefs.current);
+  /** What a new message (or caption) of `value` sends: tokens, emoticons as emoji, trimmed. */
+  const outgoing = (value: string) =>
+    (emoticons ? convertEmoticons(encodeText(value)) : encodeText(value)).trim();
+
   // Persist the draft (not while editing another message).
   useEffect(() => {
     if (editing) return;
-    useDrafts.getState().setDraft(chat.id, encodeMentions(text, refs.current), reply?.id ?? null);
+    const stored = encodeChannels(encodeMentions(text, refs.current), channelRefs.current);
+    useDrafts.getState().setDraft(chat.id, stored, reply?.id ?? null);
   }, [text, reply?.id, editing, chat.id]);
 
   // Entering/leaving edit mode swaps the composer content.
@@ -247,16 +314,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       if (stash.current) {
         setText(stash.current.text);
         refs.current = stash.current.refs;
+        channelRefs.current = stash.current.channels;
         stash.current = null;
       }
       return;
     }
     const m = useConversationUi.getState().editing[chat.id];
     if (!m) return;
-    if (!stash.current) stash.current = { text, refs: refs.current };
-    const decoded = decodeMentions(m.text ?? '', mentionName, roleName);
+    if (!stash.current) stash.current = { text, refs: refs.current, channels: channelRefs.current };
+    const decoded = decode(m.text ?? '');
     setText(decoded.text);
     refs.current = decoded.refs;
+    channelRefs.current = decoded.channels;
     requestAnimationFrame(() => {
       const el = ta.current;
       if (el) {
@@ -300,7 +369,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         user: u,
       }));
   }, [mention, chat.type, members, meId]);
-  const suggestions = isSpace ? spaceSuggestions : groupSuggestions;
+  // "@silent" comes last in the @ list at the start of a new message (alone in DMs).
+  const silentItem = editing ? null : silentCandidate(mention);
+  const people = isSpace ? spaceSuggestions : groupSuggestions;
+  const suggestions = silentItem ? [...people, silentItem] : people;
+  const channelItems = useChannelSuggestions(chat, channelQ ? channelQ.query : null);
+  const emojiItems = useEmojiSuggestions(chat, emojiQ ? emojiQ.query : null);
+  const acRows = channelItems.length
+    ? channelRows(channelItems)
+    : emojiItems.length
+      ? emojiRows(emojiItems)
+      : [];
+  const acActive = Math.min(acIdx, Math.max(0, acRows.length - 1));
   const cmdQuery = editing ? null : commandQuery(text);
   const commands =
     cmdQuery !== null && cmdDismissed !== text ? matchCommands(cmdQuery, chat) : NO_COMMANDS;
@@ -324,11 +404,45 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const pingFlag = (m: ClientMessage | undefined) =>
     pingable(m) && pingOff === m.id ? { mentionRepliedAuthor: false } : {};
 
+  /**
+   * The query at the caret opens its list: "@" anywhere ("@silent" only, in DMs), "#" in
+   * Space chats, ":" for emoji — the trigger nearest the caret ("@ann #gen" lists channels).
+   * An unchanged query keeps its highlighted row; one hidden with Escape stays hidden until
+   * it changes.
+   */
   const updateMention = (value: string, caret: number) => {
-    if (!mentionable) return;
-    const q = activeMentionQuery(value, caret);
-    setMention(q);
-    setMentionIdx(0);
+    const found: [string, MentionQuery | null][] = [
+      ['@', activeMentionQuery(value, caret)],
+      ['#', isSpace ? activeChannelQuery(value, caret) : null],
+      [':', activeEmojiQuery(value, caret)],
+    ];
+    const nearest = Math.max(...found.map(([, q]) => q?.start ?? -1));
+    const keys = found.map(([kind, q]) => (q?.start === nearest ? queryKey(kind, q) : null));
+    if (dismissed.current && !keys.includes(dismissed.current)) dismissed.current = null;
+    const [m, c, e] = found.map(([, q], i) =>
+      keys[i] && keys[i] !== dismissed.current ? q : null,
+    );
+    if (!sameQuery(mention, m)) {
+      setMention(m);
+      setMentionIdx(0);
+    }
+    if (!sameQuery(channelQ, c) || !sameQuery(emojiQ, e)) {
+      setChannelQ(c);
+      setEmojiQ(e);
+      setAcIdx(0);
+    }
+  };
+
+  const closeSuggestions = () => {
+    setMention(null);
+    setChannelQ(null);
+    setEmojiQ(null);
+  };
+
+  /** Escape: the open list hides until its query changes. */
+  const dismissSuggestions = () => {
+    dismissed.current = queryKey('@', mention) ?? queryKey('#', channelQ) ?? queryKey(':', emojiQ);
+    closeSuggestions();
   };
 
   const onChange = (value: string, caret: number) => {
@@ -338,9 +452,22 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     setCmdIdx(0);
     if (cmdDismissed !== null && value !== cmdDismissed) setCmdDismissed(null);
     refs.current = pruneRefs(value, refs.current);
+    channelRefs.current = pruneChannelRefs(value, channelRefs.current);
     if (value.trim()) typing.keystroke();
     else typing.stop();
     updateMention(value, caret);
+  };
+
+  /** A picked suggestion in place of its query, the caret after it. */
+  const putPicked = (next: { text: string; caret: number }) => {
+    const el = ta.current;
+    setText(next.text);
+    closeSuggestions();
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+    });
   };
 
   const pickMention = (c: MentionCandidate) => {
@@ -348,13 +475,38 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     if (!mention || !el) return;
     const name = c.name;
     const res = insertMention(text, mention, el.selectionStart, name);
-    refs.current = [...refs.current.filter((r) => r.userId !== c.token), { userId: c.token, name }];
-    setText(res.text);
-    setMention(null);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(res.caret, res.caret);
-    });
+    // "@silent" is a word of the box, not a mention.
+    if (c.key !== SILENT_KEY)
+      refs.current = [
+        ...refs.current.filter((r) => r.userId !== c.token),
+        { userId: c.token, name },
+      ];
+    putPicked(res);
+  };
+
+  const pickChannel = ({ chat: channel }: ChannelSuggestion) => {
+    const el = ta.current;
+    const name = channel.name;
+    if (!channelQ || !el || !name) return;
+    channelRefs.current = [
+      ...channelRefs.current.filter((r) => r.channelId !== channel.id && r.name !== name),
+      { channelId: channel.id, name },
+    ];
+    putPicked(replaceQuery(text, channelQ, el.selectionStart, `#${name} `));
+  };
+
+  const pickEmojiSuggestion = (s: EmojiSuggestion) => {
+    const el = ta.current;
+    if (!emojiQ || !el) return;
+    // Custom emoji show as ":name:" and are sent as their token (composerMentions).
+    const picked = pickEmoji(s.emoji, refs.current);
+    refs.current = picked.refs;
+    putPicked(replaceQuery(text, emojiQ, el.selectionStart, `${picked.insert} `));
+  };
+
+  const pickSuggestion = (i: number) => {
+    if (channelItems.length) pickChannel(channelItems[i] ?? channelItems[0]!);
+    else if (emojiItems.length) pickEmojiSuggestion(emojiItems[i] ?? emojiItems[0]!);
   };
 
   const insertAtCaret = (s: string) => {
@@ -396,7 +548,9 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       fmtApplying.current = false;
     }
     fmtClosed.current = null;
-    setFmt(!touch && edit.selStart < edit.selEnd ? { start: edit.selStart, end: edit.selEnd } : null);
+    setFmt(
+      !touch && edit.selStart < edit.selEnd ? { start: edit.selStart, end: edit.selEnd } : null,
+    );
   };
 
   const applyFormat = (format: ToolbarFormat) => {
@@ -428,7 +582,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
    * location, contact, poll): the reply was used, but the text and its draft stay.
    */
   const clearAfterAttachmentSend = () => {
-    setMention(null);
+    closeSuggestions();
     useConversationUi.getState().setReply(chat.id, null);
     typing.stop();
     useConversationUi.getState().requestBottom();
@@ -439,6 +593,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     setText('');
     setFmt(null);
     refs.current = [];
+    channelRefs.current = [];
     useDrafts.getState().clearDraft(chat.id);
     clearAfterAttachmentSend();
   };
@@ -459,9 +614,13 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     m ? { replyToId: m.id, replyTo: previewOf(m) } : { replyToId: undefined, replyTo: null };
 
   const send = () => {
+    // "@silent " in front: the message goes without it and notifies nobody.
+    const quiet = editing ? null : silentRest(text, refs.current);
+    const typed = quiet ?? text;
+    const silent = quiet !== null;
     // A slash command at the start becomes its message (/shrug, /me, /tts …) or runs instead
     // of one (/nick, /thread); edits send as typed.
-    const command = editing ? null : applyCommand(text, chat);
+    const command = editing ? null : applyCommand(typed, chat);
     if (command && 'missing' in command) {
       toast.info(`Type a ${command.missing.option} after /${command.missing.name}`, {
         id: 'slash-command',
@@ -473,21 +632,30 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       void command.run();
       return;
     }
-    const encoded = encodeMentions(command ? command.text : text, refs.current).trim();
     if (editing) {
-      void saveEdit(chat, editing, encoded).then((ok) => {
+      const edited = encodeText(text).trim();
+      if (spaceLimit && edited.length > SPACE_MESSAGE_MAX_LENGTH) {
+        toast.error(SPACE_LIMIT, { id: 'space-limit' });
+        return;
+      }
+      void saveEdit(chat, editing, edited).then((ok) => {
         if (ok) {
           stash.current = null;
           setText('');
           refs.current = [];
+          channelRefs.current = [];
           useConversationUi.getState().setEditing(chat.id, null);
         }
       });
       return;
     }
+    const encoded = outgoing(command ? command.text : typed);
+    // Nothing goes during slowmode's countdown; over a Space chat's limit the prompt above
+    // the box offers a file instead.
+    if (slow.left > 0 || (spaceLimit && encoded.length > SPACE_MESSAGE_MAX_LENGTH)) return;
     // While the tray's files are on their way, typed text goes as a message of its own.
     if (trayRef.current.length && !batch.current) {
-      sendWithAttachments(encoded);
+      sendWithAttachments(encoded, silent);
       return;
     }
     if (!encoded) return;
@@ -499,17 +667,29 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     const ping = pingFlag(reply);
     clearAfterSend();
     if (sounds) playSound('sent');
-    void sendQueued(
-      chat.id,
-      {
-        type: 'text',
-        text: encoded,
-        replyToId: r.replyToId,
-        ...ping,
-        ...(command?.tts ? { tts: true } : {}),
-      },
-      { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
-    );
+    const input = {
+      type: 'text' as const,
+      text: encoded,
+      replyToId: r.replyToId,
+      ...ping,
+      ...(command?.tts ? { tts: true } : {}),
+      ...(silent ? { silent: true } : {}),
+    };
+    const opts = { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined };
+    if (!slow.seconds) {
+      void sendQueued(chat.id, input, opts);
+      return;
+    }
+    noteSlowmodeSend(chat.id, slow.seconds);
+    // Refused by the server's slowmode after all: the text comes back for after the countdown.
+    void sendSlowmoded(chat.id, input, opts).then((res) => {
+      if (res === 'slowmode')
+        restoreLead({
+          caption: silent ? `@silent ${encoded}` : encoded,
+          replyToId: r.replyToId,
+          ...ping,
+        });
+    });
   };
 
   const cancelEdit = () => useConversationUi.getState().setEditing(chat.id, null);
@@ -561,7 +741,27 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        setMention(null);
+        dismissSuggestions();
+        return;
+      }
+    }
+    // The "#channel" and ":emoji" lists, like the @ list.
+    if (acRows.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const d = e.key === 'ArrowDown' ? 1 : -1;
+        setAcIdx((acActive + d + acRows.length) % acRows.length);
+        return;
+      }
+      if ((e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) || e.key === 'Tab') {
+        e.preventDefault();
+        pickSuggestion(acActive);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        dismissSuggestions();
         return;
       }
     }
@@ -622,7 +822,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       ...trayRef.current,
       ...list.map((it) => ({ ...trayItem(it.file), description: it.description.trim() })),
     ]);
-    sendWithAttachments(encodeMentions(caption, refs.current).trim());
+    const quiet = silentRest(caption, refs.current);
+    sendWithAttachments(outgoing(quiet ?? caption), quiet !== null);
   };
 
   /** Space channels without ATTACH_FILES: say so and refuse. */
@@ -689,10 +890,11 @@ export function Composer({ chat }: { chat: ChatSummary }) {
    */
   const restoreLead = (lead: Lead) => {
     if (lead.caption) {
-      const d = decodeMentions(lead.caption, mentionName, roleName);
+      const d = decode(lead.caption);
       const typed = textRef.current;
       setText(typed.trim() ? `${d.text}\n${typed}` : d.text);
       refs.current = [...d.refs, ...refs.current];
+      channelRefs.current = [...d.channels, ...channelRefs.current];
     }
     const ui = useConversationUi.getState();
     if (!lead.replyToId || ui.reply[chat.id]) return;
@@ -737,6 +939,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     }
     setTray([]);
     setTrayStatus('idle');
+    if (slow.seconds) noteSlowmodeSend(chatId, slow.seconds);
     void sendAttachments(
       chatId,
       items.map((it, i) => ({
@@ -764,36 +967,59 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   };
 
   /** Enter / Send with files in the tray: ONE message of the text and every file. */
-  const sendWithAttachments = (encoded: string) => {
+  const sendWithAttachments = (encoded: string, silent = false) => {
     if (attachDenied()) return;
+    if (spaceLimit && encoded.length > SPACE_MESSAGE_MAX_LENGTH) {
+      toast.error(SPACE_LIMIT, { id: 'space-limit' });
+      return;
+    }
     if (encoded.length > MAX_MESSAGE_LENGTH) {
       toast.error(`Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters`);
       return;
     }
     const r = replyFields(reply);
     const ping = pingFlag(reply);
+    const quiet = silent ? { silent: true } : {};
     clearAfterSend();
     if (sounds) playSound('sent');
-    let lead: Lead = { ...r, ...ping, caption: encoded || undefined };
+    let lead: Lead = { ...r, ...ping, ...quiet, caption: encoded || undefined };
     if (encoded.length > MAX_CAPTION_LENGTH) {
       // Too long for a caption: the text goes first as its own message, the files follow.
       void sendQueued(
         chat.id,
-        { type: 'text', text: encoded, replyToId: r.replyToId, ...ping },
+        { type: 'text', text: encoded, replyToId: r.replyToId, ...ping, ...quiet },
         { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
       );
-      lead = {};
+      lead = quiet;
     }
     void runBatch(lead);
   };
 
   /**
+   * The too-long prompt's "Send as file": the box's text as `message.txt` with an empty
+   * caption (with the reply, and silent after "@silent "), like any file in the tray.
+   */
+  const sendAsFile = () => {
+    if (slow.left > 0 || attachDenied()) return;
+    if (batch.current) {
+      toast.info(TRAY_BUSY, { id: 'tray-busy' });
+      return;
+    }
+    const quiet = silentRest(text, refs.current);
+    const file = new File([(quiet ?? text).trim()], 'message.txt', { type: 'text/plain' });
+    const list = capped([file], MAX_ATTACHMENTS - trayRef.current.length);
+    if (!list.length) return;
+    setTray([...trayRef.current, ...list.map(trayItem)]);
+    sendWithAttachments('', quiet !== null);
+  };
+
+  /**
    * Shift-drop: the files go right away, in one message (the typed text stays). With files
-   * already waiting the drop joins them, like a plain one.
+   * already waiting (or slowmode counting down) the drop joins them, like a plain one.
    */
   const uploadNow = (files: File[]) => {
     if (!files.length || attachDenied()) return;
-    if (batch.current || trayRef.current.length) {
+    if (batch.current || trayRef.current.length || slow.left > 0) {
       addToTray(files);
       return;
     }
@@ -810,6 +1036,13 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     if (chatId !== chat.id) return;
     if (direct) uploadNow(files);
     else addToTray(files);
+  });
+
+  // The user menu's Mention: "@Name " at the caret, sent as their token.
+  useBus('composer:mention', ({ chatId, userId, name }) => {
+    if (chatId !== chat.id) return;
+    refs.current = [...refs.current.filter((r) => r.userId !== userId), { userId, name }];
+    insertAtCaret(`@${name} `);
   });
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -947,10 +1180,16 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     : chat.type === 'direct'
       ? `Message @${title}`
       : `Message ${title}`;
+  // Space chats: the length of what the box sends, counted from MESSAGE_COUNTER_FROM.
+  const outLength = spaceLimit
+    ? (editing ? encodeText(text).trim() : outgoing(silentRest(text, refs.current) ?? text)).length
+    : 0;
+  const remaining = SPACE_MESSAGE_MAX_LENGTH - outLength;
+  const silentOn = !editing && silentRest(text, refs.current) !== null;
 
   return (
     <div
-      className="card-inset relative mx-2 mt-2 mb-[max(8px,env(safe-area-inset-bottom))] shrink-0 px-2 py-2 shadow-bubble sm:mx-3 sm:mb-[max(12px,env(safe-area-inset-bottom))] sm:px-3"
+      className="card-inset relative mx-2 mt-2 mb-[max(20px,env(safe-area-inset-bottom))] shrink-0 px-2 py-2 shadow-bubble sm:mx-3 sm:px-3"
       data-testid="composer"
     >
       {suggestions.length ? (
@@ -968,6 +1207,23 @@ export function Composer({ chat }: { chat: ChatSummary }) {
         active={cmdActive}
         onPick={pickCommand}
         onHover={setCmdIdx}
+      />
+      <SuggestionList
+        id={acListId}
+        label={channelItems.length ? 'Channels' : 'Emoji'}
+        heading={
+          channelItems.length ? (
+            'Channels'
+          ) : (
+            <>
+              Emoji matching <span className="normal-case">:{emojiQ?.query}</span>
+            </>
+          )
+        }
+        rows={acRows}
+        active={acActive}
+        onPick={pickSuggestion}
+        onHover={setAcIdx}
       />
 
       <AutoModBlockedNotice chatId={chat.id} />
@@ -989,9 +1245,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           <Pencil size={16} className="shrink-0 text-brand-ink" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-brand-ink">Edit message</p>
-            <p className="truncate text-[13px] text-muted">
-              {decodeMentions(editing.text ?? '', mentionName, roleName).text}
-            </p>
+            <p className="truncate text-[13px] text-muted">{decode(editing.text ?? '').text}</p>
           </div>
           <IconButton icon={X} label="Cancel editing" size="sm" onClick={cancelEdit} />
         </div>
@@ -1026,6 +1280,9 @@ export function Composer({ chat }: { chat: ChatSummary }) {
             onClick={() => useConversationUi.getState().setReply(chat.id, null)}
           />
         </div>
+      ) : null}
+      {spaceLimit && remaining < 0 && !editing && !voice ? (
+        <TooLongPrompt canAttach={canAttach} onSend={sendAsFile} />
       ) : null}
 
       <div className="flex items-end gap-2">
@@ -1069,7 +1326,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
                 onSelect={(e) => syncFormatBar(e.currentTarget)}
                 onBlur={(e) => {
                   typing.stop();
-                  setTimeout(() => setMention(null), 150);
+                  setTimeout(closeSuggestions, 150);
                   // Into the formatting toolbar (Alt+F10, its link field) keeps it.
                   if (!fmtBar.current?.contains(e.relatedTarget as Node | null)) setFmt(null);
                 }}
@@ -1078,17 +1335,30 @@ export function Composer({ chat }: { chat: ChatSummary }) {
                 aria-label="Message"
                 aria-autocomplete="list"
                 aria-controls={
-                  commands.length ? cmdListId : suggestions.length ? listId : undefined
+                  commands.length
+                    ? cmdListId
+                    : suggestions.length
+                      ? listId
+                      : acRows.length
+                        ? acListId
+                        : undefined
                 }
                 aria-activedescendant={
                   commands.length
                     ? `${cmdListId}-${cmdActive}`
                     : suggestions.length
                       ? `${listId}-${mentionIdx}`
-                      : undefined
+                      : acRows.length
+                        ? `${acListId}-${acActive}`
+                        : undefined
                 }
                 enterKeyHint={enterToSend && !touch ? 'send' : 'enter'}
                 className="max-h-[50vh] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-[11px] text-chat leading-[1.375] text-fg outline-none placeholder:text-subtle"
+              />
+              <BoxStatus
+                silent={silentOn}
+                slowmode={slow}
+                remaining={spaceLimit && outLength >= MESSAGE_COUNTER_FROM ? remaining : null}
               />
               {!hasText && !editing ? (
                 <IconButton
@@ -1318,6 +1588,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           if (touch) setPreview([file]);
           else addToTray([file]);
         }}
+      />
+      {/* Under the box, in its bottom margin: the list never jumps when someone types. */}
+      <TypingIndicator
+        chatId={chat.id}
+        spaceId={chat.space?.spaceId}
+        className="absolute inset-x-0 top-full px-2 sm:px-3"
       />
     </div>
   );

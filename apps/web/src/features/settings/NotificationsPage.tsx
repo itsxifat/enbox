@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  BellDot,
   BellRing,
   Eye,
   MessageCircle,
@@ -8,8 +9,9 @@ import {
   UsersRound,
   Volume2,
 } from 'lucide-react';
+import type { UserSettings } from '@enbox/shared';
 import { PhoneIcon } from '@/components/icons';
-import { Button, toast } from '@/components/ui';
+import { Button, RadioGroup, toast } from '@/components/ui';
 import {
   notificationPermission,
   playSound,
@@ -38,6 +40,16 @@ const PUSH_MESSAGES: Record<PushResult, string> = {
   error: 'Couldn’t turn on push notifications. Please try again.',
 };
 
+const REACTION_CHOICES: {
+  value: UserSettings['reactionNotifications'];
+  label: string;
+  description: string;
+}[] = [
+  { value: 'all', label: 'All messages', description: 'Reactions to any of your messages' },
+  { value: 'dms', label: 'Direct messages only', description: 'Reactions in DMs and groups' },
+  { value: 'off', label: 'Never', description: 'No notifications for reactions' },
+];
+
 function permissionText(p: PermissionState, pushAvailable: boolean | null): string {
   if (p === 'unsupported') return 'Not supported by this browser';
   if (p === 'denied') return 'Blocked in your browser settings';
@@ -48,7 +60,10 @@ function permissionText(p: PermissionState, pushAvailable: boolean | null): stri
   return 'Not enabled yet';
 }
 
-/** Settings → Notifications: account toggles (server) + this device (permission, sounds). */
+/**
+ * Settings → Notifications: account toggles (server: messages, groups, calls, previews,
+ * reactions) + this device (browser permission, desktop alerts, in-app banners, sounds).
+ */
 export function NotificationsPage() {
   const me = useMe();
   const prefs = useUi((s) => s.prefs);
@@ -150,13 +165,24 @@ export function NotificationsPage() {
         />
       </SettingsGroup>
 
+      <SettingsGroup title="Reactions" footer="When someone reacts to a message you sent.">
+        <div className="px-3 py-1 lg:px-4">
+          <RadioGroup
+            aria-label="Reaction notifications"
+            value={s.reactionNotifications}
+            onChange={(v) => void updateSettings({ reactionNotifications: v })}
+            options={REACTION_CHOICES}
+          />
+        </div>
+      </SettingsGroup>
+
       <SettingsGroup
         title="On this device"
         footer="Channels never send notifications. Muted chats stay silent until you unmute them."
       >
         <SettingsRow
           icon={BellRing}
-          title="Notifications"
+          title="Browser permission"
           description={permissionText(permission, pushAvailable)}
           chevron={false}
           end={
@@ -186,6 +212,13 @@ export function NotificationsPage() {
             if (!v) void disablePush();
             else if (permission === 'granted' && pushAvailable) void enablePush();
           }}
+        />
+        <SwitchRow
+          icon={BellDot}
+          title="In-app banners"
+          description="Show new messages from other chats at the top while Enbox is open"
+          checked={prefs.inAppBanners}
+          onChange={(v) => useUi.getState().setPref('inAppBanners', v)}
         />
         <SwitchRow
           icon={Volume2}

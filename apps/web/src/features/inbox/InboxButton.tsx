@@ -1,12 +1,14 @@
 /**
- * The header's Inbox button (Space channels, DMs, Friends) and its popout (Mentions,
- * Unreads). A red dot shows while I have unread mentions (`inboxMentionCount`). Ctrl+I
- * (⌘I on macOS) toggles the popout of the newest mounted button; Escape closes it.
+ * The header's Inbox button (Space channels, DMs, Friends) and its popout (Mentions, Unreads,
+ * Bookmarks, Reminders). A red dot shows while I have unread mentions (`inboxMentionCount`)
+ * or due reminders. Ctrl+I (⌘I on macOS) toggles the popout of the newest mounted button;
+ * Escape closes it.
  */
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useLocation } from 'react-router';
 import { Inbox as InboxIcon } from 'lucide-react';
 import { Badge, IconButton, Popover } from '@/components/ui';
+import { useDueReminderCount } from '@/features/bookmarks/store';
 import { useChats } from '@/stores/chats';
 import { useInbox } from '@/stores/inbox';
 import { useSpaces } from '@/stores/spaces';
@@ -46,6 +48,15 @@ function useShortcutTarget(id: string): void {
   }, [id]);
 }
 
+/** "Inbox, 2 unread mentions, 1 reminder" (the button's name). */
+export function inboxLabel(mentions: number, reminders: number): string {
+  const parts = [
+    mentions > 0 ? `${mentions} unread mention${mentions === 1 ? '' : 's'}` : '',
+    reminders > 0 ? `${reminders} reminder${reminders === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  return ['Inbox', ...parts].join(', ');
+}
+
 /** Unread mentions of me (the dot). */
 export function useInboxMentionCount(): number {
   const chats = useChats((s) => s.byId);
@@ -59,12 +70,13 @@ export function InboxButton() {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const open = useInbox((s) => s.open && s.owner === id);
   const count = useInboxMentionCount();
+  const due = useDueReminderCount();
   const { pathname } = useLocation();
   const pathSpace = spaceIdOfPath(pathname);
   const spaceId = useSpaces((s) => (pathSpace && s.byId[pathSpace] ? pathSpace : null));
   useShortcutTarget(id);
   const close = useCallback(() => useInbox.getState().setOpen(false), []);
-  const label = count > 0 ? `Inbox, ${count} unread mention${count === 1 ? '' : 's'}` : 'Inbox';
+  const label = inboxLabel(count, due);
   return (
     <>
       <IconButton
@@ -78,7 +90,7 @@ export function InboxButton() {
         aria-expanded={open}
         data-testid="inbox-button"
         badge={
-          count > 0 ? (
+          count > 0 || due > 0 ? (
             <Badge dot tone="danger" className="relative top-[9px] right-[9px] ring-2 ring-surface" />
           ) : undefined
         }

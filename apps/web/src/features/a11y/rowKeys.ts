@@ -2,12 +2,17 @@
  * Keyboard navigation of a message list (MessageList; rows from messageRowA11y). On a focused
  * row: ↑ / ↓ move to the previous / next loaded row and Home / End to the first / last one (a
  * row outside the rendered window is scrolled in first), Enter or Tab enter its toolbar and
- * Escape goes back to the composer; Escape in the toolbar returns to the row. Tabbing into the
- * list from outside lands on the last row in view.
+ * Escape goes back to the composer; Escape in the toolbar returns to the row. Discord's action
+ * keys (`rowActionOf`: E, R, Backspace / Delete, P, + / =, Ctrl/Cmd+C) go to `act`. Tabbing into
+ * the list from outside lands on the last row in view.
  */
 import { useRef, type FocusEvent, type KeyboardEvent } from 'react';
 
 const ROW = '[role="article"][data-message-id]';
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
+/** What a key does to the focused message: edit, reply, delete, pin, add a reaction, copy. */
+export type RowAction = 'edit' | 'reply' | 'delete' | 'pin' | 'react' | 'copy';
 
 export interface RowNavigator {
   /** Ids of the loaded messages whose rows take focus (system rows don't), in list order. */
@@ -16,6 +21,44 @@ export interface RowNavigator {
   reveal(id: string, align: 'start' | 'end'): void;
   /** The list's scroller (it takes the focus when tabbed to). */
   scroller(): HTMLElement | null;
+  /** Run an action key on a message; true when it did something (the key is then consumed). */
+  act?(id: string, action: RowAction): boolean;
+}
+
+/**
+ * Discord's action keys on a focused message: E edit, R reply, Backspace / Delete delete,
+ * P pin, + or = add a reaction, Ctrl+C (⌘C on a Mac) copy. Null for any other key. Pure.
+ */
+export function rowActionOf(
+  e: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey'>,
+  mac = IS_MAC,
+): RowAction | null {
+  const mod = mac ? e.metaKey : e.ctrlKey;
+  if (e.altKey || (mac ? e.ctrlKey : e.metaKey)) return null;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (mod) return key === 'c' ? 'copy' : null;
+  switch (key) {
+    case 'e':
+      return 'edit';
+    case 'r':
+      return 'reply';
+    case 'p':
+      return 'pin';
+    case 'Backspace':
+    case 'Delete':
+      return 'delete';
+    case '+':
+    case '=':
+      return 'react';
+    default:
+      return null;
+  }
+}
+
+/** Text is selected on the page (Ctrl+C then copies that, not the message). */
+function hasSelection(): boolean {
+  const sel = typeof window !== 'undefined' ? window.getSelection() : null;
+  return !!sel && !sel.isCollapsed && sel.toString() !== '';
 }
 
 function renderedRow(list: HTMLElement, id: string): HTMLElement | null {
@@ -67,10 +110,16 @@ function toolbarTarget(row: HTMLElement): HTMLElement | null {
 }
 
 function onKeyDown(e: KeyboardEvent<HTMLElement>, nav: RowNavigator): void {
-  if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.defaultPrevented) return;
   const list = e.currentTarget;
   const target = e.target instanceof HTMLElement ? e.target : null;
   if (!target) return;
+  const action = nav.act && target.matches(ROW) ? rowActionOf(e) : null;
+  if (action && !(action === 'copy' && hasSelection())) {
+    if (nav.act!(target.dataset.messageId!, action)) e.preventDefault();
+    return;
+  }
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
   if (!target.matches(ROW)) {
     // Escape in a row's toolbar (not in a menu it opened: those render elsewhere).
     const row = target.closest<HTMLElement>(ROW);

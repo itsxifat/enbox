@@ -1,6 +1,6 @@
 /**
  * Inbox logic (pure, unit-tested): the button's mention count, the Unreads tab's groups, the
- * Mentions tab's channel groups, where a mention jumps to, and its timestamp.
+ * Mentions tab's channel groups, where a mention or a saved message jumps to, and its timestamp.
  */
 import type { NavigateFunction } from 'react-router';
 import {
@@ -9,6 +9,7 @@ import {
   type ChatSummary,
   type ID,
   type InboxMention,
+  type Message,
   type Space,
 } from '@enbox/shared';
 import { IN_APP_NAV } from '@/components/layout/navigation';
@@ -139,6 +140,32 @@ export async function jumpToMention(item: InboxMention, navigate: NavigateFuncti
     }
   }
   void navigate(mentionPath(item), { state: IN_APP_NAV });
+}
+
+/**
+ * Open a message of a chat by id (bookmarks, banners, reminders): a thread beside its parent
+ * channel, anything else at the message. A chat not in the list yet is fetched first (its
+ * summary says where it lives). `go` navigates (a router's `navigate`, or the bus outside React).
+ */
+export async function jumpToMessage(
+  chatId: ID,
+  message: Pick<Message, 'id' | 'seq'>,
+  go: (to: string) => void,
+): Promise<void> {
+  const chat =
+    getChat(chatId) ??
+    (await useChats
+      .getState()
+      .refreshChat(chatId)
+      .catch(() => null));
+  if (!chat) return;
+  const parentId = chat.type === 'space_thread' ? chat.thread?.parentId : undefined;
+  if (parentId && chat.space) {
+    go(`/spaces/${chat.space.spaceId}/${parentId}`);
+    setTimeout(() => useSidePanel.getState().open({ kind: 'thread', threadId: chat.id, parentId }), 0);
+    return;
+  }
+  go(chatPath(chat, { seq: message.seq, messageId: message.id }));
 }
 
 /**

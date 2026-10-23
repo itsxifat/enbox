@@ -4,6 +4,9 @@
  * - Alt+Up/Down: previous/next conversation in the sidebar (DMs on Home, text channels in a Space)
  * - Alt+Shift+Up/Down: previous/next unread one
  * - Ctrl+Alt+Up/Down: previous/next Space on the rail (Home first)
+ * - Escape (nothing focused, or the empty message box): mark the chat read — the one around the
+ *   focus, else the open one — its NEW line and new messages bar too; Shift+Escape: mark the
+ *   whole Space read
  * - Ctrl/Cmd+Shift+M / D: toggle mute / deafen
  * A handler that already handled a key (`preventDefault`, e.g. moving a focused rail tile)
  * wins. Also records visited places for the switcher's "Previous channels".
@@ -12,10 +15,13 @@ import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import type { ChatSummary } from '@enbox/shared';
 import { Modal } from '@/components/ui';
+import { markConversationRead, signalRead } from '@/features/conversation/newMessages/readSignal';
+import { markSpaceRead } from '@/features/spaces/actions';
 import { useCalls } from '@/stores/calls';
-import { useSortedChats } from '@/stores/chats';
+import { useChats, useSortedChats } from '@/stores/chats';
 import { useQuickSwitcher } from '@/stores/quickSwitcher';
 import { useSpaceChannels, useSpaceList } from '@/stores/spaces';
+import { toast } from '@/stores/ui';
 import { useVoiceSelf } from '@/stores/voiceSelf';
 import { QuickSwitcher } from './QuickSwitcher';
 import { recordVisit, visitKeyOf } from './recents';
@@ -48,6 +54,25 @@ function toggleDeafen() {
   const call = useCalls.getState().active;
   useVoiceSelf.getState().toggleDeafen();
   if (call && !deafened && !call.audioMuted) useCalls.getState().toggleMute();
+}
+
+/** Escape marks read only when it isn't for something else: nothing focused, or an empty message box. */
+export function idleForEscape(el: Element | null): boolean {
+  if (!el || el === document.body || el === document.documentElement) return true;
+  if (el.matches('textarea[aria-label="Message"]')) return !(el as HTMLTextAreaElement).value;
+  if (el.matches('[contenteditable="true"][aria-label="Message"]')) return !el.textContent;
+  // The message list itself (its scroller or a row) has nothing of its own to close.
+  return !!el.closest('[data-testid="message-list"]') && !el.closest('[role="toolbar"]');
+}
+
+/** The chat of the message list around `el` — the nearest one, never one of two (a channel and its thread). */
+function chatAround(el: Element | null): string | null {
+  for (let p = el; p; p = p.parentElement) {
+    const lists = p.querySelectorAll('[data-testid="message-list"][data-chat-id]');
+    if (lists.length > 1) return null;
+    if (lists.length === 1) return lists[0]!.getAttribute('data-chat-id');
+  }
+  return null;
 }
 
 export function KeyboardShortcuts() {
@@ -98,6 +123,23 @@ export function KeyboardShortcuts() {
         else toggleDeafen();
         return;
       }
+      if (e.key === 'Escape' && !qs.open && !mod && !e.altKey && idleForEscape(document.activeElement)) {
+        const { spaceId } = state.current;
+        // The conversation being read: the one around the focus (a thread's box marks the
+        // thread), else the open chat.
+        const chatId =
+          chatAround(document.activeElement) ?? useChats.getState().openChatId ?? state.current.chatId;
+        // Escape closes dialogs, menus and searches first (their window listeners may run
+        // after this one): mark read once the key went through untouched.
+        setTimeout(() => {
+          if (e.defaultPrevented) return;
+          if (e.shiftKey && spaceId) {
+            void markSpaceRead(spaceId).catch((err: unknown) => toast.error(err));
+            if (chatId) signalRead(chatId);
+          } else if (chatId) markConversationRead(chatId);
+        }, 0);
+        return;
+      }
       if (qs.open || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
       const dir = e.key === 'ArrowUp' ? -1 : 1;
       const s = state.current;
@@ -135,12 +177,30 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Navigation',
     rows: [
       ['Open the Quick Switcher', `${MOD} K`],
+      ['Back / forward', IS_MAC ? '⌘ [ / ⌘ ]' : 'Alt ← / Alt →'],
       ['Previous / next channel or DM', 'Alt ↑ / Alt ↓'],
       ['Previous / next unread', 'Alt Shift ↑ / ↓'],
       ['Previous / next server', `${IS_MAC ? '⌃' : 'Ctrl'} Alt ↑ / ↓`],
+      ['Mark channel as read', 'Esc'],
+      ['Mark Space as read', 'Shift Esc'],
       ['Toggle the Inbox', `${MOD} I`],
       ['Search the conversation', `${MOD} F`],
       ['User Settings', `${MOD} ,`],
+      ['Zoom in / out', `${MOD} = / ${MOD} -`],
+      ['Reset zoom', `${MOD} 0`],
+    ],
+  },
+  {
+    title: 'Focused message',
+    rows: [
+      ['Previous / next message', '↑ / ↓'],
+      ['Edit (yours)', 'E'],
+      ['Reply', 'R'],
+      ['Delete', 'Backspace'],
+      ['Pin / unpin', 'P'],
+      ['Add reaction', '+'],
+      ['Copy text', `${MOD} C`],
+      ['Back to the message box', 'Esc'],
     ],
   },
   {

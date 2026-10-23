@@ -1,8 +1,9 @@
-/** @mention suggestions above the composer (group members; Space members, roles, @everyone/@here). */
-import { AtSign, Shield } from 'lucide-react';
+/** @mention suggestions above the composer (group members; Space members, roles, @everyone/@here; @silent). */
+import { AtSign, BellOff, Shield } from 'lucide-react';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import type { MentionCandidate } from '@/features/spaces/mentions';
 import { cn } from '@/lib/cn';
+import { SILENT_KEY } from './silent';
 
 export function MentionSuggestions({
   items,
@@ -50,7 +51,13 @@ export function MentionSuggestions({
                 style={c.color ? { color: c.color } : undefined}
                 aria-hidden
               >
-                {c.sub === 'Role' ? <Shield size={16} /> : <AtSign size={16} />}
+                {c.sub === 'Role' ? (
+                  <Shield size={16} />
+                ) : c.key === SILENT_KEY ? (
+                  <BellOff size={16} />
+                ) : (
+                  <AtSign size={16} />
+                )}
               </span>
             )}
             <span

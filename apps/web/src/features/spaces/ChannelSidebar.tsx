@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
   DndContext,
@@ -49,6 +49,9 @@ import {
   type MenuEntry,
 } from '@/components/ui';
 import { UserPanel } from '@/components/layout/UserPanel';
+import { JumpPill, useJumpPills } from '@/features/frame/JumpPills';
+import { SidebarFrame } from '@/features/frame/SidebarFrame';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import {
@@ -189,7 +192,12 @@ function ChannelRow({
     [setDragNode, setDragHandle],
   );
   return (
-    <div ref={drop.setNodeRef} className={cn('group/ch relative px-2', drag.isDragging && 'opacity-40')}>
+    <div
+      ref={drop.setNodeRef}
+      className={cn('group/ch relative px-2', drag.isDragging && 'opacity-40')}
+      // The jump pills' targets (the open channel is being read).
+      data-jump={active ? undefined : chat.unreadMentionCount > 0 ? 'mention' : unread ? 'unread' : undefined}
+    >
       {/* Unread pill on the sidebar edge (Discord). */}
       {unread && !active ? (
         <span aria-hidden className="absolute top-1/2 left-0 h-2 w-1 -translate-y-1/2 rounded-r-full bg-fg" />
@@ -406,7 +414,8 @@ type ContextMenu =
  * With MANAGE_CHANNELS, channels drag within and across categories (into "no category" too:
  * above the first category) and categories drag among themselves; with MOVE_MEMBERS, people
  * in voice drag onto another voice channel. Moves show at once (one PATCH; reverted with a
- * toast if it fails).
+ * toast if it fails). Unread channels scrolled out of view show a NEW UNREADS / NEW MENTIONS
+ * pill on that edge; on desktop the sidebar is resizable (features/frame/SidebarFrame.tsx).
  */
 export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
   const space = useSpace(spaceId);
@@ -430,10 +439,14 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
   const [dragging, setDragging] = useState<DragData | null>(null);
   const [drop, setDrop] = useState<SidebarDrop | null>(null);
   const dropRef = useRef<SidebarDrop | null>(null);
+  const desktop = useIsDesktop();
+  const pills = useJumpPills();
+  // Desktop: in the resizable frame (its width is shared with Home's DM list).
+  const framed = (aside: ReactNode) => (desktop ? <SidebarFrame defaultWidth={260}>{aside}</SidebarFrame> : aside);
 
   if (!space) {
-    return (
-      <aside aria-label="Channels" className="lg:card-pane flex w-[260px] min-w-0 flex-1 flex-col bg-surface lg:flex-none" />
+    return framed(
+      <aside aria-label="Channels" className="lg:card-pane flex w-[260px] min-w-0 flex-1 flex-col bg-surface lg:flex-none" />,
     );
   }
 
@@ -700,7 +713,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
     );
   });
 
-  return (
+  return framed(
     <aside aria-label="Channels" className="lg:card-pane flex w-[260px] min-w-0 flex-1 flex-col bg-surface lg:flex-none">
       <DropdownMenu
         aria-label={`${space.name} menu`}
@@ -725,27 +738,33 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
       ) : null}
       <SidebarGuideLinks space={space} />
       <SidebarEvents space={space} />
-      <nav
-        className="min-h-0 flex-1 overflow-y-auto pb-4"
-        aria-label={`${space.name} channels`}
-        data-dragging={dragging ? 'true' : undefined}
-      >
-        <DndContext
-          sensors={sensors}
-          collisionDetection={collision}
-          accessibility={dndAccessibility}
-          onDragStart={onDragStart}
-          onDragMove={onDragMove}
-          onDragEnd={onDragEnd}
-          onDragCancel={endDrag}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <nav
+          ref={pills.ref}
+          className="min-h-0 flex-1 overflow-y-auto pb-4"
+          aria-label={`${space.name} channels`}
+          data-dragging={dragging ? 'true' : undefined}
         >
-          {list}
-          <DragOverlay dropAnimation={null}>{dragging ? <DragPreview data={dragging} /> : null}</DragOverlay>
-        </DndContext>
-        {channels.length === 0 ? (
-          <p className="px-4 pt-6 text-sm text-muted">No channels you can see yet.</p>
-        ) : null}
-      </nav>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collision}
+            accessibility={dndAccessibility}
+            onDragStart={onDragStart}
+            onDragMove={onDragMove}
+            onDragEnd={onDragEnd}
+            onDragCancel={endDrag}
+          >
+            {list}
+            <DragOverlay dropAnimation={null}>{dragging ? <DragPreview data={dragging} /> : null}</DragOverlay>
+          </DndContext>
+          {channels.length === 0 ? (
+            <p className="px-4 pt-6 text-sm text-muted">No channels you can see yet.</p>
+          ) : null}
+        </nav>
+        {/* NEW UNREADS / NEW MENTIONS: unread channels scrolled out of view. */}
+        <JumpPill side="top" kind={pills.above} onJump={pills.jump} />
+        <JumpPill side="bottom" kind={pills.below} onJump={pills.jump} />
+      </div>
       <UserPanel className="hidden lg:flex" />
 
       <Menu
@@ -764,6 +783,6 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
         <CategoryDialog spaceId={spaceId} category={dialog.category} onClose={closeDialog} />
       ) : null}
       {dialog?.kind === 'invite' ? <InviteDialog space={space} channelId={dialog.channelId} onClose={closeDialog} /> : null}
-    </aside>
+    </aside>,
   );
 }

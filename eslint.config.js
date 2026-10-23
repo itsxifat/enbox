@@ -41,6 +41,7 @@ export default tseslint.config(
       '*.config.{js,ts}',
       'e2e/**/*.ts',
       'scripts/**/*.{js,ts,mjs}',
+      'deploy/**/*.mjs',
     ],
     languageOptions: { globals: { ...globals.node } },
   },

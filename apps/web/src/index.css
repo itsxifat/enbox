@@ -4,7 +4,7 @@
  * Enbox design tokens
  * -------------------
  * Semantic colors are CSS variables (Discord's Light on :root, Dark on .dark, Ash / Onyx via
- * `.dark[data-theme]`) exposed as Tailwind
+ * `.dark[data-theme]`, the gradient app themes over either via `[data-app-theme]`) exposed as Tailwind
  * colors via `@theme inline`, so `bg-surface`, `text-muted`, `border-line`,
  * `bg-bubble-out`, `bg-brand/10` ... all follow the active theme automatically.
  * Prefer these tokens over raw palette colors (`bg-white`, `text-gray-500`) in feature code.
@@ -179,6 +179,114 @@
   --brand-soft: oklch(0.2404 calc(0.0733 * var(--saturation, 1)) 285.15); /* #1d1840 */
   --bubble-in: oklch(0.2059 calc(0.0059 * var(--saturation, 1)) 285.87); /* #17171a */
   --wallpaper: oklch(0.1505 calc(0.0042 * var(--saturation, 1)) 285.88); /* #0b0b0d */
+}
+
+/*
+ * Gradient app themes (Settings ▸ Chats ▸ Theme ▸ Colour; `data-app-theme` on <html>, see
+ * features/appearance/appThemes.ts): surfaces tinted with `--theme-hue` and a `--theme-a` →
+ * `--theme-b` gradient behind the panes (`--app-gradient`, "Display" at the end of this file),
+ * over Light or any dark palette. Each preset names its hues here; Custom gets all four
+ * `--theme-*` inline from the two colours I picked (`--theme-tint` 0 = two greys, no tint).
+ * Before High contrast, which still wins for text and lines. `[data-theme-swatch]` is a
+ * preview tile of a theme in the picker.
+ */
+html[data-app-theme='twilight'],
+[data-theme-swatch='twilight'] {
+  --theme-hue: 285;
+  --theme-hue-a: 300;
+  --theme-hue-b: 255;
+}
+html[data-app-theme='aurora'],
+[data-theme-swatch='aurora'] {
+  --theme-hue: 175;
+  --theme-hue-a: 165;
+  --theme-hue-b: 290;
+}
+html[data-app-theme='ember'],
+[data-theme-swatch='ember'] {
+  --theme-hue: 40;
+  --theme-hue-a: 62;
+  --theme-hue-b: 20;
+}
+html[data-app-theme='lagoon'],
+[data-theme-swatch='lagoon'] {
+  --theme-hue: 220;
+  --theme-hue-a: 195;
+  --theme-hue-b: 252;
+}
+html[data-app-theme='blossom'],
+[data-theme-swatch='blossom'] {
+  --theme-hue: 350;
+  --theme-hue-a: 350;
+  --theme-hue-b: 30;
+}
+html[data-app-theme='citrus'],
+[data-theme-swatch='citrus'] {
+  --theme-hue: 105;
+  --theme-hue-a: 95;
+  --theme-hue-b: 140;
+}
+html[data-app-theme='forest'],
+[data-theme-swatch='forest'] {
+  --theme-hue: 155;
+  --theme-hue-a: 150;
+  --theme-hue-b: 185;
+}
+html[data-app-theme='midnight'],
+[data-theme-swatch='midnight'] {
+  --theme-hue: 270;
+  --theme-hue-a: 265;
+  --theme-hue-b: 300;
+}
+
+html.dark[data-app-theme],
+.dark [data-theme-swatch] {
+  --theme-a: oklch(0.4 calc(0.11 * var(--saturation, 1)) var(--theme-hue-a));
+  --theme-b: oklch(0.27 calc(0.09 * var(--saturation, 1)) var(--theme-hue-b));
+  /* Keep in sync with SURFACE in appThemes.ts (the browser chrome colour). */
+  --theme-surface: oklch(0.235 calc(0.035 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+}
+html.dark[data-app-theme='citrus'],
+.dark [data-theme-swatch='citrus'] {
+  --theme-a: oklch(0.47 calc(0.11 * var(--saturation, 1)) var(--theme-hue-a));
+  --theme-b: oklch(0.33 calc(0.09 * var(--saturation, 1)) var(--theme-hue-b));
+}
+html.dark[data-app-theme='midnight'],
+.dark [data-theme-swatch='midnight'] {
+  --theme-a: oklch(0.31 calc(0.1 * var(--saturation, 1)) var(--theme-hue-a));
+  --theme-b: oklch(0.19 calc(0.06 * var(--saturation, 1)) var(--theme-hue-b));
+}
+html.dark[data-app-theme] {
+  --app: oklch(0.2 calc(0.04 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --surface: var(--theme-surface);
+  --surface-2: oklch(0.275 calc(0.04 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --elevated: oklch(0.26 calc(0.038 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --selected: oklch(0.32 calc(0.05 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --line: oklch(0.31 calc(0.042 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --line-strong: oklch(0.38 calc(0.045 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --bubble-in: oklch(0.285 calc(0.04 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --wallpaper: oklch(0.21 calc(0.032 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --app-gradient: linear-gradient(135deg, var(--theme-a), var(--theme-b));
+}
+
+html:not(.dark)[data-app-theme],
+html:not(.dark) [data-theme-swatch] {
+  --theme-a: oklch(0.87 calc(0.08 * var(--saturation, 1)) var(--theme-hue-a));
+  --theme-b: oklch(0.9 calc(0.06 * var(--saturation, 1)) var(--theme-hue-b));
+  /* Keep in sync with SURFACE in appThemes.ts. */
+  --theme-surface: oklch(0.985 calc(0.012 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+}
+html:not(.dark)[data-app-theme] {
+  --app: oklch(0.92 calc(0.03 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --surface: var(--theme-surface);
+  --surface-2: oklch(0.955 calc(0.02 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --elevated: oklch(0.99 calc(0.008 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --selected: oklch(0.915 calc(0.03 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --line: oklch(0.905 calc(0.022 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --line-strong: oklch(0.86 calc(0.03 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --bubble-in: oklch(0.95 calc(0.022 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --wallpaper: oklch(0.975 calc(0.016 * var(--theme-tint, 1) * var(--saturation, 1)) var(--theme-hue));
+  --app-gradient: linear-gradient(135deg, var(--theme-a), var(--theme-b));
 }
 
 /*
@@ -403,13 +511,18 @@ html.dark[data-theme='ash'][data-contrast='on'] {
 }
 /*
  * Above the first row of a sender group: `--msg-group-gap` (Settings ▸ Accessibility ▸ Message
- * spacing, 0-24px, on <html>) scaled so the default 16px keeps the rows' original spacing.
+ * spacing, 0-24px, on <html>) scaled so the default 16px keeps the rows' original spacing, and
+ * by `--density-scale` (Settings ▸ Chats ▸ UI density, "Display" below).
  */
 @utility msg-group-start-cozy {
-  margin-top: calc(var(--msg-group-gap, 16px) * 0.625);
+  margin-top: calc(var(--msg-group-gap, 16px) * 0.625 * var(--density-scale, 1));
 }
 @utility msg-group-start-bubble {
-  padding-top: calc(3px + var(--msg-group-gap, 16px) * 0.1875);
+  padding-top: calc(3px + var(--msg-group-gap, 16px) * 0.1875 * var(--density-scale, 1));
+}
+/* Compact message display: tighter groups (6px at the default 16px). */
+@utility msg-group-start-compact {
+  margin-top: calc(var(--msg-group-gap, 16px) * 0.375 * var(--density-scale, 1));
 }
 
 @layer base {
@@ -662,5 +775,106 @@ html[data-contrast='on'] :is(.card-pane, .card-inset):not(:focus-visible) {
   }
   [role='switch'][aria-checked='true'] > span {
     background-color: HighlightText;
+  }
+}
+
+/*
+ * Display
+ * -------
+ * Settings ▸ Chats mirrors these device prefs on <html> (stores/ui.ts applyAppearance):
+ * `data-app-theme` (its tokens are at the top of this file), `data-density`, and the zoom as
+ * CSS `zoom` with `--app-zoom` / `data-zoomed`. Unlayered, so these beat the utility classes.
+ */
+
+/* Gradient app themes: the gradient behind the panes, fixed so every `.bg-app` shows its part. */
+html[data-app-theme] :is(body, .bg-app):not(input, textarea) {
+  background-image: var(--app-gradient);
+  background-attachment: fixed;
+}
+[data-theme-swatch] {
+  background-image: linear-gradient(135deg, var(--theme-a), var(--theme-b));
+}
+[data-theme-swatch] [data-swatch-pane] {
+  background-color: var(--theme-surface);
+}
+
+/* UI density: the Home DM rows, Space channel rows and member rows, and message group spacing. */
+html[data-density='compact'] {
+  --density-scale: 0.5;
+}
+html[data-density='spacious'] {
+  --density-scale: 1.5;
+}
+html[data-density='compact'] [data-testid='dm-row'] {
+  height: 36px;
+}
+html[data-density='spacious'] [data-testid='dm-row'] {
+  height: 50px;
+}
+html[data-density='compact'] [data-testid='space-channel-row'] {
+  height: 30px;
+}
+html[data-density='spacious'] [data-testid='space-channel-row'] {
+  height: 42px;
+}
+html[data-density='compact'] [data-testid='space-member-row'] {
+  height: 38px;
+}
+html[data-density='spacious'] [data-testid='space-member-row'] {
+  height: 52px;
+}
+
+/*
+ * Zoom (Settings ▸ Chats ▸ Zoom level, Ctrl / Cmd + = - 0). CSS `zoom` on <html> scales every
+ * length, viewport units included, and element rects come back zoomed while `top` / `left`
+ * and layout sizes stay unzoomed. So, only while zoomed:
+ * - full-height shells and the dialog height cap divide their viewport units back;
+ * - portals a script places (an inline `top` / `left` / `right` / `bottom`: menus, popovers,
+ *   tooltips, pickers, the call window) and the pointer-events-none ones (reaction bursts)
+ *   render at 100%, where rects and positions agree; dialogs and sheets zoom with the app;
+ * - drag overlays (dnd-kit's DragOverlay: fixed, `touch-action: none` inline) sit at 100% with
+ *   their content zoomed back in;
+ * - react-virtuoso's scroller renders at 100% and its rows, header and footer at the zoom: it
+ *   measures rows with getBoundingClientRect but scrolls with layout sizes, which only agree
+ *   at 100% (lists inside the 100% overlays already do).
+ */
+html[data-zoomed] .h-dvh {
+  height: calc(100dvh / var(--app-zoom));
+}
+html[data-zoomed] .min-h-dvh {
+  min-height: calc(100dvh / var(--app-zoom));
+}
+html[data-zoomed] [class~='max-h-[92dvh]'] {
+  max-height: calc(92dvh / var(--app-zoom));
+}
+html[data-zoomed]
+  body
+  > :is(
+    .fixed:is(
+      [style^='top:'],
+      [style*=' top:'],
+      [style^='left:'],
+      [style*=' left:'],
+      [style^='right:'],
+      [style*=' right:'],
+      [style^='bottom:'],
+      [style*=' bottom:']
+    ),
+    .fixed.pointer-events-none
+  ),
+html[data-zoomed] [style*='position: fixed'][style*='touch-action: none'] {
+  zoom: calc(1 / var(--app-zoom));
+}
+html[data-zoomed] [style*='position: fixed'][style*='touch-action: none'] > * {
+  zoom: var(--app-zoom);
+}
+html[data-zoomed]
+  [data-virtuoso-scroller]:not(
+    body > :is(.fixed:is([style^='top:'], [style*=' top:'], [style^='left:'], [style*=' left:'], [style^='right:'], [style*=' right:'], [style^='bottom:'], [style*=' bottom:']), .fixed.pointer-events-none) *
+  ) {
+  zoom: calc(1 / var(--app-zoom));
+  & > [data-viewport-type] > :not([data-testid$='item-list']),
+  & > * > [data-testid$='item-list'] > * {
+    zoom: var(--app-zoom);
   }
 }

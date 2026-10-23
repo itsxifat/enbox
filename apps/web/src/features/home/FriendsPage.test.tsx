@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import type { Contact, FriendRequest, FriendRequests, UserPublic } from '@enbox/shared';
 import { ApiError, api } from '@/lib/api';
 import { resetSessionState } from '@/lib/session';
+import { useUserMenu } from '@/features/users/userMenu';
 import { useAuth } from '@/stores/auth';
 import { useFriends } from '@/stores/friends';
 import { useUi } from '@/stores/ui';
@@ -64,6 +65,7 @@ beforeEach(() => {
       '/api/contacts': [contact(ada), contact(bo)],
       '/api/blocks': [eve],
       '/api/friends/requests': requests,
+      '/api/me/friend-invites': [],
     };
     if (!(path in routes)) return Promise.reject(new Error(`unexpected GET ${path}`));
     return Promise.resolve(structuredClone(routes[path]) as never);
@@ -161,6 +163,39 @@ describe('FriendsPage tabs', () => {
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/chats$/));
   });
 
+  it('a row’s More menu is Discord’s: video call, voice call, Remove Friend', async () => {
+    renderPage();
+    await ready();
+    fireEvent.click(tab(/^All/));
+    fireEvent.click(within(screen.getAllByTestId('friend-row')[0]!).getByRole('button', { name: 'More' }));
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+      'Start Video Call',
+      'Start Voice Call',
+      'Remove Friend',
+    ]);
+  });
+
+  it('right-click on a row opens the user menu', async () => {
+    renderPage();
+    await ready();
+    fireEvent.click(tab(/^All/));
+    fireEvent.contextMenu(screen.getAllByTestId('friend-row')[1]!, { clientX: 40, clientY: 50 });
+    expect(useUserMenu.getState().menu).toEqual({ userId: 'bo', at: { x: 40, y: 50 }, opts: {} });
+  });
+
+  it('the settings menu switches friend online alerts', async () => {
+    renderPage();
+    await ready();
+    expect(useUi.getState().prefs.friendOnlineAlerts).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Friends settings' }));
+    const item = screen.getByRole('menuitemcheckbox', { name: 'Friend online alerts' });
+    expect(item).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(item);
+    expect(useUi.getState().prefs.friendOnlineAlerts).toBe(true);
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Friend online alerts' })).toHaveAttribute('aria-checked', 'true');
+    useUi.getState().setPref('friendOnlineAlerts', false);
+  });
+
   it('Remove Friend asks first, then deletes the friendship', async () => {
     const del = vi.spyOn(api, 'delete').mockResolvedValue(undefined);
     renderPage();
@@ -203,6 +238,14 @@ describe('Add Friend', () => {
     fireEvent.change(screen.getByTestId('add-friend-input'), { target: { value: 'cy' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send Friend Request' }));
     expect(await screen.findByTestId('add-friend-result')).toHaveTextContent('Success! You and cy are now friends.');
+  });
+
+  it('offers a friend invite link under the form', async () => {
+    renderPage('/chats?friends=add');
+    await ready();
+    expect(screen.getByRole('heading', { name: 'Or share a link' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Create Invite Link' })).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('/api/me/friend-invites');
   });
 
   it('shows the server error in red', async () => {

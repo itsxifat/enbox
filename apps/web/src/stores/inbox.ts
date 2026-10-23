@@ -21,7 +21,7 @@ import { storage } from '@/lib/storage';
 import { useAuth } from './auth';
 import { useUsers } from './users';
 
-export type InboxTab = 'mentions' | 'unreads';
+export type InboxTab = 'mentions' | 'unreads' | 'bookmarks' | 'reminders';
 
 export interface InboxFilters {
   /** Include @everyone / @here. */

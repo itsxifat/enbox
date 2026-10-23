@@ -19,6 +19,7 @@ import {
 import {
   MAX_PINNED_CHATS,
   MUTE_FOREVER_ISO,
+  SPACE_MUTE_DURATIONS,
   isMuted,
   type ChatSummary,
   type SharedChatTheme,
@@ -116,20 +117,15 @@ export async function setArchived(chat: ChatSummary, isArchived: boolean): Promi
     });
 }
 
-export const MUTE_CHOICES = [
-  { value: '8h', label: '8 hours', ms: 8 * 3600_000 },
-  { value: '1w', label: '1 week', ms: 7 * 24 * 3600_000 },
-  { value: 'always', label: 'Always', ms: 0 },
-] as const;
-
+/** Mute for one of SPACE_MUTE_DURATIONS (Discord's: 15 minutes … until I turn it back on). */
 export async function muteChat(chat: ChatSummary): Promise<void> {
   const choice = await choose({
     title: 'Mute notifications',
     message: 'Other members won’t see that you muted this chat.',
-    options: MUTE_CHOICES.map((c) => ({ value: c.value, label: c.label })),
+    options: SPACE_MUTE_DURATIONS.map((d, i) => ({ value: String(i), label: d.label })),
   });
-  if (!choice) return;
-  const opt = MUTE_CHOICES.find((c) => c.value === choice)!;
+  const opt = choice ? SPACE_MUTE_DURATIONS[Number(choice)] : undefined;
+  if (!opt) return;
   const mutedUntil = opt.ms ? new Date(Date.now() + opt.ms).toISOString() : MUTE_FOREVER_ISO;
   await patchPrefs(chat, { mutedUntil });
 }

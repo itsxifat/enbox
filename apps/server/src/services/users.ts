@@ -43,6 +43,8 @@ import {
   spaces,
   statuses,
   userBackupCodes,
+  friendInvites,
+  messageBookmarks,
   userIgnores,
   userNotes,
   users,
@@ -719,6 +721,8 @@ export async function scrubDeletedUser(
     .delete(friendRequests)
     .where(or(eq(friendRequests.fromId, userId), eq(friendRequests.toId, userId)));
   await tx.delete(userBackupCodes).where(eq(userBackupCodes.userId, userId));
+  await tx.delete(friendInvites).where(eq(friendInvites.userId, userId));
+  await tx.delete(messageBookmarks).where(eq(messageBookmarks.userId, userId));
   if (!opts.keepStatuses) await tx.delete(statuses).where(eq(statuses.userId, userId));
   await tx
     .update(users)
@@ -739,6 +743,8 @@ export async function scrubDeletedUser(
       nameStyle: null,
       railLayout: [],
       tagSpaceId: null,
+      preferences: {},
+      preferencesUpdatedAt: null,
       availability: 'online',
       availabilityUntil: null,
       presenceNoteText: null,

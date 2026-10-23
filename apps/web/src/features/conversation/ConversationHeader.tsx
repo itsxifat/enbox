@@ -1,10 +1,15 @@
-/** Conversation header: avatar, title, live subtitle, call buttons and the chat menu. */
+/**
+ * Conversation header: avatar, title, live subtitle and, for DMs and group DMs, Discord's
+ * toolbar (Start Voice Call, Start Video Call, Pinned Messages, Add Friends to DM, Show User
+ * Profile or Show Member List, search, Inbox) with the chat menu.
+ */
 import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import {
   Bell,
   BellOff,
   CheckSquare,
+  CircleUserRound,
   EllipsisVertical,
   Eraser,
   Info,
@@ -39,7 +44,8 @@ import { useGroupDmUi } from '@/features/groupDms/state';
 import { useChatTitle } from '@/features/groupDms/title';
 import { InboxButton } from '@/features/inbox/InboxButton';
 import { HeaderSearch } from '@/features/search/HeaderSearch';
-import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { DM_PROFILE_QUERY, dmProfilePeer, useDmProfilePanel } from '@/features/users/profilePanel';
+import { useIsDesktop, useMediaQuery } from '@/hooks/useMediaQuery';
 import { api } from '@/lib/api';
 import { formatCount, formatLastSeen } from '@/lib/format';
 import { useAuth } from '@/stores/auth';
@@ -61,6 +67,20 @@ export function backPath(pathname: string): string {
   for (const base of ['/archived', '/starred', '/updates'])
     if (pathname.startsWith(base)) return base;
   return '/chats';
+}
+
+/** A DM's "Show User Profile" / "Hide User Profile" (the panel beside the conversation). */
+function ProfileToggle() {
+  const open = useDmProfilePanel((s) => s.open);
+  return (
+    <IconButton
+      icon={CircleUserRound}
+      label={open ? 'Hide User Profile' : 'Show User Profile'}
+      active={open}
+      aria-pressed={open}
+      onClick={() => useDmProfilePanel.getState().toggle()}
+    />
+  );
 }
 
 function useSubtitle(chat: ChatSummary): { text: string; live: boolean } {
@@ -114,6 +134,8 @@ export function ConversationHeader({
   onOpenTheme?: () => void;
 }) {
   const desktop = useIsDesktop();
+  // The profile panel (and so its toggle) needs a wide window.
+  const profileFits = useMediaQuery(DM_PROFILE_QUERY);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const me = useAuth((s) => s.user?.id);
@@ -250,15 +272,15 @@ export function ConversationHeader({
         <>
           {canCall ? (
             <>
-              {/* Discord's order: voice call, then video. */}
+              {/* Discord's toolbar: voice call, video call, pins, add friends, the profile. */}
               <IconButton
                 icon={PhoneIcon}
-                label="Voice call"
+                label="Start Voice Call"
                 onClick={() => void useCalls.getState().startCall(chat.id, 'audio')}
               />
               <IconButton
                 icon={VideoIcon}
-                label="Video call"
+                label="Start Video Call"
                 onClick={() => void useCalls.getState().startCall(chat.id, 'video')}
               />
             </>
@@ -269,6 +291,7 @@ export function ConversationHeader({
           ) : dmGrows ? (
             <DmAddFriendsTool chat={chat} desktop={desktop} />
           ) : null}
+          {desktop && profileFits && dmProfilePeer(chat, me) ? <ProfileToggle /> : null}
           {desktop ? <HeaderSearch scope={{ kind: 'chat', chatId: chat.id }} chatId={chat.id} /> : null}
           <DropdownMenu
             aria-label="Chat menu"

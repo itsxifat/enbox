@@ -7,11 +7,19 @@
  * Inline: `code`, ||spoiler||, **bold**, __underline__, *italic* / _italic_, ~~strike~~,
  * [masked](https://links), <https://links>, <t:unix:style> timestamps, auto links
  * (http(s)://, www., e-mail), `\` escapes, and mention tokens (`@{uuid}`, `@{everyone}`,
- * `@{here}`, `@{role:uuid}`) and custom emoji tokens (`<:name:id>`, `<a:name:id>`) anywhere —
- * also inside formatting. Code spans and blocks show tokens raw; `\<:name:id>` is the raw
- * token as text (Discord's escape). ```ansi blocks take Discord's colour codes (`parseAnsi`).
+ * `@{here}`, `@{role:uuid}`), channel mentions (`#{uuid}`) and custom emoji tokens
+ * (`<:name:id>`, `<a:name:id>`) anywhere — also inside formatting. Code spans and blocks show
+ * tokens raw; `\<:name:id>` and `\#{uuid}` are the raw token as text (Discord's escape).
+ * ```ansi blocks take Discord's colour codes (`parseAnsi`).
  */
-import { CUSTOM_EMOJI_TOKEN_RE, customEmojiToken, parseRichMentions, type ID } from '@enbox/shared';
+import {
+  CHANNEL_MENTION_RE,
+  CUSTOM_EMOJI_TOKEN_RE,
+  channelMentionToken,
+  customEmojiToken,
+  parseRichMentions,
+  type ID,
+} from '@enbox/shared';
 
 export type Inline =
   | { t: 'text'; text: string }
@@ -21,6 +29,8 @@ export type Inline =
   | { t: 'everyone'; here: boolean }
   /** Space channels: `@{role:<uuid>}`. */
   | { t: 'role'; roleId: ID }
+  /** A channel, thread or forum post: `#{<uuid>}`. */
+  | { t: 'channel'; chatId: ID }
   /** A custom Space emoji: `<:name:id>`, `<a:name:id>` (animated). */
   | { t: 'emoji'; id: ID; name: string; animated: boolean }
   | { t: 'bold' | 'italic' | 'underline' | 'strike' | 'spoiler'; children: Inline[] }
@@ -65,10 +75,11 @@ export function linkify(text: string): Inline[] {
 
 const PH_OPEN = '';
 const PH_CLOSE = '';
-type Special = Extract<Inline, { t: 'mention' | 'everyone' | 'role' | 'emoji' }>;
+type Special = Extract<Inline, { t: 'mention' | 'everyone' | 'role' | 'channel' | 'emoji' }>;
 
 /** A fresh copy of the shared global token regex (no shared `lastIndex`). */
 const emojiTokenRe = () => new RegExp(CUSTOM_EMOJI_TOKEN_RE.source, 'g');
+const channelTokenRe = () => new RegExp(CHANNEL_MENTION_RE.source, 'g');
 
 /** Whether the char at `i` follows an odd run of backslashes (it is escaped). */
 function escapedAt(text: string, i: number): boolean {
@@ -77,14 +88,26 @@ function escapedAt(text: string, i: number): boolean {
   return n % 2 === 1;
 }
 
-/** Custom emoji tokens of plain text → placeholders (escaped tokens stay text). */
-function protectEmoji(text: string, specials: Special[]): string {
-  if (!text.includes('<')) return text;
-  return text.replace(emojiTokenRe(), (token: string, a: string, name: string, id: string, at: number) => {
-    if (escapedAt(text, at)) return token;
-    specials.push({ t: 'emoji', id, name, animated: a === 'a' });
+/** Custom emoji and channel tokens of plain text → placeholders (escaped tokens stay text). */
+function protectTokens(text: string, specials: Special[]): string {
+  const hold = (special: Special) => {
+    specials.push(special);
     return `${PH_OPEN}${specials.length - 1}${PH_CLOSE}`;
-  });
+  };
+  let out = text;
+  if (out.includes('<')) {
+    const src = out;
+    out = src.replace(emojiTokenRe(), (token: string, a: string, name: string, id: string, at: number) =>
+      escapedAt(src, at) ? token : hold({ t: 'emoji', id, name, animated: a === 'a' }),
+    );
+  }
+  if (out.includes('#{')) {
+    const src = out;
+    out = src.replace(channelTokenRe(), (token: string, chatId: string, at: number) =>
+      escapedAt(src, at) ? token : hold({ t: 'channel', chatId }),
+    );
+  }
+  return out;
 }
 
 function protectMentions(text: string): { text: string; specials: Special[] } {
@@ -92,7 +115,7 @@ function protectMentions(text: string): { text: string; specials: Special[] } {
   let out = '';
   for (const seg of parseRichMentions(text)) {
     if (seg.type === 'text') {
-      out += protectEmoji(seg.text, specials);
+      out += protectTokens(seg.text, specials);
       continue;
     }
     specials.push(
@@ -129,6 +152,7 @@ function restoreRaw(text: string, specials: Special[]): string {
     const s = specials[Number(i)];
     if (!s) return '';
     if (s.t === 'emoji') return customEmojiToken(s);
+    if (s.t === 'channel') return channelMentionToken(s.chatId);
     return s.t === 'mention' ? `@{${s.userId}}` : s.t === 'everyone' ? (s.here ? '@{here}' : '@{everyone}') : `@{role:${s.roleId}}`;
   });
 }
@@ -454,27 +478,36 @@ export function parseAnsi(code: string): AnsiSpan[] {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Plain-text rendering of segments (tests, copy). */
-export function inlineToPlain(segments: Inline[], nameOf: (id: ID) => string): string {
+/**
+ * Plain-text rendering of segments (tests, copy). `channelName`: a channel mention's name
+ * (default "channel", as `renderMentions`).
+ */
+export function inlineToPlain(
+  segments: Inline[],
+  nameOf: (id: ID) => string,
+  channelName: (id: ID) => string = () => 'channel',
+): string {
   return segments
     .map((s) => {
       switch (s.t) {
         case 'text':
           return s.text;
         case 'link':
-          return s.children ? inlineToPlain(s.children, nameOf) : s.text;
+          return s.children ? inlineToPlain(s.children, nameOf, channelName) : s.text;
         case 'mention':
           return `@${nameOf(s.userId)}`;
         case 'everyone':
           return s.here ? '@here' : '@everyone';
         case 'role':
           return '@role';
+        case 'channel':
+          return `#${channelName(s.chatId)}`;
         case 'emoji':
           return `:${s.name}:`;
         case 'timestamp':
           return new Date(s.unix * 1000).toISOString();
         default:
-          return inlineToPlain(s.children, nameOf);
+          return inlineToPlain(s.children, nameOf, channelName);
       }
     })
     .join('');

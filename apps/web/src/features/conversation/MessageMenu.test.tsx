@@ -126,6 +126,8 @@ describe('message menu', () => {
       'Create Thread',
       'Copy Text',
       'Mark Unread',
+      'Bookmark',
+      'Remind Me',
       'Copy Message Link',
       'Report Message',
     ]);
@@ -142,6 +144,8 @@ describe('message menu', () => {
       'Create Thread',
       'Copy Text',
       'Mark Unread',
+      'Bookmark',
+      'Remind Me',
       'Copy Message Link',
       'Delete Message',
     ]);
@@ -159,6 +163,8 @@ describe('message menu', () => {
       'Copy Text',
       'Unpin Message',
       'Mark Unread',
+      'Bookmark',
+      'Remind Me',
       'Copy Message Link',
       'Report Message',
       'Delete Message',

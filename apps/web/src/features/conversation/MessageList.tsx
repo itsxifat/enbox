@@ -9,13 +9,21 @@
  *   messages that arrived while scrolled up (Discord's Jump to Present bar instead while the
  *   newest messages aren't loaded); floating day label while scrolling
  * - hides messages whose disappearing timer passed
+ * - the conversation's beginning (intro/ChannelIntro) above the first message, once no older
+ *   ones are left
+ * - Discord's new messages bar while the NEW line is above the viewport (or the first unread
+ *   message isn't loaded): a click jumps there; it goes once the line was seen, the list
+ *   reached the bottom, or on Mark As Read / Escape (newMessages/readSignal), which also
+ *   clears the line
+ * - runs of messages from people I blocked fold into one row each (blocked/)
  * - screen readers and keyboard (features/a11y): the scroller is a list named for the chat,
  *   rows are labelled articles; ↑/↓ and Home/End move between rows, Enter / Tab enter a row's
- *   toolbar, Escape returns to the composer; new messages are announced politely
+ *   toolbar, Escape returns to the composer, Discord's action keys act on the focused message
+ *   (keyboard/messageKeys); new messages are announced politely
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type ListRange, type VirtuosoHandle } from 'react-virtuoso';
-import { ChevronsDown, MessageCircleHeart, NotebookPen, Timer } from 'lucide-react';
+import { ChevronsDown, Timer } from 'lucide-react';
 import { formatTimer, type ChatSummary, type ID } from '@enbox/shared';
 import { Badge, Button, Spinner } from '@/components/ui';
 import { clearArrivals } from '@/lib/arrivals';
@@ -36,6 +44,12 @@ import { CompactMessageRow } from './CompactMessageRow';
 import { MessageRow } from './MessageRow';
 import { useRowAppearance } from './bubbles/appearance';
 import { Pill } from './bubbles/SystemPill';
+import { BlockedMessagesRow } from './blocked/BlockedMessagesRow';
+import { collapseBlocked, useBlockedSenders, type ListRow } from './blocked/blockedRuns';
+import { ChannelIntro } from './intro/ChannelIntro';
+import { runMessageKey } from './keyboard/messageKeys';
+import { NewMessagesBar } from './newMessages/NewMessagesBar';
+import { markConversationRead, useReadSignals } from './newMessages/readSignal';
 import {
   buildRows,
   nextExpiry,
@@ -114,6 +128,7 @@ function ListHeader({ context }: { context?: HeaderContext }) {
   if (context.hasMoreBefore) return <div className="h-10" />;
   return (
     <div className="pt-3 pb-1">
+      <ChannelIntro chat={context.chat} />
       {context.disappearing ? (
         <Pill className="text-[12px]">
           <span className="inline-flex items-center gap-1.5">
@@ -140,6 +155,7 @@ function ListFooter({ context }: { context?: HeaderContext }) {
 }
 
 interface HeaderContext {
+  chat: ChatSummary;
   loadingBefore: boolean;
   loadingAfter: boolean;
   hasMoreBefore: boolean;
@@ -175,6 +191,9 @@ export const MessageList = memo(function MessageList({
     visible: false,
   });
   const floatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The user scrolled (wheel, touch, keys): the floating day label follows only that (not
+  // programmatic jumps), and reaching the bottom then reads the unread messages.
+  const userScrolled = useRef(false);
   const pendingTarget = useRef<JumpTarget | null>(initialTarget);
   /**
    * Until when a jump is settling. A jump replaces the window while the list may still be "at
@@ -200,16 +219,45 @@ export const MessageList = memo(function MessageList({
     return () => clearTimeout(t);
   }, [msgs.items, now]);
 
+  // Read on purpose (Mark As Read, Escape): the NEW line and the bar go, until a new snapshot.
+  const [readFor, setReadFor] = useState<UnreadSnapshot | null>(null);
+  const readToken = useReadSignals((s) => s.tokens[chat.id] ?? 0);
+  const lastReadToken = useRef(readToken);
+  useEffect(() => {
+    if (lastReadToken.current === readToken) return;
+    lastReadToken.current = readToken;
+    setReadFor(unread);
+  }, [readToken, unread]);
+  const shownUnread = unread && readFor !== unread ? unread : null;
+
   const items = useMemo(() => visibleMessages(msgs.items, now), [msgs.items, now]);
-  const prevRows = useRef<Row[]>([]);
+  // Runs of messages from people I blocked fold (blocked/); Show opens one in place.
+  const blocked = useBlockedSenders(items, me);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleBlocked = useCallback(
+    (key: string) =>
+      setExpanded((cur) => {
+        const next = new Set(cur);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      }),
+    [],
+  );
+  const prevBase = useRef<Row[]>([]);
+  const prevRows = useRef<ListRow[]>([]);
   const rows = useMemo(() => {
-    const next = reuseRows(
-      prevRows.current,
-      withUnreadDivider(buildRows(items, { meId: me, hasMoreBefore: msgs.hasMoreBefore }), unread),
+    const base = reuseRows(
+      prevBase.current,
+      withUnreadDivider(
+        buildRows(items, { meId: me, hasMoreBefore: msgs.hasMoreBefore }),
+        shownUnread,
+      ),
     );
+    prevBase.current = base;
+    const next = collapseBlocked(base, blocked, expanded);
     prevRows.current = next;
     return next;
-  }, [items, me, unread, msgs.hasMoreBefore]);
+  }, [items, me, shownUnread, msgs.hasMoreBefore, blocked, expanded]);
   // Same keys → same array: an update that only changes row contents (upload progress,
   // reactions) doesn't re-run the firstItemIndex bookkeeping (and its second render).
   const prevKeys = useRef<string[]>([]);
@@ -257,13 +305,19 @@ export const MessageList = memo(function MessageList({
     if (prevIndex < 0) return;
     const incoming = rows
       .slice(prevIndex + 1)
-      .filter((r) => !r.mine && r.message.type !== 'system')
+      .filter(
+        (r) =>
+          !r.mine &&
+          !r.blocked &&
+          r.message.type !== 'system' &&
+          !(r.message.senderId && blocked.has(r.message.senderId)),
+      )
       .map((r) => r.message);
     if (!incoming.length) return;
     const text = incomingAnnouncement(chat, incoming, (id) => nameOf(id), me);
     if (text) setAnnouncement((a) => ({ text, n: a.n + 1 }));
     if (!atBottom) setNewBelow((n) => n + incoming.length);
-  }, [lastKey, keys, rows, atBottom, chat, me]);
+  }, [lastKey, keys, rows, atBottom, chat, me, blocked]);
 
   useEffect(() => {
     if (atBottom) setNewBelow(0);
@@ -372,6 +426,47 @@ export const MessageList = memo(function MessageList({
     [jumpTo],
   );
 
+  // The new messages bar (see the header). While older unread messages aren't loaded the NEW
+  // line stands on the first loaded row: the real first unread message is further up.
+  const dividerAt = shownUnread ? rows.findIndex((r) => r.unreadDivider > 0) : -1;
+  const dividerReal =
+    dividerAt >= 0 &&
+    (!msgs.hasMoreBefore || (rows[0]?.message.seq ?? 0) <= (shownUnread?.afterSeq ?? 0) + 1);
+  const [dividerAbove, setDividerAbove] = useState(false);
+  const [seenFor, setSeenFor] = useState<UnreadSnapshot | null>(null);
+  const viewRange = useRef<ListRange | null>(null);
+  // Latest values for the range callback (Virtuoso calls it while scrolling).
+  const bar = useRef({ at: dividerAt, real: dividerReal, first: track.first, unread: shownUnread });
+  bar.current = { at: dividerAt, real: dividerReal, first: track.first, unread: shownUnread };
+  /** Whether the NEW line is above the rows in view; a real one in view counts as seen. */
+  const checkDivider = useCallback(() => {
+    const b = bar.current;
+    const r = viewRange.current;
+    if (!b.unread || b.at < 0 || !r) return;
+    const at = b.first + b.at;
+    if (b.real && at >= r.startIndex && at <= r.endIndex) setSeenFor(b.unread);
+    setDividerAbove(at < r.startIndex);
+  }, []);
+  useEffect(() => checkDivider(), [checkDivider, dividerAt, dividerReal, track.first]);
+  // Reaching the bottom by scrolling reads the rest (Discord): the bar goes.
+  useEffect(() => {
+    if (atBottom && userScrolled.current && shownUnread) setSeenFor(shownUnread);
+  }, [atBottom, shownUnread]);
+  const showBar =
+    !!shownUnread && dividerAt >= 0 && seenFor !== shownUnread && (!dividerReal || dividerAbove);
+  const jumpToUnread = useCallback(() => {
+    const b = bar.current;
+    if (!b.unread) return;
+    if (b.at >= 0 && b.real) scrollToRow(b.at, 'start');
+    else void jumpTo({ seq: b.unread.afterSeq + 1 });
+  }, [jumpTo, scrollToRow]);
+  const markRead = useCallback(() => markConversationRead(chat.id), [chat.id]);
+  /** The scroll-to-bottom button and Jump to Present: the unread ones are behind me then. */
+  const toPresent = useCallback(() => {
+    if (bar.current.unread) setSeenFor(bar.current.unread);
+    goBottom();
+  }, [goBottom]);
+
   const loadOlder = useCallback(() => {
     const s = useMessages.getState().byChat[chat.id];
     if (s?.loaded && s.hasMoreBefore && !s.loadingBefore)
@@ -391,15 +486,15 @@ export const MessageList = memo(function MessageList({
 
   const onRange = useCallback(
     (range: ListRange) => {
+      viewRange.current = range;
+      checkDivider();
       const r = prevRows.current[range.startIndex - track.first];
       if (!r) return;
       const label = formatDaySeparator(r.message.createdAt);
       setFloating((f) => (f.label === label ? f : { ...f, label }));
     },
-    [track.first],
+    [track.first, checkDivider],
   );
-  // The floating day label only follows the user's own scrolling (not programmatic jumps).
-  const userScrolled = useRef(false);
   const onScrolling = useCallback((scrolling: boolean) => {
     if (floatTimer.current) clearTimeout(floatTimer.current);
     if (scrolling && userScrolled.current)
@@ -444,12 +539,13 @@ export const MessageList = memo(function MessageList({
 
   const context = useMemo<HeaderContext>(
     () => ({
+      chat,
       loadingBefore: msgs.loadingBefore,
       loadingAfter: msgs.loadingAfter,
       hasMoreBefore: msgs.hasMoreBefore,
       disappearing: chat.disappearingSeconds,
     }),
-    [msgs.loadingBefore, msgs.loadingAfter, msgs.hasMoreBefore, chat.disappearingSeconds],
+    [chat, msgs.loadingBefore, msgs.loadingAfter, msgs.hasMoreBefore],
   );
 
   // `cozy` (Discord-style rows) comes from the appearance context set on the conversation root.
@@ -467,17 +563,33 @@ export const MessageList = memo(function MessageList({
       ),
     [chat, cozy, compact, onJump, onJumpById],
   );
+  // The fold of a blocked run renders in place of its messages.
+  const renderItem = useCallback(
+    (i: number, row: ListRow) =>
+      row.blocked ? (
+        <BlockedMessagesRow row={row} run={row.blocked} onToggle={toggleBlocked} />
+      ) : (
+        renderRow(i, row)
+      ),
+    [renderRow, toggleBlocked],
+  );
 
   // Screen readers and the keyboard (features/a11y): a named list, ↑/↓ between rows.
   const title = useChatTitle(chat);
   const rowNav = useRowNavigation({
     rowIds: () =>
-      prevRows.current.filter((r) => r.message.type !== 'system').map((r) => r.message.id),
+      prevRows.current
+        .filter((r) => r.message.type !== 'system' && !r.blocked)
+        .map((r) => r.message.id),
     reveal: (id, align) => {
-      const i = prevRows.current.findIndex((r) => r.message.id === id);
+      const i = prevRows.current.findIndex((r) => r.message.id === id && !r.blocked);
       if (i >= 0) virtuoso.current?.scrollToIndex({ index: i, align, behavior: 'auto' });
     },
     scroller: () => scroller.current,
+    act: (id, action) => {
+      const m = useMessages.getState().byChat[chat.id]?.items.find((x) => x.id === id);
+      return !!m && runMessageKey(chat, m, action);
+    },
   });
 
   if (!msgs.loaded) {
@@ -509,16 +621,13 @@ export const MessageList = memo(function MessageList({
 
   // Viewing an older window (the newest messages aren't loaded): the Jump to Present bar instead.
   const showFab = !atBottom && !msgs.hasMoreAfter;
-  const selfChat = chat.type === 'direct' && !!me && chat.peer?.id === me;
-  // Read-only chats (announcements, admins-only groups, former members, deleted/blocked
-  // peers) don't get a call to action they can't follow.
-  const canWrite = chat.membership === 'active' && chat.permissions.canSend;
 
   return (
     <div
       ref={wrapper}
       className="relative h-full"
       data-testid="message-list"
+      data-chat-id={chat.id}
       onWheel={() => (userScrolled.current = true)}
       onTouchMove={() => (userScrolled.current = true)}
       onKeyDown={(e) => {
@@ -528,32 +637,7 @@ export const MessageList = memo(function MessageList({
       onFocus={rowNav.onFocus}
       onPointerDown={rowNav.onPointerDown}
     >
-      {rows.length === 0 && !msgs.hasMoreBefore ? (
-        <div className="pointer-events-none absolute inset-x-0 top-1/4 z-[1] flex justify-center px-6">
-          <div className="flex max-w-xs flex-col items-center gap-2 rounded-2xl bg-surface/95 px-6 py-5 text-center shadow-bubble backdrop-blur-sm">
-            <span className="flex size-12 items-center justify-center rounded-full bg-brand-soft text-brand-ink">
-              {selfChat ? (
-                <NotebookPen size={22} aria-hidden />
-              ) : (
-                <MessageCircleHeart size={22} aria-hidden />
-              )}
-            </span>
-            <p className="text-[15px] font-semibold text-fg">
-              {selfChat ? 'Message yourself' : 'No messages yet'}
-            </p>
-            <p className="text-[13px] leading-relaxed text-muted">
-              {selfChat
-                ? 'Keep notes, links and reminders here. They sync across your devices.'
-                : !canWrite
-                  ? 'Messages will appear here.'
-                  : chat.type === 'direct'
-                    ? 'Say hi 👋 — your first message starts the conversation.'
-                    : 'Be the first to send a message.'}
-            </p>
-          </div>
-        </div>
-      ) : null}
-      <Virtuoso<Row, HeaderContext>
+      <Virtuoso<ListRow, HeaderContext>
         key={track.epoch}
         ref={virtuoso}
         data={rows}
@@ -561,7 +645,7 @@ export const MessageList = memo(function MessageList({
         firstItemIndex={track.first}
         initialTopMostItemIndex={track.initial}
         computeItemKey={(_, r) => r.key}
-        itemContent={renderRow}
+        itemContent={renderItem}
         followOutput={(bottom) => (bottom && !jumpSettling() ? smoothScroll : false)}
         alignToBottom
         startReached={loadOlder}
@@ -579,9 +663,20 @@ export const MessageList = memo(function MessageList({
         style={{ height: '100%' }}
       />
 
+      {showBar ? (
+        <NewMessagesBar
+          count={shownUnread!.count}
+          since={dividerReal ? rows[dividerAt]!.message.createdAt : null}
+          onJump={jumpToUnread}
+          onMarkRead={markRead}
+        />
+      ) : null}
+
       <div
         className={cn(
-          'pointer-events-none absolute top-2 left-1/2 z-[2] -translate-x-1/2 transition-opacity duration-300',
+          'pointer-events-none absolute left-1/2 z-[2] -translate-x-1/2 transition-opacity duration-300',
+          // Below the new messages bar while it shows.
+          showBar ? 'top-12' : 'top-2',
           floating.visible && floating.label ? 'opacity-100' : 'opacity-0',
         )}
         aria-hidden
@@ -604,7 +699,7 @@ export const MessageList = memo(function MessageList({
 
       <button
         type="button"
-        onClick={goBottom}
+        onClick={toPresent}
         aria-label={newBelow ? `Scroll to bottom, ${newBelow} new messages` : 'Scroll to bottom'}
         tabIndex={showFab ? 0 : -1}
         aria-hidden={showFab ? undefined : true}
@@ -621,7 +716,7 @@ export const MessageList = memo(function MessageList({
           </span>
         ) : null}
       </button>
-      {msgs.hasMoreAfter ? <JumpToPresentBar onJump={goBottom} /> : null}
+      {msgs.hasMoreAfter ? <JumpToPresentBar onJump={toPresent} /> : null}
     </div>
   );
 });

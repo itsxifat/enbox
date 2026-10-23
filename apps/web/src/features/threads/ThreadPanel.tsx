@@ -40,7 +40,6 @@ import { useSidePanel } from '@/stores/sidePanel';
 import { useSpace } from '@/stores/spaces';
 import { NEW_THREAD_ID, threadRights, threadView, useThreads } from '@/stores/threads';
 import { copyThreadLink, deleteThreadItem, threadMenuItems } from './actions';
-import { TypingLine } from './TypingLine';
 
 const COZY = { bubbleStyle: 'cozy' as const, messageAnimation: 'fade' as const };
 
@@ -395,12 +394,6 @@ function ThreadConversation({ chat, parent }: { chat: ChatSummary; parent: ChatS
       ) : null}
       <div className="relative min-h-0 flex-1" data-testid="thread-messages">
         {!hasWindow ? <PageSpinner /> : <MessageList chat={chat} unread={unread} initialTarget={target} />}
-        {/* Over the list's bottom edge, so the list doesn't jump when someone starts typing. */}
-        <TypingLine
-          chatId={chat.id}
-          spaceId={chat.space?.spaceId}
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] bg-surface/90"
-        />
       </div>
       {info?.archived && canCompose ? (
         <p className="shrink-0 px-4 pt-1 text-[12.5px] text-muted" data-testid="thread-archived-note">

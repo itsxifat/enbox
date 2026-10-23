@@ -1,18 +1,23 @@
 /**
  * Renders message text as Discord markdown (lib/richText.ts): headers, subtext, quotes,
  * lists, code blocks, and inline **bold** *italic* __underline__ ~~strike~~ `code`
- * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions, custom Space emoji and
- * in-chat search highlights. `inline` (descriptions inside a paragraph) skips the block
- * syntax; `jumbo` (emoji-only messages) draws custom emoji at 48 px instead of 22. Links to
- * this app open in-app (bubbles/cards/internalLinks.ts), others in a new tab. ```ansi code
- * blocks show Discord's colour codes (always as text, never markup).
+ * ||spoilers||, masked links, <t:…> timestamps, tappable @mentions, #channel mentions, custom
+ * Space emoji and in-chat search highlights. `inline` (descriptions inside a paragraph) skips
+ * the block syntax; `jumbo` (emoji-only messages) draws custom emoji at 48 px instead of 22.
+ * Links to this app open in-app (bubbles/cards/internalLinks.ts), others in a new tab — after
+ * the "Leaving Enbox" warning unless the site is trusted (features/links). Code blocks with a
+ * language are highlighted once highlight.js loads (bubbles/code); ```ansi blocks show
+ * Discord's colour codes (always as text, never markup). Outside `inline`, a click on an emoji
+ * opens its popout (bubbles/emoji).
  */
 import { createContext, memo, useContext, useMemo, useState, type CSSProperties } from 'react';
 import type { ID } from '@enbox/shared';
 import { CustomEmoji, type CustomEmojiSize } from '@/components/emoji/CustomEmoji';
 import { cn } from '@/lib/cn';
 import { openProfile } from '@/features/profile/open';
+import { needsLinkWarning, openExternalLink } from '@/features/links/linkSafety';
 import { useAuth } from '@/stores/auth';
+import { useUi } from '@/stores/ui';
 import { useUserName } from '@/stores/users';
 import { useSpaces } from '@/stores/spaces';
 import {
@@ -26,7 +31,12 @@ import {
   type Inline,
   type TimestampStyle,
 } from '../lib/richText';
+import { ChannelMention } from '../channelMention/ChannelMention';
+import { formatFullMessageTime } from '../time/timeFormat';
 import { internalLinkOf, isPlainClick, openInternalLink } from './cards/internalLinks';
+import { HighlightedCode } from './code/HighlightedCode';
+import { CustomEmojiButton, UnicodeEmojiButton } from './emoji/EmojiPopout';
+import { splitEmoji } from './emoji/unicodeEmoji';
 
 /** A tappable @mention: opens the profile card (Message lives inside it). */
 function Mention({ userId }: { userId: ID }) {
@@ -105,12 +115,19 @@ function Spoiler({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Emoji open their popout here (not in `inline` previews). */
+const Interactive = createContext(false);
+/** Inside a link or a code span: no buttons there (emoji popouts, channel pills). */
+const Inert = createContext(false);
+
 /**
  * A link: one to this app (its origin or the public one) opens in-app — a message of the
- * open chat scrolls there — unless a modifier asks for a new tab; others open in a new tab.
+ * open chat scrolls there — unless a modifier asks for a new tab; others open in a new tab,
+ * after the "Leaving Enbox" warning for sites that are neither ours nor trusted.
  */
 function MessageLink({ href, title, children }: { href: string; title?: string; children: React.ReactNode }) {
   const internal = internalLinkOf(href);
+  const warn = () => !internal && needsLinkWarning(href, useUi.getState().prefs.trustedLinkDomains);
   return (
     <a
       href={href}
@@ -119,13 +136,23 @@ function MessageLink({ href, title, children }: { href: string; title?: string; 
       title={title}
       onClick={(e) => {
         e.stopPropagation();
+        if (warn()) {
+          e.preventDefault();
+          void openExternalLink(href);
+          return;
+        }
         if (!internal || !isPlainClick(e)) return;
         e.preventDefault();
         openInternalLink(internal);
       }}
+      onAuxClick={(e) => {
+        if (e.button !== 1 || !warn()) return;
+        e.preventDefault();
+        void openExternalLink(href);
+      }}
       className="break-words text-link hover:underline"
     >
-      {children}
+      <Inert.Provider value>{children}</Inert.Provider>
     </a>
   );
 }
@@ -133,14 +160,47 @@ function MessageLink({ href, title, children }: { href: string; title?: string; 
 /** Custom emoji size of the text being rendered (jumbo for emoji-only messages). */
 const EmojiSize = createContext<CustomEmojiSize>(22);
 
+/** Emoji here open their popout (not in previews, links or code). */
+function useClickableEmoji(): boolean {
+  const interactive = useContext(Interactive);
+  const inert = useContext(Inert);
+  return interactive && !inert;
+}
+
 function InlineEmoji({ id, name, animated }: { id: ID; name: string; animated: boolean }) {
-  return <CustomEmoji id={id} name={name} animated={animated} size={useContext(EmojiSize)} />;
+  const size = useContext(EmojiSize);
+  const clickable = useClickableEmoji();
+  if (clickable) return <CustomEmojiButton id={id} name={name} animated={animated} size={size} />;
+  return <CustomEmoji id={id} name={name} animated={animated} size={size} />;
+}
+
+/** A `#{id}` channel mention (as text inside a link). */
+function InlineChannel({ chatId }: { chatId: ID }) {
+  return <ChannelMention chatId={chatId} plain={useContext(Inert)} />;
+}
+
+/** Plain text, its unicode emoji clickable where they may be. */
+function Plain({ text }: { text: string }) {
+  const clickable = useClickableEmoji();
+  const parts = useMemo(() => (clickable ? splitEmoji(text) : null), [clickable, text]);
+  if (!parts || (parts.length === 1 && typeof parts[0] === 'string')) return <>{text}</>;
+  return (
+    <>
+      {parts.map((p, i) => (typeof p === 'string' ? p : <UnicodeEmojiButton key={i} emoji={p.emoji} />))}
+    </>
+  );
 }
 
 function Timestamp({ unix, style }: { unix: number; style: TimestampStyle }) {
-  const full = formatTimestamp(unix, 'F');
+  const d = new Date(unix * 1000);
+  // Out of the Date range: "Invalid Date" (formatTimestamp's), and no machine-readable time.
+  const valid = !Number.isNaN(d.getTime());
   return (
-    <time dateTime={new Date(unix * 1000).toISOString()} title={full} className="rounded-[3px] bg-fg/10 px-0.5">
+    <time
+      dateTime={valid ? d.toISOString() : undefined}
+      title={valid ? formatFullMessageTime(d) : undefined}
+      className="rounded-[3px] bg-fg/10 px-0.5"
+    >
       {formatTimestamp(unix, style)}
     </time>
   );
@@ -204,17 +264,17 @@ function AnsiCode({ code }: { code: string }) {
 }
 
 function Text({ text, highlight }: { text: string; highlight?: string | null }) {
-  if (!highlight) return <>{text}</>;
+  if (!highlight) return <Plain text={text} />;
   const parts = splitHighlight(text, highlight);
   return (
     <>
       {parts.map((p, i) =>
         i % 2 === 1 ? (
           <mark key={i} className="rounded-sm bg-warning/35 text-inherit">
-            {p}
+            <Plain text={p} />
           </mark>
         ) : (
-          p
+          <Plain key={i} text={p} />
         ),
       )}
     </>
@@ -242,6 +302,8 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
             return <RolePill key={i} roleId={s.roleId} />;
           case 'emoji':
             return <InlineEmoji key={i} id={s.id} name={s.name} animated={s.animated} />;
+          case 'channel':
+            return <InlineChannel key={i} chatId={s.chatId} />;
           case 'timestamp':
             return <Timestamp key={i} unix={s.unix} style={s.style} />;
           case 'bold':
@@ -277,7 +339,9 @@ function Segments({ segments, highlight }: { segments: Inline[]; highlight?: str
           case 'code':
             return (
               <code key={i} className="rounded-[4px] bg-surface-2 px-1 py-px font-mono text-[0.85em] [overflow-wrap:anywhere]">
-                <Segments segments={s.children} highlight={highlight} />
+                <Inert.Provider value>
+                  <Segments segments={s.children} highlight={highlight} />
+                </Inert.Provider>
               </code>
             );
         }
@@ -324,7 +388,7 @@ function Blocks({ blocks, highlight }: { blocks: Block[]; highlight?: string | n
                 data-lang={b.lang ?? undefined}
                 className="my-1 max-w-full overflow-x-auto rounded-md border border-line bg-surface-2 p-2 font-mono text-[0.875em] leading-[1.125rem] whitespace-pre scrollbar-thin"
               >
-                {b.lang === 'ansi' ? <AnsiCode code={b.code} /> : <code>{b.code}</code>}
+                {b.lang === 'ansi' ? <AnsiCode code={b.code} /> : <HighlightedCode code={b.code} lang={b.lang} />}
               </pre>
             );
           case 'list': {
@@ -365,5 +429,6 @@ export const RichText = memo(function RichText({
   // A single paragraph renders inline so the text keeps flowing next to "(edited)".
   else if (blocks!.length === 1 && blocks![0]!.b === 'p') out = <Segments segments={blocks![0]!.children} highlight={highlight} />;
   else out = <Blocks blocks={blocks!} highlight={highlight} />;
+  out = <Interactive.Provider value={!inline}>{out}</Interactive.Provider>;
   return jumbo ? <EmojiSize.Provider value={48}>{out}</EmojiSize.Provider> : out;
 });

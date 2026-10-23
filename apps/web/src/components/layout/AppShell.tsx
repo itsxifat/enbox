@@ -13,6 +13,12 @@ import { lazyNamed } from '@/lib/lazy';
 import { useSettingsLayer } from '@/features/settings/SettingsLayer';
 import { AppChrome } from '@/features/chrome/AppChrome';
 import { SkipToContent } from '@/features/a11y/SkipToContent';
+import { useLastLocation } from '@/features/frame/lastLocation';
+import { SidebarFrame } from '@/features/frame/SidebarFrame';
+import { useHistoryKeys, useNavHistoryTracking } from '@/features/titlebar/history';
+import { TitleBar } from '@/features/titlebar/TitleBar';
+import { WhatsNewHost } from '@/features/whatsNew/WhatsNewHost';
+import { useAuth } from '@/stores/auth';
 import { BottomTabs } from './BottomTabs';
 import { ConnectionBanner } from './ConnectionBanner';
 import { SpaceRail } from '@/features/spaces/SpaceRail';
@@ -54,6 +60,10 @@ function phoneFriendsRedirect(location: Location): string | null {
  * User Settings (/settings/*) as a full-screen layer over the page it was opened from, which
  * stays mounted underneath — inert, hidden, state intact (features/settings/SettingsLayer).
  * Phone: [section] + the floating bottom tabs (Servers, Messages, Notifications, You).
+ * Desktop also gets the title bar on top (Back / Forward, the place, What's New, Help;
+ * features/titlebar) and one resizable sidebar width for Home's and a Space's sidebar
+ * (features/frame/SidebarFrame). A fresh start on `/` or `/chats` reopens the last place
+ * (features/frame/lastLocation); What's New opens once after an update (features/whatsNew).
  * The call overlay (agent 4) floats above everything; the profile card host renders the
  * card opened through the bus (`profile:open`) from anywhere in the app; KeyboardShortcuts
  * owns Ctrl+K (Quick Switcher) and the other app-wide keys; AppChrome (features/chrome) keeps
@@ -67,12 +77,19 @@ export function AppShell() {
   const route = useContext(UNSAFE_RouteContext);
   const outlet = useOutlet();
   const layer = useSettingsLayer({ location, route, outlet, key: 'app' }, desktop);
+  const live = location.location;
+  const userId = useAuth((s) => s.user?.id);
+  // Every committed entry moves Back / Forward (the title bar and Alt+← / Alt+→).
+  useNavHistoryTracking(live.key, location.navigationType);
+  useHistoryKeys();
+  const restore = useLastLocation(userId, live);
   // What the app shows: the current route, or (behind the settings layer) the page settings
   // was opened from — rail, sidebar and section all see that page's location and params.
   const { base } = layer;
   const here = base.location.location;
   const home = isHomePath(here.pathname);
   const friends = desktop ? null : phoneFriendsRedirect(here);
+  const redirect = restore ?? friends;
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-app px-safe text-fg">
       <div
@@ -83,6 +100,7 @@ export function AppShell() {
       >
         {/* The first tab stop: straight to the open chat or page. */}
         <SkipToContent />
+        {desktop ? <TitleBar location={here} /> : null}
         {/* Tab title, favicon and app badges, Streamer Mode (its banner sits here). */}
         <AppChrome />
         <ReportDialogHost />
@@ -93,12 +111,16 @@ export function AppShell() {
           <UNSAFE_RouteContext.Provider value={base.route}>
             <div className="flex min-h-0 flex-1 gap-[var(--pane-gap)] lg:p-[var(--pane-gap)]">
               {desktop ? <SpaceRail /> : null}
-              {desktop && home ? <HomeSidebar /> : null}
+              {desktop && home ? (
+                <SidebarFrame defaultWidth={264}>
+                  <HomeSidebar />
+                </SidebarFrame>
+              ) : null}
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <Suspense fallback={<PageSpinner />}>
                   {/* Same key for the live route and the page kept behind settings: one tree. */}
                   <Fragment key={base.key}>
-                    {friends ? <Navigate to={friends} replace /> : base.outlet}
+                    {redirect ? <Navigate to={redirect} replace /> : base.outlet}
                   </Fragment>
                 </Suspense>
                 {!desktop && !detail && !hideTabs ? <BottomTabs /> : null}
@@ -108,6 +130,7 @@ export function AppShell() {
         </UNSAFE_LocationContext.Provider>
       </div>
       {layer.element}
+      <WhatsNewHost />
       <Suspense fallback={null}>
         <CallOverlay />
         <ProfileCardHost />

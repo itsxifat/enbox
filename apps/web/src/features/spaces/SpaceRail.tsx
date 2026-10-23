@@ -9,10 +9,16 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { CheckCheck, Compass, Folder, FolderClosed, FolderOpen, Plus, Settings } from 'lucide-react';
+import { CalendarDays, CheckCheck, Compass, Folder, FolderClosed, FolderOpen, Plus, Settings, Volume2 } from 'lucide-react';
 import { chatTitle, hexColorSchema, isMuted, type ChatSummary, type ID, type RailEntry, type RailFolder, type Space } from '@enbox/shared';
 import { ChatAvatar } from '@/components/common/ChatAvatar';
 import { LogoMark } from '@/components/common/Logo';
+import { JumpPill, useJumpPills } from '@/features/frame/JumpPills';
+import { isHomeRoute, useLastHome } from '@/features/frame/lastLocation';
+import { activityWords, useInVoiceAmong, useSpaceActivity, type SpaceActivity } from '@/features/frame/railActivity';
+import { useRailTooltip } from '@/features/frame/RailTooltip';
+import { LivePill } from '@/features/voice/stream/LivePill';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
 import {
   Avatar,
   Badge,
@@ -36,6 +42,7 @@ import {
   suppressClickAfterDrag,
   useDragSensors,
 } from '@/lib/dnd';
+import { useAuth } from '@/stores/auth';
 import { isChatUnread, useSortedChats, useUnreadChatsCount } from '@/stores/chats';
 import { useIncomingFriendRequestCount } from '@/stores/friends';
 import {
@@ -63,9 +70,9 @@ export function spaceAcronym(name: string): string {
   return (letters || '?').slice(0, 5);
 }
 
-/** Hover tooltip to the right of a rail tile (the rail is a card, so it can't clip). Hidden while dragging. */
-const TIP =
-  'pointer-events-none absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2 rounded-lg bg-fg px-2.5 py-1.5 text-[13px] font-semibold whitespace-nowrap text-surface opacity-0 shadow-elevated transition-opacity duration-100 group-hover/tile:opacity-100 group-focus-visible/tile:opacity-100 group-data-[dragging=true]/rail:hidden';
+/** A small round glyph on a tile's bottom-right corner (where the mention badge goes). */
+const GLYPH =
+  'pointer-events-none absolute -right-1 -bottom-1 flex size-[18px] items-center justify-center rounded-full ring-[3px] ring-surface';
 
 // ---------------------------------------------------------------------------
 // Drag and drop
@@ -163,10 +170,28 @@ function SpaceIcon({ space, active }: { space: Space; active: boolean }) {
   );
 }
 
+/** Where the mention badge would be: a speaker (I'm in voice there), else a calendar (an event is on). */
+function ActivityGlyph({ activity }: { activity: SpaceActivity }) {
+  if (activity.voice)
+    return (
+      <span className={cn(GLYPH, 'bg-success text-white')} data-testid="rail-voice">
+        <Volume2 size={11} strokeWidth={2.5} aria-hidden />
+      </span>
+    );
+  if (activity.event)
+    return (
+      <span className={cn(GLYPH, 'bg-brand text-on-brand')} data-testid="rail-event">
+        <CalendarDays size={10} strokeWidth={2.5} aria-hidden />
+      </span>
+    );
+  return null;
+}
+
 /**
  * A Space in the rail (top level or in an open folder). Right-click (or Shift+F10 / the Menu
  * key) opens Discord's server menu; a muted Space is dimmed and shows no unread pill (mentions
- * of me still count). Drags to reorder; Alt+Shift+↑/↓ moves it.
+ * of me still count). Drags to reorder; Alt+Shift+↑/↓ moves it. Activity: a speaker or a
+ * calendar on the corner, LIVE while someone there streams.
  */
 function SpaceTile({
   space,
@@ -185,6 +210,7 @@ function SpaceTile({
   onMove: (id: string, dir: -1 | 1) => void;
 }) {
   const badge = useSpaceBadge(space);
+  const activity = useSpaceActivity(space.id);
   const last = spaceMemory.lastChannel(space.id);
   const menu = useSpaceMenu(space);
   const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
@@ -207,6 +233,7 @@ function SpaceTile({
     space.name,
     badge.mentions ? `${badge.mentions} mention${badge.mentions === 1 ? '' : 's'}` : badge.unread ? 'unread messages' : null,
     badge.muted ? 'muted' : null,
+    ...activityWords(activity),
   ]
     .filter(Boolean)
     .join(', ');
@@ -241,6 +268,8 @@ function SpaceTile({
         )}
         data-testid="space-tile"
         data-rail-key={space.id}
+        data-rail-tip={space.name}
+        data-jump={badge.mentions ? 'mention' : undefined}
         data-muted={badge.muted || undefined}
       >
         {/* Discord pill: tall when current, medium when unread, a nub on hover. */}
@@ -266,10 +295,12 @@ function SpaceTile({
             tone="danger"
             className="absolute -right-1 -bottom-1 ring-[3px] ring-surface"
           />
+        ) : (
+          <ActivityGlyph activity={activity} />
+        )}
+        {activity.live ? (
+          <LivePill className="pointer-events-none absolute -bottom-1 -left-1 ring-[3px] ring-surface" />
         ) : null}
-        <span role="tooltip" className={TIP}>
-          {space.name}
-        </span>
       </NavLink>
       <Menu
         open={!!anchor}
@@ -383,11 +414,14 @@ function FolderItem({
     [setDragNode, setDropNode],
   );
   const containsActive = spaces.some((s) => s.id === activeSpaceId);
+  // Closed, it shows the speaker of the Space I'm talking in (open, that Space's tile does).
+  const inVoice = useInVoiceAmong(spaces.map((s) => s.id)) && !open;
   const line = drop && (drop.kind === 'before' || drop.kind === 'after') && drop.targetId === folder.id ? drop.kind : undefined;
   const into = drop?.kind === 'into' && drop.folderId === folder.id;
   const label = [
     `${title}, folder`,
     !open && badge.mentions ? `${badge.mentions} mention${badge.mentions === 1 ? '' : 's'}` : !open && badge.unread ? 'unread messages' : null,
+    inVoice ? 'in voice' : null,
   ]
     .filter(Boolean)
     .join(', ');
@@ -425,6 +459,8 @@ function FolderItem({
         }}
         className="group/tile relative flex size-12 shrink-0 items-center justify-center rounded-2xl outline-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         data-rail-key={folder.id}
+        data-rail-tip={title}
+        data-jump={!open && badge.mentions ? 'mention' : undefined}
       >
         {open ? null : <Pill active={containsActive} unread={badge.unread} />}
         {into && !open ? <span aria-hidden className="absolute -inset-1 rounded-[18px] bg-brand/25 ring-2 ring-brand" /> : null}
@@ -437,10 +473,9 @@ function FolderItem({
         )}
         {!open && badge.mentions ? (
           <Badge count={badge.mentions} size="sm" tone="danger" className="absolute -right-1 -bottom-1 ring-[3px] ring-surface" />
+        ) : inVoice ? (
+          <ActivityGlyph activity={{ voice: true, live: false, event: false }} />
         ) : null}
-        <span role="tooltip" className={TIP}>
-          {title}
-        </span>
       </button>
       {open
         ? spaces.map((s, i) => (
@@ -609,17 +644,24 @@ function FolderSettingsDialog({
 // Home and DMs
 // ---------------------------------------------------------------------------
 
-/** Home (DMs and Friends): the app mark; a red count of unread DMs. */
+/**
+ * Home (DMs and Friends): the app mark; a red count of unread DMs. On desktop, from elsewhere
+ * it goes back to the DM I had open there (or Friends); on Home, to Friends. Phones: the list.
+ */
 function HomeTile({ active }: { active: boolean }) {
   // Pending friend requests count on Home too (Discord).
   const unread = useUnreadChatsCount() + useIncomingFriendRequestCount();
+  const me = useAuth((s) => s.user?.id);
+  const last = useLastHome((s) => (s.userId === me ? s.path : null));
+  const desktop = useIsDesktop();
   return (
     <NavLink
-      to="/chats"
+      to={desktop && !active && last && isHomeRoute(last) ? last : '/chats'}
       aria-label={unread ? `Direct Messages, ${unread} unread` : 'Direct Messages'}
       aria-current={active ? 'page' : undefined}
       className="group/tile relative flex size-12 shrink-0 items-center justify-center outline-none"
       data-testid="rail-home"
+      data-rail-tip="Direct Messages"
     >
       <Pill active={active} />
       <span
@@ -631,9 +673,6 @@ function HomeTile({ active }: { active: boolean }) {
         <LogoMark size={30} />
       </span>
       {unread ? <Badge count={unread} size="sm" tone="danger" className="absolute -right-1 -bottom-1 ring-[3px] ring-surface" /> : null}
-      <span role="tooltip" className={TIP}>
-        Direct Messages
-      </span>
     </NavLink>
   );
 }
@@ -645,13 +684,11 @@ function UnreadDmTile({ chat }: { chat: ChatSummary }) {
       to={`/chats/${chat.id}`}
       aria-label={`${chatTitle(chat)}, ${chat.unreadCount || 'new'} unread`}
       className="group/tile relative flex size-12 shrink-0 items-center justify-center outline-none"
+      data-rail-tip={chatTitle(chat)}
     >
       <Pill active={false} unread />
       <ChatAvatar chat={chat} size={48} />
       {chat.unreadCount ? <Badge count={chat.unreadCount} size="sm" tone="danger" className="absolute -right-1 -bottom-1 ring-[3px] ring-surface" /> : null}
-      <span role="tooltip" className={TIP}>
-        {chatTitle(chat)}
-      </span>
     </NavLink>
   );
 }
@@ -667,12 +704,17 @@ const ACTION =
 function CreateTile({ line, onClick }: { line: boolean; onClick: () => void }) {
   const target = useDroppable({ id: 'rail-end', data: { kind: 'end', label: 'the end of the list' } satisfies RailDropData });
   return (
-    <button ref={target.setNodeRef} type="button" className={ACTION} aria-label="Create a Space" onClick={onClick} data-testid="create-space">
+    <button
+      ref={target.setNodeRef}
+      type="button"
+      className={ACTION}
+      aria-label="Create a Space"
+      onClick={onClick}
+      data-testid="create-space"
+      data-rail-tip="Create a Space"
+    >
       {line ? <RailLine side="before" /> : null}
       <Plus size={24} aria-hidden />
-      <span role="tooltip" className={TIP}>
-        Create a Space
-      </span>
     </button>
   );
 }
@@ -680,7 +722,9 @@ function CreateTile({ line, onClick }: { line: boolean; onClick: () => void }) {
 /**
  * The app-wide rail (Discord's server list): Home with unread DMs under it, my Spaces and
  * folders in my order (synced across my devices; drag to reorder, onto a Space to make a
- * folder, Alt+Shift+↑/↓ to move the focused one), then create / join.
+ * folder, Alt+Shift+↑/↓ to move the focused one), then create / join. It scrolls: a red pill
+ * on its top or bottom edge jumps to Spaces with new mentions out of view, and the tooltips
+ * float beside it (features/frame/RailTooltip.tsx) so they are never clipped.
  */
 export function SpaceRail() {
   const spaces = useSpaceList();
@@ -710,6 +754,8 @@ export function SpaceRail() {
   const [dragging, setDragging] = useState<RailDragData | null>(null);
   const [drop, setDrop] = useState<RailDrop | null>(null);
   const dropRef = useRef<RailDrop | null>(null);
+  const pills = useJumpPills();
+  const tip = useRailTooltip(!!dragging);
 
   /** Apply a change to my (normalised) layout; it shows at once and saves. */
   const commit = (change: (layout: RailEntry[]) => RailEntry[]) => {
@@ -758,62 +804,72 @@ export function SpaceRail() {
   return (
     <nav
       aria-label="Spaces"
-      className="group/rail lg:card-pane flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto overflow-x-visible bg-surface-2 py-3 lg:overflow-visible lg:bg-surface"
+      className="group/rail lg:card-pane relative flex w-[72px] shrink-0 flex-col bg-surface-2 lg:bg-surface"
       data-dragging={dragging ? 'true' : undefined}
+      {...tip.handlers}
     >
-      <HomeTile active={!inSpaces && !inDiscover} />
-      {unreadDms.map((c) => (
-        <UnreadDmTile key={c.id} chat={c} />
-      ))}
-      <div className="mx-auto h-0.5 w-8 shrink-0 rounded-full bg-line-strong" aria-hidden />
-      <DndContext
-        sensors={sensors}
-        collisionDetection={collision}
-        accessibility={dndAccessibility}
-        onDragStart={onDragStart}
-        onDragMove={onDragMove}
-        onDragEnd={onDragEnd}
-        onDragCancel={resetDrag}
+      <div
+        ref={pills.ref}
+        onScroll={tip.hide}
+        className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto py-3 scrollbar-none"
+        data-testid="rail-scroller"
       >
-        {items.map((item) =>
-          item.kind === 'space' ? (
-            <SpaceTile
-              key={item.space.id}
-              space={item.space}
-              active={item.space.id === activeSpaceId}
-              folderId={null}
-              line={lineFor(item.space.id)}
-              combine={drop?.kind === 'combine' && drop.spaceId === item.space.id}
-              onMove={moveBy}
-            />
-          ) : (
-            <FolderItem
-              key={item.folder.id}
-              item={item}
-              activeSpaceId={activeSpaceId}
-              open={!!openFolders[item.folder.id]}
-              drop={drop}
-              onMove={moveBy}
-              onEdit={setEditing}
-            />
-          ),
-        )}
-        <CreateTile line={drop?.kind === 'end'} onClick={() => setCreating(true)} />
-        <DragOverlay dropAnimation={null}>{dragging ? <RailDragPreview data={dragging} /> : null}</DragOverlay>
-      </DndContext>
-      <NavLink
-        to="/discover"
-        className={cn(ACTION, inDiscover && 'rounded-2xl! bg-success! text-on-brand!')}
-        aria-label="Explore Spaces"
-        aria-current={inDiscover ? 'page' : undefined}
-        data-testid="rail-discover"
-      >
-        <Pill active={inDiscover} />
-        <Compass size={24} aria-hidden />
-        <span role="tooltip" className={TIP}>
-          Explore Spaces
-        </span>
-      </NavLink>
+        <HomeTile active={!inSpaces && !inDiscover} />
+        {unreadDms.map((c) => (
+          <UnreadDmTile key={c.id} chat={c} />
+        ))}
+        <div className="mx-auto h-0.5 w-8 shrink-0 rounded-full bg-line-strong" aria-hidden />
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collision}
+          accessibility={dndAccessibility}
+          onDragStart={onDragStart}
+          onDragMove={onDragMove}
+          onDragEnd={onDragEnd}
+          onDragCancel={resetDrag}
+        >
+          {items.map((item) =>
+            item.kind === 'space' ? (
+              <SpaceTile
+                key={item.space.id}
+                space={item.space}
+                active={item.space.id === activeSpaceId}
+                folderId={null}
+                line={lineFor(item.space.id)}
+                combine={drop?.kind === 'combine' && drop.spaceId === item.space.id}
+                onMove={moveBy}
+              />
+            ) : (
+              <FolderItem
+                key={item.folder.id}
+                item={item}
+                activeSpaceId={activeSpaceId}
+                open={!!openFolders[item.folder.id]}
+                drop={drop}
+                onMove={moveBy}
+                onEdit={setEditing}
+              />
+            ),
+          )}
+          <CreateTile line={drop?.kind === 'end'} onClick={() => setCreating(true)} />
+          <DragOverlay dropAnimation={null}>{dragging ? <RailDragPreview data={dragging} /> : null}</DragOverlay>
+        </DndContext>
+        <NavLink
+          to="/discover"
+          className={cn(ACTION, inDiscover && 'rounded-2xl! bg-success! text-on-brand!')}
+          aria-label="Explore Spaces"
+          aria-current={inDiscover ? 'page' : undefined}
+          data-testid="rail-discover"
+          data-rail-tip="Explore Spaces"
+        >
+          <Pill active={inDiscover} />
+          <Compass size={24} aria-hidden />
+        </NavLink>
+      </div>
+      {/* Spaces with mentions scrolled out of view. */}
+      <JumpPill side="top" kind={pills.above} onJump={pills.jump} compact />
+      <JumpPill side="bottom" kind={pills.below} onJump={pills.jump} compact />
+      {tip.element}
       <CreateSpaceDialog open={creating} onClose={closeCreate} />
       {/* Onboarding and the welcome screen of the Space that opens. */}
       <CommunityGate />

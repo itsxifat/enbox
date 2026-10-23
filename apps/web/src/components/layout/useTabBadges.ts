@@ -1,6 +1,7 @@
 import { useChats, useUnreadChatsCount, useUnreadChannelsCount } from '@/stores/chats';
 import { useMissedCallsCount } from '@/features/calls';
 import { inboxMentionCount } from '@/features/inbox/lib';
+import { useDueReminderCount } from '@/features/bookmarks/store';
 import { useIncomingFriendRequestCount } from '@/stores/friends';
 import { useHasUnseenStatus } from '@/stores/status';
 import { useSpaces, useSpacesTabBadge } from '@/stores/spaces';
@@ -41,12 +42,14 @@ export function useTabBadges(): Partial<Record<BadgeKey, TabBadge>> {
   const channelsLoaded = useSpaces((s) => s.channelsLoaded);
   // A number: re-renders only when the count changes, not on every chat update.
   const mentions = useChats((s) => inboxMentionCount(s.byId, spaces, channelsLoaded));
+  // Fired reminders I haven't looked at count with the Inbox's mentions.
+  const reminders = useDueReminderCount();
   const updates = unseenStatus || unreadChannels ? { dot: true } : undefined;
   const you = requests + missedCalls;
   return {
     servers,
     messages: loaded && unread ? { count: unread } : undefined,
-    notifications: mentions ? { count: mentions } : undefined,
+    notifications: mentions + reminders ? { count: mentions + reminders } : undefined,
     you: you
       ? {
           count: you,

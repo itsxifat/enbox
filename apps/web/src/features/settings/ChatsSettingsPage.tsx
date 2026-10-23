@@ -1,4 +1,4 @@
-import { CaseSensitive, Check, CodeXml, CornerDownLeft, Link2, Palette, Sparkles, Speech, Wallpaper, Zap } from 'lucide-react';
+import { CaseSensitive, Check, CodeXml, CornerDownLeft, Link2, Palette, Smile, Sparkles, Speech, Wallpaper, Zap } from 'lucide-react';
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { stopTts } from '@/features/tts/tts';
 import { ChatPreview } from '@/features/appearance/ChatPreview';
@@ -15,9 +15,17 @@ import {
 import { CHAT_THEME_PRESET_DEFS, WALLPAPER_PRESET_DEFS } from '@/features/appearance/presets';
 import { useDeviceAppearance } from '@/features/appearance/useChatAppearance';
 import { cn } from '@/lib/cn';
-import { FONT_SIZES, useUi, type FontSize, type ThemePref, type ThemeVariant } from '@/stores/ui';
+import { useUi, type ThemePref, type ThemeVariant } from '@/stores/ui';
 import { WALLPAPER_DIM_MAX } from '@enbox/shared';
 import { SettingsGroup, SettingsRow, SettingsScroller, SwitchRow } from './ui';
+import {
+  AppThemePicker,
+  ChatFontScaling,
+  MessageDisplayPicker,
+  SyncPreferencesRow,
+  UiDensityPicker,
+  ZoomLevel,
+} from './appearance/DisplaySettings';
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'system', label: 'Sync with OS' },
@@ -114,60 +122,35 @@ function ThemePicker() {
   );
 }
 
-function FontSizePicker() {
-  const fontSize = useUi((s) => s.prefs.fontSize);
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Chat text size"
-      className="mx-4 my-4 flex rounded-full bg-surface-2 p-1 lg:mx-5"
-    >
-      {(Object.keys(FONT_SIZES) as FontSize[]).map((f) => {
-        const selected = fontSize === f;
-        return (
-          <button
-            key={f}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => useUi.getState().setPref('fontSize', f)}
-            className={cn(
-              'h-9 flex-1 rounded-full font-medium transition-colors outline-none focus-visible:outline-2 focus-visible:outline-brand',
-              selected ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg',
-            )}
-            style={{ fontSize: FONT_SIZES[f].px - 1 }}
-          >
-            {FONT_SIZES[f].label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 /** Live preview of the device appearance (theme preset, wallpaper, bubbles, text size). */
 function DevicePreview() {
   const appearance = useDeviceAppearance();
   return <ChatPreview appearance={appearance} className="mx-4 mt-4 min-h-28 lg:mx-5" />;
 }
 
-/** Settings → Chats: theme, wallpaper, animations, text size, enter to send, link previews, text-to-speech (device preferences). */
+/**
+ * Settings → Chats: theme and colour theme (sync across clients), wallpaper, animations, message
+ * display, chat font scaling, zoom, UI density, enter to send, link previews, text-to-speech
+ * (device preferences; the display controls live in ./appearance/DisplaySettings.tsx).
+ */
 export function ChatsSettingsPage() {
   const prefs = useUi((s) => s.prefs);
   return (
     <SettingsScroller>
       <SettingsGroup title="Theme">
         <ThemePicker />
+        <AppThemePicker />
         <SettingsRow
           icon={Palette}
           title="Chat theme"
           description={`${CHAT_THEME_PRESET_DEFS[prefs.chatTheme].label} · ${BUBBLE_STYLE_LABELS[prefs.bubbleStyle]} bubbles`}
           to="/settings/chats/theme"
         />
+        <SyncPreferencesRow />
       </SettingsGroup>
       <SettingsGroup
         title="Wallpaper"
-        footer="Theme, wallpaper and text size apply on this device. A chat's own theme (from its menu) comes first."
+        footer="The wallpaper applies on this device. A chat's own theme (from its menu) comes first."
       >
         <DevicePreview />
         <SettingsRow
@@ -185,8 +168,23 @@ export function ChatsSettingsPage() {
           to="/settings/chats/animations"
         />
       </SettingsGroup>
-      <SettingsGroup title="Chat text size">
-        <FontSizePicker />
+      <SettingsGroup
+        title="Message display"
+        footer="Compact puts each message on one line, after its time and name. It shows messages as rows, so choosing it sets your bubble style to Cozy."
+      >
+        <MessageDisplayPicker />
+      </SettingsGroup>
+      <SettingsGroup title="Chat font scaling">
+        <ChatFontScaling />
+      </SettingsGroup>
+      <SettingsGroup title="Zoom level">
+        <ZoomLevel />
+      </SettingsGroup>
+      <SettingsGroup
+        title="UI density"
+        footer="How tightly the channel, direct message and member lists are packed, and the space between message groups."
+      >
+        <UiDensityPicker />
       </SettingsGroup>
       <SettingsGroup title="Chat settings">
         <SwitchRow
@@ -202,6 +200,13 @@ export function ChatsSettingsPage() {
           description="Show previews and players for links in messages. Enbox fetches previews, so sites never see you; players load only when you press play."
           checked={prefs.linkPreviews}
           onChange={(v) => useUi.getState().setPref('linkPreviews', v)}
+        />
+        <SwitchRow
+          icon={Smile}
+          title="Convert emoticons to emoji"
+          description="When you send a message, emoticons like :) become emoji like 🙂"
+          checked={prefs.emoticonConversion}
+          onChange={(v) => useUi.getState().setPref('emoticonConversion', v)}
         />
       </SettingsGroup>
       <SettingsGroup title="Text-to-speech">

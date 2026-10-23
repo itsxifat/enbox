@@ -9,6 +9,8 @@ import { parse } from '../../lib/validate.js';
 import { isForeignKeyViolation } from '../auth/service.js';
 // Registers the domain-event listeners that send pushes (message, dismiss, call, call_cancel).
 import './notifications.js';
+// …and the reaction pushes.
+import './reactionNotifications.js';
 
 /** A user keeps at most this many subscriptions (one per session/device); the oldest are dropped. */
 export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;

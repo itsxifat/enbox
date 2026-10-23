@@ -15,6 +15,7 @@ import {
   MAX_CAPTION_LENGTH,
   MESSAGE_FLAGS,
   PERM,
+  SPACE_MESSAGE_MAX_LENGTH,
   USER_RATE_LIMITS,
   canDeleteForEveryone,
   canEditMessage,
@@ -197,13 +198,24 @@ function pingsRepliedAuthor(type: ChatType, flag: boolean | undefined): boolean 
 }
 
 /**
+ * Space chats (threads included): text and captions up to SPACE_MESSAGE_MAX_LENGTH, sent or
+ * edited (DMs and groups keep MAX_MESSAGE_LENGTH; webhooks and system messages don't pass here).
+ */
+function assertSpaceTextLength(type: ChatType, text: string | null | undefined): void {
+  if (isSpaceChatType(type) && text && text.length > SPACE_MESSAGE_MAX_LENGTH)
+    throw badRequest(`Messages in Spaces are limited to ${SPACE_MESSAGE_MAX_LENGTH} characters`);
+}
+
+/**
  * `POST /chats/:chatId/messages` (docs "Send"): per-user rate limit; active member (404 /
  * 403 not_member) — an existing (chat, sender, clientId) returns the original message (200,
  * nothing written or emitted); `canSend` (403 blocked / forbidden); media uploaded by me with
  * `kind === type`, plus up to 9 more files with alt text (`mediaAttachmentsOf`); contact cards
  * filled server-side; polls with fresh stable option ids;
- * reply targets (same chat or reply privately) and status replies validated. The rest (seq,
- * expiry, mentions, withheld recipients, unhide, marks, fan-out) is `createMessage`.
+ * reply targets (same chat or reply privately) and status replies validated; Space chats cap
+ * text and captions at SPACE_MESSAGE_MAX_LENGTH (400); `silent` sets MESSAGE_FLAGS.SILENT.
+ * The rest (seq, expiry, mentions, withheld recipients, unhide, marks, fan-out) is
+ * `createMessage`.
  */
 export async function sendMessage(
   me: string,
@@ -228,6 +240,7 @@ export async function sendMessage(
       .limit(1);
     if (existing) return { row: existing, created: false };
     assertCanSend(access);
+    assertSpaceTextLength(access.chat.type, 'text' in body ? body.text : null);
     // Space channels: attach/poll bits, slowmode, and which @everyone/@role mentions count.
     // A sticker is not a file (no ATTACH_FILES): checked like text, its own rule is below.
     const spaceMentions = access.space
@@ -282,8 +295,10 @@ export async function sendMessage(
     }
     // Space channels: other Spaces' custom emoji need USE_EXTERNAL_EMOJI (else `:name:`).
     if (input.text) input.text = await gateExternalEmoji(tx, access, input.text);
-    // Flags: /tts (read aloud), and no embeds from a Space channel member without EMBED_LINKS.
+    // Flags: /tts (read aloud), @silent (no push or desktop notification), and no embeds from
+    // a Space channel member without EMBED_LINKS.
     let flags = body.type === 'text' && body.tts ? MESSAGE_FLAGS.TTS : 0;
+    if (body.silent) flags |= MESSAGE_FLAGS.SILENT;
     if (access.space && input.text && !hasPerm(access.space.bits, PERM.EMBED_LINKS))
       flags |= MESSAGE_FLAGS.SUPPRESS_EMBEDS;
     if (flags) input.flags = flags;
@@ -535,8 +550,9 @@ const EDITABLE_TYPES = new Set<MessageRow['type']>([
 /**
  * `PATCH /messages/:messageId` (docs "Edit"): text and captions only (400), not deleted (403),
  * the sender — any channel admin for channel posts — who can still send (403), within
- * EDIT_WINDOW_MS (410). Text messages need text; captions may be emptied (null). Mentions
- * re-derived, `edited_at` set. Unchanged text → no-op. Events: `message:updated` → room
+ * EDIT_WINDOW_MS (410). Text messages need text; captions may be emptied (null); Space chats
+ * keep SPACE_MESSAGE_MAX_LENGTH (400). Mentions re-derived, `edited_at` set. Unchanged text →
+ * no-op. Events: `message:updated` → room
  * (direct chat whose peer blocked me: not to the peer — docs "Blocking").
  */
 export async function editMessage(me: string, messageId: string, text: string): Promise<Message> {
@@ -568,6 +584,7 @@ export async function editMessage(me: string, messageId: string, text: string): 
         throw badRequest(`text: Captions are limited to ${MAX_CAPTION_LENGTH} characters`);
       next = text || null;
     }
+    assertSpaceTextLength(access.chat.type, next);
     if (next) next = await gateExternalEmoji(tx, access, next);
     if (next === message.text) return message;
     // Space channels: AutoMod re-checks edits (blocked → the edit is refused).

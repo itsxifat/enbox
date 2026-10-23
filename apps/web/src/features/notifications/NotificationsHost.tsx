@@ -1,7 +1,18 @@
 /**
- * App-wide notification surfaces (everyday wave, agent 6): in-app message banners, due
- * reminders, and the "enable notifications" banner.
+ * App-wide notification surfaces, mounted once in AppShell: the "enable desktop notifications"
+ * bar, the in-app message banners (top right) and the Remind Me custom time picker. Due
+ * reminders are toasts (./reminderToast.ts).
  */
+import { ReminderDialogHost } from '@/features/bookmarks/ReminderDialog';
+import { MessageBanners } from './MessageBanners';
+import { PermissionBanner } from './PermissionBanner';
+
 export function NotificationsHost() {
-  return null;
+  return (
+    <>
+      <PermissionBanner />
+      <MessageBanners />
+      <ReminderDialogHost />
+    </>
+  );
 }

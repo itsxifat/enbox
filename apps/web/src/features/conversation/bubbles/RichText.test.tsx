@@ -1,6 +1,9 @@
-/** ```ansi code blocks: Discord's colour codes styled, the codes hidden, the text never markup. */
+/**
+ * ```ansi code blocks: Discord's colour codes styled, the codes hidden, the text never markup.
+ * Other languages are highlighted (bubbles/code, highlight.test.tsx), plain text until then.
+ */
 import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { RichText } from './RichText';
 
 const E = '\u001b';
@@ -21,10 +24,12 @@ describe('RichText ```ansi blocks', () => {
     expect(boxed).toHaveStyle({ backgroundColor: '#6c71c4', color: '#fdf6e3' });
   });
 
-  it('leaves other code blocks as they are', () => {
+  it('other languages are plain text until highlight.js has loaded them', async () => {
     const { container } = render(<RichText text={'```js\nconst a = 1;\n```'} />);
-    const code = container.querySelector('pre[data-lang="js"] code')!;
-    expect(code.textContent).toBe('const a = 1;');
-    expect(code.querySelector('span')).toBeNull();
+    const code = () => container.querySelector('pre[data-lang="js"] code')!;
+    expect(code().textContent).toBe('const a = 1;');
+    expect(code().querySelector('span')).toBeNull();
+    await waitFor(() => expect(code().querySelector('.hljs-keyword')).toHaveTextContent('const'));
+    expect(code().textContent).toBe('const a = 1;');
   });
 });

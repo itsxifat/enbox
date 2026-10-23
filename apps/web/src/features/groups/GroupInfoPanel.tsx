@@ -41,6 +41,7 @@ import { Button, IconButton, Switch, confirm, toast } from '@/components/ui';
 import { ChatThemeSheet } from '@/features/appearance/ChatThemeSheet';
 import { chatThemeLabel } from '@/features/appearance/presets';
 import type { InfoPanelProps } from '@/features/contacts/ContactInfoPanel';
+import { mutedUntilText } from '@/features/spaces/sidebar';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { formatShortDate } from '@/lib/format';
 import { getMyId } from '@/stores/auth';
@@ -457,13 +458,7 @@ function GroupInfoMain({
             <InfoRow
               icon={Bell}
               label="Mute notifications"
-              description={
-                muted
-                  ? chat.mutedUntil && chat.mutedUntil.startsWith('9999')
-                    ? 'Muted always'
-                    : `Muted until ${formatShortDate(chat.mutedUntil!)}`
-                  : undefined
-              }
+              description={(muted && mutedUntilText(chat.mutedUntil)) || undefined}
               trailing={
                 <Switch
                   aria-label="Mute notifications"

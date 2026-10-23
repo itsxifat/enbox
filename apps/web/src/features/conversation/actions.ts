@@ -22,6 +22,7 @@ import { mentionName } from '@/features/chats/preview';
 import { applyReaction, applyVote, nextVoteSelection } from './lib/optimistic';
 import { cancelUpload, retryMediaSend } from './lib/sendMedia';
 import { useConversationUi } from './state';
+import { channelMentionName } from '@/features/conversation/channelMention/names';
 
 export function isAnonymousChat(chat: Pick<ChatSummary, 'type'>): boolean {
   return chat.type === 'channel';
@@ -149,7 +150,7 @@ export function canInfo(chat: ChatSummary, m: ClientMessage): boolean {
 
 export function copyText(m: ClientMessage): string | null {
   if (m.deletedAt || !m.text) return null;
-  return renderMentions(m.text, mentionName);
+  return renderMentions(m.text, mentionName, undefined, channelMentionName);
 }
 
 export async function copyMessages(messages: ClientMessage[]): Promise<void> {

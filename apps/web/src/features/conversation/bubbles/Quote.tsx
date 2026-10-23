@@ -18,6 +18,7 @@ import { useUserName, useUsers } from '@/stores/users';
 import { mentionName, typeIcon } from '@/features/chats/preview';
 import { isSpoilerName } from '../dropzone/files';
 import { senderColor } from '../lib/senderColor';
+import { channelMentionName } from '@/features/conversation/channelMention/names';
 
 function QuoteFrame({
   color,
@@ -69,7 +70,7 @@ function QuoteFrame({
 
 function quoteText(p: MessagePreview): string {
   if (p.deleted) return 'This message was deleted';
-  const text = p.text ? renderMentions(p.text, mentionName).replace(/\s+/g, ' ').trim() : '';
+  const text = p.text ? renderMentions(p.text, mentionName, undefined, channelMentionName).replace(/\s+/g, ' ').trim() : '';
   if (text) return text;
   switch (p.type) {
     case 'image':

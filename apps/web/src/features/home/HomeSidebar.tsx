@@ -10,7 +10,7 @@ import { ServerTagPill } from '@/components/cosmetics/TagPill/ServerTagPill';
 import { CallsIcon, UpdatesIcon } from '@/components/icons';
 import { UserPanel } from '@/components/layout/UserPanel';
 import { useTabBadges } from '@/components/layout/useTabBadges';
-import { Badge, IconButton, Menu, type IconType, type MenuAnchor } from '@/components/ui';
+import { Badge, IconButton, Menu, contextMenuAnchor, type IconType, type MenuAnchor } from '@/components/ui';
 import { VirtualList, VirtualListItem } from '@/features/a11y/lists';
 import { chatMenuItems, setArchived } from '@/features/chats/chatActions';
 import { leaveGroupDm } from '@/features/groupDms/actions';
@@ -20,11 +20,13 @@ import { groupDmRowMenu } from '@/features/groupDms/menu';
 import type { SelectFriendsMode } from '@/features/groupDms/SelectFriendsPopover';
 import { useChatTitle } from '@/features/groupDms/title';
 import { cn } from '@/lib/cn';
-import { isChatUnread, useArchivedCounts, useSortedChats } from '@/stores/chats';
+import { isChatUnread, useArchivedCounts } from '@/stores/chats';
 import { useIncomingFriendRequestCount } from '@/stores/friends';
 import { useQuickSwitcher } from '@/stores/quickSwitcher';
 import { usePendingRequestCount } from '@/stores/requests';
 import { useUi } from '@/stores/ui';
+import { useDmList } from './dmList';
+import { DmRowMenu } from './dmMenu';
 
 const CREATE_DM: SelectFriendsMode = { kind: 'create' };
 
@@ -74,6 +76,11 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
     void leaveGroupDm(chat, title).then((ok) => {
       if (ok) onLeft();
     });
+  // Discord's "close DM": hides it from the list (archives it; a new message brings it back).
+  const closeDm = () => {
+    void setArchived(chat, true);
+    onLeft();
+  };
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const unread = isChatUnread(chat);
   const note = chat.type === 'direct' ? activePresenceNote(chat.peer?.presenceNote ?? null, Date.now()) : null;
@@ -96,7 +103,8 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
         data-animate-avatars
         onContextMenu={(e) => {
           e.preventDefault();
-          setMenu({ x: e.clientX, y: e.clientY });
+          // Shift+F10 / the Menu key: under the row, not at the screen's corner.
+          setMenu(contextMenuAnchor(e));
         }}
       >
         {/* Behind the row's content, which is positioned (relative) to paint over it. */}
@@ -131,28 +139,31 @@ export const DmRow = memo(function DmRow({ chat, active }: { chat: ChatSummary; 
           </span>
         ) : null}
       </NavLink>
-      {/* Discord's "close DM": hides it from the list (archives it; a new message brings it back). */}
       <span className="absolute top-1/2 right-3 -translate-y-1/2 opacity-0 group-hover/dm:opacity-100 focus-within:opacity-100">
         {groupDm ? (
           <IconButton icon={X} label={`Leave ${title}`} size="xs" variant="ghost" onClick={leave} />
         ) : (
-          <IconButton icon={X} label={`Close ${title}`} size="xs" variant="ghost" onClick={() => void setArchived(chat, true)} />
+          <IconButton icon={X} label={`Close ${title}`} size="xs" variant="ghost" onClick={closeDm} />
         )}
       </span>
-      {/* Right-click: Discord's DM menu (read state, mute, pin, close, delete; group DMs: their own). */}
-      <Menu
-        open={!!menu}
-        onClose={() => setMenu(null)}
-        anchor={menu}
-        aria-label={`${title} menu`}
-        items={
-          !menu
-            ? []
-            : groupDm
-              ? groupDmRowMenu(chat, { title, devMode, onLeft })
-              : chatMenuItems(chat, { onDeleted: () => void navigate('/chats', { replace: true }) })
-        }
-      />
+      {/* Right-click: Discord's DM row menu (the person's items, mute, ids); group DMs: their own. */}
+      {menu && chat.type === 'direct' ? (
+        <DmRowMenu chat={chat} anchor={menu} onClose={() => setMenu(null)} onCloseDm={closeDm} />
+      ) : (
+        <Menu
+          open={!!menu}
+          onClose={() => setMenu(null)}
+          anchor={menu}
+          aria-label={`${title} menu`}
+          items={
+            !menu
+              ? []
+              : groupDm
+                ? groupDmRowMenu(chat, { title, devMode, onLeft })
+                : chatMenuItems(chat, { onDeleted: () => void navigate('/chats', { replace: true }) })
+          }
+        />
+      )}
     </div>
   );
 });
@@ -231,13 +242,13 @@ const COMPONENTS = {
 
 /**
  * Home (Discord's DM sidebar, desktop): find-or-start, Friends / Updates / Calls / Message
- * Requests / Starred / Archived, then every direct and group chat by recent activity
- * (virtualised), and the user panel at the bottom. "+" opens Select Friends (a DM, or a group
+ * Requests / Starred / Archived, then every direct and group chat by recent activity alone
+ * (virtualised; no pinned DMs), and the user panel at the bottom. "+" opens Select Friends (a DM, or a group
  * DM with several). The links and the chats are a `nav`; the chats a list named by its label.
  */
 export function HomeSidebar() {
   const { chatId } = useParams<{ chatId?: string }>();
-  const chats = useSortedChats();
+  const chats = useDmList();
   const badges = useTabBadges();
   const archived = useArchivedCounts();
   const [createAt, setCreateAt] = useState<HTMLElement | null>(null);

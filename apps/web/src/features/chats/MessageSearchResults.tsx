@@ -23,6 +23,7 @@ import { splitHighlight } from '@/features/conversation/lib/richText';
 import { chatPath } from './links';
 import { PreviewLine, mentionName, previewParts } from './preview';
 import { IN_APP_NAV } from '@/components/layout/navigation';
+import { channelMentionName } from '@/features/conversation/channelMention/names';
 
 /** Cut long texts around the first match so it stays visible in one line. */
 export function snippetAround(text: string, query: string, before = 24): string {
@@ -57,7 +58,7 @@ function ResultRow({ r, query }: { r: MessageSearchResult; query: string }) {
     'id' | 'type' | 'name' | 'avatarUrl' | 'peer' | 'isAnnouncement' | 'communityId'
   > = full ?? { ...r.chat, isAnnouncement: false, communityId: null };
   const m = r.message;
-  const text = m.text ? renderMentions(m.text, mentionName) : '';
+  const text = m.text ? renderMentions(m.text, mentionName, undefined, channelMentionName) : '';
   const sender =
     m.senderId === me ? 'You' : chat.type === 'group' && m.senderId ? nameOf(m.senderId) : null;
   return (

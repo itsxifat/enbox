@@ -370,6 +370,15 @@ async function publish(tx: Tx, fx: Effects, target: Target, deltas: Delta[]): Pr
       ...(d.burst ? { burst: true } : {}),
     };
     fx.toChat(chat.id, d.event, payload, { exceptUserIds });
+    // Reaction notifications (push/reactionNotifications.ts).
+    if (d.event === 'message:reaction-add')
+      fx.domain('reaction.added', {
+        message: target.message,
+        chat,
+        userId: d.userId,
+        emoji: d.emoji,
+        burst: d.burst,
+      });
   }
   legacyMessageUpdated(fx, target, exceptUserIds);
 }

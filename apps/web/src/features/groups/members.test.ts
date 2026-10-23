@@ -41,12 +41,20 @@ describe('member lists', () => {
 });
 
 describe('mute durations', () => {
-  it('maps choices to ISO times', () => {
+  it('offers Discord’s durations and maps them to ISO times', () => {
     const now = Date.parse('2025-03-01T10:00:00.000Z');
-    expect(muteUntil('8h', now)).toBe('2025-03-01T18:00:00.000Z');
-    expect(muteUntil('1w', now)).toBe('2025-03-08T10:00:00.000Z');
+    expect(MUTE_OPTIONS.map((o) => [o.value, o.label])).toEqual([
+      ['15m', 'For 15 minutes'],
+      ['60m', 'For 1 hour'],
+      ['180m', 'For 3 hours'],
+      ['480m', 'For 8 hours'],
+      ['1440m', 'For 24 hours'],
+      ['always', 'Until I turn it back on'],
+    ]);
+    expect(muteUntil('15m', now)).toBe('2025-03-01T10:15:00.000Z');
+    expect(muteUntil('480m', now)).toBe('2025-03-01T18:00:00.000Z');
+    expect(muteUntil('1440m', now)).toBe('2025-03-02T10:00:00.000Z');
     expect(muteUntil('always', now)).toMatch(/^9999-/);
-    expect(MUTE_OPTIONS.map((o) => o.value)).toEqual(['8h', '1w', 'always']);
   });
 });
 

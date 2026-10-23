@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxMention, SpaceChannelInfo } from '@enbox/shared';
 import { makeSpace } from '@/features/spaces/testUtils';
+import { api } from '@/lib/api';
+import { useChats } from '@/stores/chats';
 import { DEFAULT_INBOX_FILTERS, mentionsQuery, mentionsQueryKey } from '@/stores/inbox';
+import { useSidePanel } from '@/stores/sidePanel';
 import { makeChat, makeMessage } from '@/test/factories';
-import { formatInboxTime, groupMentions, inboxMentionCount, mentionPath, spaceIdOfPath, unreadGroups } from './lib';
+import { formatInboxTime, groupMentions, inboxMentionCount, jumpToMessage, mentionPath, spaceIdOfPath, unreadGroups } from './lib';
 
 const info = (spaceId: string): SpaceChannelInfo => ({
   spaceId,
@@ -113,5 +116,41 @@ describe('formatInboxTime', () => {
     expect(formatInboxTime(new Date(2026, 9, 23, 9, 5).toISOString(), now)).toMatch(/^Today at /);
     expect(formatInboxTime(new Date(2026, 9, 22, 9, 5).toISOString(), now)).toMatch(/^Yesterday at /);
     expect(formatInboxTime(new Date(2026, 8, 2, 9, 5).toISOString(), now)).not.toMatch(/Today|Yesterday/);
+  });
+});
+
+describe('jumpToMessage', () => {
+  afterEach(() => {
+    useChats.setState({ byId: {} });
+    useSidePanel.setState({ panel: null });
+  });
+
+  it('opens a thread beside its channel, anything else at the message; fetches a chat it lacks', async () => {
+    const thread = makeChat({
+      id: 't1',
+      type: 'space_thread',
+      space: info('s1'),
+      thread: {
+        parentId: 'c1',
+        starterMessageId: null,
+        ownerId: null,
+        archived: false,
+        locked: false,
+        autoArchiveMinutes: 1440,
+        messageCount: 2,
+      },
+    });
+    useChats.getState().upsertChat(thread);
+    const go = vi.fn();
+    await jumpToMessage('t1', { id: 'm1', seq: 4 }, go);
+    expect(go).toHaveBeenCalledWith('/spaces/s1/c1');
+    await vi.waitFor(() =>
+      expect(useSidePanel.getState().panel).toEqual({ kind: 'thread', threadId: 't1', parentId: 'c1' }),
+    );
+
+    const get = vi.spyOn(api, 'get').mockResolvedValue(makeChat({ id: 'g7', type: 'group' }));
+    await jumpToMessage('g7', { id: 'm2', seq: 6 }, go);
+    expect(get).toHaveBeenCalledWith('/api/chats/g7');
+    expect(go).toHaveBeenLastCalledWith('/chats/g7?m=6&mid=m2');
   });
 });

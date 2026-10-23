@@ -60,6 +60,8 @@ export interface BusEvents {
    * held). Carries in-memory File handles: never serialised.
    */
   'composer:files': { chatId: ID; files: File[]; direct: boolean };
+  /** Insert a mention of someone into that chat's composer (the user menu's Mention). */
+  'composer:mention': { chatId: ID; userId: ID; name: string };
 
   // --- Navigation ---
   /** Ask the router to navigate (used by notifications / service worker clicks). */

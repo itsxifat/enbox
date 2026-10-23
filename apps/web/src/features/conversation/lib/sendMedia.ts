@@ -240,6 +240,8 @@ export interface AttachmentLead {
   replyTo?: MessagePreview | null;
   /** "@ OFF" on a reply: don't mention the replied author. */
   mentionRepliedAuthor?: boolean;
+  /** @silent: no push or desktop notification. */
+  silent?: boolean;
 }
 
 async function prepareAttachment(f: AttachmentFile): Promise<MediaSendInput> {
@@ -339,6 +341,7 @@ export function sendAttachments(
     text: lead.caption?.trim() || undefined,
     replyToId: lead.replyToId,
     ...(lead.mentionRepliedAuthor === false ? { mentionRepliedAuthor: false } : {}),
+    ...(lead.silent ? { silent: true } : {}),
   };
   // Like the server: `attachments` only for several files or some alt text.
   const attachments: MessageAttachment[] | undefined =

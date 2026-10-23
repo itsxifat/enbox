@@ -5,6 +5,7 @@
  */
 import {
   MUTE_FOREVER_ISO,
+  SPACE_MUTE_DURATIONS,
   type AddMembersResult,
   type ChatMember,
   type ChatSummary,
@@ -95,18 +96,19 @@ export async function fetchMembers(chatId: ID, signal?: AbortSignal): Promise<Ch
   return list;
 }
 
-export const MUTE_OPTIONS = [
-  { value: '8h', label: '8 hours', ms: 8 * 60 * 60 * 1000 },
-  { value: '1w', label: '1 week', ms: 7 * 24 * 60 * 60 * 1000 },
-  { value: 'always', label: 'Always', ms: null },
-] as const;
+/** The mute dialog's choices: Discord's durations (SPACE_MUTE_DURATIONS), `15m` … `always`. */
+export const MUTE_OPTIONS = SPACE_MUTE_DURATIONS.map((d) => ({
+  value: d.ms ? `${d.ms / 60_000}m` : 'always',
+  label: d.label,
+  ms: d.ms || null,
+}));
 
-export type MuteChoice = (typeof MUTE_OPTIONS)[number]['value'];
+export type MuteChoice = string;
 
 /** ISO time to mute until for a choice (`always` = MUTE_FOREVER_ISO). */
 export function muteUntil(choice: MuteChoice, now: number = Date.now()): string {
-  const opt = MUTE_OPTIONS.find((o) => o.value === choice)!;
-  return opt.ms === null ? MUTE_FOREVER_ISO : new Date(now + opt.ms).toISOString();
+  const ms = MUTE_OPTIONS.find((o) => o.value === choice)?.ms ?? null;
+  return ms === null ? MUTE_FOREVER_ISO : new Date(now + ms).toISOString();
 }
 
 export async function setMuted(chatId: ID, mutedUntil: string | null): Promise<ChatSummary> {
