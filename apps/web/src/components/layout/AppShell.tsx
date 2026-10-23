@@ -16,6 +16,7 @@ import { BottomTabs } from './BottomTabs';
 import { ConnectionBanner } from './ConnectionBanner';
 import { SpaceRail } from '@/features/spaces/SpaceRail';
 import { HomeSidebar } from '@/features/home/HomeSidebar';
+import { ReportDialogHost } from '@/features/safety/ReportDialogHost';
 
 const CallOverlay = lazyNamed(() => import('@/features/calls/CallOverlay'), 'CallOverlay');
 const ProfileCardHost = lazyNamed(
@@ -78,6 +79,7 @@ export function AppShell() {
       >
         {/* Tab title, favicon and app badges, Streamer Mode (its banner sits here). */}
         <AppChrome />
+        <ReportDialogHost />
         <ConnectionBanner />
         <UNSAFE_LocationContext.Provider value={base.location}>
           <UNSAFE_RouteContext.Provider value={base.route}>

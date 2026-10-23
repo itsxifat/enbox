@@ -19,6 +19,8 @@ import type { NameStyle, RoleColorStyle } from './cosmetics.js';
 import type { MessageThreadRef, ThreadInfo } from './social.js';
 import type { ForumInfo } from './community.js';
 import type { MessageAttachment, MessageStickerRef } from './expressions.js';
+import type { MessageAuthorOverride, MessageEmbed } from './integrations.js';
+import type { ChatRequestState, DmPolicy } from './safety.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -75,6 +77,12 @@ export interface UserSettings {
   notificationPreviews: boolean;
   /** Who may send me friend requests: anyone, people who share a Space with me, or no one. */
   friendRequestsFrom: 'everyone' | 'spaces' | 'nobody';
+  /** Who may start a DM with me (existing chats are not affected). */
+  whoCanDm: DmPolicy;
+  /** DMs from people who aren't my friends land in Message Requests first. */
+  messageRequests: boolean;
+  /** Allow DMs from members of Spaces I join from now on (`SpaceMemberSelf.allowDms`). */
+  allowSpaceDms: boolean;
 }
 
 /**
@@ -524,6 +532,10 @@ export interface ChatSummary {
   space: SpaceChannelInfo | null;
   /** A group DM (no admins; up to GROUP_DM_MAX_MEMBERS). */
   isGroupDm?: boolean;
+  /** Group DMs: the other active members, owner first (names an unnamed group DM). */
+  recipients?: UserPublic[];
+  /** A message request for me (direct chats; absent = an ordinary chat). */
+  request?: ChatRequestState | null;
   /** Threads (`space_thread`): parent, starter message, archive state. */
   thread?: ThreadInfo | null;
   /**
@@ -776,6 +788,12 @@ export interface Message {
   attachments?: MessageAttachment[];
   /** A sticker message (type `image`, `media` = the sticker's picture). */
   sticker?: MessageStickerRef | null;
+  /** No user sent it (`senderId` null): a webhook, or a crosspost from a followed channel. */
+  authorOverride?: MessageAuthorOverride | null;
+  /** Rich embeds (webhooks; absent = none). */
+  embeds?: MessageEmbed[];
+  /** MESSAGE_FLAGS bits (absent = 0). */
+  flags?: number;
   /** A thread was started from this message (Space text channels). */
   thread?: MessageThreadRef | null;
 }
@@ -837,6 +855,10 @@ export interface SpaceChannelInfo {
   /** Forum channels: tags and options. */
   forum?: ForumInfo | null;
   overwrites: PermissionOverwrite[];
+  /** Text channels: an announcement channel (Publish, Follow). */
+  isNews?: boolean;
+  /** Voice and Stage channels: what's going on (set by people in it; cleared when it empties). */
+  voiceStatus?: string | null;
 }
 
 export interface SpaceRole {
@@ -908,6 +930,8 @@ export interface SpaceMemberSelf extends SpaceProfile {
   hideMutedChannels: boolean;
   /** Finished the Space's onboarding; null = still to do (when the Space has one). */
   onboardedAt?: ISODate | null;
+  /** Members of this Space may DM me (absent = true). */
+  allowDms?: boolean;
 }
 
 /**

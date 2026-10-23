@@ -25,9 +25,11 @@ import { discoverRoutes } from '@/features/discover/routes';
 import { groupsRoutes } from '@/features/groups/routes';
 import { invitesRoutes } from '@/features/invites/routes';
 import { profileRoutes } from '@/features/profile/routes';
+import { requestsRoutes } from '@/features/requests/routes';
 import { settingsRoutes } from '@/features/settings/routes';
 import { youRoutes } from '@/features/you/routes';
 import { spacesRoutes } from '@/features/spaces/routes';
+import { templatesRoutes } from '@/features/templates/routes';
 import { updatesRoutes } from '@/features/updates/routes';
 import { PublicOnly, RequireAuth } from './guards';
 import { RootLayout } from './RootLayout';
@@ -59,6 +61,8 @@ export const routes: RouteObject[] = [
               ...invitesRoutes,
               ...discoverRoutes,
               ...profileRoutes,
+              ...requestsRoutes,
+              ...templatesRoutes,
               { path: '*', element: <NotFound /> },
             ],
           },

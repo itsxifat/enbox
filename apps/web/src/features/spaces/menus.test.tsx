@@ -56,10 +56,12 @@ describe('Space menus', () => {
       'Invite People',
       '—',
       'Notification Settings',
+      'Privacy Settings',
       '—',
       'Edit Per-server Profile',
       'Hide Muted Channels [ ]',
       '—',
+      'Report Space',
       'Leave Space',
     ]);
     expect(rail[0]).toBe('Mark As Read');
@@ -81,10 +83,12 @@ describe('Space menus', () => {
     expect(header).toContain('Hide Muted Channels [x]');
     expect(rail).toContain('Unmute Space');
     expect(rail.find((l) => l.startsWith('Space Settings ▸'))).toBe(
-      'Space Settings ▸ Overview | Safety Setup | AutoMod | Roles | Emoji | Stickers | Soundboard | Members | Invites | Bans | Audit Log | Community Overview | Onboarding | Welcome Screen',
+      'Space Settings ▸ Overview | Safety Setup | AutoMod | Roles | Emoji | Stickers | Soundboard | Integrations | Reports | Space Template | Members | Invites | Bans | Audit Log | Community Overview | Onboarding | Welcome Screen',
     );
     expect(rail.find((l) => l.startsWith('Notification Settings'))).toMatch(/^Notification Settings ▸ All Messages \[x\]/);
     expect(rail).toEqual(expect.arrayContaining(['Create Channel', 'Create Category', 'Leave Space', 'Copy Space ID']));
+    // Owners can't report their own Space.
+    expect(rail).not.toContain('Report Space');
   });
 
   it('Copy Space ID ends both menus in Developer Mode only', () => {

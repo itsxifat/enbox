@@ -25,6 +25,7 @@ import {
 import { DevicesPage } from './DevicesPage';
 import { HelpPage, StoragePage } from './HelpPages';
 import { NotificationsPage } from './NotificationsPage';
+import { IgnoredPage } from '@/features/safety/IgnoredPage';
 import { BlockedPage } from './privacy/BlockedPage';
 import { DefaultTimerPage, LastSeenPage, PrivacyLevelPage } from './privacy/PrivacyChoicePages';
 import { PrivacyPage } from './privacy/PrivacyPage';
@@ -77,6 +78,7 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
     render: () => <StatusListPage list="only" />,
   },
   'privacy/blocked': { title: 'Blocked contacts', render: () => <BlockedPage /> },
+  'privacy/ignored': { title: 'Ignored users', render: () => <IgnoredPage /> },
   'privacy/timer': { title: 'Default message timer', render: () => <DefaultTimerPage /> },
   chats: { title: 'Chats', render: () => <ChatsSettingsPage /> },
   'chats/theme': { title: 'Chat theme', render: () => <ChatThemePage /> },

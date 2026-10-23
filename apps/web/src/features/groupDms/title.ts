@@ -46,6 +46,6 @@ export function useChatTitle(chat: ChatSummary, opts: { me?: boolean } = {}): st
   const members = useChatMembers(unnamed ? chat : undefined);
   // A string selector: rows re-render only when the names they show change.
   const names = useUsers((s) => (unnamed ? groupDmMemberNames(members, meId, s.byId) : null));
-  if (unnamed) return names ?? UNNAMED_GROUP_DM;
+  if (unnamed) return names ?? chatTitle(chat);
   return chatTitle(chat, opts.me ? meId : undefined);
 }

@@ -32,6 +32,8 @@ import {
   type MessageType,
   type Poll,
   type ReactionSummary,
+  type MessageAuthorOverride,
+  type MessageEmbed,
 } from '@enbox/shared';
 import { db, type DbOrTx, type Tx } from '../db/index.js';
 import {
@@ -146,6 +148,19 @@ export interface CreateMessageInput {
   attachments?: { mediaId: string; description: string | null }[];
   /** A sticker message (type `image`; `mediaId` is the sticker's picture). */
   stickerId?: string | null;
+  /**
+   * No user sent it (`senderId` null, type not system): a webhook or a crosspost shows as this
+   * author. Required for non-system messages without a sender (messages_system_sender_ck).
+   */
+  authorOverride?: MessageAuthorOverride | null;
+  /** The webhook that posted it (incoming, or the follower webhook of a crosspost). */
+  webhookId?: string | null;
+  /** Rich embeds (already validated and converted). */
+  embeds?: MessageEmbed[];
+  /** MESSAGE_FLAGS bits. */
+  flags?: number;
+  /** A crosspost: the published original. */
+  crosspostOf?: string | null;
   metadata?: MessageMetadata;
   replyToId?: string | null;
   /** Mentioned without a token in the text (a reply's author when the reply pings): members only. */
@@ -275,6 +290,11 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       text: input.text ?? null,
       mediaId: input.mediaId ?? null,
       stickerId: input.stickerId ?? null,
+      webhookId: input.webhookId ?? null,
+      authorOverride: input.authorOverride ?? null,
+      embeds: input.embeds ?? [],
+      flags: input.flags ?? 0,
+      crosspostOf: input.crosspostOf ?? null,
       metadata: input.metadata ?? {},
       replyToId: input.replyToId ?? null,
       forwardCount: input.forwardCount ?? 0,
@@ -928,6 +948,10 @@ export async function toMessages(
       });
     const sticker = !deleted && row.stickerId ? stickerById.get(row.stickerId) : undefined;
     if (sticker) message.sticker = { id: sticker.id, name: sticker.name, spaceId: sticker.spaceId };
+    // Webhooks and crossposts show as their author override (kept on tombstones: who posted).
+    if (row.authorOverride) message.authorOverride = row.authorOverride;
+    if (!deleted && row.embeds?.length) message.embeds = row.embeds;
+    if (row.flags) message.flags = row.flags;
     const threadRef = threadRefs.get(row.id);
     if (threadRef) message.thread = threadRef;
     if (viewerId) {
@@ -1163,6 +1187,7 @@ export async function deleteForEveryoneTx(
       text: null,
       mediaId: null,
       stickerId: null,
+      embeds: [],
       metadata: {},
       mentions: [],
       deletedAt: current.deletedAt ?? new Date(),

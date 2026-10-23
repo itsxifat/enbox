@@ -36,6 +36,12 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     items: [
       { bit: PERM.SEND_MESSAGES, label: 'Send messages', description: 'Post in text channels.' },
       { bit: PERM.ATTACH_FILES, label: 'Attach files', description: 'Upload photos, videos, voice notes and files.' },
+      {
+        bit: PERM.EMBED_LINKS,
+        label: 'Embed links',
+        description: 'Links show previews and players. Everyone can unless it’s denied in this channel.',
+        channelOnly: true,
+      },
       { bit: PERM.ADD_REACTIONS, label: 'Add reactions', description: 'React to messages.' },
       {
         bit: PERM.USE_EXTERNAL_EMOJI,
@@ -78,6 +84,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     items: [
       { bit: PERM.MANAGE_SPACE, label: 'Manage Space', description: 'Change the name, icon, banner and settings.' },
       { bit: PERM.MANAGE_EMOJI, label: 'Manage emoji', description: 'Upload, rename and delete this Space’s custom emoji.' },
+      { bit: PERM.MANAGE_WEBHOOKS, label: 'Manage webhooks', description: 'Create, edit and delete webhooks, and follow announcement channels into this Space.' },
       { bit: PERM.VIEW_AUDIT_LOG, label: 'View audit log', description: 'See who changed what.' },
       { bit: PERM.ADMINISTRATOR, label: 'Administrator', description: 'Every permission, and channel permissions don’t apply. Grant with care.' },
     ],

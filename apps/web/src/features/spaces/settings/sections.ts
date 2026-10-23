@@ -12,6 +12,9 @@ export type SettingsSectionId =
   | 'emoji'
   | 'stickers'
   | 'soundboard'
+  | 'integrations'
+  | 'reports'
+  | 'template'
   | 'members'
   | 'invites'
   | 'bans'
@@ -36,6 +39,14 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'emoji', label: 'Emoji', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   { id: 'stickers', label: 'Stickers', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   { id: 'soundboard', label: 'Soundboard', show: (s) => has(s, PERM.MANAGE_EMOJI) },
+  { id: 'integrations', label: 'Integrations', show: (s) => has(s, PERM.MANAGE_WEBHOOKS) },
+  {
+    id: 'reports',
+    label: 'Reports',
+    show: (s) =>
+      has(s, PERM.MANAGE_MESSAGES, PERM.KICK_MEMBERS, PERM.BAN_MEMBERS, PERM.MODERATE_MEMBERS),
+  },
+  { id: 'template', label: 'Space Template', show: (s) => has(s, PERM.MANAGE_SPACE) },
   {
     id: 'members',
     label: 'Members',
@@ -75,6 +86,8 @@ export function canOpenSpaceSettings(space: Space): boolean {
     PERM.MODERATE_MEMBERS,
     PERM.MANAGE_NICKNAMES,
     PERM.MANAGE_EMOJI,
+    PERM.MANAGE_WEBHOOKS,
+    PERM.MANAGE_MESSAGES,
   );
 }
 

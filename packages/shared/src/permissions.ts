@@ -9,7 +9,7 @@
  *   a timed-out member (not owner/administrator) keeps only VIEW_CHANNEL and
  *   READ_MESSAGE_HISTORY (Discord's rule: no sending, reacting, voice or moderation).
  *
- * One deviation: IMPLICIT_PERMISSIONS (USE_EXTERNAL_EMOJI) are in every member's base,
+ * One deviation: IMPLICIT_PERMISSIONS (USE_EXTERNAL_EMOJI, EMBED_LINKS) are in every member's base,
  * whatever their roles ("allowed when unset"). The bit was reserved until custom emoji, so no
  * existing role carries it, and roles are not rewritten; a channel overwrite can still deny
  * it (and allow it back for a role or member).
@@ -59,14 +59,13 @@ export type PermissionName = keyof typeof PERM;
 export const ALL_PERMISSIONS = 0x7fffffff;
 
 /** Defined but not implemented yet (P4): hidden in editors, rejected by `permissionsSchema`. */
-export const RESERVED_PERMISSIONS =
-  PERM.EMBED_LINKS | PERM.READ_MESSAGE_HISTORY | PERM.MANAGE_WEBHOOKS | PERM.PRIORITY_SPEAKER;
+export const RESERVED_PERMISSIONS = PERM.READ_MESSAGE_HISTORY | PERM.PRIORITY_SPEAKER;
 
 /**
  * Bits every member's base holds whatever their roles (see the header): roles cannot take
  * them away, channel overwrites can. Editors show them in channel permissions only.
  */
-export const IMPLICIT_PERMISSIONS = PERM.USE_EXTERNAL_EMOJI;
+export const IMPLICIT_PERMISSIONS = PERM.USE_EXTERNAL_EMOJI | PERM.EMBED_LINKS;
 
 /** Bits a role or overwrite may carry. */
 export const ASSIGNABLE_PERMISSIONS = ALL_PERMISSIONS & ~RESERVED_PERMISSIONS;

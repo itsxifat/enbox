@@ -58,6 +58,10 @@ export function toSpaceChannelInfo(
     bitrate: chat.bitrate,
     permissionsSynced: chat.permissionsSynced,
     ...(chat.type === 'space_forum' ? { forum: forumInfoOf(chat) } : {}),
+    ...(chat.type === 'space_text' ? { isNews: chat.isNews } : {}),
+    ...(chat.type === 'space_voice' || chat.type === 'space_stage'
+      ? { voiceStatus: chat.voiceStatus }
+      : {}),
     overwrites,
   };
 }
@@ -244,7 +248,10 @@ export async function spaceChannelSummariesForPairs(
       createdAt: chat.createdAt.toISOString(),
       createdBy: chat.createdBy,
       lastActivityAt: (lastMessage?.createdAt ??
-        (thread ? (chat.lastMessageAt ?? chat.createdAt) : m.member.joinedAt).toISOString()) as string,
+        (thread
+          ? (chat.lastMessageAt ?? chat.createdAt)
+          : m.member.joinedAt
+        ).toISOString()) as string,
       // Threads: the parent channel's overwrites (loadChannelOverwrites resolves them).
       space: toSpaceChannelInfo(chat, overwrites.get(chat.id) ?? []),
       spacePermissions: bits,

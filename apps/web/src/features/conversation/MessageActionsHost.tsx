@@ -100,6 +100,8 @@ import { useChatMembersStore } from './members';
 import { Popover } from './Popover';
 import { useConversationUi } from './state';
 import { threadMessageAction } from '@/features/threads/actions';
+import { publishMessageItem } from '@/features/announcements/actions';
+import { reportMessageItem } from '@/features/safety/actions';
 
 /** Discord's tap to react: what a double tap on a message adds. */
 export const DOUBLE_TAP_REACTION = '❤️';
@@ -320,6 +322,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
           }
         : null,
       threadMessageAction(chat, m),
+      publishMessageItem(chat, m),
       text ? { label: 'Copy Text', icon: Copy, onSelect: () => void copyMessages([m]) } : null,
       canPinMessage(chat, m)
         ? pinned
@@ -366,6 +369,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
           }
         : null,
       'separator',
+      reportMessageItem(chat, m, me),
       canDeleteMessage(chat, m)
         ? {
             label: 'Delete Message',

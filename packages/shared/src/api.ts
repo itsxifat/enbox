@@ -21,6 +21,26 @@
  *   `/members/batch` before `/members/:userId`). The catalogue lists them in that order.
  */
 import type {
+  ChannelFollow,
+  CreateTemplateRequest,
+  CreateWebhookRequest,
+  ExecuteWebhookBody,
+  FollowChannelRequest,
+  SpaceTemplate,
+  UpdateTemplateRequest,
+  UpdateWebhookRequest,
+  VoiceStatusRequest,
+  Webhook,
+  WebhookWithUrl,
+} from './integrations.js';
+import type {
+  CreateReportRequest,
+  SpaceReport,
+  SpaceReportPage,
+  SpaceReportsQuery,
+  UpdateReportRequest,
+} from './safety.js';
+import type {
   AddGroupDmMembersRequest,
   BackupCodes,
   CreateGroupDmRequest,
@@ -437,6 +457,47 @@ export interface ApiRoutes {
   'POST /api/me/mfa/totp/disable': { B: DisableTotpRequest; R: void };
   'POST /api/me/mfa/backup-codes': { B: RegenerateBackupCodesRequest; R: BackupCodes };
   'POST /api/auth/login/mfa': { B: LoginMfaRequest; R: AuthResponse } /* second step of POST /api/auth/login */;
+  // Message requests (a first DM from someone who isn't my friend, with messageRequests on)
+  'GET /api/chats/requests': { Q: { state?: 'pending' | 'ignored' }; R: ChatSummary[] } /* newest first */;
+  'POST /api/chats/:chatId/request/accept': { R: ChatSummary } /* chat:request-removed + chat:upsert → my devices */;
+  'POST /api/chats/:chatId/request/ignore': { R: void } /* stays hidden and quiet; the sender isn't told */;
+  // Ignore (silent)
+  'GET /api/me/ignores': { R: UserPublic[] };
+  'PUT /api/users/:userId/ignore': { R: void } /* ignores:changed → my devices */;
+  'DELETE /api/users/:userId/ignore': { R: void };
+  // Reports (Space content also reaches the Space's moderators)
+  'POST /api/reports': { B: CreateReportRequest; R: { id: ID } };
+  'GET /api/spaces/:spaceId/reports': { Q: SpaceReportsQuery; R: SpaceReportPage } /* MANAGE_MESSAGES, KICK, BAN or MODERATE */;
+  'PATCH /api/spaces/:spaceId/reports/:reportId': { B: UpdateReportRequest; R: SpaceReport };
+  // Webhooks (MANAGE_WEBHOOKS in the channel)
+  'GET /api/spaces/:spaceId/webhooks': { R: Webhook[] };
+  'GET /api/chats/:chatId/webhooks': { R: Webhook[] };
+  'POST /api/chats/:chatId/webhooks': { B: CreateWebhookRequest; R: WebhookWithUrl } /* the URL is shown once */;
+  'PATCH /api/webhooks/:webhookId': { B: UpdateWebhookRequest; R: Webhook };
+  'DELETE /api/webhooks/:webhookId': { R: void };
+  'POST /api/webhooks/:webhookId/token': { R: WebhookWithUrl } /* a new URL; the old one stops working */;
+  'POST /api/webhooks/:webhookId/:token': { B: ExecuteWebhookBody; Q: { wait?: 'true' | 'false' }; R: Message | void } /* public: no session */;
+  'PATCH /api/webhooks/:webhookId/:token/messages/:messageId': { B: { content?: string; embeds?: unknown[] }; R: Message } /* public */;
+  'DELETE /api/webhooks/:webhookId/:token/messages/:messageId': { R: void } /* public */;
+  // Announcement channels (SpaceChannelInfo.isNews)
+  'POST /api/messages/:messageId/crosspost': { R: Message } /* Publish: the author or MANAGE_MESSAGES; PUBLISH_LIMIT_PER_HOUR */;
+  'GET /api/chats/:chatId/followers': { R: ChannelFollow[] } /* who follows this announcement channel */;
+  'POST /api/chats/:chatId/followers': { B: FollowChannelRequest; R: ChannelFollow } /* MANAGE_WEBHOOKS in the target */;
+  'GET /api/spaces/:spaceId/follows': { R: ChannelFollow[] } /* channels followed into this Space */;
+  'DELETE /api/channel-follows/:followId': { R: void };
+  // Space templates (starters: STARTER_TEMPLATES; POST /api/spaces { template })
+  'GET /api/templates/:code': { R: SpaceTemplate };
+  'GET /api/spaces/:spaceId/templates': { R: SpaceTemplate[] } /* MANAGE_SPACE */;
+  'POST /api/spaces/:spaceId/templates': { B: CreateTemplateRequest; R: SpaceTemplate };
+  'PATCH /api/spaces/:spaceId/templates/:code': { B: UpdateTemplateRequest; R: SpaceTemplate };
+  'PUT /api/spaces/:spaceId/templates/:code': { R: SpaceTemplate } /* sync with the Space as it is now */;
+  'DELETE /api/spaces/:spaceId/templates/:code': { R: void };
+  // Rich content
+  'GET /api/messages/:messageId': { R: Message } /* a message I can see (message link previews) */;
+  'PATCH /api/messages/:messageId/suppress-embeds': { B: { suppress: boolean }; R: Message } /* the author or MANAGE_MESSAGES */;
+  'GET /api/proxy/image': { Q: { url: string }; R: void } /* 302 to our cached copy (SSRF-guarded fetch) */;
+  // Voice channel status ("Set a channel status": people connected to it)
+  'PUT /api/chats/:chatId/voice-status': { B: VoiceStatusRequest; R: void } /* chat:updated → Space room */;
   // Friends (accepting makes both users each other's contacts)
   'GET /api/friends/requests': { R: FriendRequests };
   'POST /api/friends/requests': { B: SendFriendRequest; R: SendFriendRequestResult } /* friends:request → them */;

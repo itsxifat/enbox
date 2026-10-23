@@ -7,8 +7,9 @@
  * smallest watermarks per chat, direct-chat peers (+ users, contacts, blocks), last visible
  * message per pair (lateral), unread/mention counts, and `toMessages` for the last messages.
  */
-import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 import {
+  GROUP_DM_MAX_MEMBERS,
   SPACE_CHAT_TYPES,
   type ChatInfoChanges,
   type ChatSummary,
@@ -204,6 +205,41 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
     userRows,
   );
 
+  // Group DMs: the other active members (owner first, then who joined first, like the member
+  // list) name an unnamed one, as each viewer knows them.
+  const groupDmIds = uniq(
+    entries.filter((e) => e.chat.type === 'group' && e.chat.isGroupDm).map((e) => e.chat.id),
+  );
+  const groupDmMembers = new Map<string, { userId: string; owner: boolean }[]>();
+  if (groupDmIds.length) {
+    const rows = await dbx
+      .select({ chatId: chatMembers.chatId, userId: chatMembers.userId, role: chatMembers.role })
+      .from(chatMembers)
+      .where(and(inArray(chatMembers.chatId, groupDmIds), isNull(chatMembers.leftAt)))
+      .orderBy(asc(chatMembers.joinedAt), asc(chatMembers.userId));
+    for (const r of rows)
+      groupDmMembers.set(r.chatId, [
+        ...(groupDmMembers.get(r.chatId) ?? []),
+        { userId: r.userId, owner: r.role === 'owner' },
+      ]);
+    for (const list of groupDmMembers.values())
+      list.sort((a, b) => Number(b.owner) - Number(a.owner));
+  }
+  const recipientIdsOf = (e: Entry) =>
+    (groupDmMembers.get(e.chat.id) ?? [])
+      .map((m) => m.userId)
+      .filter((id) => id !== e.member.userId)
+      .slice(0, GROUP_DM_MAX_MEMBERS - 1);
+  const groupDmEntries = entries.filter((e) => groupDmMembers.has(e.chat.id));
+  const recipients = groupDmEntries.length
+    ? await toUserPublicsForPairs(
+        dbx,
+        groupDmEntries.flatMap((e) =>
+          recipientIdsOf(e).map((subjectId) => ({ viewerId: e.member.userId, subjectId })),
+        ),
+      )
+    : new Map<string, UserPublic>();
+
   // Last visible message per pair + unread counts.
   const lastRows = await rawRows<{ chat_id: string; user_id: string; id: string }>(
     dbx,
@@ -293,6 +329,14 @@ async function buildSummaries(dbx: DbOrTx, entries: Entry[]): Promise<ChatSummar
       communityId: chat.communityId,
       isAnnouncement: chat.isAnnouncement,
       isGroupDm: chat.type === 'group' && chat.isGroupDm,
+      ...(groupDmMembers.has(chat.id)
+        ? {
+            recipients: recipientIdsOf(e)
+              .map((id) => recipients.get(pairKey(viewerId, id)))
+              .filter((u): u is UserPublic => !!u),
+          }
+        : {}),
+      ...(member.requestState ? { request: member.requestState } : {}),
       memberCount,
       groupSettings: chat.type === 'group' ? chat.groupSettings : null,
       channelSettings: chat.type === 'channel' ? chat.channelSettings : null,

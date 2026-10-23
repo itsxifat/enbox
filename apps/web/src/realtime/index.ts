@@ -13,6 +13,8 @@
  *   emojis.ts       space:emojis (custom Space emoji)
  *   stickers.ts     space:stickers (Space stickers)
  *   soundboard.ts   space:sounds, voice:sound (the soundboard)
+ *   requests.ts     chat:request, chat:request-removed (message requests)
+ *   ignores.ts      ignores:changed (my ignore list)
  *   events.ts       space:event* (scheduled events, the "Event starting" reminder)
  *   calls.ts        call:*                                      (agent 4)
  *   status.ts       status:*                                    (agent 4)
@@ -32,7 +34,9 @@ import { registerCommunityHandlers, resyncCommunities } from './communities';
 import { registerEmojiHandlers, resyncEmojis } from './emojis';
 import { registerEventHandlers, resyncEvents } from './events';
 import { registerFriendHandlers, resyncFriends } from './friends';
+import { registerIgnoresHandlers, resyncIgnores } from './ignores';
 import { registerMessageHandlers } from './messages';
+import { registerRequestsHandlers, resyncRequests } from './requests';
 import { registerSoundboardHandlers, resyncSoundboard } from './soundboard';
 import { registerSpaceHandlers, resyncSpaces } from './spaces';
 import { registerStatusHandlers, resyncStatus } from './status';
@@ -65,6 +69,8 @@ export async function resyncAll(info: ReadyInfo): Promise<void> {
         resyncEmojis(info),
         resyncSticker(info),
         resyncSoundboard(info),
+        resyncRequests(info),
+        resyncIgnores(info),
         resyncEvents(info),
         resyncVoice(info),
       ]),
@@ -89,6 +95,8 @@ export function startRealtime(): void {
     registerEmojiHandlers(socket);
     registerStickerHandlers(socket);
     registerSoundboardHandlers(socket);
+    registerRequestsHandlers(socket);
+    registerIgnoresHandlers(socket);
     registerEventHandlers(socket);
     registerVoiceHandlers(socket);
     registerCallHandlers(socket);

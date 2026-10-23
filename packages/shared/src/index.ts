@@ -10,3 +10,6 @@ export * from './cosmetics.js';
 export * from './social.js';
 export * from './community.js';
 export * from './expressions.js';
+export * from './integrations.js';
+export * from './safety.js';
+export * from './starterTemplates.js';

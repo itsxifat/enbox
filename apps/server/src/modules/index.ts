@@ -34,6 +34,12 @@ import { router as stickers } from './stickers/routes.js';
 import { router as soundboard } from './soundboard/routes.js';
 import { router as groupDms } from './groupDms/routes.js';
 import { router as mfa } from './mfa/routes.js';
+import { router as requests } from './requests/routes.js';
+import { router as ignores } from './ignores/routes.js';
+import { router as reports } from './reports/routes.js';
+import { publicRouter as webhooksPublic, router as webhooks } from './webhooks/routes.js';
+import { router as announcements } from './announcements/routes.js';
+import { router as templates } from './templates/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -41,7 +47,7 @@ import { registerSpacesSocket } from './spaces/socket.js';
 import { registerVoiceSocket } from './voice/socket.js';
 
 /** Mounted under /api without authentication. */
-export const publicRouters: Router[] = [systemPublic, authPublic, emojiImages];
+export const publicRouters: Router[] = [systemPublic, authPublic, emojiImages, webhooksPublic];
 
 /** Mounted under /api behind requireAuth. */
 export const authedRouters: Router[] = [
@@ -73,6 +79,12 @@ export const authedRouters: Router[] = [
   soundboard,
   groupDms,
   mfa,
+  requests,
+  ignores,
+  reports,
+  webhooks,
+  announcements,
+  templates,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

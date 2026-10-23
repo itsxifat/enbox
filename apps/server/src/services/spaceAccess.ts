@@ -303,6 +303,7 @@ export function syntheticSpaceMemberRow(
     wallpaperMediaId: null,
     notifyLevel: null,
     lastSentAt: null,
+    requestState: null,
   };
 }
 

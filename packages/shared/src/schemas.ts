@@ -365,6 +365,9 @@ export const updateSettingsSchema = z
     callNotifications: z.boolean(),
     notificationPreviews: z.boolean(),
     friendRequestsFrom: z.enum(['everyone', 'spaces', 'nobody']),
+    whoCanDm: z.enum(['everyone', 'spaces', 'friends']),
+    messageRequests: z.boolean(),
+    allowSpaceDms: z.boolean(),
   })
   .partial();
 
@@ -553,6 +556,8 @@ export const sendMessageSchema = z
         .string()
         .max(MAX_MESSAGE_LENGTH)
         .refine((s) => s.trim().length > 0, 'Text messages need text'),
+      /** /tts: read aloud to recipients who have text-to-speech on (MESSAGE_FLAGS.TTS). */
+      tts: z.boolean().optional(),
     }),
     z.strictObject({
       ...sendBase,
@@ -824,6 +829,8 @@ export const createSpaceSchema = z.object({
   name: spaceNameSchema,
   description: spaceDescriptionSchema.optional(),
   iconMediaId: idSchema.optional(),
+  /** A starter template id (STARTER_TEMPLATE_IDS) or a template code: its roles and channels. */
+  template: z.string().trim().min(1).max(40).optional(),
 });
 
 export const updateSpaceSchema = z
@@ -898,6 +905,8 @@ export const createSpaceChannelSchema = z.object({
   /** Forum channels: the post tags (default none) and options (merged over DEFAULT_FORUM_SETTINGS). */
   forumTags: forumChannelFields.forumTags.optional(),
   forumSettings: forumChannelFields.forumSettings.optional(),
+  /** Text channels: an announcement channel. */
+  isNews: z.boolean().optional(),
 });
 
 export const updateSpaceChannelSchema = z
@@ -912,6 +921,8 @@ export const updateSpaceChannelSchema = z
     forumTags: forumChannelFields.forumTags,
     /** Forums only: merged into the current settings. */
     forumSettings: forumChannelFields.forumSettings,
+    /** Text channels: convert to or from an announcement channel. */
+    isNews: z.boolean(),
   })
   .partial();
 
@@ -1001,6 +1012,8 @@ export const updateMyMemberSchema = z
     suppressRoles: z.boolean(),
     /** Hide the channels I muted from my sidebar. */
     hideMutedChannels: z.boolean(),
+    /** Members of this Space may DM me. */
+    allowDms: z.boolean(),
     /** Per-Space profile; null = use the main profile's value. */
     avatarMediaId: idSchema.nullable(),
     bannerMediaId: idSchema.nullable(),

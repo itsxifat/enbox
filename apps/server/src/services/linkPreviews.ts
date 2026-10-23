@@ -516,6 +516,7 @@ function hasContent(d: PreviewData): boolean {
 /** Downloads, verifies and stores a preview image; null when it is unusable. */
 async function storePreviewImage(
   src: string,
+  opts: { minSide?: number } = {},
 ): Promise<{ key: string; width: number; height: number } | null> {
   const url = normalizeLink(src);
   if (!url) return null;
@@ -527,12 +528,28 @@ async function storePreviewImage(
   const info = readImageInfo(body);
   // Animated images have no static poster to honour "play animated media: never" with.
   if (!info || info.animated || !info.framesInCanvas || imageCapViolation(info)) return null;
-  if (Math.min(info.width, info.height) < MIN_IMAGE_SIDE) return null;
+  if (Math.min(info.width, info.height) < (opts.minSide ?? MIN_IMAGE_SIDE)) return null;
   const key = newStorageKey(IMAGE_EXT[info.mime]);
   const dest = storagePath(key);
   await fs.mkdir(path.dirname(dest), { recursive: true });
   await fs.writeFile(dest, stripImageMetadata(body));
   return { key, width: info.width, height: info.height };
+}
+
+/**
+ * Copies a remote https image (a webhook avatar, an embed image) into our uploads through the
+ * same guarded fetcher, so clients never load third-party hosts: its `/uploads/…` URL, or null
+ * when it isn't a reachable static image. The copies are not garbage-collected.
+ */
+export async function cacheRemoteImage(
+  src: string,
+  opts: { minSide?: number } = {},
+): Promise<string | null> {
+  const image = await withFetchSlot(() => storePreviewImage(src, opts)).catch((err: unknown) => {
+    logger.debug({ err, src }, 'remote image skipped');
+    return null;
+  });
+  return image ? mediaUrl(image.key) : null;
 }
 
 async function fetchPreview(url: URL): Promise<PreviewData> {

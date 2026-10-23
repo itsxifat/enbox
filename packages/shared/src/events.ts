@@ -272,6 +272,12 @@ export interface ServerToClientEvents {
   /** The Space's stickers or soundboard changed (the whole list). */
   'space:stickers': (payload: { spaceId: ID; stickers: SpaceSticker[] }) => void;
   'space:sounds': (payload: { spaceId: ID; sounds: SpaceSound[] }) => void;
+  /** A message request for me arrived or changed (`chat.request` set). */
+  'chat:request': (payload: { chat: ChatSummary }) => void;
+  /** A request left my Requests list: accepted, ignored (on another device) or withdrawn. */
+  'chat:request-removed': (payload: { chatId: ID }) => void;
+  /** My whole ignore list (my devices only). */
+  'ignores:changed': (payload: { userIds: ID[] }) => void;
   /** Someone in my voice channel played a soundboard sound. */
   'voice:sound': (payload: VoiceSoundEvent) => void;
   /** An event I am interested in started (in-app reminder). */

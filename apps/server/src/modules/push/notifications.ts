@@ -127,6 +127,8 @@ export async function onMessageCreated({
           eq(chatMembers.chatId, chat.id),
           inArray(chatMembers.userId, subscribed),
           isNull(chatMembers.leftAt),
+          // Message requests (pending or ignored) never push.
+          isNull(chatMembers.requestState),
         ),
       ),
     getUserRows(db, subscribed),

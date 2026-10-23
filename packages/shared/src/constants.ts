@@ -68,6 +68,9 @@ export const DEFAULT_USER_SETTINGS: Readonly<UserSettings> = Object.freeze({
   callNotifications: true,
   notificationPreviews: true,
   friendRequestsFrom: 'everyone',
+  whoCanDm: 'everyone',
+  messageRequests: true,
+  allowSpaceDms: true,
 });
 
 // ---------------------------------------------------------------------------

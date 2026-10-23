@@ -3,6 +3,7 @@ import type { UserPublic } from '@enbox/shared';
 import { PhoneIcon, VideoIcon } from '@/components/icons';
 import { DropdownMenu, IconButton, toast, type IconButtonVariant, type MenuEntry } from '@/components/ui';
 import { confirmBlock, confirmUnblock } from '@/features/contacts/contactActions';
+import { userSafetyItems } from '@/features/safety/actions';
 import { friendMenuItems } from '@/features/home/friendActions';
 import { useFriendStatus } from '@/stores/friends';
 
@@ -53,6 +54,7 @@ export function ProfileMoreMenu({
     { label: 'Copy Username', icon: AtSign, onSelect: () => void copy(user.username, 'Username copied') },
     { label: 'Copy User ID', icon: Fingerprint, onSelect: () => void copy(user.id, 'User ID copied') },
     'separator',
+    ...userSafetyItems(user),
     user.isBlocked
       ? { label: 'Unblock', icon: Ban, onSelect: () => void confirmUnblock(user) }
       : { label: 'Block', icon: Ban, danger: true, onSelect: () => void confirmBlock(user) },

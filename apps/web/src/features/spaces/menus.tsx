@@ -14,9 +14,11 @@ import {
   EyeOff,
   FolderPlus,
   IdCard,
+  Flag,
   LogOut,
   PlusCircle,
   Settings,
+  ShieldCheck,
   UserPen,
   UserPlus,
 } from 'lucide-react';
@@ -41,6 +43,8 @@ import { ChannelDialog } from './dialogs/ChannelDialog';
 import { InviteDialog } from './dialogs/InviteDialog';
 import { NicknameDialog } from './dialogs/NicknameDialog';
 import { NotificationDialog } from './dialogs/NotificationDialog';
+import { SpacePrivacyDialog } from '@/features/requests/SpacePrivacyDialog';
+import { openReport } from '@/features/safety/report';
 import { canOpenSpaceSettings, settingsPath, visibleSettingsSections } from './settings/sections';
 import { NOTIFY_LABELS, muteUntilIso, mutedUntilText } from './sidebar';
 
@@ -52,14 +56,20 @@ const ServerProfileDialog = lazyNamed(
 
 /** Copy an id to the clipboard ("Copy Space ID" etc.). */
 export function copyId(id: ID, what: string): void {
-  void copyText(id).then((ok) => (ok ? toast.success(`${what} ID copied`) : toast.error('Could not copy')));
+  void copyText(id).then((ok) =>
+    ok ? toast.success(`${what} ID copied`) : toast.error('Could not copy'),
+  );
 }
 
 /**
  * Developer Mode's "Copy <what> ID" item (Discord): only while Developer Mode is on (Settings
  * ▸ Chats ▸ Advanced). Menus are built as they open, so the setting is read then unless given.
  */
-export function copyIdItem(id: ID, what: string, devMode = useUi.getState().prefs.developerMode): MenuEntry {
+export function copyIdItem(
+  id: ID,
+  what: string,
+  devMode = useUi.getState().prefs.developerMode,
+): MenuEntry {
   return devMode && { label: `Copy ${what} ID`, icon: IdCard, onSelect: () => copyId(id, what) };
 }
 
@@ -82,7 +92,10 @@ export function muteEntry(
   return {
     label: `Mute ${what}`,
     icon: BellOff,
-    submenu: SPACE_MUTE_DURATIONS.map((d) => ({ label: d.label, onSelect: () => onChange(muteUntilIso(d.ms)) })),
+    submenu: SPACE_MUTE_DURATIONS.map((d) => ({
+      label: d.label,
+      onSelect: () => onChange(muteUntilIso(d.ms)),
+    })),
   };
 }
 
@@ -120,7 +133,8 @@ type SpaceDialog =
   | { kind: 'category' }
   | { kind: 'nickname' }
   | { kind: 'serverProfile' }
-  | { kind: 'notifications' };
+  | { kind: 'notifications' }
+  | { kind: 'privacy' };
 
 export interface SpaceMenu {
   /** The channel sidebar header dropdown (Discord's server name menu). */
@@ -151,7 +165,8 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
     if (owner) {
       const go = await confirm({
         title: 'You own this Space',
-        message: 'Transfer ownership to another member before leaving: Space Settings → Members → Transfer Ownership.',
+        message:
+          'Transfer ownership to another member before leaving: Space Settings → Members → Transfer Ownership.',
         confirmLabel: 'Open Members',
       });
       if (go) navigate(settingsPath(space.id, 'members'));
@@ -210,23 +225,50 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
     keepOpen: true,
     onSelect: () => save({ hideMutedChannels: !space.me.hideMutedChannels }),
   };
-  const leaveItem: MenuEntry = { label: 'Leave Space', icon: LogOut, danger: true, onSelect: () => void leave() };
+  const leaveItem: MenuEntry = {
+    label: 'Leave Space',
+    icon: LogOut,
+    danger: true,
+    onSelect: () => void leave(),
+  };
+  const privacyItem: MenuEntry = {
+    label: 'Privacy Settings',
+    icon: ShieldCheck,
+    onSelect: () => setDialog({ kind: 'privacy' }),
+  };
+  const reportItem: MenuEntry = !owner && {
+    label: 'Report Space',
+    icon: Flag,
+    danger: true,
+    onSelect: () =>
+      openReport({ targetType: 'space', targetId: space.id, userId: null, label: space.name }),
+  };
   const copy = copyIdItem(space.id, 'Space', devMode);
   const settings = canOpenSpaceSettings(space);
 
   const headerItems = (): MenuEntry[] =>
     tidy([
       invite,
-      settings && { label: 'Space Settings', icon: Settings, onSelect: () => navigate(settingsPath(space.id)) },
+      settings && {
+        label: 'Space Settings',
+        icon: Settings,
+        onSelect: () => navigate(settingsPath(space.id)),
+      },
       createChannel,
       createCategory,
       createEvent,
       'separator',
-      { label: 'Notification Settings', icon: Bell, onSelect: () => setDialog({ kind: 'notifications' }) },
+      {
+        label: 'Notification Settings',
+        icon: Bell,
+        onSelect: () => setDialog({ kind: 'notifications' }),
+      },
+      privacyItem,
       'separator',
       serverProfile,
       hideMuted,
       'separator',
+      reportItem,
       leaveItem,
       'separator',
       copy,
@@ -235,7 +277,11 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
   const railItems = (): MenuEntry[] => {
     const sections = visibleSettingsSections(space);
     return tidy([
-      { label: 'Mark As Read', icon: CheckCheck, onSelect: () => void markSpaceRead(space.id).catch((e: unknown) => toast.error(e)) },
+      {
+        label: 'Mark As Read',
+        icon: CheckCheck,
+        onSelect: () => void markSpaceRead(space.id).catch((e: unknown) => toast.error(e)),
+      },
       'separator',
       invite,
       'separator',
@@ -259,22 +305,30 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
             onSelect: () => save({ suppressRoles: !space.me.suppressRoles }),
           },
           'separator',
-          { label: 'More Notification Settings', onSelect: () => setDialog({ kind: 'notifications' }) },
+          {
+            label: 'More Notification Settings',
+            onSelect: () => setDialog({ kind: 'notifications' }),
+          },
         ],
       },
       hideMuted,
+      privacyItem,
       'separator',
       settings &&
         sections.length > 0 && {
           label: 'Space Settings',
           icon: Settings,
-          submenu: sections.map((s) => ({ label: s.label, onSelect: () => navigate(settingsPath(space.id, s.id)) })),
+          submenu: sections.map((s) => ({
+            label: s.label,
+            onSelect: () => navigate(settingsPath(space.id, s.id)),
+          })),
         },
       profile,
       'separator',
       createChannel,
       createCategory,
       'separator',
+      reportItem,
       leaveItem,
       'separator',
       copy,
@@ -292,7 +346,10 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
           <ServerProfileDialog space={space} onClose={close} />
         </Suspense>
       ) : null}
-      {dialog?.kind === 'notifications' ? <NotificationDialog space={space} onClose={close} /> : null}
+      {dialog?.kind === 'notifications' ? (
+        <NotificationDialog space={space} onClose={close} />
+      ) : null}
+      {dialog?.kind === 'privacy' ? <SpacePrivacyDialog space={space} onClose={close} /> : null}
     </>
   );
 

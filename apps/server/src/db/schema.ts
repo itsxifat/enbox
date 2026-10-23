@@ -48,6 +48,7 @@ import type {
   CallStatus,
   CallType,
   ChannelSettings,
+  ChatRequestState,
   ChatTheme,
   ChatType,
   ForumSettings,
@@ -55,17 +56,25 @@ import type {
   GroupSettings,
   MediaKind,
   MemberRole,
+  MessageAuthorOverride,
+  MessageEmbed,
   MessageType,
   NameStyle,
   NotifyLevel,
   RailEntry,
+  ReportCategory,
+  ReportEvidence,
+  ReportStatus,
+  ReportTarget,
   RoleColorStyle,
   SharedChatTheme,
   SpaceEventEntity,
   SpaceEventStatus,
   SpaceOnboarding,
+  SpaceTemplateSnapshot,
   StatusType,
   UserSettings,
+  WebhookKind,
   WelcomeScreen,
 } from '@enbox/shared';
 import type { MessageMetadata } from './types.js';
@@ -222,6 +231,53 @@ export const blocks = pgTable(
 );
 
 /** Two-factor backup codes (hashed; each works once). */
+/** Users I ignore (silent: they're never told; their messages collapse, no pushes). */
+export const userIgnores = pgTable(
+  'user_ignores',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    ignoredId: uuid('ignored_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.ignoredId] }),
+    index('user_ignores_ignored_idx').on(t.ignoredId),
+  ],
+);
+
+/** Reports of messages, users and Spaces (Space content also reaches its moderators). */
+export const reports = pgTable(
+  'reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reporterId: uuid('reporter_id').references(() => users.id, { onDelete: 'set null' }),
+    targetType: text('target_type').$type<ReportTarget>().notNull(),
+    targetId: uuid('target_id').notNull(),
+    /** The Space whose moderators see it (Space channels, Space members, the Space itself). */
+    spaceId: uuid('space_id').references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    category: text('category').$type<ReportCategory>().notNull(),
+    details: text('details'),
+    /** What was reported, as it was then. */
+    evidence: jsonb('evidence').$type<ReportEvidence>().notNull().default({}),
+    status: text('status').$type<ReportStatus>().notNull().default('open'),
+    createdAt: createdAt(),
+    resolvedAt: ts('resolved_at'),
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    index('reports_space_idx')
+      .on(t.spaceId, t.status, t.createdAt)
+      .where(sql`${t.spaceId} is not null`),
+    index('reports_reporter_idx').on(t.reporterId, t.createdAt),
+    check('reports_target_ck', sql`${t.targetType} in ('message', 'user', 'space')`),
+    check('reports_status_ck', sql`${t.status} in ('open', 'resolved', 'dismissed')`),
+  ],
+);
+
 export const userBackupCodes = pgTable(
   'user_backup_codes',
   {
@@ -471,6 +527,8 @@ export const spaceMembers = pgTable(
     hideMutedChannels: boolean('hide_muted_channels').notNull().default(false),
     /** Finished the Space's onboarding (or there was none when they joined). */
     onboardedAt: ts('onboarded_at'),
+    /** Members of this Space may DM me (new memberships take `settings.allowSpaceDms`). */
+    allowDms: boolean('allow_dms').notNull().default(true),
     /** Per-Space profile: each null field falls back to the main profile. */
     avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
       onDelete: 'set null',
@@ -970,6 +1028,10 @@ export const chats = pgTable(
     isAnnouncement: boolean('is_announcement').notNull().default(false),
     /** A group DM (Discord): up to GROUP_DM_MAX_MEMBERS, no admins, the owner removes. */
     isGroupDm: boolean('is_group_dm').notNull().default(false),
+    /** Space text channels: an announcement channel (Publish, Follow). */
+    isNews: boolean('is_news').notNull().default(false),
+    /** Voice and Stage channels: "Set a channel status" (cleared when the channel empties). */
+    voiceStatus: text('voice_status'),
     /** Groups only, always complete (DEFAULT_GROUP_SETTINGS merged at creation). */
     groupSettings: jsonb('group_settings').$type<GroupSettings>(),
     /** Channels only, always complete (DEFAULT_CHANNEL_SETTINGS merged at creation). */
@@ -1038,6 +1100,11 @@ export const chats = pgTable(
     index('chats_space_idx')
       .on(t.spaceId, t.position)
       .where(sql`${t.spaceId} is not null`),
+    check('chats_news_ck', sql`not ${t.isNews} or ${t.type} = 'space_text'`),
+    check(
+      'chats_voice_status_ck',
+      sql`${t.voiceStatus} is null or ${t.type} in ('space_voice', 'space_stage')`,
+    ),
     check(
       'chats_type_ck',
       sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice', 'space_thread', 'space_forum', 'space_stage')`,
@@ -1131,10 +1198,23 @@ export const chatMembers = pgTable(
     notifyLevel: text('notify_level').$type<NotifyLevel>(),
     /** Space channels: my last message here (slowmode). */
     lastSentAt: ts('last_sent_at'),
+    /**
+     * Direct chats: a message request for me (`pending` until I accept or reply, `ignored`
+     * once declined): out of my chat list, no unreads, no pushes. Null = an ordinary chat.
+     */
+    requestState: text('request_state').$type<ChatRequestState>(),
   },
   (t) => [
     primaryKey({ columns: [t.chatId, t.userId] }),
     index('chat_members_user_idx').on(t.userId),
+    /** My Message Requests list. */
+    index('chat_members_requests_idx')
+      .on(t.userId, t.requestState)
+      .where(sql`${t.requestState} is not null`),
+    check(
+      'chat_members_request_ck',
+      sql`${t.requestState} is null or ${t.requestState} in ('pending', 'ignored')`,
+    ),
     index('chat_members_wallpaper_idx')
       .on(t.wallpaperMediaId)
       .where(sql`${t.wallpaperMediaId} is not null`),
@@ -1177,6 +1257,20 @@ export const messages = pgTable(
     mediaId: uuid('media_id').references(() => media.id, { onDelete: 'set null' }),
     /** A sticker message: the sticker (its image is `media_id`, so old clients show it). */
     stickerId: uuid('sticker_id').references((): AnyPgColumn => spaceStickers.id, {
+      onDelete: 'set null',
+    }),
+    /** Posted by a webhook (incoming, or a follower webhook delivering a crosspost). */
+    webhookId: uuid('webhook_id').references((): AnyPgColumn => webhooks.id, {
+      onDelete: 'set null',
+    }),
+    /** Who it shows as when no user sent it (snapshot at send time). */
+    authorOverride: jsonb('author_override').$type<MessageAuthorOverride>(),
+    /** Rich embeds (webhooks). */
+    embeds: jsonb('embeds').$type<MessageEmbed[]>().notNull().default([]),
+    /** MESSAGE_FLAGS bits. */
+    flags: integer('flags').notNull().default(0),
+    /** A crosspost: the published original (edits and deletes follow it). */
+    crosspostOf: uuid('crosspost_of').references((): AnyPgColumn => messages.id, {
       onDelete: 'set null',
     }),
     metadata: jsonb('metadata').$type<MessageMetadata>().notNull().default({}),
@@ -1228,7 +1322,18 @@ export const messages = pgTable(
     index('messages_sticker_idx')
       .on(t.stickerId)
       .where(sql`${t.stickerId} is not null`),
-    check('messages_system_sender_ck', sql`(${t.type} = 'system') = (${t.senderId} is null)`),
+    /** Deleting an original finds its crossposts. */
+    index('messages_crosspost_of_idx')
+      .on(t.crosspostOf)
+      .where(sql`${t.crosspostOf} is not null`),
+    index('messages_webhook_idx')
+      .on(t.webhookId)
+      .where(sql`${t.webhookId} is not null`),
+    /** System messages have no sender; every other message has a user or an author override. */
+    check(
+      'messages_system_sender_ck',
+      sql`(${t.type} = 'system') = (${t.senderId} is null and ${t.authorOverride} is null)`,
+    ),
   ],
 );
 
@@ -1293,6 +1398,95 @@ export const messageAttachments = pgTable(
   (t) => [
     primaryKey({ columns: [t.messageId, t.position] }),
     index('message_attachments_media_idx').on(t.mediaId),
+  ],
+);
+
+/** Webhooks of Space text channels: incoming (a secret URL posts) or follower (crossposts). */
+export const webhooks = pgTable(
+  'webhooks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references((): AnyPgColumn => spaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<WebhookKind>().notNull().default('incoming'),
+    name: text('name').notNull(),
+    avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
+      onDelete: 'set null',
+    }),
+    /** sha256 of the URL's secret (incoming webhooks; null for follower webhooks). */
+    tokenHash: text('token_hash'),
+    /** Follower webhooks: the announcement channel they deliver from. */
+    sourceChannelId: uuid('source_channel_id').references((): AnyPgColumn => chats.id, {
+      onDelete: 'cascade',
+    }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('webhooks_channel_idx').on(t.channelId),
+    index('webhooks_space_idx').on(t.spaceId),
+    index('webhooks_source_idx')
+      .on(t.sourceChannelId)
+      .where(sql`${t.sourceChannelId} is not null`),
+    index('webhooks_avatar_idx')
+      .on(t.avatarMediaId)
+      .where(sql`${t.avatarMediaId} is not null`),
+    check('webhooks_kind_ck', sql`${t.kind} in ('incoming', 'follower')`),
+    check(
+      'webhooks_follower_ck',
+      sql`(${t.kind} = 'follower') = (${t.sourceChannelId} is not null)`,
+    ),
+  ],
+);
+
+/** An announcement channel followed into another channel (delivered by a follower webhook). */
+export const channelFollows = pgTable(
+  'channel_follows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceChannelId: uuid('source_channel_id')
+      .notNull()
+      .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    targetChannelId: uuid('target_channel_id')
+      .notNull()
+      .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
+    webhookId: uuid('webhook_id').references((): AnyPgColumn => webhooks.id, {
+      onDelete: 'set null',
+    }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('channel_follows_pair_uq').on(t.sourceChannelId, t.targetChannelId),
+    index('channel_follows_target_idx').on(t.targetChannelId),
+  ],
+);
+
+/** Space templates: a snapshot of roles and channels anyone with the code can build from. */
+export const spaceTemplates = pgTable(
+  'space_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    code: text('code').notNull(),
+    sourceSpaceId: uuid('source_space_id').references((): AnyPgColumn => spaces.id, {
+      onDelete: 'set null',
+    }),
+    name: text('name').notNull(),
+    description: text('description'),
+    snapshot: jsonb('snapshot').$type<SpaceTemplateSnapshot>().notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    usageCount: integer('usage_count').notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('space_templates_code_uq').on(t.code),
+    index('space_templates_source_idx').on(t.sourceSpaceId),
   ],
 );
 

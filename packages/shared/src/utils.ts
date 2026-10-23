@@ -98,15 +98,18 @@ export function userDisplayName(
 
 /** Title for a chat row/header. Pass `meId` to label the "Message yourself" chat. */
 export function chatTitle(
-  chat: Pick<ChatSummary, 'type' | 'name' | 'peer' | 'isGroupDm'>,
+  chat: Pick<ChatSummary, 'type' | 'name' | 'peer' | 'isGroupDm' | 'recipients'>,
   meId?: ID,
 ): string {
   if (chat.type === 'direct') {
     const title = userDisplayName(chat.peer);
     return meId && chat.peer?.id === meId ? `${title} (You)` : title;
   }
-  // Unnamed group DMs show their members' names where the members are loaded (web: useChatTitle).
-  return chat.name ?? (chat.isGroupDm ? 'Group DM' : 'Untitled');
+  if (chat.name) return chat.name;
+  if (!chat.isGroupDm) return 'Untitled';
+  // An unnamed group DM: its other members' names (the summary's `recipients`).
+  const names = (chat.recipients ?? []).map((u) => userDisplayName(u));
+  return names.length ? names.join(', ') : 'Group DM';
 }
 
 /** Wording kind of a chat (announcement groups speak about the "community"). */

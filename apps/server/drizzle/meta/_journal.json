@@ -78,6 +78,13 @@
       "when": 1792718345206,
       "tag": "0010_expressions_security",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792724703371,
+      "tag": "0011_safety_integrations",
+      "breakpoints": true
     }
   ]
 }
