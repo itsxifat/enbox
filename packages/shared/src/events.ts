@@ -44,6 +44,7 @@
  */
 import type { FriendRequest, ReactionEvent, SpaceEmoji } from './social.js';
 import type { AutoModRule, SpaceEvent } from './community.js';
+import type { SpaceSound, SpaceSticker, VoiceSoundEvent } from './expressions.js';
 import type { ApiErrorCode } from './api.js';
 import type {
   Call,
@@ -268,6 +269,11 @@ export interface ServerToClientEvents {
   /** A scheduled event was created or changed (viewer-neutral: `interested` is false). */
   'space:event': (payload: { spaceId: ID; event: SpaceEvent }) => void;
   'space:event-deleted': (payload: { spaceId: ID; eventId: ID }) => void;
+  /** The Space's stickers or soundboard changed (the whole list). */
+  'space:stickers': (payload: { spaceId: ID; stickers: SpaceSticker[] }) => void;
+  'space:sounds': (payload: { spaceId: ID; sounds: SpaceSound[] }) => void;
+  /** Someone in my voice channel played a soundboard sound. */
+  'voice:sound': (payload: VoiceSoundEvent) => void;
   /** An event I am interested in started (in-app reminder). */
   'space:event-started': (payload: { spaceId: ID; event: SpaceEvent }) => void;
   /** AutoMod rules changed (to members with MANAGE_SPACE: their own devices refetch). */

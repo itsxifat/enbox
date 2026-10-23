@@ -44,6 +44,9 @@ export async function runMediaGc(
               and not exists (select 1 from space_roles x where x.icon_media_id = m.id)
               and not exists (select 1 from space_emojis x where x.media_id = m.id)
               and not exists (select 1 from space_events x where x.image_media_id = m.id)
+              and not exists (select 1 from message_attachments x where x.media_id = m.id)
+              and not exists (select 1 from space_stickers x where x.media_id = m.id)
+              and not exists (select 1 from space_sounds x where x.media_id = m.id)
             order by m.created_at
             limit ${batch}
             for update skip locked

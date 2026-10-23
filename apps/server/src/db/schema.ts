@@ -32,6 +32,7 @@ import {
   jsonb,
   pgTable,
   primaryKey,
+  real,
   smallint,
   text,
   timestamp,
@@ -86,6 +87,11 @@ export const users = pgTable(
     /** Canonical E.164 with a leading '+', unique when present. */
     phone: text('phone'),
     passwordHash: text('password_hash').notNull(),
+    /** Two-factor (TOTP, RFC 6238): the base32 secret once enabled, else null. */
+    totpSecret: text('totp_secret'),
+    /** A secret being set up (confirmed by a first code, then moved to `totp_secret`). */
+    totpPendingSecret: text('totp_pending_secret'),
+    totpEnabledAt: ts('totp_enabled_at'),
     about: text('about').notNull(),
     avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
       onDelete: 'set null',
@@ -211,6 +217,19 @@ export const blocks = pgTable(
     primaryKey({ columns: [t.blockerId, t.blockedId] }),
     index('blocks_blocked_idx').on(t.blockedId),
   ],
+);
+
+/** Two-factor backup codes (hashed; each works once). */
+export const userBackupCodes = pgTable(
+  'user_backup_codes',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    usedAt: ts('used_at'),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.codeHash] })],
 );
 
 /** A pending friend request (accepting makes both users each other's contacts). */
@@ -608,6 +627,10 @@ export const voiceStates = pgTable(
     selfDeaf: boolean('self_deaf').notNull().default(false),
     selfVideo: boolean('self_video').notNull().default(false),
     selfStream: boolean('self_stream').notNull().default(false),
+    /** Stage channels: in the audience (can't speak until a moderator invites them up). */
+    suppressed: boolean('suppressed').notNull().default(false),
+    /** Stage channels: a raised hand (null = none). */
+    requestToSpeakAt: ts('request_to_speak_at'),
     joinedAt: ts('joined_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -651,6 +674,55 @@ export const spaceBans = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
+);
+
+/** Stickers of a Space (usable everywhere by its members: perks are free). */
+export const spaceStickers = pgTable(
+  'space_stickers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** The related emoji (suggestions and accessibility). */
+    emoji: text('emoji'),
+    mediaId: uuid('media_id')
+      .notNull()
+      .references((): AnyPgColumn => media.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('space_stickers_name_uq').on(t.spaceId, sql`lower(${t.name})`),
+    index('space_stickers_media_idx').on(t.mediaId),
+  ],
+);
+
+/** Soundboard sounds of a Space (played in its voice channels). */
+export const spaceSounds = pgTable(
+  'space_sounds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    emoji: text('emoji'),
+    /** 0..1 playback volume. */
+    volume: real('volume').notNull().default(1),
+    mediaId: uuid('media_id')
+      .notNull()
+      .references((): AnyPgColumn => media.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('space_sounds_space_idx').on(t.spaceId),
+    index('space_sounds_media_idx').on(t.mediaId),
+    check('space_sounds_volume_ck', sql`${t.volume} between 0 and 1`),
+  ],
 );
 
 /** A scheduled event of a Space (in a voice channel or somewhere else). */
@@ -894,6 +966,8 @@ export const chats = pgTable(
       onDelete: 'set null',
     }),
     isAnnouncement: boolean('is_announcement').notNull().default(false),
+    /** A group DM (Discord): up to GROUP_DM_MAX_MEMBERS, no admins, the owner removes. */
+    isGroupDm: boolean('is_group_dm').notNull().default(false),
     /** Groups only, always complete (DEFAULT_GROUP_SETTINGS merged at creation). */
     groupSettings: jsonb('group_settings').$type<GroupSettings>(),
     /** Channels only, always complete (DEFAULT_CHANNEL_SETTINGS merged at creation). */
@@ -964,11 +1038,11 @@ export const chats = pgTable(
       .where(sql`${t.spaceId} is not null`),
     check(
       'chats_type_ck',
-      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice', 'space_thread', 'space_forum')`,
+      sql`${t.type} in ('direct', 'group', 'channel', 'space_text', 'space_voice', 'space_thread', 'space_forum', 'space_stage')`,
     ),
     check(
       'chats_space_ck',
-      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice', 'space_thread', 'space_forum'))`,
+      sql`(${t.spaceId} is not null) = (${t.type} in ('space_text', 'space_voice', 'space_thread', 'space_forum', 'space_stage'))`,
     ),
     check('chats_thread_ck', sql`(${t.parentId} is not null) = (${t.type} = 'space_thread')`),
     /** A channel's threads, most recent first. */
@@ -984,11 +1058,11 @@ export const chats = pgTable(
       .where(sql`${t.type} = 'space_thread' and ${t.threadArchivedAt} is null`),
     check(
       'chats_space_cols_ck',
-      sql`${t.type} in ('space_text', 'space_voice', 'space_forum') or (${t.categoryId} is null and ${t.position} is null and ${t.topic} is null and ${t.userLimit} is null)`,
+      sql`${t.type} in ('space_text', 'space_voice', 'space_forum', 'space_stage') or (${t.categoryId} is null and ${t.position} is null and ${t.topic} is null and ${t.userLimit} is null)`,
     ),
     check(
       'chats_space_invite_ck',
-      sql`${t.type} not in ('space_text', 'space_voice', 'space_thread', 'space_forum') or ${t.inviteCode} is null`,
+      sql`${t.type} not in ('space_text', 'space_voice', 'space_thread', 'space_forum', 'space_stage') or ${t.inviteCode} is null`,
     ),
     check('chats_slowmode_ck', sql`${t.slowmodeSeconds} between 0 and 21600`),
     check('chats_direct_key_ck', sql`(${t.type} = 'direct') = (${t.directKey} is not null)`),
@@ -1099,6 +1173,10 @@ export const messages = pgTable(
     type: text('type').$type<MessageType>().notNull(),
     text: text('text'),
     mediaId: uuid('media_id').references(() => media.id, { onDelete: 'set null' }),
+    /** A sticker message: the sticker (its image is `media_id`, so old clients show it). */
+    stickerId: uuid('sticker_id').references((): AnyPgColumn => spaceStickers.id, {
+      onDelete: 'set null',
+    }),
     metadata: jsonb('metadata').$type<MessageMetadata>().notNull().default({}),
     replyToId: uuid('reply_to_id').references((): AnyPgColumn => messages.id, {
       onDelete: 'set null',
@@ -1144,6 +1222,10 @@ export const messages = pgTable(
     index('messages_media_idx')
       .on(t.mediaId)
       .where(sql`${t.mediaId} is not null`),
+    /** Deleting a sticker sets its messages' `sticker_id` to null. */
+    index('messages_sticker_idx')
+      .on(t.stickerId)
+      .where(sql`${t.stickerId} is not null`),
     check('messages_system_sender_ck', sql`(${t.type} = 'system') = (${t.senderId} is null)`),
   ],
 );
@@ -1186,6 +1268,29 @@ export const messageReactions = pgTable(
     primaryKey({ columns: [t.messageId, t.userId, t.emoji] }),
     /** Reactor lists per emoji, oldest first. */
     index('message_reactions_emoji_idx').on(t.messageId, t.emoji, t.createdAt),
+  ],
+);
+
+/**
+ * Every attachment of a message in order (position 0 is also `messages.media_id`, which old
+ * clients read). Alt text per file.
+ */
+export const messageAttachments = pgTable(
+  'message_attachments',
+  {
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    position: smallint('position').notNull(),
+    mediaId: uuid('media_id')
+      .notNull()
+      .references(() => media.id, { onDelete: 'cascade' }),
+    /** Alt text (≤ MAX_ALT_TEXT_LENGTH). */
+    description: text('description'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.position] }),
+    index('message_attachments_media_idx').on(t.mediaId),
   ],
 );
 

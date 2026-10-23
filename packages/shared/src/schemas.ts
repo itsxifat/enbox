@@ -559,7 +559,13 @@ export const sendMessageSchema = z
       mediaId: idSchema,
       /** Caption. */
       text: z.string().max(MAX_CAPTION_LENGTH).optional(),
+      /** More uploads of mine in the same message (any kind but voice; ≤ 9: 10 files in all). */
+      extraMediaIds: z.array(idSchema).max(9).optional(),
+      /** Alt text per file, aligned with [mediaId, ...extraMediaIds] (null = none). */
+      descriptions: z.array(z.string().trim().max(1024).nullable()).max(10).optional(),
     }),
+    /** A sticker of a Space I am in (stored as an `image` message showing the sticker). */
+    z.strictObject({ ...sendBase, type: z.literal('sticker'), stickerId: idSchema }),
     z.strictObject({ ...sendBase, type: z.literal('location'), location: locationSchema }),
     z.strictObject({ ...sendBase, type: z.literal('contact'), contact: contactCardSchema }),
     z.strictObject({ ...sendBase, type: z.literal('poll'), poll: pollInputSchema }),

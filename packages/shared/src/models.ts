@@ -18,6 +18,7 @@
 import type { NameStyle, RoleColorStyle } from './cosmetics.js';
 import type { MessageThreadRef, ThreadInfo } from './social.js';
 import type { ForumInfo } from './community.js';
+import type { MessageAttachment, MessageStickerRef } from './expressions.js';
 import type {
   BUBBLE_STYLES,
   CHAT_THEME_PRESETS,
@@ -217,6 +218,8 @@ export interface UserSelf {
   nameStyle?: NameStyle | null;
   /** My Space rail order and folders (Spaces missing from it show on top, newest first). */
   railLayout?: RailEntry[];
+  /** Two-factor sign-in (TOTP) is on. */
+  mfaEnabled?: boolean;
   phone: string | null;
   createdAt: ISODate;
   /** My availability choice (raw: `invisible` included). */
@@ -313,7 +316,13 @@ export type ChatType = 'direct' | 'group' | 'channel' | SpaceChannelType;
  * takes the parent's permissions. `space_forum`: a forum channel (`SpaceChannelInfo.forum`):
  * no messages of its own, its posts are threads.
  */
-export type SpaceChannelType = 'space_text' | 'space_voice' | 'space_thread' | 'space_forum';
+export type SpaceChannelType =
+  | 'space_text'
+  | 'space_voice'
+  | 'space_thread'
+  | 'space_forum'
+  /** A Stage channel: voice with speakers and an audience (`VoiceState.suppressed`). */
+  | 'space_stage';
 
 /** A chat's kind for wording ("group" vs "channel" vs "community" texts). See `chatKindOf()`. */
 export type ChatKind = 'direct' | 'group' | 'channel' | 'announcement' | 'space';
@@ -513,6 +522,8 @@ export interface ChatSummary {
 
   /** Space channels: the channel's viewer-neutral Space data (`chat:updated { space }` replaces it); null otherwise. */
   space: SpaceChannelInfo | null;
+  /** A group DM (no admins; up to GROUP_DM_MAX_MEMBERS). */
+  isGroupDm?: boolean;
   /** Threads (`space_thread`): parent, starter message, archive state. */
   thread?: ThreadInfo | null;
   /**
@@ -761,6 +772,10 @@ export interface Message {
   myReaction?: string | null;
   /** Every emoji the viewer reacted with (several per user). Viewer-specific: REST only. */
   myReactions?: string[];
+  /** Every attachment in order, alt text included; [0] is `media` (absent = just `media`). */
+  attachments?: MessageAttachment[];
+  /** A sticker message (type `image`, `media` = the sticker's picture). */
+  sticker?: MessageStickerRef | null;
   /** A thread was started from this message (Space text channels). */
   thread?: MessageThreadRef | null;
 }
@@ -1249,6 +1264,10 @@ export interface VoiceState {
   /** From the member row (moderators). */
   serverMute: boolean;
   serverDeaf: boolean;
+  /** Stage channels: in the audience (listening only). */
+  suppressed?: boolean;
+  /** Stage channels: hand raised since then (null = none). */
+  requestToSpeakAt?: ISODate | null;
   joinedAt: ISODate;
 }
 

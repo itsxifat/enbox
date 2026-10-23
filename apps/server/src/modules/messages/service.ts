@@ -158,6 +158,8 @@ export async function sendMessage(
   body: SendMessageBody,
 ): Promise<{ message: Message; created: boolean }> {
   assertUserLimit(me, 'sendMessage', USER_RATE_LIMITS.sendMessage);
+  // TODO(stickers): the stickers stream sends these as `image` messages of the sticker.
+  if (body.type === 'sticker') throw badRequest('Stickers are not available yet');
   const { row, created } = await transact(async (tx, fx) => {
     const access = await requireActiveMember(tx, me, chatId, { lock: true });
     const [existing] = await tx

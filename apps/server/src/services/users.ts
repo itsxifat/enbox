@@ -40,6 +40,7 @@ import {
   pushSubscriptions,
   sessions,
   statuses,
+  userBackupCodes,
   userNotes,
   users,
   type UserRow,
@@ -697,6 +698,7 @@ export async function scrubDeletedUser(
   await tx
     .delete(friendRequests)
     .where(or(eq(friendRequests.fromId, userId), eq(friendRequests.toId, userId)));
+  await tx.delete(userBackupCodes).where(eq(userBackupCodes.userId, userId));
   if (!opts.keepStatuses) await tx.delete(statuses).where(eq(statuses.userId, userId));
   await tx
     .update(users)
@@ -722,6 +724,9 @@ export async function scrubDeletedUser(
       presenceNoteEmoji: null,
       presenceNoteExpiresAt: null,
       passwordHash: '!',
+      totpSecret: null,
+      totpPendingSecret: null,
+      totpEnabledAt: null,
       settings: {},
       deletedAt: new Date(),
       updatedAt: new Date(),

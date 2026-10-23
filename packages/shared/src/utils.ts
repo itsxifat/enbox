@@ -119,7 +119,11 @@ export function chatKindOf(chat: Pick<ChatSummary, 'type' | 'isAnnouncement'>): 
 /** A text or voice channel of a Space, or a thread of one. */
 export function isSpaceChatType(type: ChatType): type is SpaceChannelType {
   return (
-    type === 'space_text' || type === 'space_voice' || type === 'space_thread' || type === 'space_forum'
+    type === 'space_text' ||
+    type === 'space_voice' ||
+    type === 'space_thread' ||
+    type === 'space_forum' ||
+    type === 'space_stage'
   );
 }
 

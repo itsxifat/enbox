@@ -21,6 +21,25 @@
  *   `/members/batch` before `/members/:userId`). The catalogue lists them in that order.
  */
 import type {
+  AddGroupDmMembersRequest,
+  BackupCodes,
+  CreateGroupDmRequest,
+  CreateSpaceSoundRequest,
+  CreateSpaceStickerRequest,
+  DisableTotpRequest,
+  EnableTotpRequest,
+  LoginMfaRequest,
+  RegenerateBackupCodesRequest,
+  SpaceSound,
+  SpaceSticker,
+  SpaceStickerGroup,
+  StageRequest,
+  StageSpeakerRequest,
+  TotpSetup,
+  UpdateSpaceSoundRequest,
+  UpdateSpaceStickerRequest,
+} from './expressions.js';
+import type {
   AutoModRule,
   CreateAutoModRuleRequest,
   CreateForumPostRequest,
@@ -403,6 +422,16 @@ export interface ApiRoutes {
   } /* active groups shared with that user (no channels) */;
 
   // Contacts & blocks
+  // Group DMs (up to GROUP_DM_MAX_MEMBERS; friends only; no admins, the owner removes)
+  'POST /api/chats/group-dm': { B: CreateGroupDmRequest; R: ChatSummary } /* one user → that DM */;
+  'POST /api/chats/:chatId/group-dm/members': { B: AddGroupDmMembersRequest; R: ChatSummary };
+  'DELETE /api/chats/:chatId/group-dm/members/:userId': { R: void } /* the owner; me = leave silently */;
+  // Two-factor sign-in
+  'POST /api/me/mfa/totp/setup': { R: TotpSetup };
+  'POST /api/me/mfa/totp/enable': { B: EnableTotpRequest; R: BackupCodes };
+  'POST /api/me/mfa/totp/disable': { B: DisableTotpRequest; R: void };
+  'POST /api/me/mfa/backup-codes': { B: RegenerateBackupCodesRequest; R: BackupCodes };
+  'POST /api/auth/login/mfa': { B: LoginMfaRequest; R: AuthResponse } /* second step of POST /api/auth/login */;
   // Friends (accepting makes both users each other's contacts)
   'GET /api/friends/requests': { R: FriendRequests };
   'POST /api/friends/requests': { B: SendFriendRequest; R: SendFriendRequestResult } /* friends:request → them */;
@@ -654,6 +683,21 @@ export interface ApiRoutes {
   'PATCH /api/spaces/:spaceId/emojis/:emojiId': { B: UpdateSpaceEmojiRequest; R: SpaceEmoji };
   'DELETE /api/spaces/:spaceId/emojis/:emojiId': { R: void };
   'GET /api/me/emojis': { R: SpaceEmojiGroup[] } /* the picker: emoji of all my Spaces */;
+  // Stickers (MANAGE_EMOJI to change; members use them everywhere)
+  'GET /api/spaces/:spaceId/stickers': { R: SpaceSticker[] };
+  'POST /api/spaces/:spaceId/stickers': { B: CreateSpaceStickerRequest; R: SpaceSticker } /* space:stickers → Space room */;
+  'PATCH /api/spaces/:spaceId/stickers/:stickerId': { B: UpdateSpaceStickerRequest; R: SpaceSticker };
+  'DELETE /api/spaces/:spaceId/stickers/:stickerId': { R: void };
+  'GET /api/me/stickers': { R: SpaceStickerGroup[] } /* the picker */;
+  // Soundboard (MANAGE_EMOJI to change; SPEAK in a voice channel to play)
+  'GET /api/spaces/:spaceId/sounds': { R: SpaceSound[] };
+  'POST /api/spaces/:spaceId/sounds': { B: CreateSpaceSoundRequest; R: SpaceSound };
+  'PATCH /api/spaces/:spaceId/sounds/:soundId': { B: UpdateSpaceSoundRequest; R: SpaceSound };
+  'DELETE /api/spaces/:spaceId/sounds/:soundId': { R: void };
+  'POST /api/spaces/:spaceId/sounds/:soundId/play': { R: void } /* voice:sound → my voice channel's room */;
+  // Stage channels (raise a hand; moderators = MUTE_MEMBERS + MOVE_MEMBERS move speakers)
+  'PATCH /api/spaces/:spaceId/voice-states/@me': { B: StageRequest; R: VoiceState };
+  'PATCH /api/spaces/:spaceId/voice-states/:userId/stage': { B: StageSpeakerRequest; R: VoiceState };
   // Scheduled events (MANAGE_CHANNELS creates; the creator or MANAGE_SPACE edits)
   'GET /api/spaces/:spaceId/events': { R: SpaceEvent[] } /* scheduled and active, by start */;
   'POST /api/spaces/:spaceId/events': { B: CreateSpaceEventRequest; R: SpaceEvent } /* space:event → Space room */;

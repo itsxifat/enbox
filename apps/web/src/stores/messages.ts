@@ -55,6 +55,7 @@ import {
   type ID,
   type Message,
   type MessagePage,
+  type MessageType,
   type Poll,
   type SendMessageRequest,
 } from '@enbox/shared';
@@ -341,6 +342,11 @@ function firstConfirmedSeq(items: ClientMessage[]): number {
   return confirmedCount(items) > 0 ? items[0]!.seq : 0;
 }
 
+/** The message type a request makes (a sticker is an `image` message showing it). */
+function messageTypeOf(req: SendInput): MessageType {
+  return req.type === 'sticker' ? 'image' : req.type;
+}
+
 function optimisticFromRequest(req: SendInput): Partial<ClientMessage> {
   const text = 'text' in req ? (req.text ?? null) : null;
   const poll: Poll | null =
@@ -359,7 +365,7 @@ function optimisticFromRequest(req: SendInput): Partial<ClientMessage> {
         }
       : null;
   return {
-    type: req.type,
+    type: messageTypeOf(req),
     text,
     // The server derives mentions from the text's `@{uuid}` tokens (active members only).
     mentions: extractMentionIds(text),
@@ -937,7 +943,7 @@ export const useMessages = create<MessagesState>((set, get) => {
         get().addOptimistic(chatId, {
           ...optimisticFromRequest(req),
           ...opts.optimistic,
-          type: req.type,
+          type: messageTypeOf(req),
           clientId,
         });
       sendRequests.set(clientId, { chatId, req });

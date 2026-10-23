@@ -71,6 +71,13 @@
       "when": 1792711418085,
       "tag": "0009_community_moderation_forums",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792717651203,
+      "tag": "0010_expressions_security",
+      "breakpoints": true
     }
   ]
 }
