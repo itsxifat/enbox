@@ -78,6 +78,7 @@ import { bumpMarks, markDeliveredForOnlineRecipients, type Marks } from './water
  * `Message.mentions` for a text (send AND edit): `@{uuid}` tokens ∩ active members (space
  * channels: members of the Space, `spaceId`), sender excluded, ≤ MAX_MENTIONS distinct, in
  * order of appearance. Tokens of non-members stay plain text. Pass `activeIds` when loaded.
+ * `extraIds` are mentioned without a token (a reply's author, first), with the same checks.
  */
 export async function deriveMentions(
   dbx: DbOrTx,
@@ -85,9 +86,12 @@ export async function deriveMentions(
   senderId: string | null,
   text: string | null | undefined,
   activeIds?: readonly string[],
-  opts: { spaceId?: string | null } = {},
+  opts: { spaceId?: string | null; extraIds?: readonly string[] } = {},
 ): Promise<string[]> {
-  const ids = extractMentionIds(text, Number.MAX_SAFE_INTEGER).filter((id) => id !== senderId);
+  const ids = uniq([
+    ...(opts.extraIds ?? []),
+    ...extractMentionIds(text, Number.MAX_SAFE_INTEGER),
+  ]).filter((id) => id !== senderId);
   if (ids.length === 0) return [];
   let members: Set<string>;
   if (activeIds) {
@@ -135,6 +139,8 @@ export interface CreateMessageInput {
   mediaId?: string | null;
   metadata?: MessageMetadata;
   replyToId?: string | null;
+  /** Mentioned without a token in the text (a reply's author when the reply pings): members only. */
+  mentionUserIds?: string[];
   forwardCount?: number;
   /**
    * Users still in the chat room who must not receive `message:new` (e.g. the member who
@@ -152,6 +158,12 @@ export interface CreateMessageInput {
    * against the sender's bits (MENTION_EVERYONE, mentionable roles).
    */
   spaceMentions?: { everyone: boolean; roleIds: string[] };
+  /**
+   * The first message of a thread inserted in this same transaction (a forum post): the
+   * thread is announced with it like a revived one (registry, `thread:upsert` before
+   * `message:new`) instead of the throttled count update.
+   */
+  opensThread?: boolean;
 }
 
 export interface CreateMessageResult {
@@ -240,7 +252,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
         input.senderId,
         input.text,
         noMemberWork ? undefined : memberIds,
-        { spaceId: isSpace ? chat!.spaceId : null },
+        { spaceId: isSpace ? chat!.spaceId : null, extraIds: input.mentionUserIds },
       );
 
   const [message] = await tx
@@ -314,7 +326,8 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
     chat: chatRow,
     publish(fx: Effects) {
       for (const userId of unhidden) fx.join(userId, input.chatId);
-      if (threadPost) threadMessageFx(fx, chatRow, !!locked.threadArchivedAt);
+      if (threadPost)
+        threadMessageFx(fx, chatRow, !!locked.threadArchivedAt || !!input.opensThread);
       fx.messageNew(row, { exceptUserIds: [...withheld, ...(input.exceptUserIds ?? [])] });
       if (input.senderId) fx.chatRead(input.senderId, input.chatId);
       // Withheld recipients learn nothing: not even the tick change the hidden seq causes.
@@ -440,8 +453,45 @@ export async function loadVisibleMessage(
     .$dynamic();
   if (opts.lock) q = q.for('update', { of: messages });
   const [row] = await q;
-  if (!row) throw notFound('Message');
+  if (!row) {
+    // Space channels: the read row is lazy (first read or send). A member who can see the
+    // channel but never read it still reaches its messages (pin, react, star…): create the
+    // row, then look once more.
+    if (await createLazySpaceRow(dbx, viewerId, messageId, opts.chatId))
+      return loadVisibleMessage(dbx, viewerId, messageId, opts);
+    throw notFound('Message');
+  }
   return { message: row.message, chat: row.chat, member: row.member, window: windowOf(row.member) };
+}
+
+/**
+ * The viewer's missing read row of the Space channel holding `messageId`, created when they
+ * can see the channel (computed permissions). False when it is no Space channel, the row
+ * exists already (the message is hidden for another reason) or they can't see it.
+ */
+async function createLazySpaceRow(
+  dbx: DbOrTx,
+  viewerId: string,
+  messageId: string,
+  chatId: string | undefined,
+): Promise<boolean> {
+  const [m] = await dbx
+    .select({ chatId: messages.chatId, spaceId: chats.spaceId })
+    .from(messages)
+    .innerJoin(chats, eq(chats.id, messages.chatId))
+    .where(and(eq(messages.id, messageId), chatId ? eq(messages.chatId, chatId) : undefined))
+    .limit(1);
+  if (!m?.spaceId) return false;
+  const [existing] = await dbx
+    .select({ x: chatMembers.chatId })
+    .from(chatMembers)
+    .where(and(eq(chatMembers.chatId, m.chatId), eq(chatMembers.userId, viewerId)))
+    .limit(1);
+  if (existing) return false;
+  const access = await getChatAccess(dbx, viewerId, m.chatId).catch(() => null);
+  if (!access?.space) return false;
+  await ensureSpaceReadRow(dbx, access.chat, viewerId, access.space.me.member.joinedAt);
+  return true;
 }
 
 /**

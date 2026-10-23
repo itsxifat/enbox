@@ -1,8 +1,8 @@
 /**
  * One conversation row: optional day separator / unread divider, then a system pill or a
  * message bubble (sender name, forwarded label, quotes, typed content, meta, reactions).
- * Interactions: hover chevron + reaction button and right-click (desktop), long-press sheet
- * and swipe-right-to-reply (touch), click-to-toggle in select mode.
+ * Interactions: the hover toolbar (`RowToolbar`, Discord's) and right-click (desktop),
+ * long-press sheet and swipe-right-to-reply (touch), click-to-toggle in select mode.
  *
  * The bubble chrome follows the chat's bubble style (`useRowAppearance`): `classic` (tail),
  * `rounded`, `minimal`; `cozy` rows are rendered by the sibling `CozyMessageRow`, which
@@ -13,14 +13,34 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
-import { Ban, Check, ChevronDown, FastForward, Forward, RotateCw, SmilePlus } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  Ellipsis,
+  FastForward,
+  Forward,
+  IdCard,
+  Link,
+  MessageSquareDot,
+  MessagesSquare,
+  Pencil,
+  Pin,
+  PinOff,
+  Reply,
+  RotateCw,
+  SmilePlus,
+  Trash2,
+} from 'lucide-react';
 import {
   FORWARDED_MANY_TIMES_THRESHOLD,
+  QUICK_REACTIONS,
   userDisplayName,
   type BubbleStyle,
   type ChatSummary,
@@ -28,17 +48,54 @@ import {
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { StyledName } from '@/components/cosmetics';
 import { ICON_STROKE_BOLD } from '@/components/icons';
+import type { IconType } from '@/components/ui';
 import { openProfile } from '@/features/profile/open';
 import { RoleIcon } from '@/features/spaces/RoleIcon';
 import { withSpaceProfile } from '@/features/spaces/serverProfile/merge';
+import { threadMessageAction } from '@/features/threads/actions';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
-import type { ClientMessage } from '@/stores/messages';
+import { useChats } from '@/stores/chats';
+import { useMessages, type ClientMessage } from '@/stores/messages';
 import { useUi } from '@/stores/ui';
 import { useUser, useUserName } from '@/stores/users';
 import { useSpaceAuthor } from '@/stores/spaces';
 import { useLongPress } from '@/features/chats/useLongPress';
-import { canReact, canReply, retry, startReply } from './actions';
+import {
+  canEdit,
+  canPinMessage,
+  canReact,
+  canReply,
+  isActionable,
+  pinMessage,
+  retry,
+  startEdit,
+  startReply,
+  unpinMessage,
+} from './actions';
+import {
+  canAddNewReaction,
+  isMyReaction,
+  reactionKey,
+  reactionLabel,
+} from './bubbles/reactions/model';
+import {
+  canAddReaction,
+  canRemoveOwnReaction,
+  toggleReaction,
+} from './bubbles/reactions/reactionActions';
+import { ReactionEmoji } from './bubbles/reactions/ReactionEmoji';
+import { ReactionPickerPopover } from './bubbles/reactions/ReactionPicker';
+import { recentReactions } from './bubbles/reactions/recent';
+import {
+  canDeleteMessage,
+  canMarkUnread,
+  copyId,
+  copyMessageLink,
+  deleteMessage,
+  markUnread,
+  useDeveloperMode,
+} from './moreActions';
 import { useEnterAnimation, useRowAppearance } from './bubbles/appearance';
 import { AudioFileBody, VoiceBody } from './bubbles/AudioBody';
 import { CallBody, ContactBody, FileBody, LocationBody } from './bubbles/CardBodies';
@@ -366,13 +423,119 @@ export function RetryButton({ chat, m }: { chat: ChatSummary; m: ClientMessage }
   );
 }
 
+// ---------------------------------------------------------------------------
+// Hover toolbar
+// ---------------------------------------------------------------------------
+
+/** Shift held (the toolbar shows its extra actions meanwhile): one key listener pair for all. */
+let shiftHeld = false;
+const shiftListeners = new Set<() => void>();
+function noteShift(held: boolean): void {
+  if (shiftHeld === held) return;
+  shiftHeld = held;
+  for (const l of shiftListeners) l();
+}
+const onShiftKey = (e: KeyboardEvent) => noteShift(e.shiftKey);
+const onShiftReset = () => noteShift(false);
+function subscribeShift(listener: () => void): () => void {
+  if (shiftListeners.size === 0) {
+    window.addEventListener('keydown', onShiftKey);
+    window.addEventListener('keyup', onShiftKey);
+    window.addEventListener('blur', onShiftReset);
+  }
+  shiftListeners.add(listener);
+  return () => {
+    shiftListeners.delete(listener);
+    if (shiftListeners.size) return;
+    window.removeEventListener('keydown', onShiftKey);
+    window.removeEventListener('keyup', onShiftKey);
+    window.removeEventListener('blur', onShiftReset);
+    shiftHeld = false;
+  };
+}
+
+/** Shift is held while `active` (only the hovered toolbar re-renders when it changes). */
+function useShiftHeld(active: boolean): boolean {
+  return useSyncExternalStore(
+    subscribeShift,
+    () => active && shiftHeld,
+    () => false,
+  );
+}
+
+const sameList = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((x, i) => x === b[i]);
+
+function ToolButton({
+  icon: Icon,
+  label,
+  onClick,
+  danger,
+  active,
+  ...rest
+}: {
+  icon: IconType;
+  label: string;
+  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  danger?: boolean;
+  active?: boolean;
+  'aria-haspopup'?: 'menu' | 'dialog';
+  /** The toolbar's one tab stop (More); arrow keys reach the rest. */
+  tabStop?: boolean;
+}) {
+  const { tabStop, ...props } = rest;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      tabIndex={tabStop ? 0 : -1}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      className={cn(
+        'flex size-8 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
+        danger ? 'text-danger hover:bg-danger/10' : 'text-muted hover:bg-hover hover:text-fg',
+        active && 'bg-hover text-fg',
+      )}
+      {...props}
+    >
+      <Icon size={20} aria-hidden />
+    </button>
+  );
+}
+
+/** ←/→/Home/End move between a toolbar's buttons (one tab stop per message). */
+function onToolbarKeyDown(e: ReactKeyboardEvent<HTMLDivElement>): void {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+  if (!keys.includes(e.key)) return;
+  const buttons = Array.from(
+    e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not([disabled])'),
+  );
+  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  if (i < 0) return;
+  e.preventDefault();
+  const next =
+    e.key === 'Home'
+      ? 0
+      : e.key === 'End'
+        ? buttons.length - 1
+        : i + (e.key === 'ArrowRight' ? 1 : -1);
+  buttons[(next + buttons.length) % buttons.length]?.focus();
+}
+
 /**
- * Desktop hover: react + options beside the bubble (never covering its content). Below lg it
- * stays reachable by keyboard / screen readers: visually hidden until a button in it has
- * focus (touch opens the same menu with a long-press).
+ * Discord's hover bar (top-right of the row on desktop): three quick reactions (my recent
+ * ones), Add Reaction (the full picker), Reply, Edit (mine), Create / Open Thread (Space
+ * text channels) and More (the message menu). Holding Shift adds Pin / Unpin, Copy Message
+ * Link, Mark Unread, Copy Message ID (Developer Mode) and Delete — at once, without a
+ * question. Below lg it stays reachable by keyboard / screen readers: visually hidden until a
+ * button in it has focus (touch opens the same menu with a long-press).
  */
 export function RowToolbar({
-  mine,
+  chat,
+  m,
   reactable,
   menuOpen,
   anchored,
@@ -380,7 +543,8 @@ export function RowToolbar({
   open,
   className,
 }: {
-  mine: boolean;
+  chat: ChatSummary;
+  m: ClientMessage;
   reactable: boolean;
   menuOpen: boolean;
   anchored: boolean;
@@ -388,45 +552,181 @@ export function RowToolbar({
   open: (mode: 'menu' | 'react', anchor: HTMLElement) => void;
   className?: string;
 }) {
+  const me = useAuth((s) => s.user?.id);
+  const devMode = useDeveloperMode();
+  const pinned = useChats((s) => !!s.pins[chat.id]?.includes(m.id));
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [picker, setPicker] = useState<HTMLElement | null>(null);
+  const [recent, setRecent] = useState(() => recentReactions(3));
+  const shift = useShiftHeld(hovered || focused);
+
+  // The row's hover drives the Shift extras and refreshes the quick reactions (read when the
+  // pointer arrives, so they never reorder under it).
+  useEffect(() => {
+    const row = toolbarRef.current?.parentElement;
+    if (!row) return;
+    const enter = (e: globalThis.PointerEvent) => {
+      if (e.pointerType === 'touch') return;
+      noteShift(!!e.shiftKey);
+      setHovered(true);
+      setRecent((prev) => {
+        const next = recentReactions(3);
+        return sameList(prev, next) ? prev : next;
+      });
+    };
+    const leave = () => setHovered(false);
+    row.addEventListener('pointerenter', enter);
+    row.addEventListener('pointerleave', leave);
+    return () => {
+      row.removeEventListener('pointerenter', enter);
+      row.removeEventListener('pointerleave', leave);
+    };
+  }, [toolbarRef]);
+
+  const quickOnly = chat.type === 'channel' && chat.channelSettings?.reactions === 'quick';
+  const addNew = canAddNewReaction(chat);
+  const quick = !reactable
+    ? []
+    : quickOnly
+      ? QUICK_REACTIONS.slice(0, 3)
+      : addNew
+        ? recent
+        : m.reactions.map((r) => r.emoji).slice(0, 3);
+  const thread = threadMessageAction(chat, m);
+  const actionable = isActionable(m);
+  const latest = () =>
+    useMessages.getState().byChat[chat.id]?.items.find((x) => x.id === m.id) ?? m;
+
   return (
     <div
       className={cn(
         'sr-only focus-within:not-sr-only lg:not-sr-only',
         'transition-opacity lg:opacity-0 lg:group-hover/msg:opacity-100 lg:focus-within:opacity-100',
-        menuOpen && 'lg:opacity-100',
-        anchored && 'not-sr-only',
+        (menuOpen || picker) && 'lg:opacity-100',
+        (anchored || picker) && 'not-sr-only',
         className,
       )}
       ref={toolbarRef}
       data-testid="message-toolbar"
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+      }}
     >
-      <div className={cn('mx-1 flex items-center gap-0.5', mine && 'flex-row-reverse')}>
-        {reactable ? (
-          <button
-            type="button"
-            aria-label="React to message"
-            onClick={(e) => {
-              e.stopPropagation();
-              open('react', e.currentTarget);
-            }}
-            className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
-          >
-            <SmilePlus size={18} aria-hidden />
-          </button>
+      <div
+        role="toolbar"
+        aria-label="Message actions"
+        onKeyDown={onToolbarKeyDown}
+        className="flex items-center gap-0.5 rounded-lg bg-elevated p-0.5 shadow-elevated"
+      >
+        {shift && actionable ? (
+          <>
+            {canPinMessage(chat, m) ? (
+              <ToolButton
+                icon={pinned ? PinOff : Pin}
+                label={pinned ? 'Unpin Message' : 'Pin Message'}
+                onClick={() => void (pinned ? unpinMessage(chat, m.id) : pinMessage(chat, m))}
+              />
+            ) : null}
+            <ToolButton
+              icon={Link}
+              label="Copy Message Link"
+              onClick={() => void copyMessageLink(chat, m)}
+            />
+            {canMarkUnread(chat, m) ? (
+              <ToolButton
+                icon={MessageSquareDot}
+                label="Mark Unread"
+                onClick={() => void markUnread(chat, m)}
+              />
+            ) : null}
+            {devMode ? (
+              <ToolButton
+                icon={IdCard}
+                label="Copy Message ID"
+                onClick={() => void copyId(m.id, 'Message ID')}
+              />
+            ) : null}
+            {canDeleteMessage(chat, m) ? (
+              <ToolButton
+                icon={Trash2}
+                label="Delete Message"
+                danger
+                onClick={() => void deleteMessage(chat, m, { immediate: true })}
+              />
+            ) : null}
+          </>
         ) : null}
-        <button
-          type="button"
-          aria-label="Message options"
+        {quick.map((emoji) => {
+          const mineR = isMyReaction(m, me, emoji);
+          const enabled = mineR ? canRemoveOwnReaction(chat, m) : canAddReaction(chat, m, emoji);
+          const label = reactionLabel(emoji);
+          return (
+            <button
+              key={reactionKey(emoji)}
+              type="button"
+              aria-label={mineR ? `Remove reaction ${label}` : `React ${label}`}
+              title={label}
+              aria-pressed={mineR}
+              disabled={!enabled}
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                void toggleReaction(chat, m, emoji);
+              }}
+              className={cn(
+                'flex size-8 shrink-0 items-center justify-center rounded-md leading-none transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand disabled:opacity-40',
+                mineR && 'bg-brand-soft',
+              )}
+            >
+              <ReactionEmoji emoji={emoji} size={20} />
+            </button>
+          );
+        })}
+        {reactable && (addNew || m.reactions.length > 0) ? (
+          <ToolButton
+            icon={SmilePlus}
+            label="Add Reaction"
+            aria-haspopup="dialog"
+            active={!!picker}
+            onClick={(e) => {
+              // Quick-only channels and members who may only join: the short list.
+              if (quickOnly || !addNew) open('react', e.currentTarget);
+              else setPicker(picker ? null : e.currentTarget);
+            }}
+          />
+        ) : null}
+        {canReply(chat, m) ? (
+          <ToolButton icon={Reply} label="Reply" onClick={() => startReply(chat, m)} />
+        ) : null}
+        {canEdit(chat, m) ? (
+          <ToolButton icon={Pencil} label="Edit" onClick={() => startEdit(chat, m)} />
+        ) : null}
+        {thread && thread !== 'separator' ? (
+          <ToolButton
+            icon={thread.icon ?? MessagesSquare}
+            label={typeof thread.label === 'string' ? thread.label : 'Thread'}
+            onClick={() => thread.onSelect?.()}
+          />
+        ) : null}
+        <ToolButton
+          icon={Ellipsis}
+          label="More"
           aria-haspopup="menu"
-          onClick={(e) => {
-            e.stopPropagation();
-            open('menu', e.currentTarget);
-          }}
-          className="flex size-8 items-center justify-center rounded-full bg-surface/85 text-muted shadow-bubble backdrop-blur-sm hover:text-fg"
-        >
-          <ChevronDown size={18} aria-hidden />
-        </button>
+          active={menuOpen}
+          tabStop
+          onClick={(e) => open('menu', e.currentTarget)}
+        />
       </div>
+      {picker ? (
+        <ReactionPickerPopover
+          chat={chat}
+          anchor={picker}
+          onClose={() => setPicker(null)}
+          onPick={(emoji) => void toggleReaction(chat, latest(), emoji)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -718,7 +1018,8 @@ export const MessageRow = memo(function MessageRow({
 
         {!selecting ? (
           <RowToolbar
-            mine={mine}
+            chat={chat}
+            m={m}
             reactable={x.reactable}
             menuOpen={x.menuOpen}
             anchored={x.toolbarAnchored}

@@ -4,7 +4,7 @@
  */
 import { PERM, hasPerm, type ID, type Space } from '@enbox/shared';
 
-export type SettingsSectionId = 'overview' | 'safety' | 'roles' | 'emoji' | 'members' | 'invites' | 'bans' | 'audit-log';
+export type SettingsSectionId = 'overview' | 'safety' | 'automod' | 'roles' | 'emoji' | 'members' | 'invites' | 'bans' | 'audit-log' | 'community' | 'onboarding' | 'welcome-screen';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -17,6 +17,7 @@ const has = (s: Space, ...perms: number[]) => perms.some((p) => hasPerm(s.myPerm
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'overview', label: 'Overview', show: (s) => has(s, PERM.MANAGE_SPACE) },
   { id: 'safety', label: 'Safety Setup', show: (s) => has(s, PERM.MANAGE_SPACE) },
+  { id: 'automod', label: 'AutoMod', show: (s) => has(s, PERM.MANAGE_SPACE) },
   { id: 'roles', label: 'Roles', show: (s) => has(s, PERM.MANAGE_ROLES) },
   { id: 'emoji', label: 'Emoji', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   {
@@ -28,6 +29,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'invites', label: 'Invites', show: (s) => has(s, PERM.CREATE_INVITE) },
   { id: 'bans', label: 'Bans', show: (s) => has(s, PERM.BAN_MEMBERS) },
   { id: 'audit-log', label: 'Audit Log', show: (s) => has(s, PERM.VIEW_AUDIT_LOG) },
+  // Community (features/spaces/community/settings)
+  { id: 'community', label: 'Community Overview', show: (s) => has(s, PERM.MANAGE_SPACE) },
+  { id: 'onboarding', label: 'Onboarding', show: (s) => has(s, PERM.MANAGE_SPACE) },
+  { id: 'welcome-screen', label: 'Welcome Screen', show: (s) => has(s, PERM.MANAGE_SPACE) },
 ];
 
 /** The sections I can open. */

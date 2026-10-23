@@ -41,8 +41,9 @@ describe('invites module', () => {
   const join = (u: TestUser, code: string) => api(u).post(`/api/invites/${code}/join`);
 
   it('validates codes: malformed → 400, unknown → 404', async () => {
-    expectError(await api(owner).get('/api/invites/short'), 400, 'validation_error');
-    expectError(await api(owner).get(`/api/invites/${'A'.repeat(21)}0`), 400, 'validation_error'); // 0 is not in the alphabet
+    // Space vanity codes (3-32 letters, digits, dashes) share the route: shorter or other characters are malformed.
+    expectError(await api(owner).get('/api/invites/ab'), 400, 'validation_error');
+    expectError(await api(owner).get(`/api/invites/${'A'.repeat(21)}_`), 400, 'validation_error'); // _ fits neither
     expectError(await api(owner).get(`/api/invites/${'A'.repeat(22)}`), 404, 'not_found');
     expectError(await api(owner).post(`/api/invites/${'A'.repeat(22)}/join`), 404, 'not_found');
     expectError(await t.api().get(`/api/invites/${'A'.repeat(22)}`), 401, 'unauthorized');

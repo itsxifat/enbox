@@ -63,6 +63,7 @@ import type {
   Community,
   CommunityMember,
   Contact,
+  ID,
   IceServerConfig,
   InvitePreview,
   LinkPreview,
@@ -134,6 +135,7 @@ import type {
   LinkGroupsRequest,
   ListMessagesQuery,
   LoginRequest,
+  MarkUnreadRequest,
   PinMessageRequest,
   PollVoteRequest,
   PushSubscribeRequest,
@@ -179,6 +181,7 @@ export type ApiErrorCode =
   | 'expired' // 410: edit/delete window passed, call already ended, status expired
   | 'payload_too_large' // 413
   | 'rate_limited' // 429
+  | 'automod_blocked' // 403: a Space AutoMod rule blocked the message (not created)
   | 'internal_error'; // 500
 
 export interface ApiErrorBody {
@@ -242,6 +245,15 @@ export interface ChatMediaCounts {
   links: number;
   /** Voice notes. */
   voice: number;
+}
+
+/** My read state of a chat: the `chat:read` payload, and `POST /chats/:chatId/unread`'s response. */
+export interface ChatReadState {
+  chatId: ID;
+  lastReadSeq: number;
+  unreadCount: number;
+  unreadMentionCount: number;
+  markedUnread: boolean;
 }
 
 /** A page of chat history. See `listMessagesQuerySchema` for cursor semantics. */
@@ -425,6 +437,10 @@ export interface ApiRoutes {
   } /* 404 unless you have a (non-hidden) membership row */;
   'PATCH /api/chats/:chatId/prefs': { B: UpdateChatPrefsRequest; R: ChatSummary };
   'POST /api/chats/:chatId/read': { B: ReadRequest; R: void };
+  'POST /api/chats/:chatId/unread': {
+    B: MarkUnreadRequest;
+    R: ChatReadState;
+  } /* Mark Unread: read seq → the message's seq - 1, marked unread; chat:read + chat:upsert → my devices */;
   'POST /api/chats/:chatId/clear': { R: void } /* clear history for me */;
   'DELETE /api/chats/:chatId': {
     R: void;

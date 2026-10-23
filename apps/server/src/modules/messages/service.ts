@@ -13,6 +13,9 @@ import {
   USER_RATE_LIMITS,
   canDeleteForEveryone,
   canEditMessage,
+  extractMentionIds,
+  isSpaceChatType,
+  type ChatType,
   type Message,
   type MessageInfo,
   type MessagePage,
@@ -69,6 +72,8 @@ import {
   touchSlowmode,
 } from '../../services/spaceRules.js';
 import { gateExternalEmoji } from '../../services/spaceEmojis.js';
+import { enforceAutoMod } from '../../services/automod.js';
+import { ensureSpaceReadRow } from '../../services/spaceAccess.js';
 import { getUserRows, settingsOf, toUserPublicMap } from '../../services/users.js';
 import { toSearchResults } from '../chats/service.js';
 import { removeMyReactions, replaceMyReaction } from './reactions.js';
@@ -132,6 +137,14 @@ function captionOf(text: string | undefined): string | null {
 }
 
 /**
+ * Replies mention their author in groups and Space channels (`mentionRepliedAuthor`, default
+ * on); direct chats notify anyway and broadcast channels have no reply pings.
+ */
+function pingsRepliedAuthor(type: ChatType, flag: boolean | undefined): boolean {
+  return flag !== false && (type === 'group' || isSpaceChatType(type));
+}
+
+/**
  * `POST /chats/:chatId/messages` (docs "Send"): per-user rate limit; active member (404 /
  * 403 not_member) — an existing (chat, sender, clientId) returns the original message (200,
  * nothing written or emitted); `canSend` (403 blocked / forbidden); media uploaded by me with
@@ -165,6 +178,9 @@ export async function sendMessage(
       ? spaceSendRules(access, me, { type: body.type, text: 'text' in body ? body.text : null })
       : undefined;
     if (access.space) await assertSpaceVerification(tx, access, me);
+    // Reply targets are looked up through my read row, lazy in Space channels.
+    if (access.space && body.replyToId)
+      await ensureSpaceReadRow(tx, access.chat, me, access.space.me.member.joinedAt);
 
     const metadata: MessageMetadata = {};
     const input: CreateMessageInput = {
@@ -195,8 +211,17 @@ export async function sendMessage(
     }
     // Space channels: other Spaces' custom emoji need USE_EXTERNAL_EMOJI (else `:name:`).
     if (input.text) input.text = await gateExternalEmoji(tx, access, input.text);
-    if (body.replyToId)
-      input.replyToId = (await resolveReplyTarget(tx, me, access.chat, body.replyToId)).id;
+    if (body.replyToId) {
+      const target = await resolveReplyTarget(tx, me, access.chat, body.replyToId);
+      input.replyToId = target.id;
+      // Discord: a reply in a group or Space channel pings its author unless turned off.
+      if (
+        pingsRepliedAuthor(access.chat.type, body.mentionRepliedAuthor) &&
+        target.chatId === chatId &&
+        target.senderId
+      )
+        input.mentionUserIds = [target.senderId];
+    }
     if (body.statusReplyToId) {
       metadata.statusReply = await resolveStatusReply(tx, {
         senderId: me,
@@ -204,6 +229,8 @@ export async function sendMessage(
         statusId: body.statusReplyToId,
       });
     }
+    // Space channels: AutoMod (403 automod_blocked; alerts / timeouts follow the transaction).
+    if (access.space) await enforceAutoMod(tx, fx, access, me, input);
     const result = await createMessage(tx, fx, input);
     if (result.created) await touchSlowmode(tx, access, me);
     return { row: result.message, created: result.created };
@@ -341,8 +368,14 @@ export async function editMessage(me: string, messageId: string, text: string): 
     }
     if (next) next = await gateExternalEmoji(tx, access, next);
     if (next === message.text) return message;
+    // Space channels: AutoMod re-checks edits (blocked → the edit is refused).
+    if (access.space) await enforceAutoMod(tx, fx, access, me, { text: next }, { edit: true });
+    // A reply's ping (its author, mentioned without a token) survives the edit.
+    const tokenIds = new Set(extractMentionIds(message.text, Number.MAX_SAFE_INTEGER));
+    const replyPing = message.replyToId ? message.mentions.filter((id) => !tokenIds.has(id)) : [];
     const mentions = await deriveMentions(tx, message.chatId, message.senderId, next, undefined, {
       spaceId: access.chat.spaceId,
+      extraIds: replyPing,
     });
     // Space channels: re-derived flags, no new pings (edits never notify again).
     const space = access.space ? allowedSpaceMentions(access, next) : null;

@@ -3,6 +3,11 @@
  * touch long-press sheet (with a quick-reactions strip) and the reaction picker (my most
  * recent reactions + the full emoji picker). Opened through `useConversationUi().openActions`.
  * Touch: a double tap on a message adds ❤️ (Discord's tap to react).
+ *
+ * The menu follows Discord: Add Reaction ▸ (quick picks, View More), Edit Message, Reply,
+ * Forward, Create / Open Thread, Copy Text, Pin Message, Mark Unread, Copy Message Link, Speak
+ * Message, Delete Message, then Copy Message ID in Developer Mode. Other chats add their
+ * WhatsApp extras (reply privately, star, info, select; delete offers "for me").
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -11,7 +16,10 @@ import {
   Copy,
   Download,
   Forward,
+  IdCard,
   Info,
+  Link,
+  MessageSquareDot,
   MessageSquareReply,
   MessageSquareText,
   Pencil,
@@ -21,12 +29,18 @@ import {
   Reply,
   RotateCw,
   SmilePlus,
+  Speech,
   Star,
   StarOff,
   Trash2,
 } from 'lucide-react';
-import { QUICK_REACTIONS, type ChatSummary } from '@enbox/shared';
-import { Menu, type MenuEntry } from '@/components/ui';
+import {
+  QUICK_REACTIONS,
+  isSpaceChatType,
+  parseCustomEmoji,
+  type ChatSummary,
+} from '@enbox/shared';
+import { Menu, type MenuEntry, type MenuItem } from '@/components/ui';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/stores/auth';
@@ -45,7 +59,6 @@ import {
   canReplyPrivately,
   copyMessages,
   copyText,
-  deleteMessages,
   isActionable,
   openDirectChat,
   pinMessage,
@@ -56,6 +69,18 @@ import {
   unpinMessage,
   type SenderInfo,
 } from './actions';
+import {
+  canDeleteMessage,
+  canMarkUnread,
+  canSpeak,
+  copyId,
+  copyMessageLink,
+  deleteMessage,
+  markUnread,
+  speakMessage,
+  useDeveloperMode,
+  useUnreadMarkSync,
+} from './moreActions';
 import {
   canAddNewReaction,
   isMyReaction,
@@ -161,6 +186,37 @@ function downloadName(m: ClientMessage): string {
   return m.media?.fileName ?? `${m.type}-${m.id.slice(0, 8)}`;
 }
 
+/** Add Reaction ▸'s quick picks: four recent emoji (the quick list in quick-only channels). */
+function menuReactionChoices(chat: ChatSummary, m: ClientMessage): string[] {
+  if (chat.type === 'channel' && chat.channelSettings?.reactions === 'quick')
+    return [...QUICK_REACTIONS];
+  if (!canAddNewReaction(chat)) return m.reactions.map((r) => r.emoji).slice(0, 4);
+  return recentReactions(4);
+}
+
+/** An emoji as a menu item's label (custom emoji also show their `:name:`). */
+function MenuEmoji({ emoji }: { emoji: string }) {
+  return (
+    <span className="inline-flex items-center gap-2.5 align-middle">
+      <ReactionEmoji emoji={emoji} size={22} />
+      <span className={parseCustomEmoji(emoji) ? 'truncate' : 'sr-only'}>
+        {reactionLabel(emoji)}
+      </span>
+    </span>
+  );
+}
+
+/** Drop empty entries and the separators that would lead, trail or double up. */
+function tidy(entries: MenuEntry[]): MenuEntry[] {
+  const out: (MenuItem | 'separator')[] = [];
+  for (const e of entries) {
+    if (!e || (e === 'separator' && (!out.length || out.at(-1) === 'separator'))) continue;
+    out.push(e);
+  }
+  while (out.at(-1) === 'separator') out.pop();
+  return out;
+}
+
 export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
   const action = useConversationUi((s) => (s.action?.chatId === chat.id ? s.action : null));
   const m = useMessages((s) =>
@@ -183,35 +239,58 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
   const pickerMessage = useMessages((s) =>
     picker ? s.byChat[chat.id]?.items.find((x) => x.id === picker.messageId) : undefined,
   );
+  const devMode = useDeveloperMode();
   useDoubleTapReaction(chat);
+  // Mark Unread on another of my devices moves the NEW line here too.
+  useUnreadMarkSync(chat);
 
-  const items: MenuEntry[] = [];
+  let items: MenuEntry[] = [];
   if (action && m) {
     const actionable = isActionable(m);
+    // Space channels are Discord's: no WhatsApp extras (star, info, select, delete for me).
+    const whatsApp = !isSpaceChatType(chat.type);
     const sender: SenderInfo = {
       deleted: !!(m.senderId && senderProfile?.isDeleted),
       member: members && m.senderId ? members.some((x) => x.user.id === m.senderId) : null,
     };
     const pinned = !!pins?.includes(m.id);
     const text = copyText(m);
-    items.push(
+    const addNew = canAddNewReaction(chat);
+    const reactions: MenuItem | null =
+      action.mode === 'menu' && canReact(chat, m) && (addNew || m.reactions.length > 0)
+        ? {
+            label: 'Add Reaction',
+            icon: SmilePlus,
+            // Quick-only channels, and members who may only join existing emoji: no full
+            // picker (it would offer emoji the server refuses).
+            submenu: [
+              ...menuReactionChoices(chat, m).map((e): MenuItem => {
+                const mine = isMyReaction(m, me, e);
+                return {
+                  label: <MenuEmoji emoji={e} />,
+                  disabled: mine ? !canRemoveOwnReaction(chat, m) : !canAddReaction(chat, m, e),
+                  onSelect: () => void toggleReaction(chat, m, e),
+                };
+              }),
+              quickOnly || !addNew
+                ? null
+                : {
+                    label: 'View More',
+                    icon: Plus,
+                    onSelect: () => setPicker({ anchor: action.anchor, messageId: m.id }),
+                  },
+            ],
+          }
+        : null;
+    items = tidy([
       m.failed ? { label: 'Retry', icon: RotateCw, onSelect: () => retry(chat.id, m) } : null,
+      reactions,
+      reactions ? 'separator' : null,
+      canEdit(chat, m)
+        ? { label: 'Edit Message', icon: Pencil, onSelect: () => startEdit(chat, m) }
+        : null,
       canReply(chat, m)
         ? { label: 'Reply', icon: Reply, onSelect: () => startReply(chat, m) }
-        : null,
-      action.mode === 'menu' &&
-        canReact(chat, m) &&
-        (canAddNewReaction(chat) || m.reactions.length > 0)
-        ? {
-            label: 'React',
-            icon: SmilePlus,
-            // Quick-only channels, and members who may only join existing emoji: the full
-            // emoji picker would offer emoji the server refuses.
-            onSelect: () =>
-              quickOnly || !canAddNewReaction(chat)
-                ? useConversationUi.getState().openActions({ ...action, mode: 'react' })
-                : setPicker({ anchor: action.anchor, messageId: m.id }),
-          }
         : null,
       canReplyPrivately(chat, m, me, sender)
         ? {
@@ -233,7 +312,6 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
               void openDirectChat(m.senderId!).then((id) => id && navigate(`/chats/${id}`)),
           }
         : null,
-      text ? { label: 'Copy', icon: Copy, onSelect: () => void copyMessages([m]) } : null,
       canForward(m)
         ? {
             label: 'Forward',
@@ -242,18 +320,27 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
           }
         : null,
       threadMessageAction(chat, m),
+      text ? { label: 'Copy Text', icon: Copy, onSelect: () => void copyMessages([m]) } : null,
       canPinMessage(chat, m)
         ? pinned
-          ? { label: 'Unpin', icon: PinOff, onSelect: () => void unpinMessage(chat, m.id) }
-          : { label: 'Pin', icon: Pin, onSelect: () => void pinMessage(chat, m) }
+          ? { label: 'Unpin Message', icon: PinOff, onSelect: () => void unpinMessage(chat, m.id) }
+          : { label: 'Pin Message', icon: Pin, onSelect: () => void pinMessage(chat, m) }
         : null,
-      actionable && !m.deletedAt && m.type !== 'call'
+      whatsApp && actionable && !m.deletedAt && m.type !== 'call'
         ? m.starred
           ? { label: 'Unstar', icon: StarOff, onSelect: () => void setStarred([m], false) }
           : { label: 'Star', icon: Star, onSelect: () => void setStarred([m], true) }
         : null,
-      canEdit(chat, m) ? { label: 'Edit', icon: Pencil, onSelect: () => startEdit(chat, m) } : null,
-      canInfo(chat, m)
+      canMarkUnread(chat, m)
+        ? { label: 'Mark Unread', icon: MessageSquareDot, onSelect: () => void markUnread(chat, m) }
+        : null,
+      actionable
+        ? { label: 'Copy Message Link', icon: Link, onSelect: () => void copyMessageLink(chat, m) }
+        : null,
+      canSpeak(m)
+        ? { label: 'Speak Message', icon: Speech, onSelect: () => speakMessage(chat, m) }
+        : null,
+      whatsApp && canInfo(chat, m)
         ? { label: 'Info', icon: Info, onSelect: () => useConversationUi.getState().openInfo(m) }
         : null,
       m.media && !m.deletedAt && actionable
@@ -271,7 +358,7 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
             },
           }
         : null,
-      actionable
+      whatsApp && actionable
         ? {
             label: 'Select',
             icon: CheckSquare,
@@ -279,13 +366,23 @@ export function MessageActionsHost({ chat }: { chat: ChatSummary }) {
           }
         : null,
       'separator',
-      {
-        label: 'Delete',
-        icon: Trash2,
-        danger: true,
-        onSelect: () => void deleteMessages(chat, [m]),
-      },
-    );
+      canDeleteMessage(chat, m)
+        ? {
+            label: 'Delete Message',
+            icon: Trash2,
+            danger: true,
+            onSelect: () => void deleteMessage(chat, m),
+          }
+        : null,
+      devMode && actionable ? 'separator' : null,
+      devMode && actionable
+        ? {
+            label: 'Copy Message ID',
+            icon: IdCard,
+            onSelect: () => void copyId(m.id, 'Message ID'),
+          }
+        : null,
+    ]);
   }
 
   const reactable = !!m && canReact(chat, m);

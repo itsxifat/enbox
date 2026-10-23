@@ -1,17 +1,59 @@
-import { NavLink, useLocation } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { cn } from '@/lib/cn';
-import { Badge } from '@/components/ui';
-import { TABS, activeTab } from './tabs';
+import { Avatar, Badge } from '@/components/ui';
+import { selfPresenceState } from '@/features/profile/model';
+import { spaceMemory } from '@/features/spaces/actions';
+import { useMe } from '@/stores/auth';
+import { useSpaceList } from '@/stores/spaces';
+import { TABS, activeTab, type TabDef } from './tabs';
 import { tabBadgeText, useTabBadges } from './useTabBadges';
+
+/** Servers opens the last Space visited (Discord mobile), else the rail and its welcome. */
+function useServersPath(): string {
+  const spaces = useSpaceList();
+  const last = spaceMemory.lastSpace();
+  return last && spaces.some((s) => s.id === last) ? `/spaces/${last}` : '/spaces';
+}
+
+/** The You tab wears my avatar (ringed while current) with my availability. */
+function TabGlyph({ tab, active }: { tab: TabDef; active: boolean }) {
+  const me = useMe();
+  if (tab.id === 'you' && me)
+    return (
+      <span
+        className={cn(
+          'flex rounded-full ring-2 transition-shadow',
+          active ? 'ring-brand-ink' : 'ring-transparent',
+        )}
+        data-testid="you-tab-avatar"
+      >
+        <Avatar
+          src={me.avatarUrl}
+          name={me.displayName}
+          colorSeed={me.id}
+          size={24}
+          presence={selfPresenceState(me)}
+          decorative
+        />
+      </span>
+    );
+  return active ? (
+    <tab.activeIcon size={24} className="animate-icon-pop" aria-hidden />
+  ) : (
+    <tab.icon size={24} aria-hidden />
+  );
+}
 
 /**
  * Phone bottom tab bar (hidden on detail routes and on desktop): a floating rounded card
- * with a margin above the safe area, not a full-width strip with a top border.
+ * with a margin above the safe area, not a full-width strip with a top border. Servers (the
+ * rail and a Space's channels), Messages (DMs), Notifications (the Inbox) and You.
  */
 export function BottomTabs() {
   const { pathname } = useLocation();
   const current = activeTab(pathname);
   const badges = useTabBadges();
+  const serversPath = useServersPath();
   return (
     <nav
       aria-label="Main"
@@ -23,11 +65,13 @@ export function BottomTabs() {
           const badge = badges[t.id];
           const badgeText = tabBadgeText(t.id, badge);
           return (
-            <li key={t.id} className="flex-1">
-              <NavLink
-                to={t.path}
+            <li key={t.id} className="min-w-0 flex-1">
+              {/* A Link, not NavLink: a tab is current for all its prefixes (`activeTab`). */}
+              <Link
+                to={t.id === 'servers' ? serversPath : t.path}
                 aria-current={active ? 'page' : undefined}
                 className="group flex flex-col items-center gap-1 pt-2 pb-2 outline-none"
+                data-testid={`tab-${t.id}`}
               >
                 <span
                   className={cn(
@@ -36,11 +80,7 @@ export function BottomTabs() {
                     active ? 'bg-brand-soft text-brand-ink' : 'text-muted group-active:bg-hover',
                   )}
                 >
-                  {active ? (
-                    <t.activeIcon size={24} className="animate-icon-pop" aria-hidden />
-                  ) : (
-                    <t.icon size={24} aria-hidden />
-                  )}
+                  <TabGlyph tab={t} active={active} />
                   {badge?.count ? (
                     <Badge
                       count={badge.count}
@@ -60,13 +100,13 @@ export function BottomTabs() {
                 </span>
                 <span
                   className={cn(
-                    'text-[12px] leading-none transition-colors',
+                    'max-w-full truncate px-0.5 text-[12px] leading-none transition-colors',
                     active ? 'font-semibold text-fg' : 'font-medium text-muted',
                   )}
                 >
                   {t.label}
                 </span>
-              </NavLink>
+              </Link>
             </li>
           );
         })}

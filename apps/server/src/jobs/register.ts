@@ -8,5 +8,6 @@ import './disappearingPurge.js';
 import './calls.js';
 import './voice.js';
 import './threads.js';
+import './events.js';
 import './statusExpiry.js';
 import './presenceExpiry.js';

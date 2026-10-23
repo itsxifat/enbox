@@ -26,6 +26,10 @@ import { publicRouter as emojiImages } from './spaces/emojis.js';
 import { router as voice } from './voice/routes.js';
 import { router as inbox } from './inbox/routes.js';
 import { router as threads } from './threads/routes.js';
+import { router as forums } from './forums/routes.js';
+import { router as events } from './events/routes.js';
+import { router as community } from './community/routes.js';
+import { router as automod } from './automod/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -57,6 +61,10 @@ export const authedRouters: Router[] = [
   voice,
   inbox,
   threads,
+  forums,
+  events,
+  community,
+  automod,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

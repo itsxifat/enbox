@@ -144,7 +144,8 @@ export const CozyMessageRow = memo(function CozyMessageRow({
 
         {!selecting ? (
           <RowToolbar
-            mine={false}
+            chat={chat}
+            m={m}
             reactable={x.reactable}
             menuOpen={x.menuOpen}
             anchored={x.toolbarAnchored}

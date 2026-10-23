@@ -155,10 +155,11 @@ export async function searchSpaceMessages(
 ): Promise<MessageSearchPage> {
   assertCriteria(query);
   const access = await requireSpaceMember(db, spaceId, me);
+  // Text channels and forums (a forum holds no messages itself: its posts are threads).
   const channels = await db
-    .select({ id: chats.id, name: chats.name })
+    .select({ id: chats.id, name: chats.name, type: chats.type })
     .from(chats)
-    .where(and(eq(chats.spaceId, spaceId), eq(chats.type, 'space_text')));
+    .where(and(eq(chats.spaceId, spaceId), inArray(chats.type, ['space_text', 'space_forum'])));
   const overwrites = await loadChannelOverwrites(
     db,
     channels.map((c) => c.id),
@@ -168,7 +169,14 @@ export async function searchSpaceMessages(
     channels
       .filter((c) =>
         hasPerm(
-          channelBits(access.ctx, me, access.me, 'space_text', overwrites.get(c.id) ?? [], access.base),
+          channelBits(
+            access.ctx,
+            me,
+            access.me,
+            c.type === 'space_forum' ? 'space_forum' : 'space_text',
+            overwrites.get(c.id) ?? [],
+            access.base,
+          ),
           SEARCH_BITS,
         ),
       )
@@ -192,7 +200,11 @@ export async function searchSpaceMessages(
       )
         throw notFound('Channel');
     }
-    scope = eq(messages.chatId, query.channelId);
+    // in: a forum → its posts (the forum itself holds no messages).
+    const forum = channels.some((c) => c.id === query.channelId && c.type === 'space_forum');
+    scope = forum
+      ? sql`${messages.chatId} in (select ${chats.id} from ${chats} where ${chats.parentId} = ${query.channelId}::uuid)`
+      : eq(messages.chatId, query.channelId);
   } else {
     if (visible.size === 0) return emptyPage();
     const ids = uuidArray(visible.keys());

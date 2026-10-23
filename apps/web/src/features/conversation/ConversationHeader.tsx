@@ -44,6 +44,7 @@ import {
   unmuteChat,
 } from '@/features/chats/chatActions';
 import { useChatMembers } from './members';
+import { PinsButton } from './pins/PinsPopout';
 import { useConversationUi } from './state';
 
 export function backPath(pathname: string): string {
@@ -233,6 +234,7 @@ export function ConversationHeader({
               />
             </>
           ) : null}
+          {desktop ? <PinsButton chat={chat} /> : null}
           {desktop ? <HeaderSearch scope={{ kind: 'chat', chatId: chat.id }} chatId={chat.id} /> : null}
           <DropdownMenu
             aria-label="Chat menu"

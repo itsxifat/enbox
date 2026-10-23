@@ -75,7 +75,7 @@ describe('Space menus', () => {
     expect(header).toContain('Hide Muted Channels [x]');
     expect(rail).toContain('Unmute Space');
     expect(rail.find((l) => l.startsWith('Space Settings ▸'))).toBe(
-      'Space Settings ▸ Overview | Safety Setup | Roles | Emoji | Members | Invites | Bans | Audit Log',
+      'Space Settings ▸ Overview | Safety Setup | AutoMod | Roles | Emoji | Members | Invites | Bans | Audit Log | Community Overview | Onboarding | Welcome Screen',
     );
     expect(rail.find((l) => l.startsWith('Notification Settings'))).toMatch(/^Notification Settings ▸ All Messages \[x\]/);
     expect(rail).toEqual(expect.arrayContaining(['Create Channel', 'Create Category', 'Leave Space', 'Copy Space ID']));

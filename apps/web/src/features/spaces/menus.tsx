@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router';
 import {
   Bell,
   BellOff,
+  CalendarPlus,
   CheckCheck,
   EyeOff,
   FolderPlus,
@@ -31,6 +32,7 @@ import { confirm, toast, type MenuEntry } from '@/components/ui';
 import { copyText } from '@/features/groups/shared/share';
 import { lazyNamed } from '@/lib/lazy';
 import { useMe } from '@/stores/auth';
+import { useEvents } from '@/stores/events';
 import { isSpaceMuted } from '@/stores/spaces';
 import { leaveSpace, markSpaceRead, updateMyMember } from './actions';
 import { CategoryDialog } from './dialogs/CategoryDialog';
@@ -175,6 +177,11 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
     icon: FolderPlus,
     onSelect: () => setDialog({ kind: 'category' }),
   };
+  const createEvent: MenuEntry = manageChannels && {
+    label: 'Create Event',
+    icon: CalendarPlus,
+    onSelect: () => useEvents.getState().openModal(space.id, { create: true }),
+  };
   const profile: MenuEntry = hasPerm(bits, PERM.CHANGE_NICKNAME) && {
     label: 'Edit Space Profile',
     icon: UserPen,
@@ -203,6 +210,7 @@ export function useSpaceMenu(space: Space | undefined): SpaceMenu {
       settings && { label: 'Space Settings', icon: Settings, onSelect: () => navigate(settingsPath(space.id)) },
       createChannel,
       createCategory,
+      createEvent,
       'separator',
       { label: 'Notification Settings', icon: Bell, onSelect: () => setDialog({ kind: 'notifications' }) },
       'separator',

@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn';
 import { formatDaySeparator } from '@/lib/format';
 import type { ClientMessage } from '@/stores/messages';
 import { nameOf, useUsers } from '@/stores/users';
+import { AutoModAlertCard } from '@/features/spaces/automod/AutoModAlertCard';
 
 export function Pill({ children, className }: { children: ReactNode; className?: string }) {
   return (
@@ -65,6 +66,8 @@ export function SystemPill({
   // Re-render when the actors' profiles arrive.
   useUsers((s) => s.byId);
   if (!m.system) return null;
+  // AutoMod alerts are a card, not a pill (features/spaces/automod).
+  if (m.system.kind === 'automod_alert') return <AutoModAlertCard m={m} event={m.system} />;
   const text = systemEventText(m.system, (id) => nameOf(id), chatKindOf(chat));
   const pinned = m.system.kind === 'message_pinned' ? m.system.messageId : null;
   const timer = m.system.kind === 'disappearing_changed';

@@ -23,7 +23,7 @@ import {
   type ChatMemberRow,
   type ChatRow,
 } from '../db/schema.js';
-import { blocked as blockedError, forbidden, notFound, notMember } from '../lib/errors.js';
+import { badRequest, blocked as blockedError, forbidden, notFound, notMember } from '../lib/errors.js';
 import type { MemberCtx, SpacePermCtx } from './spaceAccess.js';
 import { spaceChannelAccess } from './spaceAccess.js';
 import { uniq } from './sql.js';
@@ -448,10 +448,12 @@ export async function requireActiveMember(
  * Guard for sending/forwarding into a chat (docs "Send", "Blocking"): 403 `blocked`
  * ("Unblock to send") when I blocked the direct-chat peer, 403 `forbidden` when the peer is
  * deleted or `permissions.canSend` is false. (A peer who blocked ME is never revealed: the
- * send succeeds and is withheld.)
+ * send succeeds and is withheld.) A forum holds no messages of its own: 400 (posts are
+ * created with `POST /chats/:chatId/posts`).
  */
 export function assertCanSend(access: ChatAccess): void {
   if (access.membership !== 'active') throw notMember();
+  if (access.chat.type === 'space_forum') throw badRequest('Forum channels only hold posts');
   if (access.chat.type === 'direct' && access.peer && access.peer.id !== access.member.userId) {
     if (access.peer.isBlocked) throw blockedError('Unblock this contact to send a message');
     if (access.peer.isDeleted) throw forbidden('This account was deleted');

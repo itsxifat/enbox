@@ -20,11 +20,21 @@ describe('header Back arrow', () => {
 
 describe('tabBadgeText', () => {
   it('names each badge for what it counts', () => {
-    expect(tabBadgeText('chats', { count: 1 })).toBe('1 unread chat');
-    expect(tabBadgeText('chats', { count: 3 })).toBe('3 unread chats');
+    expect(tabBadgeText('messages', { count: 1 })).toBe('1 unread chat');
+    expect(tabBadgeText('messages', { count: 3 })).toBe('3 unread chats');
     expect(tabBadgeText('calls', { count: 2 })).toBe('2 missed calls');
     expect(tabBadgeText('calls', { count: 1 })).toBe('1 missed call');
+    expect(tabBadgeText('notifications', { count: 4 })).toBe('4 unread mentions');
+    expect(tabBadgeText('servers', { count: 1 })).toBe('1 unread mention');
+    expect(tabBadgeText('servers', { dot: true })).toBe('unread messages');
+    expect(tabBadgeText('friends', { count: 2 })).toBe('2 friend requests');
     expect(tabBadgeText('updates', { dot: true })).toBe('new updates');
-    expect(tabBadgeText('settings', undefined)).toBeNull();
+    expect(tabBadgeText('you', undefined)).toBeNull();
+  });
+
+  it('uses the summed label of a badge that adds up several things', () => {
+    expect(tabBadgeText('you', { count: 3, label: '2 friend requests, 1 missed call' })).toBe(
+      '2 friend requests, 1 missed call',
+    );
   });
 });

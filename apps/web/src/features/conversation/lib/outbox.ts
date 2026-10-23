@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api';
 import { bus } from '@/lib/bus';
 import { newClientId } from '@/lib/ids';
 import { registerSessionReset } from '@/lib/session';
+import { handleAutoModBlock } from '@/features/spaces/automod/blocked';
 import { useMessages, type ClientMessage, type SendInput } from '@/stores/messages';
 import { toast } from '@/stores/ui';
 
@@ -44,7 +45,7 @@ export async function flushOutbox(): Promise<void> {
       await job.run();
     } catch (e) {
       if (isOfflineError(e)) holdForReconnect(job.chatId, clientId, job.run);
-      else {
+      else if (!handleAutoModBlock(job.chatId, clientId, e)) {
         useMessages.getState().markFailed(job.chatId, clientId);
         toast.error(e);
       }
@@ -69,7 +70,8 @@ export async function sendQueued(
       holdForReconnect(chatId, clientId, () =>
         useMessages.getState().retryMessage(chatId, clientId),
       );
-    else toast.error(e);
+    // AutoMod refused it: no failed bubble, the composer explains (features/spaces/automod).
+    else if (!handleAutoModBlock(chatId, clientId, e)) toast.error(e);
     return null;
   }
 }

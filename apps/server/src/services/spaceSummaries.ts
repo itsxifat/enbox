@@ -40,9 +40,9 @@ import {
   type SpacePermCtx,
 } from './spaceAccess.js';
 import { num, pairKey, rawRows, uniq, uuidArray } from './sql.js';
-import { toThreadInfo } from './threads.js';
+import { forumInfoOf, toThreadInfo } from './threads.js';
 
-/** Viewer-neutral `ChatSummary.space` of a channel row. */
+/** Viewer-neutral `ChatSummary.space` of a channel row (forums: their tags and options). */
 export function toSpaceChannelInfo(
   chat: ChatRow,
   overwrites: SpaceChannelInfo['overwrites'],
@@ -57,6 +57,7 @@ export function toSpaceChannelInfo(
     userLimit: chat.userLimit,
     bitrate: chat.bitrate,
     permissionsSynced: chat.permissionsSynced,
+    ...(chat.type === 'space_forum' ? { forum: forumInfoOf(chat) } : {}),
     overwrites,
   };
 }

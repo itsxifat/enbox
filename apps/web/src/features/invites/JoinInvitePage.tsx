@@ -23,6 +23,8 @@ import { useCommunities } from '@/stores/communities';
 import { useSpaces } from '@/stores/spaces';
 
 const CODE_RE = new RegExp(`^[${INVITE_CODE_ALPHABET}]{${INVITE_CODE_LENGTH}}$`);
+/** A Space's vanity code (3-32 letters, digits, dashes) also opens its invite page. */
+const VANITY_RE = /^[a-z0-9-]{3,32}$/i;
 
 /** Where to go for a joined/previewed invite target. */
 export function invitePath(kind: InvitePreview['kind'], id: string): string {
@@ -53,7 +55,7 @@ export function JoinInvitePage() {
   const [joining, setJoining] = useState(false);
 
   useEffect(() => {
-    if (!CODE_RE.test(code)) {
+    if (!CODE_RE.test(code) && !VANITY_RE.test(code)) {
       setState({ status: 'invalid' });
       return;
     }

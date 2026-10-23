@@ -46,6 +46,7 @@ import { toast, useUi } from '@/stores/ui';
 import { mentionName } from '@/features/chats/preview';
 import { getDraft, useDrafts } from '@/features/chats/drafts';
 import { useSpaceMentionCandidates, type MentionCandidate } from '@/features/spaces/mentions';
+import { AutoModBlockedNotice } from '@/features/spaces/automod/AutoModBlockedNotice';
 import { useSpaces } from '@/stores/spaces';
 import { canEdit, previewOf, saveEdit } from '../actions';
 import { ReplyQuote } from '../bubbles/Quote';
@@ -69,6 +70,8 @@ import { sendQueued } from '../lib/outbox';
 import { createTypingEmitter } from '../lib/typing';
 import { useChatMembers } from '../members';
 import { useConversationUi } from '../state';
+import { applyCommand, commandQuery, matchCommands, type SlashCommand } from '../commands/commands';
+import { CommandSuggestions } from '../commands/CommandSuggestions';
 import { AttachMenu, type AttachKind } from './AttachMenu';
 import { AttachmentTray, trayFile, trayItem, type TrayItem } from './AttachmentTray';
 import { CameraDialog, ContactPickerDialog, LocationDialog, PollDialog } from './AttachDialogs';
@@ -78,11 +81,12 @@ import { VoiceRecorderBar } from './VoiceRecorderBar';
 
 const MAX_ROWS = 6;
 const HOLD_MS = 220;
+const NO_COMMANDS: SlashCommand[] = [];
 
 type Dialog = 'location' | 'contact' | 'poll' | 'camera' | null;
 
 /** What goes on the first message of a batch of uploads (the rest carry neither). */
-type Lead = Pick<MediaSendInput, 'caption' | 'replyToId' | 'replyTo'>;
+type Lead = Pick<MediaSendInput, 'caption' | 'replyToId' | 'replyTo' | 'mentionRepliedAuthor'>;
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -124,6 +128,18 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const refs = useRef<MentionRef[]>(initial.refs);
   const [mention, setMention] = useState<MentionQuery | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
+  // Slash commands: listed while a command name is typed at the start (Escape hides the list
+  // until the text changes).
+  const [cmdIdx, setCmdIdx] = useState(0);
+  const [cmdDismissed, setCmdDismissed] = useState<string | null>(null);
+  const cmdListId = useId();
+  // Replies: Discord's "@ ON / @ OFF" — the reply whose author is not mentioned (back to ON
+  // once the reply is sent or cancelled).
+  const [pingOff, setPingOff] = useState<string | null>(null);
+  const replyId = reply?.id;
+  useEffect(() => {
+    if (!replyId) setPingOff(null);
+  }, [replyId]);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [attachAnchor, setAttachAnchor] = useState<HTMLElement | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -243,6 +259,28 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       }));
   }, [mention, chat.type, members, meId]);
   const suggestions = isSpace ? spaceSuggestions : groupSuggestions;
+  const cmdQuery = editing ? null : commandQuery(text);
+  const commands =
+    cmdQuery !== null && cmdDismissed !== text ? matchCommands(cmdQuery) : NO_COMMANDS;
+  const cmdActive = Math.min(cmdIdx, Math.max(0, commands.length - 1));
+
+  const pickCommand = (c: SlashCommand) => {
+    const el = ta.current;
+    const next = `/${c.name} `;
+    setText(next);
+    setCmdIdx(0);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.length, next.length);
+    });
+  };
+
+  /** Replies in groups and Space channels mention the replied author unless "@ OFF". */
+  const pingable = (m: ClientMessage | undefined): m is ClientMessage =>
+    !!m?.senderId && m.senderId !== meId && (chat.type === 'group' || isSpace);
+  const pingFlag = (m: ClientMessage | undefined) =>
+    pingable(m) && pingOff === m.id ? { mentionRepliedAuthor: false } : {};
 
   const updateMention = (value: string, caret: number) => {
     if (!mentionable) return;
@@ -253,6 +291,8 @@ export function Composer({ chat }: { chat: ChatSummary }) {
 
   const onChange = (value: string, caret: number) => {
     setText(value);
+    setCmdIdx(0);
+    if (cmdDismissed !== null && value !== cmdDismissed) setCmdDismissed(null);
     refs.current = pruneRefs(value, refs.current);
     if (value.trim()) typing.keystroke();
     else typing.stop();
@@ -322,7 +362,15 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     m ? { replyToId: m.id, replyTo: previewOf(m) } : { replyToId: undefined, replyTo: null };
 
   const send = () => {
-    const encoded = encodeMentions(text, refs.current).trim();
+    // A slash command at the start becomes its message (/shrug, /me …); edits send as typed.
+    const command = editing ? null : applyCommand(text);
+    if (command && 'missing' in command) {
+      toast.info(`Type a ${command.missing.option} after /${command.missing.name}`, {
+        id: 'slash-command',
+      });
+      return;
+    }
+    const encoded = encodeMentions(command ? command.text : text, refs.current).trim();
     if (editing) {
       void saveEdit(chat, editing, encoded).then((ok) => {
         if (ok) {
@@ -344,11 +392,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       return;
     }
     const r = replyFields(reply);
+    const ping = pingFlag(reply);
     clearAfterSend();
     if (sounds) playSound('sent');
     void sendQueued(
       chat.id,
-      { type: 'text', text: encoded, replyToId: r.replyToId },
+      { type: 'text', text: encoded, replyToId: r.replyToId, ...ping },
       { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
     );
   };
@@ -356,6 +405,25 @@ export function Composer({ chat }: { chat: ChatSummary }) {
   const cancelEdit = () => useConversationUi.getState().setEditing(chat.id, null);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (commands.length) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const d = e.key === 'ArrowDown' ? 1 : -1;
+        setCmdIdx((cmdActive + d + commands.length) % commands.length);
+        return;
+      }
+      if ((e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) || e.key === 'Tab') {
+        e.preventDefault();
+        pickCommand(commands[cmdActive]!);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setCmdDismissed(text);
+        return;
+      }
+    }
     if (suggestions.length) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -389,7 +457,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       e.stopPropagation();
       return;
     }
-    // ↑ in an empty field edits your last message (WhatsApp Web).
+    // ↑ in an empty field edits your last message (Discord; Escape cancels the edit).
     if (e.key === 'ArrowUp' && !text && !editing) {
       const items = useMessages.getState().byChat[chat.id]?.items ?? [];
       for (let i = items.length - 1; i >= 0; i--) {
@@ -501,7 +569,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     if (pending?.caption)
       void sendQueued(
         chat.id,
-        { type: 'text', text: pending.caption, replyToId: pending.replyToId },
+        {
+          type: 'text',
+          text: pending.caption,
+          replyToId: pending.replyToId,
+          ...(pending.mentionRepliedAuthor === false ? { mentionRepliedAuthor: false } : {}),
+        },
         { optimistic: pending.replyTo ? { replyTo: pending.replyTo } : undefined },
       );
     await uploads;
@@ -516,15 +589,16 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     }
     const items = trayRef.current;
     const r = replyFields(reply);
+    const ping = pingFlag(reply);
     setTray([]);
     clearAfterSend();
     if (sounds) playSound('sent');
-    let lead: Lead = { ...r, caption: encoded || undefined };
+    let lead: Lead = { ...r, ...ping, caption: encoded || undefined };
     if (encoded.length > MAX_CAPTION_LENGTH) {
       // Too long for a caption: the text goes first as its own message, the files follow.
       void sendQueued(
         chat.id,
-        { type: 'text', text: encoded, replyToId: r.replyToId },
+        { type: 'text', text: encoded, replyToId: r.replyToId, ...ping },
         { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
       );
       lead = {};
@@ -538,8 +612,9 @@ export function Composer({ chat }: { chat: ChatSummary }) {
     const list = capped(tooBig(files), MAX_ATTACHMENTS);
     if (!list.length) return;
     const r = replyFields(reply);
+    const ping = pingFlag(reply);
     clearAfterAttachmentSend();
-    void uploadItems(list.map(trayItem), r);
+    void uploadItems(list.map(trayItem), { ...r, ...ping });
   };
 
   useBus('composer:files', ({ chatId, files, direct }) => {
@@ -697,7 +772,15 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           onHover={setMentionIdx}
         />
       ) : null}
+      <CommandSuggestions
+        id={cmdListId}
+        items={commands}
+        active={cmdActive}
+        onPick={pickCommand}
+        onHover={setCmdIdx}
+      />
 
+      <AutoModBlockedNotice chatId={chat.id} />
       {editing ? (
         <div className="mb-2 flex items-center gap-2 rounded-xl bg-surface-2 py-1.5 pr-1 pl-3 animate-slide-down">
           <Pencil size={16} className="shrink-0 text-brand-ink" aria-hidden />
@@ -712,6 +795,27 @@ export function Composer({ chat }: { chat: ChatSummary }) {
       ) : reply ? (
         <div className="mb-2 flex items-center gap-1 animate-slide-down">
           <ReplyQuote preview={previewOf(reply)} chatId={chat.id} className="flex-1" />
+          {pingable(reply) ? (
+            <button
+              type="button"
+              aria-pressed={pingOff !== reply.id}
+              title={
+                pingOff !== reply.id
+                  ? 'Click to stop mentioning the original author'
+                  : 'Click to mention the original author'
+              }
+              onClick={() => {
+                setPingOff(pingOff === reply.id ? null : reply.id);
+                ta.current?.focus({ preventScroll: true });
+              }}
+              className={cn(
+                'shrink-0 rounded-md px-2 py-1 text-[13px] font-bold transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-brand',
+                pingOff !== reply.id ? 'text-brand-ink' : 'text-muted',
+              )}
+            >
+              {pingOff !== reply.id ? '@ ON' : '@ OFF'}
+            </button>
+          ) : null}
           <IconButton
             icon={X}
             label="Cancel reply"
@@ -762,9 +866,17 @@ export function Composer({ chat }: { chat: ChatSummary }) {
                 onPaste={onPaste}
                 placeholder={editing ? 'Edit message' : placeholder}
                 aria-label="Message"
-                aria-autocomplete={mentionable ? 'list' : undefined}
-                aria-controls={suggestions.length ? listId : undefined}
-                aria-activedescendant={suggestions.length ? `${listId}-${mentionIdx}` : undefined}
+                aria-autocomplete="list"
+                aria-controls={
+                  commands.length ? cmdListId : suggestions.length ? listId : undefined
+                }
+                aria-activedescendant={
+                  commands.length
+                    ? `${cmdListId}-${cmdActive}`
+                    : suggestions.length
+                      ? `${listId}-${mentionIdx}`
+                      : undefined
+                }
                 enterKeyHint={enterToSend && !touch ? 'send' : 'enter'}
                 className="max-h-[50vh] min-h-11 min-w-0 flex-1 resize-none bg-transparent py-[11px] text-chat leading-[1.375] text-fg outline-none placeholder:text-subtle"
               />
@@ -923,7 +1035,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           clearAfterAttachmentSend();
           void sendQueued(
             chat.id,
-            { type: 'location', location, replyToId: r.replyToId },
+            { type: 'location', location, replyToId: r.replyToId, ...pingFlag(reply) },
             { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
           );
         }}
@@ -937,7 +1049,12 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           clearAfterAttachmentSend();
           void sendQueued(
             chat.id,
-            { type: 'contact', contact: { userId: c.user.id }, replyToId: r.replyToId },
+            {
+              type: 'contact',
+              contact: { userId: c.user.id },
+              replyToId: r.replyToId,
+              ...pingFlag(reply),
+            },
             {
               optimistic: {
                 contact: {
@@ -961,7 +1078,7 @@ export function Composer({ chat }: { chat: ChatSummary }) {
           clearAfterAttachmentSend();
           void sendQueued(
             chat.id,
-            { type: 'poll', poll, replyToId: r.replyToId },
+            { type: 'poll', poll, replyToId: r.replyToId, ...pingFlag(reply) },
             { optimistic: r.replyTo ? { replyTo: r.replyTo } : undefined },
           );
         }}

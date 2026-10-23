@@ -219,16 +219,24 @@ const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('alert'), channelId: idSchema }),
   z.object({ type: z.literal('timeout'), durationSeconds: z.number().int().min(60).max(28 * 86400) }),
 ]);
-export const createAutoModRuleSchema = z.object({
+const autoModRuleFields = {
   name: z.string().trim().min(1).max(100),
-  triggerType: z.enum(['keyword', 'spam_links', 'mention_spam', 'preset']),
-  triggerMetadata: triggerMetadataSchema.default({}),
+  triggerMetadata: triggerMetadataSchema,
   actions: z.array(actionSchema).min(1).max(3),
-  enabled: z.boolean().default(true),
-  exemptRoleIds: z.array(idSchema).max(20).default([]),
-  exemptChannelIds: z.array(idSchema).max(50).default([]),
+  enabled: z.boolean(),
+  exemptRoleIds: z.array(idSchema).max(20),
+  exemptChannelIds: z.array(idSchema).max(50),
+};
+export const createAutoModRuleSchema = z.object({
+  ...autoModRuleFields,
+  triggerType: z.enum(['keyword', 'spam_links', 'mention_spam', 'preset']),
+  triggerMetadata: autoModRuleFields.triggerMetadata.default({}),
+  enabled: autoModRuleFields.enabled.default(true),
+  exemptRoleIds: autoModRuleFields.exemptRoleIds.default([]),
+  exemptChannelIds: autoModRuleFields.exemptChannelIds.default([]),
 });
-export const updateAutoModRuleSchema = createAutoModRuleSchema.omit({ triggerType: true }).partial();
+/** Only the keys sent change (no defaults: a rename must not reset the rest). */
+export const updateAutoModRuleSchema = z.object(autoModRuleFields).partial();
 export type CreateAutoModRuleRequest = z.input<typeof createAutoModRuleSchema>;
 export type UpdateAutoModRuleRequest = z.input<typeof updateAutoModRuleSchema>;
 

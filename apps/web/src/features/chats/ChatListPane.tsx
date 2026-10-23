@@ -43,6 +43,7 @@ import {
 import { ChatRow } from './ChatRow';
 import { MessageSearchResults } from './MessageSearchResults';
 import { IN_APP_NAV } from '@/components/layout/navigation';
+import { FriendsEntry } from '@/features/you/FriendsEntry';
 
 function ArchivedEntry({ count, unread }: { count: number; unread: number }) {
   return (
@@ -155,15 +156,23 @@ export function ChatListPane() {
   );
 
   const showArchived = archivedCount > 0 && !query && filter === 'all';
+  const showFriends = !query && filter === 'all';
 
   const components = useMemo(
     () => ({
-      Header: showArchived
-        ? () => <ArchivedEntry count={archivedCount} unread={archivedUnread} />
-        : undefined,
+      // Phones: Friends heads the Messages list (FriendsEntry renders nothing on desktop).
+      Header:
+        showArchived || showFriends
+          ? () => (
+              <>
+                {showFriends ? <FriendsEntry /> : null}
+                {showArchived ? <ArchivedEntry count={archivedCount} unread={archivedUnread} /> : null}
+              </>
+            )
+          : undefined,
       Footer: ListFooter,
     }),
-    [showArchived, archivedCount, archivedUnread],
+    [showArchived, showFriends, archivedCount, archivedUnread],
   );
   const searchContext = useMemo<SearchContext>(
     () => ({ count: chats.length, query }),
@@ -210,6 +219,7 @@ export function ChatListPane() {
   } else if (!chats.length) {
     body = (
       <>
+        {showFriends ? <FriendsEntry /> : null}
         {showArchived ? <ArchivedEntry count={archivedCount} unread={archivedUnread} /> : null}
         <EmptyState
           icon={NewChatIcon}

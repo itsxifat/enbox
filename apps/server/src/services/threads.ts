@@ -13,12 +13,18 @@
  * Space and the parent channel) and goes to the parent channel's room, the same audience as
  * the thread's. Creation, rename, archive, lock and revival emit at once; message count
  * changes are throttled (THREAD_UPSERT_THROTTLE_MS per thread and process).
+ *
+ * Forum posts are threads of a `space_forum` channel (modules/forums): the same rows, rooms
+ * and events; the post's first message lives inside the thread (no starter message), and
+ * `applied_tags` holds the forum tags it wears (`resolvePostTags`).
  */
 import { eq, sql } from 'drizzle-orm';
 import {
+  DEFAULT_FORUM_SETTINGS,
   spaceChannelPermissions,
   type ChatSummary,
   type ChatType,
+  type ForumInfo,
   type MessageThreadRef,
   type PermissionOverwrite,
   type SpaceChannelInfo,
@@ -26,6 +32,7 @@ import {
 } from '@enbox/shared';
 import { db, type DbOrTx } from '../db/index.js';
 import { chats, spaces, type ChatRow, type MessageRow } from '../db/schema.js';
+import { badRequest, forbidden } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
 import { emitToChat } from '../realtime/emit.js';
 import { threadOpened } from '../realtime/spaceRegistry.js';
@@ -42,7 +49,7 @@ export const THREAD_UPSERT_THROTTLE_MS = 5_000;
 // Serialization
 // ---------------------------------------------------------------------------
 
-/** `ChatSummary.thread` of a thread row. */
+/** `ChatSummary.thread` of a thread row (forum posts: the tags they wear). */
 export function toThreadInfo(row: ChatRow): ThreadInfo {
   return {
     parentId: row.parentId!,
@@ -52,7 +59,45 @@ export function toThreadInfo(row: ChatRow): ThreadInfo {
     locked: row.threadLocked,
     autoArchiveMinutes: row.threadAutoArchiveMinutes ?? DEFAULT_THREAD_AUTO_ARCHIVE_MINUTES,
     messageCount: row.threadMessageCount,
+    appliedTags: row.appliedTags ?? [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Forum posts
+// ---------------------------------------------------------------------------
+
+/** `SpaceChannelInfo.forum` of a forum row: its tags, and its settings over the defaults. */
+export function forumInfoOf(row: Pick<ChatRow, 'forumTags' | 'forumSettings'>): ForumInfo {
+  return {
+    tags: row.forumTags ?? [],
+    settings: { ...DEFAULT_FORUM_SETTINGS, ...(row.forumSettings ?? {}) },
+  };
+}
+
+/**
+ * The tags a post may wear, for its creation or an edit by its author or a moderator (Discord
+ * rules): tags of its forum only (400), duplicates dropped; a forum with `requireTag` needs one
+ * (400); without MANAGE_MESSAGES no moderated tag may be added or removed (403, `previous` =
+ * the post's tags before the edit). Returned in the forum's tag order.
+ */
+export function resolvePostTags(
+  forum: ForumInfo,
+  wanted: readonly string[],
+  opts: { moderator: boolean; previous?: readonly string[] },
+): string[] {
+  const known = new Set(forum.tags.map((t) => t.id));
+  const picked = new Set(wanted);
+  for (const id of picked) if (!known.has(id)) throw badRequest('appliedTags: unknown tag');
+  if (forum.settings.requireTag && picked.size === 0)
+    throw badRequest('This forum requires at least one tag');
+  if (!opts.moderator) {
+    const before = new Set(opts.previous ?? []);
+    for (const t of forum.tags)
+      if (t.moderated && picked.has(t.id) !== before.has(t.id))
+        throw forbidden(`Only moderators can add or remove the tag ${t.name}`);
+  }
+  return forum.tags.filter((t) => picked.has(t.id)).map((t) => t.id);
 }
 
 type RefRow = Pick<
@@ -250,9 +295,9 @@ export function threadActivity(threadId: string): void {
 
 /**
  * The send transaction's thread step, registered BEFORE the message's `message:new`. A send
- * that revived an archived thread registers it in the room registry, announces it at once
- * (`thread:upsert`, and the starter message's new `thread` state); any other send counts
- * towards the throttled `thread:upsert`.
+ * that revived an archived thread — or opened a new one (a forum post's first message) —
+ * registers it in the room registry, announces it at once (`thread:upsert`, and the starter
+ * message's new `thread` state); any other send counts towards the throttled `thread:upsert`.
  */
 export function threadMessageFx(fx: Effects, thread: ChatRow, revived: boolean): void {
   if (!thread.parentId || !thread.spaceId) return;

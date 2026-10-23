@@ -53,8 +53,8 @@ import {
 import { useSpaceBadge, useSpaceList } from '@/stores/spaces';
 import { markSpaceRead, spaceMemory } from './actions';
 import { tidy, useSpaceMenu } from './menus';
+import { CommunityGate } from './community/CommunityGate';
 import { CreateSpaceDialog } from './dialogs/CreateSpaceDialog';
-import { JoinSpaceDialog } from './dialogs/JoinSpaceDialog';
 
 /** Discord's server acronym: first letters of the words (max 5), e.g. "Gaming Lounge" → "GL". */
 export function spaceAcronym(name: string): string {
@@ -689,6 +689,7 @@ export function SpaceRail() {
   const { spaceId } = useParams<{ spaceId?: string }>();
   const { pathname } = useLocation();
   const inSpaces = pathname === '/spaces' || pathname.startsWith('/spaces/');
+  const inDiscover = pathname === '/discover';
   const chats = useSortedChats();
   const unreadDms = useMemo(
     () => chats.filter((c) => isChatUnread(c) && !isMuted(c.mutedUntil)).slice(0, 5),
@@ -698,7 +699,6 @@ export function SpaceRail() {
   // `/spaces?create=1` (New chat → New Space) opens the create dialog.
   const [params, setParams] = useSearchParams();
   const [creating, setCreating] = useState(() => params.get('create') === '1');
-  const [joining, setJoining] = useState(false);
   const [editing, setEditing] = useState<RailFolder | null>(null);
   const closeCreate = () => {
     setCreating(false);
@@ -760,7 +760,7 @@ export function SpaceRail() {
       className="group/rail lg:card-pane flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto overflow-x-visible bg-surface-2 py-3 lg:overflow-visible lg:bg-surface"
       data-dragging={dragging ? 'true' : undefined}
     >
-      <HomeTile active={!inSpaces} />
+      <HomeTile active={!inSpaces && !inDiscover} />
       {unreadDms.map((c) => (
         <UnreadDmTile key={c.id} chat={c} />
       ))}
@@ -800,14 +800,22 @@ export function SpaceRail() {
         <CreateTile line={drop?.kind === 'end'} onClick={() => setCreating(true)} />
         <DragOverlay dropAnimation={null}>{dragging ? <RailDragPreview data={dragging} /> : null}</DragOverlay>
       </DndContext>
-      <button type="button" className={ACTION} aria-label="Join a Space" onClick={() => setJoining(true)}>
+      <NavLink
+        to="/discover"
+        className={cn(ACTION, inDiscover && 'rounded-2xl! bg-success! text-on-brand!')}
+        aria-label="Explore Spaces"
+        aria-current={inDiscover ? 'page' : undefined}
+        data-testid="rail-discover"
+      >
+        <Pill active={inDiscover} />
         <Compass size={24} aria-hidden />
         <span role="tooltip" className={TIP}>
-          Join a Space
+          Explore Spaces
         </span>
-      </button>
+      </NavLink>
       <CreateSpaceDialog open={creating} onClose={closeCreate} />
-      <JoinSpaceDialog open={joining} onClose={() => setJoining(false)} />
+      {/* Onboarding and the welcome screen of the Space that opens. */}
+      <CommunityGate />
       {editing && editingItem?.kind === 'folder' ? (
         <FolderSettingsDialog
           folder={editingItem.folder}

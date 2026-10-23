@@ -111,6 +111,12 @@ import {
   requireSpaceChannel,
   setChannelOverwrites,
 } from './service.js';
+import {
+  clonedForumColumns,
+  dropTagsFromPosts,
+  forumPatch,
+  newForumColumns,
+} from '../forums/channel.js';
 import { router as membersRouter } from './members.js';
 import { router as emojisRouter } from './emojis.js';
 import './hooks.js';
@@ -142,8 +148,10 @@ async function channelSummary(userId: string, chatId: string): Promise<ChatSumma
   return s;
 }
 
-function channelName(type: 'space_text' | 'space_voice', name: string): string {
-  const n = type === 'space_text' ? normalizeTextChannelName(name) : name.trim();
+function channelName(type: 'space_text' | 'space_voice' | 'space_forum', name: string): string {
+  // Forums are named like text channels (#lowercase-with-dashes).
+  const n =
+    type === 'space_text' || type === 'space_forum' ? normalizeTextChannelName(name) : name.trim();
   if (!n) throw badRequest('name: use letters or numbers');
   return n.slice(0, CHANNEL_NAME_MAX_LENGTH);
 }
@@ -202,7 +210,7 @@ router.patch('/spaces/:spaceId', async (req, res) => {
   const { spaceId } = parse(P.space, req.params);
   const body = parse(updateSpaceSchema, req.body ?? {});
   await transact(async (tx, fx) => {
-    await lockSpace(tx, spaceId);
+    const current = await lockSpace(tx, spaceId);
     await requireSpacePermission(tx, spaceId, me, PERM.MANAGE_SPACE);
     const patch: Partial<typeof spaces.$inferInsert> = {};
     const changes: SpaceSettingsChanges = {};
@@ -233,8 +241,13 @@ router.patch('/spaces/:spaceId', async (req, res) => {
       patch.afkTimeoutSec = changes.afkTimeoutSec = body.afkTimeoutSec;
     if (body.defaultNotifyLevel !== undefined)
       patch.defaultNotifyLevel = changes.defaultNotifyLevel = body.defaultNotifyLevel;
-    if (body.isDiscoverable !== undefined)
+    if (body.isDiscoverable !== undefined) {
+      // Same rule as PATCH /spaces/:id/community: a listing needs a description and a category.
+      const description = body.description !== undefined ? body.description : current.description;
+      if (body.isDiscoverable && (!description?.trim() || !current.discoveryCategory))
+        throw badRequest('Add a description and a category in Community Overview before listing the Space');
       patch.isDiscoverable = changes.isDiscoverable = body.isDiscoverable;
+    }
     if (body.systemFlags !== undefined) patch.systemFlags = changes.systemFlags = body.systemFlags;
     if (body.verificationLevel !== undefined)
       patch.verificationLevel = changes.verificationLevel = body.verificationLevel;
@@ -384,6 +397,7 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
   const me = authUserId(req);
   const { spaceId } = parse(P.space, req.params);
   const body = parse(createSpaceChannelSchema, req.body ?? {});
+  const forum = newForumColumns(body.type, body);
   assertUserLimit(me, 'spaceChannelUpdate', USER_RATE_LIMITS.spaceChannelUpdate);
   const chatId = await transact(async (tx, fx) => {
     await lockSpace(tx, spaceId);
@@ -440,9 +454,11 @@ router.post('/spaces/:spaceId/channels', async (req, res) => {
         position: await nextChannelPosition(tx, spaceId, categoryId),
         topic: body.type === 'space_text' ? (body.topic ?? null) : null,
         nsfw: body.nsfw ?? false,
-        slowmodeSeconds: body.type === 'space_text' ? (body.slowmodeSeconds ?? 0) : 0,
+        // Forums: one post per interval (their posts' replies are not slowed).
+        slowmodeSeconds: body.type !== 'space_voice' ? (body.slowmodeSeconds ?? 0) : 0,
         userLimit: body.type === 'space_voice' ? (body.userLimit ?? null) : null,
         bitrate: body.type === 'space_voice' ? (body.bitrate ?? null) : null,
+        ...forum,
         permissionsSynced: synced,
         createdBy: me,
       })
@@ -540,17 +556,24 @@ router.patch('/spaces/:spaceId/channels/:chatId', async (req, res) => {
     if (body.name !== undefined) patch.name = channelName(chat.type as 'space_text', body.name);
     if (body.topic !== undefined) patch.topic = chat.type === 'space_text' ? body.topic : null;
     if (body.nsfw !== undefined) patch.nsfw = body.nsfw;
-    if (body.slowmodeSeconds !== undefined && chat.type === 'space_text')
+    if (
+      body.slowmodeSeconds !== undefined &&
+      (chat.type === 'space_text' || chat.type === 'space_forum')
+    )
       patch.slowmodeSeconds = body.slowmodeSeconds;
     if (body.userLimit !== undefined && chat.type === 'space_voice')
       patch.userLimit = body.userLimit;
     if (body.bitrate !== undefined && chat.type === 'space_voice') patch.bitrate = body.bitrate;
+    // Forums: tags (the whole list) and options (merged).
+    const forum = forumPatch(chat, body);
+    Object.assign(patch, forum.patch);
     if (Object.keys(patch).length === 0) return;
     const [fresh] = await tx
       .update(chats)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(chats.id, chatId))
       .returning();
+    await dropTagsFromPosts(tx, chatId, forum.removedTagIds);
     await audit(tx, {
       spaceId,
       actorId: me,
@@ -744,7 +767,7 @@ router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
       .where(and(eq(chats.spaceId, spaceId), isNull(chats.parentId)));
     if (Number(n?.n ?? 0) >= MAX_SPACE_CHANNELS)
       throw limitReached(`A Space can have at most ${MAX_SPACE_CHANNELS} channels`);
-    const type = source.type as 'space_text' | 'space_voice';
+    const type = source.type as 'space_text' | 'space_voice' | 'space_forum';
     const [chat] = await tx
       .insert(chats)
       .values({
@@ -758,6 +781,8 @@ router.post('/spaces/:spaceId/channels/:chatId/clone', async (req, res) => {
         slowmodeSeconds: source.slowmodeSeconds,
         userLimit: source.userLimit,
         bitrate: source.bitrate,
+        // Forums: the same tags and options (not the posts).
+        ...clonedForumColumns(source),
         permissionsSynced: source.permissionsSynced,
         createdBy: me,
       })

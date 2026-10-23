@@ -53,8 +53,12 @@ test.describe('auth', () => {
     await page.getByRole('button', { name: 'Log in' }).click();
     await expect(page).toHaveURL(/\/chats$/);
 
+    // The User Settings layer: its nav's Log Out (My Account has a Log out row too).
     await page.goto('/settings');
-    await page.getByRole('button', { name: 'Log out' }).click();
+    await page
+      .getByRole('navigation', { name: 'Settings', exact: true })
+      .getByRole('button', { name: 'Log Out' })
+      .click();
     await page
       .getByRole('dialog', { name: 'Log out of Enbox?' })
       .getByRole('button', { name: 'Log out', exact: true })

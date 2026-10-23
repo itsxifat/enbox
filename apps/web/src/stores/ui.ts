@@ -7,7 +7,7 @@
  * - `prefs`: { enterToSend, linkPreviews, voiceIsolation, noiseCancellation, echoCancellation,
  *   autoGainControl, fontSize, wallpaperPattern, sounds, desktopNotifications,
  *   reduceMotion, autoplayAnimatedMedia, showNameStyles, chatTheme, bubbleStyle,
- *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur }
+ *   messageAnimation, wallpaperPreset, wallpaperDim, wallpaperBlur, developerMode }
  * - `toasts`: Toast[]; `dialogs`: DialogRequest[] (rendered by <Toaster/> / <DialogHost/>)
  *
  * Actions: `setTheme(t)`, `setPref(key, value)`, `pushToast`, `dismissToast`
@@ -89,6 +89,8 @@ export interface DevicePrefs {
   wallpaperDim: number;
   /** Backdrop blur of an uploaded wallpaper, 0..WALLPAPER_BLUR_MAX px. */
   wallpaperBlur: number;
+  /** Developer Mode: "Copy … ID" items in the message, user, channel and Space menus. */
+  developerMode: boolean;
 }
 
 export const DEFAULT_PREFS: DevicePrefs = {
@@ -111,6 +113,7 @@ export const DEFAULT_PREFS: DevicePrefs = {
   wallpaperPreset: 'default',
   wallpaperDim: 0,
   wallpaperBlur: 0,
+  developerMode: false,
 };
 
 export const FONT_SIZES: Record<FontSize, { label: string; px: number }> = {

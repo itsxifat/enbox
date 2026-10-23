@@ -1,6 +1,7 @@
-/** Header replacements (in-chat search, selection) and the read-only footer. */
+/** Header replacements (in-chat search, selection), the Jump to Present bar and the read-only footer. */
 import { useEffect, useRef, useState } from 'react';
 import {
+  ArrowDown,
   ArrowLeft,
   ChevronDown,
   ChevronUp,
@@ -177,6 +178,31 @@ export function SelectionBar({ chat }: { chat: ChatSummary }) {
         }
       />
     </header>
+  );
+}
+
+/**
+ * Discord's bar over the bottom of the message list while the newest messages aren't loaded
+ * (after a jump to an old message, or scrolling far up): Jump to Present loads them.
+ */
+export function JumpToPresentBar({ onJump }: { onJump: () => void }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-3 bottom-2 z-[2] flex justify-center lg:inset-x-5"
+      data-testid="jump-to-present"
+    >
+      <div className="pointer-events-auto flex w-full items-center gap-3 rounded-lg bg-brand py-1 pr-1 pl-3 text-[13.5px] text-on-brand shadow-elevated">
+        <span className="min-w-0 flex-1 truncate font-medium">You’re viewing older messages</span>
+        <button
+          type="button"
+          onClick={onJump}
+          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-semibold transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white"
+        >
+          Jump to Present
+          <ArrowDown size={16} aria-hidden />
+        </button>
+      </div>
+    </div>
   );
 }
 

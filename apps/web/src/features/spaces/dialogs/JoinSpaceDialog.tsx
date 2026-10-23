@@ -3,12 +3,17 @@ import { useNavigate } from 'react-router';
 import { INVITE_CODE_ALPHABET } from '@enbox/shared';
 import { Button, Field, Input, Modal } from '@/components/ui';
 
-/** The invite code inside a pasted link (`…/join/<code>`) or a bare code. */
+/** A Space's vanity code (`/join/my-space`): what `PATCH /spaces/:id/community` accepts. */
+const VANITY_RE = /^[a-z0-9-]{3,32}$/i;
+
+/** The invite code inside a pasted link (`…/join/<code>`) or a bare code (a vanity code too). */
 export function inviteCodeOf(text: string): string | null {
   const t = text.trim();
   const m = t.match(/\/join\/([^/?#\s]+)/);
   const code = m ? m[1]! : t;
-  const ok = code.length >= 6 && [...code].every((ch) => INVITE_CODE_ALPHABET.includes(ch));
+  const ok =
+    (code.length >= 6 && [...code].every((ch) => INVITE_CODE_ALPHABET.includes(ch))) ||
+    VANITY_RE.test(code);
   return ok ? code : null;
 }
 

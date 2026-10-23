@@ -31,6 +31,8 @@ export interface MediaSendInput {
   caption?: string;
   replyToId?: ID;
   replyTo?: MessagePreview | null;
+  /** "@ OFF" on a reply: don't mention the replied author. */
+  mentionRepliedAuthor?: boolean;
 }
 
 interface MediaJob {
@@ -166,6 +168,7 @@ export function enqueueMedia(chatId: ID, input: MediaSendInput): () => Promise<v
         mediaId: uploaded.id,
         text: caption,
         replyToId: input.replyToId,
+        ...(input.mentionRepliedAuthor === false ? { mentionRepliedAuthor: false } : {}),
       });
       jobs.delete(clientId);
       // The confirmed message carries the server's media (and thumbnail).

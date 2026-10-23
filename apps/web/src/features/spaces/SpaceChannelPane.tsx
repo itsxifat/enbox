@@ -4,6 +4,8 @@ import { ArrowLeft, Bell, Hash, Settings, Users } from 'lucide-react';
 import { PERM, hasPerm, type ChatSummary, type Space } from '@enbox/shared';
 import { EmptyState, IconButton, PageSpinner, Sheet } from '@/components/ui';
 import { Conversation } from '@/features/conversation/ConversationPane';
+import { PinsButton } from '@/features/conversation/pins/PinsPopout';
+import { ForumChannelView } from '@/features/forums/ForumChannelView';
 import { InboxButton } from '@/features/inbox/InboxButton';
 import { HeaderSearch } from '@/features/search/HeaderSearch';
 import { ThreadsButton } from '@/features/threads/ThreadsButton';
@@ -51,6 +53,7 @@ function ChannelHeader({ chat, space }: { chat: ChatSummary; space: Space }) {
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <ThreadsButton chat={chat} />
         <IconButton icon={Bell} label="Notification settings" variant="ghost" onClick={() => setDialog('notifications')} />
+        <PinsButton chat={chat} />
         {canManage ? (
           <IconButton icon={Settings} label="Edit channel" variant="ghost" onClick={() => setDialog('settings')} />
         ) : null}
@@ -105,6 +108,7 @@ export function SpaceChannelPane() {
   }
   if (chat.space?.spaceId !== space.id) return <Navigate to={`/spaces/${chat.space?.spaceId ?? ''}/${chat.id}`} replace />;
   if (chat.type === 'space_voice') return <VoiceChannelView chat={chat} space={space} />;
+  if (chat.type === 'space_forum') return <ForumChannelView key={chat.id} chat={chat} space={space} />;
   const seq = Number(params.get('m'));
   const target = Number.isInteger(seq) && seq > 0 ? { seq, messageId: params.get('mid') ?? undefined } : null;
   return <Conversation key={chat.id} chat={chat} initialTarget={target} header={<ChannelHeader chat={chat} space={space} />} />;

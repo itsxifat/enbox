@@ -230,6 +230,9 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
   const rights = threadRights(thread, me);
   const info = thread.thread;
   const spaceId = thread.space?.spaceId;
+  // A forum's threads are its posts.
+  const parentType = useChats((s) => (info ? s.byId[info.parentId]?.type : undefined));
+  const noun = parentType === 'space_forum' ? 'Post' : 'Thread';
 
   const update = (patch: UpdateThreadRequest) =>
     void useThreads
@@ -247,14 +250,14 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
   const items: MenuEntry[] = [
     rights.canEdit &&
       (info?.archived
-        ? { label: 'Unarchive Thread', icon: ArchiveRestore, onSelect: () => update({ archived: false }) }
-        : { label: 'Archive Thread', icon: Archive, onSelect: () => update({ archived: true }) }),
+        ? { label: `Unarchive ${noun}`, icon: ArchiveRestore, onSelect: () => update({ archived: false }) }
+        : { label: `Archive ${noun}`, icon: Archive, onSelect: () => update({ archived: true }) }),
     rights.canLock &&
       (info?.locked
-        ? { label: 'Unlock Thread', icon: LockOpen, onSelect: () => update({ locked: false }) }
-        : { label: 'Lock Thread', icon: Lock, onSelect: () => update({ locked: true }) }),
+        ? { label: `Unlock ${noun}`, icon: LockOpen, onSelect: () => update({ locked: false }) }
+        : { label: `Lock ${noun}`, icon: Lock, onSelect: () => update({ locked: true }) }),
     rights.canEdit && {
-      label: 'Edit Thread Name',
+      label: noun === 'Post' ? 'Edit Post Title' : 'Edit Thread Name',
       icon: Pencil,
       onSelect: () => {
         setName(thread.name ?? '');
@@ -266,14 +269,14 @@ function ThreadHeader({ thread, me }: { thread: ChatSummary; me: ID }) {
       : null,
     rights.canDelete && 'separator',
     rights.canDelete && {
-      label: 'Delete Thread',
+      label: `Delete ${noun}`,
       icon: Trash2,
       danger: true,
       onSelect: () =>
         void confirm({
-          title: 'Delete Thread',
-          message: `Are you sure you want to delete ${thread.name ?? 'this thread'}? Its messages go with it. This can’t be undone.`,
-          confirmLabel: 'Delete Thread',
+          title: `Delete ${noun}`,
+          message: `Are you sure you want to delete ${thread.name ?? `this ${noun.toLowerCase()}`}? Its messages go with it. This can’t be undone.`,
+          confirmLabel: `Delete ${noun}`,
           danger: true,
         }).then(
           (ok) =>

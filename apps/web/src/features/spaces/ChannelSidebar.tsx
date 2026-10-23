@@ -20,6 +20,7 @@ import {
   Hash,
   IdCard,
   Link2,
+  MessagesSquare,
   Pencil,
   PlusCircle,
   Settings,
@@ -66,6 +67,7 @@ import {
   type VoiceDragData,
 } from '@/features/voice/VoiceChannelOccupants';
 import { SidebarThreads } from '@/features/threads/SidebarThreads';
+import { SidebarEvents } from '@/features/events/SidebarEvents';
 import { markChatRead } from '@/realtime';
 import { useChats } from '@/stores/chats';
 import { useSpace, useSpaceChannels, useSpaces } from '@/stores/spaces';
@@ -158,7 +160,7 @@ function ChannelRow({
   const unread = isChannelUnread(chat);
   const muted = isChannelMuted(chat);
   const voice = chat.type === 'space_voice';
-  const Icon = voice ? Volume2 : Hash;
+  const Icon = voice ? Volume2 : chat.type === 'space_forum' ? MessagesSquare : Hash;
   const canManage = hasPerm(chat.spacePermissions, PERM.MANAGE_CHANNELS);
   const canInvite = hasPerm(chat.spacePermissions, PERM.CREATE_INVITE);
   const label = chat.name ?? 'channel';
@@ -368,7 +370,7 @@ function DragPreview({ data }: { data: DragData }) {
         {data.label}
       </div>
     );
-  const Icon = data.chat.type === 'space_voice' ? Volume2 : Hash;
+  const Icon = data.chat.type === 'space_voice' ? Volume2 : data.chat.type === 'space_forum' ? MessagesSquare : Hash;
   return (
     <div className="flex h-9 w-60 items-center gap-1.5 rounded-lg bg-elevated px-2 text-[15px] font-semibold text-fg shadow-elevated">
       <Icon size={18} className="shrink-0 opacity-70" aria-hidden />
@@ -706,6 +708,7 @@ export function ChannelSidebar({ spaceId }: { spaceId: ID }) {
           <img src={space.bannerUrl} alt="" className="size-full object-cover" />
         </div>
       ) : null}
+      <SidebarEvents space={space} />
       <nav
         className="min-h-0 flex-1 overflow-y-auto pb-4"
         aria-label={`${space.name} channels`}

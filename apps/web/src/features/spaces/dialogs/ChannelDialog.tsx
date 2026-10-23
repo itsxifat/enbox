@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Check, Hash, Minus, Plus, Trash2, Volume2, X } from 'lucide-react';
+import { Check, Hash, MessagesSquare, Minus, Plus, Trash2, Volume2, X } from 'lucide-react';
 import {
   CHANNEL_NAME_MAX_LENGTH,
   CHANNEL_TOPIC_MAX_LENGTH,
@@ -18,6 +18,7 @@ import {
   type UpdateSpaceChannelRequest,
 } from '@enbox/shared';
 import { Button, DropdownMenu, EmptyState, Field, Input, Modal, Spinner, Switch, Tabs, Textarea, confirm, toast } from '@/components/ui';
+import { ForumSettingsSection } from '@/features/forums/ForumSettingsSection';
 import { inviteUrl } from '@/features/groups/shared/share';
 import { cn } from '@/lib/cn';
 import { useSpace } from '@/stores/spaces';
@@ -41,12 +42,13 @@ export function slowmodeLabel(s: number): string {
   return `${s / 3600}h`;
 }
 
-type ChannelTab = 'overview' | 'permissions' | 'invites';
+type ChannelTab = 'overview' | 'forum' | 'permissions' | 'invites';
 
 /**
  * Create (no `chat`) or edit a channel. Editing has Discord's tabs: Overview (name, topic,
- * slowmode, age restriction; voice: user limit and bitrate; Delete Channel), Permissions
- * (overwrites) and Invites (this channel's, revocable).
+ * slowmode, age restriction; voice: user limit and bitrate; Delete Channel), Forum (forums:
+ * guidelines, tags and post options), Permissions (overwrites) and Invites (this channel's,
+ * revocable).
  */
 export function ChannelDialog({
   spaceId,
@@ -70,6 +72,7 @@ export function ChannelDialog({
           aria-label="Channel settings"
           items={[
             { value: 'overview', label: 'Overview' },
+            ...(chat.type === 'space_forum' ? [{ value: 'forum' as const, label: 'Forum' }] : []),
             { value: 'permissions', label: 'Permissions' },
             { value: 'invites', label: 'Invites' },
           ]}
@@ -78,6 +81,8 @@ export function ChannelDialog({
       ) : null}
       {tab === 'overview' || !chat ? (
         <Overview spaceId={spaceId} chat={chat} categoryId={categoryId ?? null} onClose={onClose} />
+      ) : tab === 'forum' ? (
+        <ForumSettingsSection spaceId={spaceId} chat={chat} />
       ) : tab === 'permissions' ? (
         <Permissions spaceId={spaceId} chat={chat} />
       ) : (
@@ -90,7 +95,9 @@ export function ChannelDialog({
 function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: ChatSummary; categoryId: ID | null; onClose: () => void }) {
   const space = useSpace(spaceId);
   const navigate = useNavigate();
-  const [type, setType] = useState<'space_text' | 'space_voice'>(chat ? (chat.type as 'space_text') : 'space_text');
+  const [type, setType] = useState<'space_text' | 'space_voice' | 'space_forum'>(
+    chat ? (chat.type as 'space_text') : 'space_text',
+  );
   const [name, setName] = useState(chat?.name ?? '');
   const [topic, setTopic] = useState(chat?.space?.topic ?? '');
   const [slowmode, setSlowmode] = useState(chat?.space?.slowmodeSeconds ?? 0);
@@ -101,8 +108,10 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
   const [cat, setCat] = useState<ID | null>(chat?.space?.categoryId ?? categoryId);
   const [isPrivate, setPrivate] = useState(false);
   const [busy, setBusy] = useState(false);
-  const shown = type === 'space_text' ? normalizeTextChannelName(name) : name.trim();
+  // Forums are named like text channels.
+  const shown = type === 'space_voice' ? name.trim() : normalizeTextChannelName(name);
   const voice = type === 'space_voice';
+  const forum = type === 'space_forum';
 
   const save = async () => {
     if (!shown) return;
@@ -114,7 +123,8 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           body.userLimit = userLimit || null;
           if (bitrate !== initialBitrate) body.bitrate = bitrate;
         } else {
-          body.topic = topic.trim() || null;
+          // Forums keep their guidelines in the Forum tab.
+          if (!forum) body.topic = topic.trim() || null;
           body.slowmodeSeconds = slowmode as 0;
         }
         await updateChannel(spaceId, chat.id, body);
@@ -167,6 +177,7 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
             [
               { v: 'space_text', icon: Hash, title: 'Text', sub: 'Messages, images, links, polls' },
               { v: 'space_voice', icon: Volume2, title: 'Voice', sub: 'Talk, video and screen share' },
+              { v: 'space_forum', icon: MessagesSquare, title: 'Forum', sub: 'Organized posts, each with its own replies' },
             ] as const
           ).map((o) => (
             <button
@@ -186,8 +197,8 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           ))}
         </div>
       ) : null}
-      <Field label="Channel name" htmlFor="ch-name" hint={type === 'space_text' && name && shown !== name ? `Will be #${shown}` : undefined}>
-        <Input id="ch-name" value={name} maxLength={CHANNEL_NAME_MAX_LENGTH} placeholder={type === 'space_text' ? 'new-channel' : 'Lounge'} onChange={(e) => setName(e.target.value)} autoFocus data-testid="channel-name" />
+      <Field label="Channel name" htmlFor="ch-name" hint={!voice && name && shown !== name ? `Will be #${shown}` : undefined}>
+        <Input id="ch-name" value={name} maxLength={CHANNEL_NAME_MAX_LENGTH} placeholder={voice ? 'Lounge' : forum ? 'new-forum' : 'new-channel'} onChange={(e) => setName(e.target.value)} autoFocus data-testid="channel-name" />
       </Field>
       {!chat && space && space.categories.length ? (
         <Field label="Category" htmlFor="ch-cat">
@@ -206,8 +217,16 @@ function Overview({ spaceId, chat, categoryId, onClose }: { spaceId: ID; chat?: 
           <Textarea id="ch-topic" value={topic} maxLength={CHANNEL_TOPIC_MAX_LENGTH} rows={2} placeholder="Let everyone know how to use this channel" onChange={(e) => setTopic(e.target.value)} />
         </Field>
       ) : null}
-      {chat && type === 'space_text' ? (
-        <Field label={`Slowmode: ${slowmodeLabel(slowmode)}`} htmlFor="ch-slow" hint="Members can send one message per interval. Moderators are exempt.">
+      {chat && !voice ? (
+        <Field
+          label={`Slowmode: ${slowmodeLabel(slowmode)}`}
+          htmlFor="ch-slow"
+          hint={
+            forum
+              ? 'Members can create one post per interval. Moderators are exempt.'
+              : 'Members can send one message per interval. Moderators are exempt.'
+          }
+        >
           <input
             id="ch-slow"
             type="range"
@@ -387,7 +406,10 @@ function Permissions({ spaceId, chat }: { spaceId: ID; chat: ChatSummary }) {
   const labelOf = (o: PermissionOverwrite) =>
     o.targetType === 'role' ? roleName(o.targetId) : (users[o.targetId]?.displayName ?? 'Member');
   const current = selected ? targets.get(selected) : undefined;
-  const groups = PERMISSION_GROUPS.filter((g) => g.channel.includes(chat.type as 'space_text'));
+  // Forums take the text channel permissions (SEND_MESSAGES creates posts).
+  const groups = PERMISSION_GROUPS.filter((g) =>
+    g.channel.includes(chat.type === 'space_voice' ? 'space_voice' : 'space_text'),
+  );
   const valueOf = (bit: number): Tri =>
     !current ? 'neutral' : current.allow & bit ? 'allow' : current.deny & bit ? 'deny' : 'neutral';
   const set = (bit: number, v: Tri) => {

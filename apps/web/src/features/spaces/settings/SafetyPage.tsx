@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { SPACE_VERIFICATION_LEVELS, type Space } from '@enbox/shared';
 import { Button, RadioGroup, toast } from '@/components/ui';
 import { updateSpace } from '../actions';
+import { settingsPath } from './sections';
 
 /** What Enbox can check of each verification level (the server enforces Medium and High). */
 const ENFORCEMENT: Record<number, string | undefined> = {
@@ -24,6 +26,7 @@ export function SafetyPage({ space }: { space: Space }) {
   const [level, setLevel] = useState(space.verificationLevel);
   const [filter, setFilter] = useState(space.explicitFilter);
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
   const dirty = level !== space.verificationLevel || filter !== space.explicitFilter;
   const save = async () => {
     setBusy(true);
@@ -41,6 +44,15 @@ export function SafetyPage({ space }: { space: Space }) {
   };
   return (
     <div className="flex flex-col gap-8">
+      <section className="card-inset flex items-center gap-3 p-4">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-semibold">AutoMod</h3>
+          <p className="text-[13px] text-muted">Block harmful words, spam and mention raids before anyone sees them.</p>
+        </div>
+        <Button size="sm" variant="soft" onClick={() => navigate(settingsPath(space.id, 'automod'))}>
+          Set up AutoMod
+        </Button>
+      </section>
       <section className="flex flex-col gap-2">
         <h3 className="text-[12px] font-bold tracking-wide text-muted uppercase">Verification level</h3>
         <p className="text-[13px] text-muted">

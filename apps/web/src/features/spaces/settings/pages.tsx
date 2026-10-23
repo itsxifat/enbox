@@ -170,6 +170,9 @@ const ACTIONS: Record<string, string> = {
   'space.transfer': 'transferred ownership',
   'space.converted': 'converted the community into a Space',
   'space.migrated': 'created the Space from a community',
+  'space.discovery.update': 'updated the discovery listing',
+  'space.welcome_screen.update': 'updated the welcome screen',
+  'space.onboarding.update': 'updated onboarding',
   'channel.create': 'created a channel',
   'channel.update': 'updated a channel',
   'channel.delete': 'deleted a channel',
@@ -194,11 +197,20 @@ const ACTIONS: Record<string, string> = {
   'member.unban': 'unbanned a member',
   'member.voice_disconnect': 'disconnected a member from voice',
   'member.voice_move': 'moved a member to another voice channel',
+  'event.create': 'created an event',
+  'event.update': 'updated an event',
+  'event.delete': 'deleted an event',
   'invite.create': 'created an invite',
   'invite.delete': 'revoked an invite',
   'emoji.create': 'added an emoji',
   'emoji.update': 'renamed an emoji',
   'emoji.delete': 'deleted an emoji',
+  'automod.rule.create': 'created an AutoMod rule',
+  'automod.rule.update': 'updated an AutoMod rule',
+  'automod.rule.delete': 'deleted an AutoMod rule',
+  'automod.block': 'blocked a message from',
+  'automod.flag': 'flagged a message from',
+  'automod.timeout': 'timed out',
 };
 
 function AuditRow({ e }: { e: SpaceAuditEntry }) {
@@ -209,7 +221,7 @@ function AuditRow({ e }: { e: SpaceAuditEntry }) {
       <Avatar src={actor?.avatarUrl} name={userDisplayName(actor)} colorSeed={e.actorId ?? 'system'} size={32} decorative />
       <div className="min-w-0 flex-1 text-[14px]">
         <p>
-          <span className="font-semibold">{e.actorId ? userDisplayName(actor) : 'Enbox'}</span> {ACTIONS[e.action] ?? e.action}
+          <span className="font-semibold">{e.actorId ? userDisplayName(actor) : e.action.startsWith('automod.') ? 'AutoMod' : 'Enbox'}</span> {ACTIONS[e.action] ?? e.action}
           {target ? (
             <>
               {' '}

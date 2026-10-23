@@ -30,6 +30,8 @@ import {
   spaceAuditLog,
   spaceCategories,
   spaceCategoryOverwrites,
+  spaceEventInterests,
+  spaceEvents,
   spaceMemberRoles,
   spaceMembers,
   spaceRoles,
@@ -373,6 +375,7 @@ export async function toSpaces(
         suppressEveryone: m.suppressEveryone,
         suppressRoles: m.suppressRoles,
         hideMutedChannels: m.hideMutedChannels,
+        onboardedAt: m.onboardedAt?.toISOString() ?? null,
       },
       myPermissions: base,
       unread: unreadSpaces.has(s.id),
@@ -747,6 +750,29 @@ export async function removeSpaceMemberTx(
         ),
       ),
     );
+  // Interest in the Space's events goes too (the counts follow).
+  const dropped = await tx
+    .delete(spaceEventInterests)
+    .where(
+      and(
+        eq(spaceEventInterests.userId, userId),
+        inArray(
+          spaceEventInterests.eventId,
+          tx.select({ id: spaceEvents.id }).from(spaceEvents).where(eq(spaceEvents.spaceId, spaceId)),
+        ),
+      ),
+    )
+    .returning({ eventId: spaceEventInterests.eventId });
+  if (dropped.length)
+    await tx
+      .update(spaceEvents)
+      .set({ interestedCount: sql`greatest(${spaceEvents.interestedCount} - 1, 0)` })
+      .where(
+        inArray(
+          spaceEvents.id,
+          dropped.map((d) => d.eventId),
+        ),
+      );
   // Member overwrites of the channels stay (Discord keeps them; harmless without membership).
   const [space] = await tx
     .update(spaces)

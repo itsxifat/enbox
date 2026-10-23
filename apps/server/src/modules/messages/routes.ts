@@ -28,6 +28,7 @@ import {
   vote,
 } from './service.js';
 import { router as reactionsRouter } from './reactions.js';
+import { router as unreadRouter } from './unread.js';
 
 /**
  * Messages module — owns: /chats/:chatId/messages, /messages/*, /search/messages.
@@ -100,6 +101,8 @@ router.delete('/messages/:messageId/reaction', async (req, res) => {
 
 // Discord-model reactions: /messages/:messageId/reactions[/:emoji[/@me|/:userId]] (./reactions.ts).
 router.use(reactionsRouter);
+// Mark Unread: POST /chats/:chatId/unread (./unread.ts).
+router.use(unreadRouter);
 
 router.put('/messages/:messageId/star', async (req, res) => {
   const me = authUserId(req);

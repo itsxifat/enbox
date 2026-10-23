@@ -54,9 +54,16 @@ describe('JoinInvitePage', () => {
 
   it('rejects malformed codes without calling the API', async () => {
     const get = vi.spyOn(api, 'get');
-    renderAt('/join/nope');
+    renderAt('/join/no');
     expect(await screen.findByText("This invite link isn't valid")).toBeInTheDocument();
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it('looks up a Space vanity code like an invite code', async () => {
+    const get = vi.spyOn(api, 'get').mockRejectedValue(new ApiError('not_found', 'Invite not found', 404));
+    renderAt('/join/star-club');
+    expect(await screen.findByText("This invite link isn't valid")).toBeInTheDocument();
+    expect(get.mock.calls[0]?.[0]).toBe('/api/invites/star-club');
   });
 
   it('shows reset/unknown links as invalid', async () => {

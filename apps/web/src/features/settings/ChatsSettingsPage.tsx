@@ -1,4 +1,4 @@
-import { CaseSensitive, Check, CornerDownLeft, Link2, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
+import { CaseSensitive, Check, CodeXml, CornerDownLeft, Link2, Palette, Sparkles, Wallpaper, Zap } from 'lucide-react';
 import { ICON_STROKE_BOLD } from '@/components/icons';
 import { ChatPreview } from '@/features/appearance/ChatPreview';
 import {
@@ -201,6 +201,15 @@ export function ChatsSettingsPage() {
           description="Show a preview card for links in messages. Enbox fetches it, so sites never see you."
           checked={prefs.linkPreviews}
           onChange={(v) => useUi.getState().setPref('linkPreviews', v)}
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Advanced">
+        <SwitchRow
+          icon={CodeXml}
+          title="Developer Mode"
+          description="Adds Copy ID to the menus of messages, people, channels and Spaces"
+          checked={prefs.developerMode}
+          onChange={(v) => useUi.getState().setPref('developerMode', v)}
         />
       </SettingsGroup>
     </SettingsScroller>

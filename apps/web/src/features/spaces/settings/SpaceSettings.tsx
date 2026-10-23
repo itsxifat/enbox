@@ -7,6 +7,10 @@ import { cn } from '@/lib/cn';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useMe } from '@/stores/auth';
 import { useSpace, useSpaces } from '@/stores/spaces';
+import { CommunityOverviewPage } from '../community/settings/CommunityOverviewPage';
+import { OnboardingPage } from '../community/settings/OnboardingPage';
+import { WelcomeScreenPage } from '../community/settings/WelcomeScreenPage';
+import { AutoModPage } from './AutoModPage';
 import { DeleteSpaceDialog } from './DeleteSpaceDialog';
 import { EmojiPage } from './EmojiPage';
 import { OverviewPage } from './OverviewPage';
@@ -18,12 +22,16 @@ import { visibleSettingsSections, type SettingsSectionId } from './sections';
 const PAGES: Record<SettingsSectionId, (space: Space) => ReactNode> = {
   overview: (s) => <OverviewPage space={s} />,
   safety: (s) => <SafetyPage space={s} />,
+  automod: (s) => <AutoModPage space={s} />,
   roles: (s) => <RolesPage space={s} />,
   emoji: (s) => <EmojiPage space={s} />,
   members: (s) => <MembersPage space={s} />,
   invites: (s) => <InvitesPage space={s} />,
   bans: (s) => <BansPage space={s} />,
   'audit-log': (s) => <AuditLogPage space={s} />,
+  community: (s) => <CommunityOverviewPage space={s} />,
+  onboarding: (s) => <OnboardingPage space={s} />,
+  'welcome-screen': (s) => <WelcomeScreenPage space={s} />,
 };
 
 /** /spaces/:spaceId/settings/:section? — full-screen Space settings (Discord style). */

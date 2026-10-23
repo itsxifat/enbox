@@ -28,7 +28,7 @@ export function CloneChannelDialog({ spaceId, chat, onClose }: { spaceId: ID; ch
     <Modal
       open
       onClose={onClose}
-      title={`Clone ${text ? 'Text' : 'Voice'} Channel`}
+      title={`Clone ${chat.type === 'space_forum' ? 'Forum' : text ? 'Text' : 'Voice'} Channel`}
       description={`Same permissions, user limits and settings as ${text ? '#' : ''}${chat.name}.`}
       footer={
         <>

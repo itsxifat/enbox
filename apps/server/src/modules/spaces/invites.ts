@@ -32,6 +32,7 @@ import { loadSpaceMember, lockSpace } from '../../services/spaceAccess.js';
 import { addSpaceMemberTx } from '../../services/spaces.js';
 import { spaceChannelSummaries } from '../../services/spaceSummaries.js';
 import { postSystemMessage } from '../../services/system.js';
+import { markOnboardedOnJoin } from '../community/service.js';
 
 export interface SpaceInviteTarget {
   invite: SpaceInviteRow | null;
@@ -50,7 +51,12 @@ export async function findSpaceInvite(
     .where(eq(spaceInvites.code, code))
     .limit(1);
   if (inv) return inv;
-  const [vanity] = await dbx.select().from(spaces).where(eq(spaces.vanityCode, code)).limit(1);
+  // Vanity codes are stored lowercase (community settings); `/join/MySpace` finds `myspace`.
+  const [vanity] = await dbx
+    .select()
+    .from(spaces)
+    .where(eq(spaces.vanityCode, code.toLowerCase()))
+    .limit(1);
   return vanity ? { invite: null, space: vanity } : null;
 }
 
@@ -149,6 +155,7 @@ export async function joinSpaceViaInvite(
   if (Number(mine?.n ?? 0) >= MAX_SPACES_PER_USER)
     throw limitReached(`You can be in at most ${MAX_SPACES_PER_USER} Spaces`);
   await addSpaceMemberTx(tx, fx, space.id, me, {});
+  await markOnboardedOnJoin(tx, space, me);
   if (invite)
     await tx
       .update(spaceInvites)

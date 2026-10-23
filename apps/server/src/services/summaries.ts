@@ -34,8 +34,8 @@ interface Entry {
   avatarKey: string | null;
 }
 
-/** Space chats (channels and threads): computed access, never in the chat list. */
-const SPACE_TYPES = ['space_text', 'space_voice', 'space_thread'] as const;
+/** Space chats (channels, forums and threads): computed access, never in the chat list. */
+const SPACE_TYPES = ['space_text', 'space_voice', 'space_thread', 'space_forum'] as const;
 
 /** The space channels among these chat ids (one query). */
 async function spaceChatIds(dbx: DbOrTx, chatIds: readonly string[]): Promise<Set<string>> {

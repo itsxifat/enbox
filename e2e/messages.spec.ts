@@ -86,10 +86,9 @@ test('reply and reaction appear on the other side', async ({ browser }) => {
   await expect(replyOnBob).toBeVisible();
   await expect(replyOnBob).toContainText('Pizza or sushi tonight?'); // the quote
 
-  // Bob reacts with a quick reaction from the hover button.
+  // Bob reacts with a quick reaction from the hover toolbar (inline, as in Discord).
   await replyOnBob.getByTestId('bubble').hover();
-  await replyOnBob.getByRole('button', { name: 'React to message' }).click();
-  await b.page.getByRole('button', { name: 'React ❤️' }).click();
+  await replyOnBob.getByRole('button', { name: 'React ❤️' }).click();
   await expect(
     bubble(a.page, 'Sushi, obviously').getByRole('button', { name: '❤️, 1 reaction' }),
   ).toBeVisible();
@@ -248,7 +247,7 @@ test('pinning a message shows the pinned bar for both', async ({ browser }) => {
   const a = await openAs(browser, alice, `/chats/${chatId}`);
   const b = await openAs(browser, bob, `/chats/${chatId}`);
   await openMenu(a.page, '221B Baker Street');
-  await a.page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  await a.page.getByRole('menuitem', { name: 'Pin Message', exact: true }).click();
   await expect(a.page.getByTestId('pinned-bar')).toContainText('221B Baker Street');
   await expect(b.page.getByTestId('pinned-bar')).toContainText('221B Baker Street');
   await expect(

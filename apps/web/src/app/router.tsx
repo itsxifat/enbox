@@ -8,7 +8,8 @@
  *   /spaces[/:spaceId[/:chatId]]            features/spaces (communities became Spaces)
  *   /calls                                  features/calls       (agent 4)
  *   /collectibles                           features/collectibles
- *   /settings[/:section]                    features/settings    (agent 1)
+ *   /settings[/:section]                    features/settings    (agent 1; a layer on desktop)
+ *   /you[/friends], /notifications          features/you         (phone tabs)
  *   /new                                    features/contacts    (agent 1)
  *   /new/group                              features/groups      (agent 3)
  *   /join/:code                             features/invites     (agent 3)
@@ -20,10 +21,12 @@ import { callsRoutes } from '@/features/calls/routes';
 import { chatsRoutes } from '@/features/chats/routes';
 import { collectiblesRoutes } from '@/features/collectibles/routes';
 import { contactsRoutes } from '@/features/contacts/routes';
+import { discoverRoutes } from '@/features/discover/routes';
 import { groupsRoutes } from '@/features/groups/routes';
 import { invitesRoutes } from '@/features/invites/routes';
 import { profileRoutes } from '@/features/profile/routes';
 import { settingsRoutes } from '@/features/settings/routes';
+import { youRoutes } from '@/features/you/routes';
 import { spacesRoutes } from '@/features/spaces/routes';
 import { updatesRoutes } from '@/features/updates/routes';
 import { PublicOnly, RequireAuth } from './guards';
@@ -50,9 +53,11 @@ export const routes: RouteObject[] = [
               ...callsRoutes,
               ...collectiblesRoutes,
               ...settingsRoutes,
+              ...youRoutes,
               ...contactsRoutes,
               ...groupsRoutes,
               ...invitesRoutes,
+              ...discoverRoutes,
               ...profileRoutes,
               { path: '*', element: <NotFound /> },
             ],

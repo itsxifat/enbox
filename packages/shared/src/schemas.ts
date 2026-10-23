@@ -11,6 +11,7 @@
  *   to the type are rejected.
  */
 import { z } from 'zod';
+import type { ForumSettings, ForumTag } from './community.js';
 import {
   isAvatarDecorationId,
   isNameEffectId,
@@ -470,6 +471,11 @@ export const readBodySchema = z.object({
   seq: z.number().int().nonnegative(),
 });
 
+/** Body of `POST /api/chats/:chatId/unread` (Mark Unread): unread from this message on. */
+export const markUnreadSchema = z.object({
+  messageId: idSchema,
+});
+
 export const setDisappearingSchema = z.object({
   seconds: disappearingSeconds,
 });
@@ -524,11 +530,17 @@ const sendBase = {
   replyToId: idSchema.optional(),
   /** Reply to a status update (direct chat with the status author only). */
   statusReplyToId: idSchema.optional(),
+  /**
+   * With `replyToId` in a group or Space channel: mention (ping) the replied message's author
+   * (default true, the composer's "@ ON"). `false` = the reply doesn't notify them.
+   */
+  mentionRepliedAuthor: z.boolean().optional(),
 };
 
 /**
  * `POST /api/chats/:chatId/messages`. Mentions are `@{<uuid>}` tokens inside `text`; the
- * server derives `Message.mentions` from them (there is no `mentions` field).
+ * server derives `Message.mentions` from them (there is no `mentions` field), plus the replied
+ * message's author for replies (see `mentionRepliedAuthor`).
  */
 export const sendMessageSchema = z
   .discriminatedUnion('type', [
@@ -850,8 +862,21 @@ export const overwriteParamsSchema = z.object({
   targetId: idSchema,
 });
 
+/**
+ * Forum channels: tags and options. community.ts imports this module, so their schemas
+ * (`forumTagsSchema`, `forumSettingsSchema`) cannot be used here: these fields only type the
+ * request, and the server validates them with those schemas.
+ */
+const forumChannelFields = {
+  forumTags: z.custom<ForumTag[]>((v) => Array.isArray(v), 'forumTags: expected a list'),
+  forumSettings: z.custom<Partial<ForumSettings>>(
+    (v) => typeof v === 'object' && v !== null && !Array.isArray(v),
+    'forumSettings: expected an object',
+  ),
+};
+
 export const createSpaceChannelSchema = z.object({
-  type: z.enum(['space_text', 'space_voice']),
+  type: z.enum(['space_text', 'space_voice', 'space_forum']),
   name: channelNameSchema,
   categoryId: idSchema.nullable().optional(),
   topic: nullableTrimmed(CHANNEL_TOPIC_MAX_LENGTH).optional(),
@@ -862,6 +887,9 @@ export const createSpaceChannelSchema = z.object({
   bitrate: voiceBitrateSchema.nullable().optional(),
   /** Private channel: @everyone denied VIEW_CHANNEL, these roles allowed (Discord's "private channel"). */
   privateRoleIds: z.array(idSchema).max(50).optional(),
+  /** Forum channels: the post tags (default none) and options (merged over DEFAULT_FORUM_SETTINGS). */
+  forumTags: forumChannelFields.forumTags.optional(),
+  forumSettings: forumChannelFields.forumSettings.optional(),
 });
 
 export const updateSpaceChannelSchema = z
@@ -872,6 +900,10 @@ export const updateSpaceChannelSchema = z
     slowmodeSeconds: oneOf(SLOWMODE_OPTIONS, 'slowmode'),
     userLimit: z.number().int().min(1).max(MAX_VOICE_CHANNEL_PARTICIPANTS).nullable(),
     bitrate: voiceBitrateSchema.nullable(),
+    /** Forums only: the whole tag list (ids are kept: a tag left out is removed from posts). */
+    forumTags: forumChannelFields.forumTags,
+    /** Forums only: merged into the current settings. */
+    forumSettings: forumChannelFields.forumSettings,
   })
   .partial();
 
@@ -1242,6 +1274,7 @@ export type UpdateContactRequest = z.input<typeof updateContactSchema>;
 export type CreateDirectChatRequest = z.input<typeof createDirectChatSchema>;
 export type UpdateChatPrefsRequest = z.input<typeof updateChatPrefsSchema>;
 export type ReadRequest = z.input<typeof readBodySchema>;
+export type MarkUnreadRequest = z.input<typeof markUnreadSchema>;
 export type SetDisappearingRequest = z.input<typeof setDisappearingSchema>;
 export type SetChatThemeRequest = z.input<typeof setChatThemeSchema>;
 export type SendMessageRequest = z.input<typeof sendMessageSchema>;

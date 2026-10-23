@@ -250,7 +250,7 @@ export const INVITE_MAX_AGE_OPTIONS = [0, 1800, 3600, 21600, 43200, 86400, 60480
 export const INVITE_MAX_USES_OPTIONS = [0, 1, 5, 10, 25, 50, 100] as const;
 /** Ban: delete the banned member's messages of the last N seconds (bounded purge). */
 export const BAN_DELETE_MESSAGE_OPTIONS = [0, 3600, 86400, 604800] as const;
-export const MAX_PINNED_MESSAGES_SPACE = 50;
+export const MAX_PINNED_MESSAGES_SPACE = 250;
 export const MAX_SPACE_MEMBERS_PAGE = 200;
 /** Unread and mention counts of space channels are capped (badges show "99+"). */
 export const SPACE_UNREAD_CAP = 100;

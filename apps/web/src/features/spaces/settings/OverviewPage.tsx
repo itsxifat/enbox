@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router';
 import { ImageUp, Trash2 } from 'lucide-react';
 import {
   BANNER_MIME_TYPES,
@@ -16,6 +17,7 @@ import { useMe } from '@/stores/auth';
 import { useSpaceChannels, useSpaces } from '@/stores/spaces';
 import { updateSpace } from '../actions';
 import { DeleteSpaceDialog } from './DeleteSpaceDialog';
+import { settingsPath } from './sections';
 
 /** Inactive Timeout choices (the server accepts exactly these). */
 const AFK_TIMEOUTS = [
@@ -63,7 +65,6 @@ export function overviewChanges(space: Space, d: Draft): UpdateSpaceRequest {
   if (d.systemFlags !== space.systemFlags) out.systemFlags = d.systemFlags;
   if (d.defaultNotifyLevel !== space.defaultNotifyLevel) out.defaultNotifyLevel = d.defaultNotifyLevel;
   if (d.rulesChannelId !== space.rulesChannelId) out.rulesChannelId = d.rulesChannelId;
-  if (d.isDiscoverable !== space.isDiscoverable) out.isDiscoverable = d.isDiscoverable;
   return out;
 }
 
@@ -105,6 +106,7 @@ function ChannelSelect({
 /** Space Settings → Overview (Discord's server overview), MANAGE_SPACE. */
 export function OverviewPage({ space }: { space: Space }) {
   const me = useMe();
+  const navigate = useNavigate();
   const channels = useSpaceChannels(space.id);
   const loaded = useSpaces((s) => !!s.channelsLoaded[space.id]);
   const [draft, setDraft] = useState<Draft>(() => draftOf(space));
@@ -278,9 +280,11 @@ export function OverviewPage({ space }: { space: Space }) {
         </Field>
       </Section>
 
-      <Section title="Discovery">
-        <div className="card-inset flex flex-col px-3">
-          <Switch checked={draft.isDiscoverable} onChange={(v) => set('isDiscoverable', v)} label="Listed in Space discovery" description="People can find and preview it." />
+      <Section title="Discovery" description="Listing in Discover, the vanity link, the welcome screen and onboarding live in Community Overview.">
+        <div>
+          <Button variant="secondary" onClick={() => navigate(settingsPath(space.id, 'community'))}>
+            Open Community Overview
+          </Button>
         </div>
       </Section>
 

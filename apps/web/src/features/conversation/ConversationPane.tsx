@@ -47,6 +47,7 @@ import { LazyLightbox } from './lazy';
 import { MessageActionsHost } from './MessageActionsHost';
 import { MessageInfoSheet } from './MessageInfoSheet';
 import { MessageList, type JumpTarget, type UnreadSnapshot } from './MessageList';
+import { useUnreadMarks } from './moreActions';
 import { OngoingCallBanner } from '@/features/calls';
 import { PinnedBar } from './PinnedBar';
 import { useConversationUi } from './state';
@@ -222,6 +223,13 @@ export function Conversation({
   useEffect(() => {
     if (bottomToken !== firstBottomToken.current) setUnread(null);
   }, [bottomToken]);
+  // Mark Unread (here or on another of my devices) moves the NEW divider to that message.
+  const unreadMark = useUnreadMarks((s) => s.marks[chat.id]);
+  useEffect(() => {
+    if (!unreadMark) return;
+    setUnread(unreadMark);
+    useUnreadMarks.getState().take(chat.id);
+  }, [unreadMark, chat.id]);
 
   // Jump to the linked message (on open, and for new links while open).
   const targetKey = initialTarget ? `${initialTarget.seq}:${initialTarget.messageId ?? ''}` : null;

@@ -1,11 +1,6 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
-import {
-  MAX_GROUP_MEMBERS,
-  inviteParamsSchema,
-  type InviteJoinResult,
-  type InvitePreview,
-} from '@enbox/shared';
+import { MAX_GROUP_MEMBERS, type InviteJoinResult, type InvitePreview } from '@enbox/shared';
 import { db, type DbOrTx } from '../../db/index.js';
 import { chats, communities, media, type ChatRow, type CommunityRow } from '../../db/schema.js';
 import { authUserId } from '../../http/auth.js';
@@ -35,6 +30,7 @@ import {
   type SpaceInviteTarget,
 } from '../spaces/invites.js';
 import { toSpace } from '../../services/spaces.js';
+import { inviteOrVanityParamsSchema } from '../community/service.js';
 import { joinGroupTx } from '../groups/service.js';
 
 /**
@@ -153,10 +149,10 @@ async function preview(dbx: DbOrTx, me: string, code: string): Promise<InvitePre
   };
 }
 
-// GET /invites/:code → InvitePreview (group, channel or community)
+// GET /invites/:code → InvitePreview (group, channel, community or Space; a vanity code too)
 router.get('/invites/:code', inviteLimiter, async (req, res) => {
   const me = authUserId(req);
-  const { code } = parse(inviteParamsSchema, req.params);
+  const { code } = parse(inviteOrVanityParamsSchema, req.params);
   res.json(await preview(db, me, code));
 });
 
@@ -165,7 +161,7 @@ router.get('/invites/:code', inviteLimiter, async (req, res) => {
 // Community: as a community add (JOIN into the announcement group, community:upsert → U(me)).
 router.post('/invites/:code/join', inviteLimiter, async (req, res) => {
   const me = authUserId(req);
-  const { code } = parse(inviteParamsSchema, req.params);
+  const { code } = parse(inviteOrVanityParamsSchema, req.params);
   const joined = await transact(
     async (
       tx,

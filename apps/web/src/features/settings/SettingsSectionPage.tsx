@@ -1,14 +1,17 @@
 /**
  * /settings/:section[/:sub] — resolves the page from the registry below. Desktop shows it in
- * the main pane (sections have no back arrow, sub-pages go back to their section); phones
- * show it full screen with a back arrow.
+ * the User Settings layer's content column under a Discord-style title (sections have no back
+ * arrow, sub-pages go back to their section); phones show it full screen with a back arrow.
  */
 import type { ReactNode } from 'react';
-import { useParams } from 'react-router';
-import { SearchX } from 'lucide-react';
+import { useLocation, useNavigate, useParams } from 'react-router';
+import { ArrowLeft, SearchX } from 'lucide-react';
+import { backTarget } from '@/components/layout/navigation';
 import { PaneHeader } from '@/components/layout/PaneHeader';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, IconButton } from '@/components/ui';
 import { useIsDesktop } from '@/hooks/useMediaQuery';
+import { cn } from '@/lib/cn';
+import { settingsSection } from './sections';
 import { AccountPage } from './account/AccountPage';
 import { ChangePasswordPage } from './account/ChangePasswordPage';
 import { DeleteAccountPage } from './account/DeleteAccountPage';
@@ -83,15 +86,52 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   help: { title: 'Help', render: () => <HelpPage /> },
 };
 
+/**
+ * The layer's page title, lined up with the page's content column (the settings pages center
+ * a max-w-2xl column; the profile editor a max-w-5xl one).
+ */
+function LayerTitle({ title, back, wide }: { title: string; back?: string; wide?: boolean }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <header
+      className={cn(
+        'mx-auto flex h-12 w-full shrink-0 items-center gap-1 px-3 lg:px-6',
+        wide ? 'max-w-5xl' : 'max-w-2xl',
+      )}
+    >
+      {back ? (
+        <IconButton
+          icon={ArrowLeft}
+          label="Back"
+          className="-ml-2 shrink-0"
+          onClick={() => {
+            const t = backTarget(location.state, window.history.state, back);
+            if (t.kind === 'pop') void navigate(-1);
+            else void navigate(t.to, { replace: true, state: location.state });
+          }}
+        />
+      ) : null}
+      <h1 className="min-w-0 truncate text-[20px] leading-6 font-semibold text-fg">{title}</h1>
+    </header>
+  );
+}
+
 export function SettingsSectionPage() {
   const { section = '', sub } = useParams();
   const desktop = useIsDesktop();
   const key = sub ? `${section}/${sub}` : section;
   const page = SETTINGS_PAGES[key];
   const back = sub ? `/settings/${page?.parent ?? section}` : desktop ? undefined : '/settings';
+  const def = settingsSection(section);
+  const title = page?.title ?? 'Settings';
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
-      <PaneHeader title={page?.title ?? 'Settings'} back={back} border />
+      {desktop ? (
+        <LayerTitle title={sub ? title : (def?.navTitle ?? title)} back={back} wide={def?.wide} />
+      ) : (
+        <PaneHeader title={title} back={back} border />
+      )}
       {page ? (
         page.render()
       ) : (

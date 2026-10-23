@@ -35,7 +35,12 @@ import { assertSpaceVerification } from '../../services/spaceRules.js';
 import { audit } from '../../services/spaces.js';
 import { spaceChannelSummariesForPairs } from '../../services/spaceSummaries.js';
 import { pairKey, rawRows, uuidArray } from '../../services/sql.js';
-import { DEFAULT_THREAD_AUTO_ARCHIVE_MINUTES, fxThreadUpsert } from '../../services/threads.js';
+import {
+  DEFAULT_THREAD_AUTO_ARCHIVE_MINUTES,
+  forumInfoOf,
+  fxThreadUpsert,
+  resolvePostTags,
+} from '../../services/threads.js';
 
 export type CreateThreadBody = z.output<typeof createThreadSchema>;
 export type UpdateThreadBody = z.output<typeof updateThreadSchema>;
@@ -188,8 +193,9 @@ export async function listThreads(
 // ---------------------------------------------------------------------------
 
 /**
- * `PATCH /threads/:threadId` → ChatSummary: rename, archive/unarchive, auto-archive delay
- * (the creator while unlocked, or MANAGE_MESSAGES), lock/unlock (MANAGE_MESSAGES). Events:
+ * `PATCH /threads/:threadId` → ChatSummary: rename, archive/unarchive, auto-archive delay and
+ * a forum post's tags (the creator while unlocked, or MANAGE_MESSAGES; moderated tags
+ * MANAGE_MESSAGES only), lock/unlock (MANAGE_MESSAGES). Events:
  * `thread:upsert` → the channel's room; a rename or (un)archive also updates the starter
  * message (`message:updated`); unarchiving registers the thread in the room registry again.
  */
@@ -220,6 +226,16 @@ export async function updateThread(
     const revived = body.archived === false && !!t.threadArchivedAt;
     if (body.archived === true && !t.threadArchivedAt) patch.threadArchivedAt = new Date();
     if (revived) patch.threadArchivedAt = null;
+    if (body.appliedTags !== undefined) {
+      // Forum posts: tags of their forum (moderated ones are added or removed by moderators).
+      const [forum] = await tx.select().from(chats).where(eq(chats.id, t.parentId)).limit(1);
+      if (forum?.type !== 'space_forum') throw badRequest('Only forum posts have tags');
+      const tags = resolvePostTags(forumInfoOf(forum), body.appliedTags, {
+        moderator,
+        previous: t.appliedTags,
+      });
+      if (JSON.stringify(tags) !== JSON.stringify(t.appliedTags)) patch.appliedTags = tags;
+    }
     if (Object.keys(patch).length === 0) return;
 
     // updated_at also restarts the archive clock of an unarchived thread (the sweep uses it).

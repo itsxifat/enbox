@@ -6,7 +6,8 @@
  * - jump-to-message (quotes, search, pins, starred): scroll if loaded, else `loadAround` and
  *   remount at the target; the target flashes
  * - follows new messages while at the bottom; "scroll to bottom" button with a counter of
- *   messages that arrived while scrolled up; floating day label while scrolling
+ *   messages that arrived while scrolled up (Discord's Jump to Present bar instead while the
+ *   newest messages aren't loaded); floating day label while scrolling
  * - hides messages whose disappearing timer passed
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +24,7 @@ import { nameOf } from '@/stores/users';
 import { useBus } from '@/hooks/useBus';
 import { useReducedMotion } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/ui';
+import { JumpToPresentBar } from './Bars';
 import { CozyMessageRow } from './CozyMessageRow';
 import { MessageRow } from './MessageRow';
 import { useRowAppearance } from './bubbles/appearance';
@@ -471,7 +473,8 @@ export const MessageList = memo(function MessageList({
     );
   }
 
-  const showFab = !atBottom || msgs.hasMoreAfter;
+  // Viewing an older window (the newest messages aren't loaded): the Jump to Present bar instead.
+  const showFab = !atBottom && !msgs.hasMoreAfter;
   const selfChat = chat.type === 'direct' && !!me && chat.peer?.id === me;
   // Read-only chats (announcements, admins-only groups, former members, deleted/blocked
   // peers) don't get a call to action they can't follow.
@@ -577,6 +580,7 @@ export const MessageList = memo(function MessageList({
           </span>
         ) : null}
       </button>
+      {msgs.hasMoreAfter ? <JumpToPresentBar onJump={goBottom} /> : null}
     </div>
   );
 });
