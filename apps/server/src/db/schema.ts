@@ -92,6 +92,8 @@ export const users = pgTable(
     /** A secret being set up (confirmed by a first code, then moved to `totp_secret`). */
     totpPendingSecret: text('totp_pending_secret'),
     totpEnabledAt: ts('totp_enabled_at'),
+    /** The last 30-second step a code was accepted for (a code works once). */
+    totpLastStep: bigint('totp_last_step', { mode: 'number' }),
     about: text('about').notNull(),
     avatarMediaId: uuid('avatar_media_id').references((): AnyPgColumn => media.id, {
       onDelete: 'set null',

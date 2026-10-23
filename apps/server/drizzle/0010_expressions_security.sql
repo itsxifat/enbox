@@ -45,6 +45,7 @@ ALTER TABLE "messages" ADD COLUMN "sticker_id" uuid;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "totp_secret" text;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "totp_pending_secret" text;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "totp_enabled_at" timestamp (3) with time zone;--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "totp_last_step" bigint;--> statement-breakpoint
 ALTER TABLE "voice_states" ADD COLUMN "suppressed" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "voice_states" ADD COLUMN "request_to_speak_at" timestamp (3) with time zone;--> statement-breakpoint
 ALTER TABLE "message_attachments" ADD CONSTRAINT "message_attachments_message_id_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

@@ -727,6 +727,7 @@ export async function scrubDeletedUser(
       totpSecret: null,
       totpPendingSecret: null,
       totpEnabledAt: null,
+      totpLastStep: null,
       settings: {},
       deletedAt: new Date(),
       updatedAt: new Date(),

@@ -1,5 +1,5 @@
 {
-  "id": "db7e5939-7149-4c38-88aa-323c915fb6ce",
+  "id": "e1705742-3b44-4de8-9434-559c5b6e92a1",
   "prevId": "e649dfa8-8313-4954-b52b-3365664f70c0",
   "version": "7",
   "dialect": "postgresql",
@@ -6179,6 +6179,12 @@
         "totp_enabled_at": {
           "name": "totp_enabled_at",
           "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "totp_last_step": {
+          "name": "totp_last_step",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
