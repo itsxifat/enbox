@@ -114,6 +114,7 @@ Shipped to production on `claude/discord` (newest first; each with a migration, 
 
 | Batch | Commit | Highlights |
 | --- | --- | --- |
+| everyday | 628723f | message box (typing, slowmode, 4000 limit, @silent, #channel/:emoji), reading polish (intros, new-messages bar, mention highlight, code highlighting, link warning), Compact mode + gradient themes + synced preferences, title bar and navigation, Discord-style DMs/friends, bookmarks + reminders + banners |
 | polish | b21a9c6 | super reactions, timed polls + results, formatting toolbar, forward with comment/source, ANSI, Settings ▸ Accessibility, server tags, forum post actions, media channels |
 | community-2 | 8471d6b | text chat in voice, moderation tools + raid alerts, insights, Server Guide, Active Now, Go Live watching, Space preview, invite unfurls |
 | safety + integrations | 65b9331 | message requests, ignore/report, webhooks + embeds, announcements, templates, players, voice polish |
@@ -122,7 +123,7 @@ Shipped to production on `claude/discord` (newest first; each with a migration, 
 | social | f7af1be | reactions v2, custom emoji, friend requests, Inbox, threads, search |
 | profiles | 90ed578 | profiles + cosmetics, drag and drop everywhere, Quick Switcher |
 
-The batch after polish ("everyday") is recorded in `docs/HANDOFF.md`.
+Details, known limitations and what's left: `docs/HANDOFF.md`.
 
 ## Waiting on the user
 

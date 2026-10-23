@@ -25,6 +25,10 @@ tar cf - deploy/smoke/*-smoke.mjs | ssh <prod> 'cd /opt/enbox/current/apps/serve
   && for s in *-smoke.mjs; do echo "== $s"; timeout 120 /opt/enbox/node/bin/node $s | tail -3; done; rm -f *-smoke.mjs'
 ```
 
+Sign-in and sign-up are limited to 20 per 10 minutes per address, and the scripts register
+two or three users each (some sign in again), so running all seven back to back can end with a
+`register 429`: wait ten minutes and rerun the last ones.
+
 Every value in the printed JSON should be `true`, a 2xx status where one is expected, or the
 expected refusal (403/404/409/410/400). `everyday-smoke.mjs` waits up to ~50 s for the reminder
 job (leader, every 30 s).

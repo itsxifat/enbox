@@ -107,3 +107,12 @@ account security (SMTP).
 
 - Sign everyone out once? (old journal entries hold bearer tokens from before hotfix c91305b)
 - A GIF provider key; SMTP; optionally 2FA for password changes.
+
+## Production release
+
+- Release `20261023101346-628723f` (commit `628723f`) on both `enbox@4000` and `enbox@4001`,
+  15 migrations, deployed rolling on 2026-10-23 after a rehearsal on a restored copy (dropped
+  afterwards). Pre-deploy dump: `/var/backups/enbox/enbox-20261023-101317-pre-everyday.dump`
+  (mode 600). All seven smoke scripts pass on the host; the three domains are healthy and the
+  CSP hash matches.
+
