@@ -4,7 +4,21 @@
  */
 import { PERM, hasPerm, type ID, type Space } from '@enbox/shared';
 
-export type SettingsSectionId = 'overview' | 'safety' | 'automod' | 'roles' | 'emoji' | 'members' | 'invites' | 'bans' | 'audit-log' | 'community' | 'onboarding' | 'welcome-screen';
+export type SettingsSectionId =
+  | 'overview'
+  | 'safety'
+  | 'automod'
+  | 'roles'
+  | 'emoji'
+  | 'stickers'
+  | 'soundboard'
+  | 'members'
+  | 'invites'
+  | 'bans'
+  | 'audit-log'
+  | 'community'
+  | 'onboarding'
+  | 'welcome-screen';
 
 export interface SettingsSection {
   id: SettingsSectionId;
@@ -20,11 +34,20 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'automod', label: 'AutoMod', show: (s) => has(s, PERM.MANAGE_SPACE) },
   { id: 'roles', label: 'Roles', show: (s) => has(s, PERM.MANAGE_ROLES) },
   { id: 'emoji', label: 'Emoji', show: (s) => has(s, PERM.MANAGE_EMOJI) },
+  { id: 'stickers', label: 'Stickers', show: (s) => has(s, PERM.MANAGE_EMOJI) },
+  { id: 'soundboard', label: 'Soundboard', show: (s) => has(s, PERM.MANAGE_EMOJI) },
   {
     id: 'members',
     label: 'Members',
     show: (s) =>
-      has(s, PERM.KICK_MEMBERS, PERM.BAN_MEMBERS, PERM.MANAGE_ROLES, PERM.MODERATE_MEMBERS, PERM.MANAGE_NICKNAMES),
+      has(
+        s,
+        PERM.KICK_MEMBERS,
+        PERM.BAN_MEMBERS,
+        PERM.MANAGE_ROLES,
+        PERM.MODERATE_MEMBERS,
+        PERM.MANAGE_NICKNAMES,
+      ),
   },
   { id: 'invites', label: 'Invites', show: (s) => has(s, PERM.CREATE_INVITE) },
   { id: 'bans', label: 'Bans', show: (s) => has(s, PERM.BAN_MEMBERS) },

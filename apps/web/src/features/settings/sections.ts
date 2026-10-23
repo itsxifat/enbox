@@ -8,6 +8,7 @@ import {
   Lock,
   MessageSquareText,
   Mic,
+  Radio,
 } from 'lucide-react';
 import type { IconType } from '@/components/ui';
 
@@ -70,7 +71,18 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     icon: KeyRound,
     tint: '#2f7cf6',
     group: 'user',
-    keywords: ['password', 'security', 'username', 'phone number', 'delete account', 'log out'],
+    keywords: [
+      'password',
+      'security',
+      'username',
+      'phone number',
+      'delete account',
+      'log out',
+      'two-factor',
+      '2fa',
+      'authenticator',
+      'backup codes',
+    ],
   },
   {
     id: 'privacy',
@@ -161,6 +173,21 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
       'automatic gain control',
       'audio',
       'camera',
+    ],
+  },
+  {
+    id: 'streamer',
+    title: 'Streamer Mode',
+    description: 'Hide personal information while you stream',
+    icon: Radio,
+    tint: '#9333ea',
+    group: 'app',
+    keywords: [
+      'streamer mode',
+      'streaming',
+      'hide personal information',
+      'hide invite links',
+      'disable sounds',
     ],
   },
   {

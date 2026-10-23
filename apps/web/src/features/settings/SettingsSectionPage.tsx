@@ -15,6 +15,7 @@ import { settingsSection } from './sections';
 import { AccountPage } from './account/AccountPage';
 import { ChangePasswordPage } from './account/ChangePasswordPage';
 import { DeleteAccountPage } from './account/DeleteAccountPage';
+import { TwoFactorPage } from './account/TwoFactorPage';
 import {
   ChatAnimationsPage,
   ChatThemePage,
@@ -33,6 +34,7 @@ import { BioPage } from './profile/BioPage';
 import { ColoursPage } from './profile/ColoursPage';
 import { ProfilePage } from './profile/ProfilePage';
 import { PronounsPage } from './profile/PronounsPage';
+import { StreamerModePage } from './StreamerModePage';
 import { VoiceSettingsPage } from './VoiceSettingsPage';
 
 interface PageDef {
@@ -51,6 +53,7 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   account: { title: 'Account', render: () => <AccountPage /> },
   'account/password': { title: 'Change password', render: () => <ChangePasswordPage /> },
   'account/delete': { title: 'Delete account', render: () => <DeleteAccountPage /> },
+  'account/two-factor': { title: 'Two-factor authentication', render: () => <TwoFactorPage /> },
   privacy: { title: 'Privacy', render: () => <PrivacyPage /> },
   'privacy/last-seen': { title: 'Last seen and online', render: () => <LastSeenPage /> },
   'privacy/profile-photo': {
@@ -81,6 +84,7 @@ export const SETTINGS_PAGES: Record<string, PageDef> = {
   'chats/animations': { title: 'Animations', render: () => <ChatAnimationsPage /> },
   notifications: { title: 'Notifications', render: () => <NotificationsPage /> },
   voice: { title: 'Voice and video', render: () => <VoiceSettingsPage /> },
+  streamer: { title: 'Streamer Mode', render: () => <StreamerModePage /> },
   devices: { title: 'Linked devices', render: () => <DevicesPage /> },
   storage: { title: 'Storage and data', render: () => <StoragePage /> },
   help: { title: 'Help', render: () => <HelpPage /> },

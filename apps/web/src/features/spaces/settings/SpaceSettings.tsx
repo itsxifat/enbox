@@ -10,6 +10,8 @@ import { useSpace, useSpaces } from '@/stores/spaces';
 import { CommunityOverviewPage } from '../community/settings/CommunityOverviewPage';
 import { OnboardingPage } from '../community/settings/OnboardingPage';
 import { WelcomeScreenPage } from '../community/settings/WelcomeScreenPage';
+import { SoundboardPage } from '@/features/soundboard/SoundboardPage';
+import { StickersPage } from '@/features/stickers/StickersPage';
 import { AutoModPage } from './AutoModPage';
 import { DeleteSpaceDialog } from './DeleteSpaceDialog';
 import { EmojiPage } from './EmojiPage';
@@ -25,6 +27,8 @@ const PAGES: Record<SettingsSectionId, (space: Space) => ReactNode> = {
   automod: (s) => <AutoModPage space={s} />,
   roles: (s) => <RolesPage space={s} />,
   emoji: (s) => <EmojiPage space={s} />,
+  stickers: (s) => <StickersPage space={s} />,
+  soundboard: (s) => <SoundboardPage space={s} />,
   members: (s) => <MembersPage space={s} />,
   invites: (s) => <InvitesPage space={s} />,
   bans: (s) => <BansPage space={s} />,
@@ -47,7 +51,12 @@ export function SpaceSettings() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('[role="dialog"][aria-modal="true"]')) close();
+      if (
+        e.key === 'Escape' &&
+        !e.defaultPrevented &&
+        !document.querySelector('[role="dialog"][aria-modal="true"]')
+      )
+        close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -60,14 +69,21 @@ export function SpaceSettings() {
 
   const nav = (
     <nav aria-label="Space settings" className="flex w-full flex-col gap-0.5 p-3 lg:w-60">
-      <p className="truncate px-3 pt-2 pb-1 text-[12px] font-bold tracking-wide text-muted uppercase">{space.name}</p>
+      <p className="truncate px-3 pt-2 pb-1 text-[12px] font-bold tracking-wide text-muted uppercase">
+        {space.name}
+      </p>
       {visible.map((s) => (
         <button
           key={s.id}
           type="button"
           onClick={() => navigate(`/spaces/${space.id}/settings/${s.id}`)}
           aria-current={current?.id === s.id ? 'page' : undefined}
-          className={cn('rounded-lg px-3 py-2 text-left text-[15px]', current?.id === s.id ? 'bg-selected font-semibold' : 'text-muted hover:bg-hover hover:text-fg')}
+          className={cn(
+            'rounded-lg px-3 py-2 text-left text-[15px]',
+            current?.id === s.id
+              ? 'bg-selected font-semibold'
+              : 'text-muted hover:bg-hover hover:text-fg',
+          )}
         >
           {s.label}
         </button>
@@ -88,7 +104,12 @@ export function SpaceSettings() {
   );
 
   return (
-    <div className="fixed inset-0 z-30 flex bg-app pt-[env(safe-area-inset-top)]" role="dialog" aria-modal="false" aria-label={`${space.name} settings`}>
+    <div
+      className="fixed inset-0 z-30 flex bg-app pt-[env(safe-area-inset-top)]"
+      role="dialog"
+      aria-modal="false"
+      aria-label={`${space.name} settings`}
+    >
       {desktop || !current ? (
         <aside className="flex shrink-0 justify-end overflow-y-auto bg-surface lg:w-[min(40vw,420px)]">
           <div className="flex w-full flex-col lg:w-auto">
@@ -107,10 +128,17 @@ export function SpaceSettings() {
           <div className="mx-auto w-full max-w-3xl px-4 py-6 lg:px-10 lg:py-14">
             {!desktop ? (
               <div className="mb-4 flex items-center gap-2">
-                <IconButton icon={ArrowLeft} label="Back" variant="ghost" onClick={() => navigate(`/spaces/${space.id}/settings`)} />
+                <IconButton
+                  icon={ArrowLeft}
+                  label="Back"
+                  variant="ghost"
+                  onClick={() => navigate(`/spaces/${space.id}/settings`)}
+                />
               </div>
             ) : null}
-            <h2 className="mb-6 text-[22px] font-bold">{current.id === 'overview' ? 'Space Overview' : current.label}</h2>
+            <h2 className="mb-6 text-[22px] font-bold">
+              {current.id === 'overview' ? 'Space Overview' : current.label}
+            </h2>
             {PAGES[current.id](space)}
           </div>
           {desktop ? (

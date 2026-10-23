@@ -247,7 +247,7 @@ export async function sendMessage(
 /** What a forwarded copy keeps (docs "Forward"): type, text, media, fresh location/contact/poll. */
 function forwardedContent(
   src: MessageRow,
-): Pick<CreateMessageInput, 'type' | 'text' | 'mediaId' | 'metadata'> {
+): Pick<CreateMessageInput, 'type' | 'text' | 'mediaId' | 'stickerId' | 'metadata'> {
   const md = src.metadata ?? {};
   const metadata: MessageMetadata = {};
   if (md.location) metadata.location = { ...md.location };
@@ -259,7 +259,13 @@ function forwardedContent(
       allowMultiple: md.poll.allowMultiple,
     });
   }
-  return { type: src.type, text: src.text, mediaId: src.mediaId, metadata };
+  return {
+    type: src.type,
+    text: src.text,
+    mediaId: src.mediaId,
+    stickerId: src.stickerId,
+    metadata,
+  };
 }
 
 /**

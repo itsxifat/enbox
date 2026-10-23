@@ -30,6 +30,10 @@ import { router as forums } from './forums/routes.js';
 import { router as events } from './events/routes.js';
 import { router as community } from './community/routes.js';
 import { router as automod } from './automod/routes.js';
+import { router as stickers } from './stickers/routes.js';
+import { router as soundboard } from './soundboard/routes.js';
+import { router as groupDms } from './groupDms/routes.js';
+import { router as mfa } from './mfa/routes.js';
 import { registerUsersSocket } from './users/socket.js';
 import { registerChatsSocket } from './chats/socket.js';
 import { registerCallsSocket } from './calls/socket.js';
@@ -65,6 +69,10 @@ export const authedRouters: Router[] = [
   events,
   community,
   automod,
+  stickers,
+  soundboard,
+  groupDms,
+  mfa,
 ];
 
 export const socketRegistrars: SocketRegistrar[] = [

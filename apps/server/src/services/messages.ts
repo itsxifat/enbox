@@ -39,11 +39,13 @@ import {
   chatMembers,
   chatPins,
   chats,
+  messageAttachments,
   messageHidden,
   messageReactions,
   messages,
   pollVotes,
   spaceMembers,
+  spaceStickers,
   starredMessages,
   type ChatMemberRow,
   type ChatRow,
@@ -137,6 +139,13 @@ export interface CreateMessageInput {
   /** Text or caption (mention tokens inside). */
   text?: string | null;
   mediaId?: string | null;
+  /**
+   * Every file in order with its alt text (`[0].mediaId` is `mediaId`). Rows go to
+   * `message_attachments` only when there are several files or some alt text.
+   */
+  attachments?: { mediaId: string; description: string | null }[];
+  /** A sticker message (type `image`; `mediaId` is the sticker's picture). */
+  stickerId?: string | null;
   metadata?: MessageMetadata;
   replyToId?: string | null;
   /** Mentioned without a token in the text (a reply's author when the reply pings): members only. */
@@ -265,6 +274,7 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       type: input.type,
       text: input.text ?? null,
       mediaId: input.mediaId ?? null,
+      stickerId: input.stickerId ?? null,
       metadata: input.metadata ?? {},
       replyToId: input.replyToId ?? null,
       forwardCount: input.forwardCount ?? 0,
@@ -275,6 +285,18 @@ export async function insertMessage(tx: Tx, input: CreateMessageInput): Promise<
       createdAt,
     })
     .returning();
+
+  const attachments = input.attachments ?? [];
+  if (attachments.length > 1 || attachments.some((a) => a.description)) {
+    await tx.insert(messageAttachments).values(
+      attachments.map((a, position) => ({
+        messageId: message!.id,
+        position,
+        mediaId: a.mediaId,
+        description: a.description,
+      })),
+    );
+  }
 
   if (withheld.length) {
     await tx
@@ -643,8 +665,36 @@ export async function toMessages(
   };
   const chatOf = new Map(rows.map((r) => [r.id, r.chatId]));
 
+  // Every file of messages with several (or with alt text); the others have just `media_id`.
+  const withMedia = live.filter((r) => r.mediaId).map((r) => r.id);
+  const attachmentRows = withMedia.length
+    ? await dbx
+        .select()
+        .from(messageAttachments)
+        .where(inArray(messageAttachments.messageId, withMedia))
+        .orderBy(asc(messageAttachments.messageId), asc(messageAttachments.position))
+    : [];
+  const attachmentsOf = new Map<string, typeof attachmentRows>();
+  for (const a of attachmentRows)
+    attachmentsOf.set(a.messageId, [...(attachmentsOf.get(a.messageId) ?? []), a]);
+  const stickerIds = uniq(live.map((r) => r.stickerId).filter((x): x is string => !!x));
+  const stickerById = new Map(
+    (stickerIds.length
+      ? await dbx
+          .select({
+            id: spaceStickers.id,
+            name: spaceStickers.name,
+            spaceId: spaceStickers.spaceId,
+          })
+          .from(spaceStickers)
+          .where(inArray(spaceStickers.id, stickerIds))
+      : []
+    ).map((s) => [s.id, s]),
+  );
+
   const mediaRows = await loadMediaMap(dbx, [
     ...live.map((r) => r.mediaId),
+    ...attachmentRows.map((a) => a.mediaId),
     ...replyRows.map((r) => (r.deletedAt ? null : r.mediaId)),
   ]);
   const statusIds = live
@@ -870,6 +920,14 @@ export async function toMessages(
       expiresAt: row.expiresAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
     };
+    const files = deleted ? undefined : attachmentsOf.get(row.id);
+    if (files?.length)
+      message.attachments = files.flatMap((a) => {
+        const m = mediaRows.get(a.mediaId);
+        return m ? [{ ...toMediaAttachment(m), description: a.description }] : [];
+      });
+    const sticker = !deleted && row.stickerId ? stickerById.get(row.stickerId) : undefined;
+    if (sticker) message.sticker = { id: sticker.id, name: sticker.name, spaceId: sticker.spaceId };
     const threadRef = threadRefs.get(row.id);
     if (threadRef) message.thread = threadRef;
     if (viewerId) {
@@ -1104,12 +1162,14 @@ export async function deleteForEveryoneTx(
     .set({
       text: null,
       mediaId: null,
+      stickerId: null,
       metadata: {},
       mentions: [],
       deletedAt: current.deletedAt ?? new Date(),
     })
     .where(eq(messages.id, messageId))
     .returning();
+  await tx.delete(messageAttachments).where(eq(messageAttachments.messageId, messageId));
   await tx.delete(messageReactions).where(eq(messageReactions.messageId, messageId));
   await tx.delete(starredMessages).where(eq(starredMessages.messageId, messageId));
   await tx.delete(pollVotes).where(eq(pollVotes.messageId, messageId));
